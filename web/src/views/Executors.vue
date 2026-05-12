@@ -1,0 +1,108 @@
+<template>
+  <div class="executors-container">
+    <h2>执行器管理</h2>
+
+    <el-table :data="executors" style="width: 100%" v-loading="loading">
+      <el-table-column prop="executor_id" label="ID" width="150" />
+      <el-table-column prop="name" label="名称" width="150" />
+      <el-table-column prop="address" label="地址" width="200" />
+      <el-table-column prop="status" label="状态" width="100">
+        <template #default="{ row }">
+          <el-tag :type="row.status === 'online' ? 'success' : 'danger'">
+            {{ row.status === 'online' ? '在线' : '离线' }}
+          </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column prop="last_heartbeat" label="最后心跳" width="180">
+        <template #default="{ row }">
+          <span v-if="row.last_heartbeat?.Valid">
+            {{ formatTime(row.last_heartbeat.Time) }}
+          </span>
+          <span v-else class="text-muted">无</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="负载" width="150">
+        <template #default="{ row }">
+          <el-progress
+            :percentage="(row.current_load / row.capacity) * 100"
+            :color="getLoadColor(row.current_load / row.capacity)"
+          />
+          <span class="load-text">{{ row.current_load }}/{{ row.capacity }}</span>
+        </template>
+      </el-table-column>
+      <el-table-column prop="created_at" label="注册时间" width="180">
+        <template #default="{ row }">
+          {{ formatTime(row.created_at) }}
+        </template>
+      </el-table-column>
+    </el-table>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, onMounted } from 'vue'
+import { ElMessage } from 'element-plus'
+import { executorAPI } from '@/api'
+import type { Executor } from '@/types'
+
+const executors = ref<Executor[]>([])
+const loading = ref(false)
+
+const getLoadColor = (ratio: number) => {
+  if (ratio < 0.5) return '#67c23a'
+  if (ratio < 0.8) return '#e6a23c'
+  return '#f56c6c'
+}
+
+const formatTime = (timeStr: string) => {
+  if (!timeStr) return '无'
+  try {
+    const date = new Date(timeStr)
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    const hours = String(date.getHours()).padStart(2, '0')
+    const minutes = String(date.getMinutes()).padStart(2, '0')
+    const seconds = String(date.getSeconds()).padStart(2, '0')
+    return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
+  } catch {
+    return timeStr
+  }
+}
+
+const loadExecutors = async () => {
+  loading.value = true
+  try {
+    const response = await executorAPI.list()
+    executors.value = response.data || []
+  } catch (error) {
+    ElMessage.error('加载执行器列表失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(() => {
+  loadExecutors()
+})
+</script>
+
+<style scoped>
+.executors-container {
+  padding: 20px;
+}
+
+.executors-container h2 {
+  margin-bottom: 20px;
+}
+
+.load-text {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 5px;
+}
+
+.text-muted {
+  color: #909399;
+}
+</style>

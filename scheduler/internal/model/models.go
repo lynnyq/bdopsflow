@@ -1,0 +1,143 @@
+package model
+
+import (
+	"time"
+
+	rqlite "github.com/rqlite/gorqlite"
+)
+
+type User struct {
+	ID        int64      `db:"id" json:"id"`
+	Username  string     `db:"username" json:"username"`
+	Password  string     `db:"password" json:"-"`
+	Email     string     `db:"email" json:"email"`
+	DomainID  int64      `db:"domain_id" json:"domain_id"`
+	Role      string     `db:"role" json:"role"`
+	CreatedAt time.Time  `db:"created_at" json:"created_at"`
+	UpdatedAt time.Time  `db:"updated_at" json:"updated_at"`
+}
+
+type Domain struct {
+	ID          int64     `db:"id" json:"id"`
+	Name        string    `db:"name" json:"name"`
+	Description string    `db:"description" json:"description"`
+	CreatedAt   time.Time `db:"created_at" json:"created_at"`
+}
+
+type Workflow struct {
+	ID             int64     `db:"id" json:"id"`
+	Name           string    `db:"name" json:"name"`
+	Description    string    `db:"description" json:"description"`
+	DomainID       int64     `db:"domain_id" json:"domain_id"`
+	DAGConfig      string    `db:"dag_config" json:"dag_config"`
+	CronExpression string    `db:"cron_expression" json:"cron_expression"`
+	IsEnabled      bool      `db:"is_enabled" json:"is_enabled"`
+	CreatedBy      *int64    `db:"created_by" json:"created_by"`
+	CreatedAt      time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt      time.Time `db:"updated_at" json:"updated_at"`
+}
+
+type Task struct {
+	ID             int64     `db:"id" json:"id"`
+	WorkflowID     *int64    `db:"workflow_id" json:"workflow_id"`
+	Name           string    `db:"name" json:"name"`
+	Type           string    `db:"type" json:"type"`
+	Config         string    `db:"config" json:"config"`
+	CronExpression string    `db:"cron_expression" json:"cron_expression"`
+	TimeoutSeconds int32     `db:"timeout_seconds" json:"timeout_seconds"`
+	RetryCount     int32     `db:"retry_count" json:"retry_count"`
+	RetryInterval  int32     `db:"retry_interval" json:"retry_interval"`
+	IsEnabled      bool      `db:"is_enabled" json:"is_enabled"`
+	Status         string    `db:"status" json:"status"`
+	DomainID       int64     `db:"domain_id" json:"domain_id"`
+	WebhookConfig  string    `db:"webhook_config" json:"webhook_config"`
+	CreatedBy      int64     `db:"created_by" json:"created_by"`
+	CreatedAt      time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt      time.Time `db:"updated_at" json:"updated_at"`
+}
+
+type TaskExecution struct {
+	ID          int64          `db:"id" json:"id"`
+	TaskID      int64          `db:"task_id" json:"task_id"`
+	ExecutionID string         `db:"execution_id" json:"execution_id"`
+	ExecutorID  string         `db:"executor_id" json:"executor_id"`
+	Status      string         `db:"status" json:"status"`
+	StartTime   rqlite.NullTime `db:"start_time" json:"start_time"`
+	EndTime     rqlite.NullTime `db:"end_time" json:"end_time"`
+	Output      string         `db:"output" json:"output"`
+	Error       string         `db:"error" json:"error"`
+	RetryTimes  int32          `db:"retry_times" json:"retry_times"`
+	CreatedAt   time.Time      `db:"created_at" json:"created_at"`
+}
+
+func (te *TaskExecution) GetStartTime() *time.Time {
+	if te.StartTime.Valid {
+		return &te.StartTime.Time
+	}
+	return nil
+}
+
+func (te *TaskExecution) GetEndTime() *time.Time {
+	if te.EndTime.Valid {
+		return &te.EndTime.Time
+	}
+	return nil
+}
+
+type Executor struct {
+	ID             int64          `db:"id" json:"id"`
+	ExecutorID     string         `db:"executor_id" json:"executor_id"`
+	Name           string         `db:"name" json:"name"`
+	Address        string         `db:"address" json:"address"`
+	Status         string         `db:"status" json:"status"`
+	LastHeartbeat  rqlite.NullTime `db:"last_heartbeat" json:"last_heartbeat"`
+	Capacity       int64          `db:"capacity" json:"capacity"`
+	CurrentLoad    int64          `db:"current_load" json:"current_load"`
+	CreatedAt      time.Time      `db:"created_at" json:"created_at"`
+	UpdatedAt      time.Time      `db:"updated_at" json:"updated_at"`
+}
+
+func (e *Executor) GetLastHeartbeat() *time.Time {
+	if e.LastHeartbeat.Valid {
+		return &e.LastHeartbeat.Time
+	}
+	return nil
+}
+
+// WorkflowExecution 工作流执行记录
+type WorkflowExecution struct {
+	ID          int64          `db:"id" json:"id"`
+	WorkflowID  int64          `db:"workflow_id" json:"workflow_id"`
+	ExecutionID string         `db:"execution_id" json:"execution_id"`
+	Status      string         `db:"status" json:"status"`
+	StartTime   rqlite.NullTime `db:"start_time" json:"start_time"`
+	EndTime     rqlite.NullTime `db:"end_time" json:"end_time"`
+	NodeStates  string         `db:"node_states" json:"node_states"` // JSON 存储各节点状态
+	CreatedAt   time.Time      `db:"created_at" json:"created_at"`
+}
+
+func (we *WorkflowExecution) GetStartTime() *time.Time {
+	if we.StartTime.Valid {
+		return &we.StartTime.Time
+	}
+	return nil
+}
+
+func (we *WorkflowExecution) GetEndTime() *time.Time {
+	if we.EndTime.Valid {
+		return &we.EndTime.Time
+	}
+	return nil
+}
+
+// TaskLog 任务执行日志
+type TaskLog struct {
+	ID          int64     `db:"id" json:"id"`
+	ExecutionID string    `db:"execution_id" json:"execution_id"`
+	TaskID      int64     `db:"task_id" json:"task_id"`
+	ExecutorID  string    `db:"executor_id" json:"executor_id"`
+	NodeID      string    `db:"node_id" json:"node_id"`
+	LogLevel    string    `db:"log_level" json:"log_level"`
+	Message     string    `db:"message" json:"message"`
+	LogTime     time.Time `db:"log_time" json:"log_time"`
+}
