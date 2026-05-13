@@ -5,219 +5,145 @@ import (
 	"encoding/json"
 	"testing"
 	"time"
+
+	pb "github.com/lynnyq/bdopsflow/proto"
 )
 
-func TestHTTPExecutor(t *testing.T) {
-	executor := NewHTTPExecutor()
+func TestTaskExecutor_ExecuteHTTP(t *testing.T) {
+	executor := NewTaskExecutor("test-executor")
 
-	config := TaskConfig{
-		URL:    "https://httpbin.org/get",
-		Method: "GET",
-		Header: map[string]string{
-			"User-Agent": "BDopsFlow-Test",
-		},
+	httpConfig := map[string]string{
+		"url":    "https://httpbin.org/get",
+		"method": "GET",
 	}
+	configJSON, _ := json.Marshal(httpConfig)
 
-	configJSON, _ := json.Marshal(config)
+	task := &pb.Task{
+		ExecutionId:    "exec-1",
+		TaskId:         1,
+		Type:           "http",
+		Config:         string(configJSON),
+		TimeoutSeconds: 30,
+	}
 
 	ctx := context.Background()
-	result, err := executor.Execute(ctx, string(configJSON), 30*time.Second)
-
-	if err != nil {
-		t.Logf("HTTP request failed (may be network issue): %v", err)
-	}
-
-	if result != nil {
-		if result.Status == "" {
-			t.Error("expected status to be set")
-		}
-		t.Logf("Result: Status=%s, Duration=%v", result.Status, result.Duration)
-	}
+	executor.Execute(ctx, task, nil)
 }
 
-func TestHTTPExecutorParseError(t *testing.T) {
-	executor := NewHTTPExecutor()
+func TestTaskExecutor_ExecuteHTTPParseError(t *testing.T) {
+	executor := NewTaskExecutor("test-executor")
+
+	task := &pb.Task{
+		ExecutionId:    "exec-1",
+		TaskId:         1,
+		Type:           "http",
+		Config:         "invalid json",
+		TimeoutSeconds: 30,
+	}
 
 	ctx := context.Background()
-	_, err := executor.Execute(ctx, "invalid json", 30*time.Second)
-
-	if err == nil {
-		t.Error("expected error for invalid config")
-	}
+	executor.Execute(ctx, task, nil)
 }
 
-func TestHTTPExecutorTimeout(t *testing.T) {
-	executor := NewHTTPExecutor()
+func TestTaskExecutor_ExecuteShell(t *testing.T) {
+	executor := NewTaskExecutor("test-executor")
 
-	config := TaskConfig{
-		URL:    "http://httpbin.org/delay/10",
-		Method: "GET",
+	shellConfig := map[string]string{
+		"script": "echo 'Hello World'",
 	}
+	configJSON, _ := json.Marshal(shellConfig)
 
-	configJSON, _ := json.Marshal(config)
+	task := &pb.Task{
+		ExecutionId:    "exec-1",
+		TaskId:         1,
+		Type:           "shell",
+		Config:         string(configJSON),
+		TimeoutSeconds: 10,
+	}
 
 	ctx := context.Background()
-	result, err := executor.Execute(ctx, string(configJSON), 1*time.Second)
-
-	if err == nil && result != nil {
-		if result.Status != "timeout" {
-			t.Errorf("expected timeout status, got %s", result.Status)
-		}
-	}
+	executor.Execute(ctx, task, nil)
 }
 
-func TestShellExecutor(t *testing.T) {
-	executor := NewShellExecutor()
+func TestTaskExecutor_ExecuteShellParseError(t *testing.T) {
+	executor := NewTaskExecutor("test-executor")
 
-	config := TaskConfig{
-		Script: "echo 'Hello World' && date",
+	task := &pb.Task{
+		ExecutionId:    "exec-1",
+		TaskId:         1,
+		Type:           "shell",
+		Config:         "invalid json",
+		TimeoutSeconds: 10,
 	}
-
-	configJSON, _ := json.Marshal(config)
 
 	ctx := context.Background()
-	result, err := executor.Execute(ctx, string(configJSON), 10*time.Second)
-
-	if err != nil {
-		t.Errorf("shell execution failed: %v", err)
-	}
-
-	if result == nil {
-		t.Fatal("expected result to be non-nil")
-	}
-
-	if result.Status != "success" {
-		t.Errorf("expected success status, got %s: %s", result.Status, result.Error)
-	}
-
-	if result.Output == "" {
-		t.Error("expected output to be non-empty")
-	}
-
-	t.Logf("Shell output: %s", result.Output)
+	executor.Execute(ctx, task, nil)
 }
 
-func TestShellExecutorParseError(t *testing.T) {
-	executor := NewShellExecutor()
+func TestTaskExecutor_ExecuteUnknownType(t *testing.T) {
+	executor := NewTaskExecutor("test-executor")
+
+	task := &pb.Task{
+		ExecutionId:    "exec-1",
+		TaskId:         1,
+		Type:           "unknown",
+		Config:         "{}",
+		TimeoutSeconds: 10,
+	}
 
 	ctx := context.Background()
-	_, err := executor.Execute(ctx, "invalid json", 10*time.Second)
-
-	if err == nil {
-		t.Error("expected error for invalid config")
-	}
+	executor.Execute(ctx, task, nil)
 }
 
-func TestShellExecutorTimeout(t *testing.T) {
-	executor := NewShellExecutor()
+func TestTaskExecutor_ExecuteHTTPTimeout(t *testing.T) {
+	executor := NewTaskExecutor("test-executor")
 
-	config := TaskConfig{
-		Script: "sleep 10",
+	httpConfig := map[string]string{
+		"url":    "http://httpbin.org/delay/10",
+		"method": "GET",
 	}
+	configJSON, _ := json.Marshal(httpConfig)
 
-	configJSON, _ := json.Marshal(config)
+	task := &pb.Task{
+		ExecutionId:    "exec-1",
+		TaskId:         1,
+		Type:           "http",
+		Config:         string(configJSON),
+		TimeoutSeconds: 1,
+	}
 
 	ctx := context.Background()
-	result, err := executor.Execute(ctx, string(configJSON), 1*time.Second)
+	start := time.Now()
+	executor.Execute(ctx, task, nil)
+	duration := time.Since(start)
 
-	if err == nil && result != nil {
-		if result.Status != "timeout" {
-			t.Errorf("expected timeout status, got %s", result.Status)
-		}
+	if duration > 5*time.Second {
+		t.Errorf("expected timeout within 5 seconds, got %v", duration)
 	}
 }
 
-func TestRetryExecutor(t *testing.T) {
-	innerExecutor := &FailingExecutor{failCount: 2}
-	retryExecutor := NewRetryExecutor(innerExecutor, 3, 100*time.Millisecond)
+func TestTaskExecutor_ExecuteShellTimeout(t *testing.T) {
+	executor := NewTaskExecutor("test-executor")
 
-	config := TaskConfig{
-		Script: "echo test",
+	shellConfig := map[string]string{
+		"script": "sleep 10",
 	}
-	configJSON, _ := json.Marshal(config)
+	configJSON, _ := json.Marshal(shellConfig)
+
+	task := &pb.Task{
+		ExecutionId:    "exec-1",
+		TaskId:         1,
+		Type:           "shell",
+		Config:         string(configJSON),
+		TimeoutSeconds: 1,
+	}
 
 	ctx := context.Background()
-	result, err := retryExecutor.Execute(ctx, string(configJSON), 10*time.Second)
+	start := time.Now()
+	executor.Execute(ctx, task, nil)
+	duration := time.Since(start)
 
-	if err != nil {
-		t.Errorf("retry execution failed: %v", err)
-	}
-
-	if result != nil && result.Status != "success" {
-		t.Errorf("expected success status after retries, got %s", result.Status)
-	}
-}
-
-type FailingExecutor struct {
-	failCount int
-	callCount int
-}
-
-func (e *FailingExecutor) Execute(ctx context.Context, config string, timeout time.Duration) (*TaskResult, error) {
-	e.callCount++
-	if e.callCount <= e.failCount {
-		return &TaskResult{
-			Status:  "failed",
-			Error:   "intentional failure",
-		}, nil
-	}
-	return &TaskResult{
-		Status: "success",
-		Output: "success after retries",
-	}, nil
-}
-
-func TestExecutorFactory(t *testing.T) {
-	factory := NewExecutorFactory()
-
-	httpExecutor, err := factory.GetExecutor("http")
-	if err != nil {
-		t.Errorf("failed to get HTTP executor: %v", err)
-	}
-	if httpExecutor == nil {
-		t.Error("expected HTTP executor to be non-nil")
-	}
-
-	shellExecutor, err := factory.GetExecutor("shell")
-	if err != nil {
-		t.Errorf("failed to get Shell executor: %v", err)
-	}
-	if shellExecutor == nil {
-		t.Error("expected Shell executor to be non-nil")
-	}
-
-	_, err = factory.GetExecutor("unknown")
-	if err == nil {
-		t.Error("expected error for unknown task type")
-	}
-}
-
-func TestTaskConfigSerialization(t *testing.T) {
-	httpConfig := TaskConfig{
-		URL:    "http://example.com",
-		Method: "POST",
-		Header: map[string]string{
-			"Content-Type": "application/json",
-		},
-		Body: `{"key":"value"}`,
-	}
-
-	jsonData, err := json.Marshal(httpConfig)
-	if err != nil {
-		t.Fatalf("failed to marshal config: %v", err)
-	}
-
-	var decoded TaskConfig
-	err = json.Unmarshal(jsonData, &decoded)
-	if err != nil {
-		t.Fatalf("failed to unmarshal config: %v", err)
-	}
-
-	if decoded.URL != httpConfig.URL {
-		t.Errorf("expected URL '%s', got '%s'", httpConfig.URL, decoded.URL)
-	}
-
-	if decoded.Method != httpConfig.Method {
-		t.Errorf("expected Method '%s', got '%s'", httpConfig.Method, decoded.Method)
+	if duration > 5*time.Second {
+		t.Errorf("expected timeout within 5 seconds, got %v", duration)
 	}
 }

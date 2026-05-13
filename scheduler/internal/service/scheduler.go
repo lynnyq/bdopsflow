@@ -812,7 +812,6 @@ func (s *SchedulerService) BatchDeleteExecutions(ctx context.Context, ids []int6
 }
 
 func (s *SchedulerService) GetTaskLogs(ctx context.Context, executionID string) ([]*model.TaskLog, error) {
-	// 首先尝试查询带 executor_id 字段的新表结构
 	query := `
 		SELECT id, execution_id, task_id, executor_id, node_id, log_level, message, log_time
 		FROM task_logs WHERE execution_id = ?
@@ -824,40 +823,13 @@ func (s *SchedulerService) GetTaskLogs(ctx context.Context, executionID string) 
 		Arguments: []interface{}{executionID},
 	}
 	qr, err := s.DB.QueryOneParameterized(stmt)
-	
-	// 如果查询失败（可能是旧表结构），回退到不带 executor_id 的查询
-	if err != nil || qr.Err != nil {
-		slog.Debug("Falling back to old query format for task_logs")
-		fallbackQuery := `
-			SELECT id, execution_id, task_id, node_id, log_level, message, log_time
-			FROM task_logs WHERE execution_id = ?
-			ORDER BY log_time ASC
-		`
-		fallbackStmt := rqlite.ParameterizedStatement{
-			Query:     fallbackQuery,
-			Arguments: []interface{}{executionID},
-		}
-		qr, err = s.DB.QueryOneParameterized(fallbackStmt)
-		if err != nil {
-			return nil, err
-		}
-		if qr.Err != nil {
-			return nil, qr.Err
-		}
-		
-		// 使用兼容旧结构的扫描方式
-		var logs []*model.TaskLog
-		for qr.Next() {
-			tl := &model.TaskLog{}
-			if err := scanTaskLogResultOld(&qr, tl); err != nil {
-				return nil, err
-			}
-			logs = append(logs, tl)
-		}
-		return logs, nil
+	if err != nil {
+		return nil, err
+	}
+	if qr.Err != nil {
+		return nil, qr.Err
 	}
 
-	// 使用新结构扫描
 	var logs []*model.TaskLog
 	for qr.Next() {
 		tl := &model.TaskLog{}
@@ -1501,31 +1473,6 @@ func scanTaskLogResult(qr *rqlite.QueryResult, tl *model.TaskLog) error {
 	return nil
 }
 
-func scanTaskLogResultOld(qr *rqlite.QueryResult, tl *model.TaskLog) error {
-	row, err := qr.Slice()
-	if err != nil {
-		return err
-	}
-	tl.ID = rowInt64(row[0])
-	tl.ExecutionID = rowString(row[1])
-	tl.TaskID = rowInt64(row[2])
-	tl.NodeID = rowString(row[3])
-	tl.LogLevel = rowString(row[4])
-	tl.Message = rowString(row[5])
-	
-	// 处理 log_time
-	if t, ok := row[6].(time.Time); ok {
-		tl.LogTime = t.UTC()
-	} else if s, ok := row[6].(string); ok && s != "" {
-		parsed, err := time.Parse("2006-01-02 15:04:05", s)
-		if err == nil {
-			tl.LogTime = parsed.UTC()
-		}
-	}
-	
-	return nil
-}
-
 func rowInt64(v interface{}) int64 {
 	if v == nil {
 		return 0
@@ -1563,107 +1510,4 @@ func rowBool(v interface{}) bool {
 		return val != 0
 	}
 	return false
-}
-
-// MigrateTaskLogsExecutorID 为现有的 task_logs 记录回填 executor_id 字段
-func (s *SchedulerService) MigrateTaskLogsExecutorID(ctx context.Context) error {
-	slog.Info("Starting migration: backfilling executor_id in task_logs")
-	
-	// 首先检查 executor_id 列是否已存在
-	checkQuery := `PRAGMA table_info(task_logs)`
-	qr, err := s.DB.QueryOne(checkQuery)
-	if err != nil {
-		return err
-	}
-	if qr.Err != nil {
-		return qr.Err
-	}
-	
-	hasExecutorID := false
-	for qr.Next() {
-		row, _ := qr.Slice()
-		if len(row) >= 2 {
-			colName := rowString(row[1])
-			if colName == "executor_id" {
-				hasExecutorID = true
-				break
-			}
-		}
-	}
-	
-	if !hasExecutorID {
-		slog.Info("Adding executor_id column to task_logs")
-		alterQuery := `ALTER TABLE task_logs ADD COLUMN executor_id TEXT`
-		_, err = s.DB.QueryOne(alterQuery)
-		if err != nil {
-			slog.Warn("Failed to add executor_id column (may already exist)", "error", err)
-		} else {
-			slog.Info("Successfully added executor_id column")
-		}
-		
-		// 添加索引
-		indexQuery := `CREATE INDEX IF NOT EXISTS idx_task_logs_executor_id ON task_logs(executor_id)`
-		_, err = s.DB.QueryOne(indexQuery)
-		if err != nil {
-			slog.Warn("Failed to create index", "error", err)
-		} else {
-			slog.Info("Successfully created index for executor_id")
-		}
-	} else {
-		slog.Info("executor_id column already exists, skipping creation")
-	}
-	
-	// 回填 executor_id - 更安全的方式
-	slog.Info("Backfilling executor_id data for existing task_logs")
-	updateQuery := `
-		UPDATE task_logs 
-		SET executor_id = (
-			SELECT te.executor_id 
-			FROM task_executions te 
-			WHERE te.execution_id = task_logs.execution_id
-			LIMIT 1
-		)
-		WHERE (executor_id IS NULL OR executor_id = '')
-		AND EXISTS (
-			SELECT 1 FROM task_executions te 
-			WHERE te.execution_id = task_logs.execution_id
-		)
-	`
-	result, err := s.DB.WriteOne(updateQuery)
-	if err != nil {
-		slog.Warn("Failed to backfill data", "error", err)
-	} else if result.Err != nil {
-		slog.Warn("Failed to backfill data", "error", result.Err)
-	} else {
-		slog.Info("Successfully backfilled executor_id data", "rows_affected", result.RowsAffected)
-	}
-	
-	slog.Info("Migration completed: backfilled executor_id in task_logs")
-	return nil
-}
-
-// RunMigrations 运行所有必要的数据库迁移
-func (s *SchedulerService) RunMigrations(ctx context.Context) error {
-	slog.Info("Starting database migrations")
-	
-	if err := s.MigrateTaskLogsExecutorID(ctx); err != nil {
-		slog.Error("Migration failed", "error", err)
-		return err
-	}
-	
-	slog.Info("All database migrations completed successfully")
-	return nil
-}
-
-// MigrateTaskExecutionsExecutorID 为 task_executions 表中可能缺失的 executor_id 进行补全
-// 注意：此函数主要用于新触发的任务。对于历史任务，可能需要通过其他方式恢复
-func (s *SchedulerService) MigrateTaskExecutionsExecutorID(ctx context.Context) error {
-	slog.Info("Starting migration: checking task_executions executor_id")
-	
-	// 这个迁移主要是为了确保我们知道有这个问题
-	// 对于新触发的任务，我们已经在 TriggerTask 中修复了这个问题
-	slog.Info("Note: Newly triggered tasks will now have proper executor_id set")
-	slog.Info("For existing historical tasks, executor_id might be empty if they were triggered before this fix")
-	
-	return nil
 }

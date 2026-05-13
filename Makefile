@@ -43,5 +43,5 @@ run-dev:
 	@echo "  - Web: logs/web.log"
 	@echo ""
 	@echo "To stop all services:"
-	@echo "  pkill -f 'bdopsflow-scheduler' && pkill -f 'bdopsflow-executor' && pkill -f 'vite'"
+	@echo "  pkill -f 'bdopsflow-scheduler' && pkill -f 'bdopsflow-executor' && pkill -f 'vite' "
 	@echo ""

@@ -370,3 +370,242 @@ func TestTriggerTask(t *testing.T) {
 		t.Errorf("expected execution_id in response, got %v", resp["execution_id"])
 	}
 }
+
+func TestTaskHandler_Update(t *testing.T) {
+	mock := &mockTaskService{}
+	handler := newTaskHandlerWithSvc(mock)
+	router := setupTestRouter(handler)
+
+	body := map[string]interface{}{
+		"name":   "updated task",
+		"type":   "shell",
+		"config": `{"script":"echo updated"}`,
+	}
+
+	jsonBody, _ := json.Marshal(body)
+	req, _ := http.NewRequest("PUT", "/api/tasks/1", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d, body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestTaskHandler_Update_InvalidID(t *testing.T) {
+	mock := &mockTaskService{}
+	handler := newTaskHandlerWithSvc(mock)
+	router := setupTestRouter(handler)
+
+	req, _ := http.NewRequest("PUT", "/api/tasks/invalid", nil)
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected status 400 for invalid ID, got %d", w.Code)
+	}
+}
+
+func TestTaskHandler_Executions(t *testing.T) {
+	mock := &mockTaskService{
+		getTaskExecsFunc: func(ctx context.Context, taskID int64) ([]*model.TaskExecution, error) {
+			return []*model.TaskExecution{
+				{ID: 1, TaskID: taskID, ExecutionID: "exec-1", Status: "success"},
+				{ID: 2, TaskID: taskID, ExecutionID: "exec-2", Status: "failed"},
+			}, nil
+		},
+	}
+	handler := newTaskHandlerWithSvc(mock)
+	router := setupTestRouter(handler)
+
+	req, _ := http.NewRequest("GET", "/api/tasks/1/executions", nil)
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+}
+
+func TestTaskHandler_Executions_InvalidID(t *testing.T) {
+	mock := &mockTaskService{}
+	handler := newTaskHandlerWithSvc(mock)
+	router := setupTestRouter(handler)
+
+	req, _ := http.NewRequest("GET", "/api/tasks/invalid/executions", nil)
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected status 400 for invalid ID, got %d", w.Code)
+	}
+}
+
+func TestTaskHandler_Delete_InvalidID(t *testing.T) {
+	mock := &mockTaskService{}
+	handler := newTaskHandlerWithSvc(mock)
+	router := setupTestRouter(handler)
+
+	req, _ := http.NewRequest("DELETE", "/api/tasks/invalid", nil)
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected status 400 for invalid ID, got %d", w.Code)
+	}
+}
+
+func TestTaskHandler_Delete_NegativeID(t *testing.T) {
+	mock := &mockTaskService{}
+	handler := newTaskHandlerWithSvc(mock)
+	router := setupTestRouter(handler)
+
+	req, _ := http.NewRequest("DELETE", "/api/tasks/-1", nil)
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected status 400 for negative ID, got %d", w.Code)
+	}
+}
+
+func TestTaskHandler_Trigger_InvalidID(t *testing.T) {
+	mock := &mockTaskService{}
+	handler := newTaskHandlerWithSvc(mock)
+	router := setupTestRouter(handler)
+
+	req, _ := http.NewRequest("POST", "/api/tasks/invalid/trigger", nil)
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected status 400 for invalid ID, got %d", w.Code)
+	}
+}
+
+func TestTaskHandler_Get_InvalidID(t *testing.T) {
+	mock := &mockTaskService{}
+	handler := newTaskHandlerWithSvc(mock)
+	router := setupTestRouter(handler)
+
+	req, _ := http.NewRequest("GET", "/api/tasks/invalid", nil)
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected status 400 for invalid ID, got %d", w.Code)
+	}
+}
+
+func TestTaskHandler_Get_NegativeID(t *testing.T) {
+	mock := &mockTaskService{}
+	handler := newTaskHandlerWithSvc(mock)
+	router := setupTestRouter(handler)
+
+	req, _ := http.NewRequest("GET", "/api/tasks/-1", nil)
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected status 400 for negative ID, got %d", w.Code)
+	}
+}
+
+func TestTaskHandler_Create_MissingName(t *testing.T) {
+	mock := &mockTaskService{}
+	handler := newTaskHandlerWithSvc(mock)
+	router := setupTestRouter(handler)
+
+	body := map[string]interface{}{
+		"type":   "http",
+		"config": "{}",
+	}
+
+	jsonBody, _ := json.Marshal(body)
+	req, _ := http.NewRequest("POST", "/api/tasks", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected status 400 for missing name, got %d", w.Code)
+	}
+}
+
+func TestTaskHandler_Create_MissingType(t *testing.T) {
+	mock := &mockTaskService{}
+	handler := newTaskHandlerWithSvc(mock)
+	router := setupTestRouter(handler)
+
+	body := map[string]interface{}{
+		"name":   "test",
+		"config": "{}",
+	}
+
+	jsonBody, _ := json.Marshal(body)
+	req, _ := http.NewRequest("POST", "/api/tasks", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected status 400 for missing type, got %d", w.Code)
+	}
+}
+
+func TestSafeString(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"empty string", "", ""},
+		{"whitespace", "   ", ""},
+		{"normal string", "  hello  ", "hello"},
+		{"already trimmed", "hello", "hello"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := safeString(tt.input)
+			if result != tt.expected {
+				t.Errorf("safeString(%q) = %q, expected %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestEscapeJSON(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"normal string", "hello", "hello"},
+		{"string with quotes", `hello "world"`, `hello \"world\"`},
+		{"string with backslash", `hello\world`, `hello\\world`},
+		{"string with newline", "hello\nworld", `hello\nworld`},
+		{"string with tab", "hello\tworld", `hello\tworld`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := escapeJSON(tt.input)
+			if result != tt.expected {
+				t.Errorf("escapeJSON(%q) = %q, expected %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}

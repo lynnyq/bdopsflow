@@ -1,99 +1,170 @@
 package service
 
 import (
-	"context"
 	"testing"
+	"time"
 
-	"github.com/redis/go-redis/v9"
+	rqlite "github.com/rqlite/gorqlite"
 )
 
-// 由于我们已经从 sqlite 迁移到 rqlite，
-// 而 rqlite 需要真实的服务器运行，这里我们简化测试
-// 只测试不依赖数据库的核心功能
-
-func setupTestRedis(t *testing.T) *redis.Client {
-	client := redis.NewClient(&redis.Options{
-		Addr: "localhost:6379",
-	})
-
-	ctx := context.Background()
-	if err := client.Ping(ctx).Err(); err != nil {
-		t.Skip("Redis not available, skipping test")
+func TestRowInt64(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    interface{}
+		expected int64
+	}{
+		{"int64", int64(42), 42},
+		{"float64", float64(42.5), 42},
+		{"string", "42", 42},
+		{"nil", nil, 0},
 	}
 
-	return client
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := rowInt64(tt.input)
+			if result != tt.expected {
+				t.Errorf("rowInt64(%v) = %d, expected %d", tt.input, result, tt.expected)
+			}
+		})
+	}
 }
 
-func TestNewSchedulerService_WithMinimalSetup(t *testing.T) {
-	// 这个测试只是验证类型和初始化逻辑不会 panic
-	// 我们不需要完整的 DB 和 Redis 连接
-	// 注意：这里我们不实际运行完整的功能，只确保类型正确
-	_ = &SchedulerService{}
+func TestRowString(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    interface{}
+		expected string
+	}{
+		{"string", "hello", "hello"},
+		{"int64", int64(42), "42"},
+		{"float64", float64(3.14), "3.14"},
+		{"nil", nil, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := rowString(tt.input)
+			if result != tt.expected {
+				t.Errorf("rowString(%v) = %q, expected %q", tt.input, result, tt.expected)
+			}
+		})
+	}
 }
 
-// 测试新增的方法（无需实际数据库连接）
-func TestServiceMethodsSignature(t *testing.T) {
-	// 这些测试只是确保方法签名符合预期，不实际执行逻辑
-	// 实际测试需要完整的数据库和 Redis 连接
+func TestRowBool(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    interface{}
+		expected bool
+	}{
+		{"bool true", true, true},
+		{"bool false", false, false},
+		{"int 1", int64(1), true},
+		{"int 0", int64(0), false},
+		{"float 1", float64(1.0), true},
+		{"float 0", float64(0.0), false},
+		{"nil", nil, false},
+	}
 
-	// 验证方法存在性
-	s := &SchedulerService{}
-
-	// 这些只是编译时检查
-	_ = s.GetTaskInfoByID
-	_ = s.GetExecutorInfoByID
-	_ = s.GetAllExecutions
-	_ = s.DeleteExecution
-	_ = s.BatchDeleteExecutions
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := rowBool(tt.input)
+			if result != tt.expected {
+				t.Errorf("rowBool(%v) = %v, expected %v", tt.input, result, tt.expected)
+			}
+		})
+	}
 }
 
-// 下面是完整的数据库相关测试，但这些测试需要 rqlite 运行
-// 为了快速通过测试，我们暂时 skip 这些测试
+func TestIsEmpty(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    interface{}
+		expected bool
+	}{
+		{"nil", nil, true},
+		{"empty string", "", true},
+		{"whitespace", "   ", false},
+		{"normal string", "hello", false},
+		{"zero time", time.Time{}, true},
+		{"non-zero time", time.Now(), false},
+	}
 
-func TestCreateTask(t *testing.T) {
-	t.Skip("Requires rqlite server running - skipping")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isEmpty(tt.input)
+			if result != tt.expected {
+				t.Errorf("isEmpty(%v) = %v, expected %v", tt.input, result, tt.expected)
+			}
+		})
+	}
 }
 
-func TestGetTaskByID(t *testing.T) {
-	t.Skip("Requires rqlite server running - skipping")
+func TestParseDateTime(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    interface{}
+		expected time.Time
+		isZero   bool
+	}{
+		{"valid datetime string", "2024-01-01 12:00:00", time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC), false},
+		{"time.Time", time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC), time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC), false},
+		{"invalid string", "invalid", time.Time{}, true},
+		{"nil", nil, time.Time{}, true},
+		{"empty string", "", time.Time{}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := parseDateTime(tt.input)
+			if tt.isZero && !result.IsZero() {
+				t.Errorf("expected zero time, got %v", result)
+			}
+			if !tt.isZero && !result.Equal(tt.expected) {
+				t.Errorf("expected %v, got %v", tt.expected, result)
+			}
+		})
+	}
 }
 
-func TestListTasks(t *testing.T) {
-	t.Skip("Requires rqlite server running - skipping")
+func TestNowUTC(t *testing.T) {
+	result := nowUTC()
+	if len(result) != len("2024-01-01 12:00:00") {
+		t.Errorf("expected datetime string format, got %q", result)
+	}
 }
 
-func TestTriggerTask(t *testing.T) {
-	t.Skip("Requires rqlite server running - skipping")
+func TestScanTime(t *testing.T) {
+	row := []interface{}{"2024-01-01 12:00:00"}
+	result := scanTime(row, 0)
+	if result.IsZero() {
+		t.Error("expected non-zero time")
+	}
+
+	row2 := []interface{}{nil}
+	result2 := scanTime(row2, 0)
+	if !result2.IsZero() {
+		t.Errorf("expected zero time for nil input, got %v", result2)
+	}
 }
 
-func TestUpdateTaskStatusByID(t *testing.T) {
-	t.Skip("Requires rqlite server running - skipping")
+func TestHandleDBError(t *testing.T) {
+	err := handleDBError(nil, "test")
+	if err != nil {
+		t.Error("expected no error")
+	}
 }
 
-func TestUpdateTask(t *testing.T) {
-	t.Skip("Requires rqlite server running - skipping")
+func TestHandleWriteError(t *testing.T) {
+	result := handleWriteError(rqlite.WriteResult{}, "test")
+	if result != nil {
+		t.Error("expected no error")
+	}
 }
 
-func TestDeleteTask(t *testing.T) {
-	t.Skip("Requires rqlite server running - skipping")
-}
-
-func TestCreateWorkflow(t *testing.T) {
-	t.Skip("Requires rqlite server running - skipping")
-}
-
-func TestGetWorkflow(t *testing.T) {
-	t.Skip("Requires rqlite server running - skipping")
-}
-
-func TestListWorkflows(t *testing.T) {
-	t.Skip("Requires rqlite server running - skipping")
-}
-
-func TestListExecutors(t *testing.T) {
-	t.Skip("Requires rqlite server running - skipping")
-}
-
-func TestGetTaskExecutions(t *testing.T) {
-	t.Skip("Requires rqlite server running - skipping")
+func TestHandleQueryError(t *testing.T) {
+	result := handleQueryError(rqlite.QueryResult{}, "test")
+	if result != nil {
+		t.Error("expected no error")
+	}
 }

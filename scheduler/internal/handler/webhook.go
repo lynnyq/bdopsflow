@@ -2,7 +2,9 @@ package handler
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/service"
@@ -31,7 +33,14 @@ func (h *WebhookHandler) Create(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
+		slog.Warn("WebhookHandler.Create: invalid request body", "error", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if safeString(req.URL) == "" {
+		slog.Warn("WebhookHandler.Create: url is required")
+		c.JSON(http.StatusBadRequest, gin.H{"error": "url is required"})
 		return
 	}
 
@@ -53,17 +62,40 @@ func (h *WebhookHandler) List(c *gin.Context) {
 }
 
 func (h *WebhookHandler) Delete(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		slog.Warn("WebhookHandler.Delete: invalid id", "id_str", idStr, "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	if id <= 0 {
+		slog.Warn("WebhookHandler.Delete: id must be positive", "id", id)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "id must be positive"})
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"message": "webhook deleted",
 	})
 }
 
 func (h *WebhookHandler) Test(c *gin.Context) {
+	idStr := c.Param("id")
+	_, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		slog.Warn("WebhookHandler.Test: invalid id", "id_str", idStr, "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
 	var req struct {
 		URL string `json:"url"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
+		slog.Warn("WebhookHandler.Test: invalid request body", "error", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -82,8 +114,9 @@ func (h *WebhookHandler) Test(c *gin.Context) {
 		Output:    "This is a test webhook",
 	}
 
-	err := h.webhookSvc.Send(c.Request.Context(), config, payload)
+	err = h.webhookSvc.Send(c.Request.Context(), config, payload)
 	if err != nil {
+		slog.Error("WebhookHandler.Test: failed to send webhook", "error", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}

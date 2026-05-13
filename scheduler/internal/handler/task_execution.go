@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"log/slog"
+	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -19,16 +21,29 @@ func (h *TaskExecutionHandler) ListByTask(c *gin.Context) {
 	idStr := c.Param("task_id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
-		c.JSON(400, gin.H{"error": "invalid id"})
+		slog.Warn("TaskExecutionHandler.ListByTask: invalid id", "id_str", idStr, "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	if id <= 0 {
+		slog.Warn("TaskExecutionHandler.ListByTask: id must be positive", "id", id)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "id must be positive"})
 		return
 	}
 
 	ctx := c.Request.Context()
 	executions, err := h.svc.GetTaskExecutions(ctx, id)
 	if err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+		slog.Error("TaskExecutionHandler.ListByTask: failed to get executions", "task_id", id, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(200, executions)
+	var response []*TaskExecutionResponse
+	for _, exec := range executions {
+		response = append(response, toTaskExecutionResponse(exec))
+	}
+
+	c.JSON(http.StatusOK, response)
 }

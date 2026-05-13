@@ -3,6 +3,8 @@ package handler
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -12,45 +14,24 @@ import (
 	"github.com/lynnyq/bdopsflow/scheduler/internal/service"
 )
 
-// TaskExecutionResponse 用于 API 返回的任务执行记录
-type TaskExecutionResponse struct {
-	ID          int64   `json:"id"`
-	TaskID      int64   `json:"task_id"`
-	ExecutionID string  `json:"execution_id"`
-	ExecutorID  string  `json:"executor_id"`
-	Status      string  `json:"status"`
-	StartTime   *string `json:"start_time"`
-	EndTime     *string `json:"end_time"`
-	Output      string  `json:"output"`
-	Error       string  `json:"error"`
-	RetryTimes   int32  `json:"retry_times"`
-	CreatedAt    string  `json:"created_at"`
+const (
+	DateTimeFormat = "2006-01-02 15:04:05"
+	TimeResponseFormat = time.RFC3339
+)
+
+func safeString(s string) string {
+	if s == "" {
+		return ""
+	}
+	return strings.TrimSpace(s)
 }
 
-func toTaskExecutionResponse(exec *model.TaskExecution) *TaskExecutionResponse {
-	resp := &TaskExecutionResponse{
-		ID:          exec.ID,
-		TaskID:       exec.TaskID,
-		ExecutionID: exec.ExecutionID,
-		ExecutorID:  exec.ExecutorID,
-		Status:      exec.Status,
-		Output:      exec.Output,
-		Error:       exec.Error,
-		RetryTimes:   exec.RetryTimes,
-		CreatedAt:    exec.CreatedAt.Format(time.RFC3339),
+func safeTimePtr(t time.Time) *string {
+	if t.IsZero() {
+		return nil
 	}
-
-	if exec.StartTime.Valid {
-		t := exec.StartTime.Time.Format(time.RFC3339)
-		resp.StartTime = &t
-	}
-
-	if exec.EndTime.Valid {
-		t := exec.EndTime.Time.Format(time.RFC3339)
-		resp.EndTime = &t
-	}
-
-	return resp
+	s := t.UTC().Format(TimeResponseFormat)
+	return &s
 }
 
 type TaskHandler struct {
@@ -67,29 +48,49 @@ func newTaskHandlerWithSvc(svc TaskServicer) *TaskHandler {
 
 func (h *TaskHandler) List(c *gin.Context) {
 	ctx := c.Request.Context()
+
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("TaskHandler.List: panic recovered", "panic", r)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		}
+	}()
+
+	slog.Debug("TaskHandler.List: handling request")
+
 	tasks, err := h.svc.ListTasks(ctx)
 	if err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+		slog.Error("TaskHandler.List: failed to list tasks", "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(200, tasks)
+
+	c.JSON(http.StatusOK, tasks)
 }
 
 func (h *TaskHandler) Get(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
-		c.JSON(400, gin.H{"error": "invalid id"})
+		slog.Warn("TaskHandler.Get: invalid id", "id_str", idStr, "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	if id <= 0 {
+		slog.Warn("TaskHandler.Get: id must be positive", "id", id)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "id must be positive"})
 		return
 	}
 
 	ctx := c.Request.Context()
 	task, err := h.svc.GetTaskByID(ctx, id)
 	if err != nil {
-		c.JSON(404, gin.H{"error": "task not found"})
+		slog.Error("TaskHandler.Get: failed to get task", "id", id, "error", err)
+		c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
 		return
 	}
-	c.JSON(200, task)
+	c.JSON(http.StatusOK, task)
 }
 
 func (h *TaskHandler) Create(c *gin.Context) {
@@ -107,31 +108,43 @@ func (h *TaskHandler) Create(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
+		slog.Warn("TaskHandler.Create: invalid request body", "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	if req.TimeoutSeconds == 0 {
+	if safeString(req.Name) == "" {
+		slog.Warn("TaskHandler.Create: name is required")
+		c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
+		return
+	}
+	if safeString(req.Type) == "" {
+		slog.Warn("TaskHandler.Create: type is required")
+		c.JSON(http.StatusBadRequest, gin.H{"error": "type is required"})
+		return
+	}
+
+	if req.TimeoutSeconds <= 0 {
 		req.TimeoutSeconds = 300
 	}
-	if req.RetryCount == 0 {
+	if req.RetryCount <= 0 {
 		req.RetryCount = 3
 	}
-	if req.RetryInterval == 0 {
+	if req.RetryInterval <= 0 {
 		req.RetryInterval = 5
 	}
-	if req.DomainID == 0 {
+	if req.DomainID <= 0 {
 		req.DomainID = 1
 	}
 
 	var query string
 	var args []interface{}
-	now := time.Now().Format("2006-01-02 15:04:05")
+	now := time.Now().Format(DateTimeFormat)
 	ts := int64(req.TimeoutSeconds)
 	rc := int64(req.RetryCount)
 	ri := int64(req.RetryInterval)
 
-	if req.WorkflowID != nil {
+	if req.WorkflowID != nil && *req.WorkflowID > 0 {
 		query = `
 			INSERT INTO tasks (workflow_id, name, type, config, cron_expression, timeout_seconds,
 			                  retry_count, retry_interval, is_enabled, status, domain_id, webhook_config,
@@ -139,8 +152,8 @@ func (h *TaskHandler) Create(c *gin.Context) {
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 'pending', ?, ?, 1, ?, ?)
 		`
 		args = []interface{}{
-			*req.WorkflowID, req.Name, req.Type, req.Config, req.CronExpression, ts,
-			rc, ri, req.DomainID, req.WebhookConfig, now, now,
+			*req.WorkflowID, safeString(req.Name), safeString(req.Type), safeString(req.Config),
+			safeString(req.CronExpression), ts, rc, ri, req.DomainID, safeString(req.WebhookConfig), now, now,
 		}
 	} else {
 		query = `
@@ -150,93 +163,131 @@ func (h *TaskHandler) Create(c *gin.Context) {
 			VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'pending', ?, ?, 1, ?, ?)
 		`
 		args = []interface{}{
-			req.Name, req.Type, req.Config, req.CronExpression, ts,
-			rc, ri, req.DomainID, req.WebhookConfig, now, now,
+			safeString(req.Name), safeString(req.Type), safeString(req.Config),
+			safeString(req.CronExpression), ts, rc, ri, req.DomainID, safeString(req.WebhookConfig), now, now,
 		}
 	}
 
 	ctx := c.Request.Context()
 	task, err := h.svc.CreateTask(ctx, query, args...)
 	if err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+		slog.Error("TaskHandler.Create: failed to create task", "name", req.Name, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(201, task)
+	slog.Info("TaskHandler.Create: task created", "task_id", task.ID, "name", task.Name)
+	c.JSON(http.StatusCreated, task)
 }
 
 func (h *TaskHandler) Update(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
-		c.JSON(400, gin.H{"error": "invalid id"})
+		slog.Warn("TaskHandler.Update: invalid id", "id_str", idStr, "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	if id <= 0 {
+		slog.Warn("TaskHandler.Update: id must be positive", "id", id)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "id must be positive"})
 		return
 	}
 
 	var task model.Task
 	if err := c.ShouldBindJSON(&task); err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
+		slog.Warn("TaskHandler.Update: invalid request body", "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
 	ctx := c.Request.Context()
 	err = h.svc.UpdateTask(ctx, id, &task)
 	if err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+		slog.Error("TaskHandler.Update: failed to update task", "id", id, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
 	task.ID = id
-	c.JSON(200, task)
+	slog.Info("TaskHandler.Update: task updated", "id", id)
+	c.JSON(http.StatusOK, task)
 }
 
 func (h *TaskHandler) Delete(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
-		c.JSON(400, gin.H{"error": "invalid id"})
+		slog.Warn("TaskHandler.Delete: invalid id", "id_str", idStr, "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	if id <= 0 {
+		slog.Warn("TaskHandler.Delete: id must be positive", "id", id)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "id must be positive"})
 		return
 	}
 
 	ctx := c.Request.Context()
 	err = h.svc.DeleteTask(ctx, id)
 	if err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+		slog.Error("TaskHandler.Delete: failed to delete task", "id", id, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(200, gin.H{"message": "deleted"})
+	slog.Info("TaskHandler.Delete: task deleted", "id", id)
+	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
 }
 
 func (h *TaskHandler) Trigger(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
-		c.JSON(400, gin.H{"error": "invalid id"})
+		slog.Warn("TaskHandler.Trigger: invalid id", "id_str", idStr, "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	if id <= 0 {
+		slog.Warn("TaskHandler.Trigger: id must be positive", "id", id)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "id must be positive"})
 		return
 	}
 
 	executionID, err := h.svc.TriggerTask(c.Request.Context(), id)
 	if err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+		slog.Error("TaskHandler.Trigger: failed to trigger task", "task_id", id, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(200, gin.H{"message": "triggered", "execution_id": executionID})
+	slog.Info("TaskHandler.Trigger: task triggered", "task_id", id, "execution_id", executionID)
+	c.JSON(http.StatusOK, gin.H{"message": "triggered", "execution_id": executionID})
 }
 
 func (h *TaskHandler) Executions(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
-		c.JSON(400, gin.H{"error": "invalid id"})
+		slog.Warn("TaskHandler.Executions: invalid id", "id_str", idStr, "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	if id <= 0 {
+		slog.Warn("TaskHandler.Executions: id must be positive", "id", id)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "id must be positive"})
 		return
 	}
 
 	ctx := c.Request.Context()
 	executions, err := h.svc.GetTaskExecutions(ctx, id)
 	if err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+		slog.Error("TaskHandler.Executions: failed to get executions", "task_id", id, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -245,13 +296,14 @@ func (h *TaskHandler) Executions(c *gin.Context) {
 		response = append(response, toTaskExecutionResponse(exec))
 	}
 
-	c.JSON(200, response)
+	c.JSON(http.StatusOK, response)
 }
 
 func (h *TaskHandler) StreamLogs(c *gin.Context) {
 	executionID := c.Query("execution_id")
-	if executionID == "" {
-		c.JSON(400, gin.H{"error": "execution_id required"})
+	if safeString(executionID) == "" {
+		slog.Warn("TaskHandler.StreamLogs: execution_id required")
+		c.JSON(http.StatusBadRequest, gin.H{"error": "execution_id required"})
 		return
 	}
 
@@ -259,6 +311,8 @@ func (h *TaskHandler) StreamLogs(c *gin.Context) {
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
 	c.Header("Access-Control-Allow-Origin", "*")
+
+	slog.Info("TaskHandler.StreamLogs: starting stream", "execution_id", executionID)
 
 	ctx := c.Request.Context()
 	ticker := time.NewTicker(1 * time.Second)
@@ -271,33 +325,33 @@ func (h *TaskHandler) StreamLogs(c *gin.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			slog.Debug("TaskHandler.StreamLogs: context cancelled", "execution_id", executionID)
 			return
 		case <-ticker.C:
-			// 1. 获取并发送新日志
 			logs, err := h.svc.GetTaskLogs(ctx, executionID)
-			if err == nil {
+			if err != nil {
+				slog.Warn("TaskHandler.StreamLogs: failed to get logs", "execution_id", executionID, "error", err)
+			} else {
 				for _, log := range logs {
 					if log.ID > lastLogID {
 						lastLogID = log.ID
 						data := fmt.Sprintf(`{"id":%d,"execution_id":"%s","task_id":%d,"node_id":"%s","log_level":"%s","message":"%s","log_time":"%s"}`,
 							log.ID, log.ExecutionID, log.TaskID, log.NodeID, log.LogLevel,
-							escapeJSON(log.Message), log.LogTime.UTC().Format(time.RFC3339))
+							escapeJSON(log.Message), log.LogTime.UTC().Format(TimeResponseFormat))
 						c.Writer.Write([]byte("data: " + data + "\n\n"))
 						c.Writer.Flush()
 					}
 				}
 			}
 
-			// 2. 获取并发送最新的执行信息（包含 output 和 error）
-			// 我们通过 GetTaskExecutions 获取，因为已经有一个 task_id，不过我们需要获取单个 execution
-			// 为了简化，我们先通过所有日志关联的 task_id 来获取
 			if len(logs) > 0 {
 				taskID := logs[0].TaskID
 				executions, execErr := h.svc.GetTaskExecutions(ctx, taskID)
-				if execErr == nil {
+				if execErr != nil {
+					slog.Warn("TaskHandler.StreamLogs: failed to get executions", "task_id", taskID, "error", execErr)
+				} else {
 					for _, exec := range executions {
 						if exec.ExecutionID == executionID {
-							// 计算 hash 判断是否变化
 							outputHash := fnvHash(exec.Output)
 							errorHash := fnvHash(exec.Error)
 
@@ -305,32 +359,13 @@ func (h *TaskHandler) StreamLogs(c *gin.Context) {
 								lastOutputHash = outputHash
 								lastErrorHash = errorHash
 
-								var outputStr *string
-								if exec.Output != "" {
-									outputStr = &exec.Output
-								}
-								var errorStr *string
-								if exec.Error != "" {
-									errorStr = &exec.Error
-								}
-
-								// 构造 execution 更新事件
-								var startTime, endTime *string
-								if exec.StartTime.Valid {
-									t := exec.StartTime.Time.UTC().Format(time.RFC3339)
-									startTime = &t
-								}
-								if exec.EndTime.Valid {
-									t := exec.EndTime.Time.UTC().Format(time.RFC3339)
-									endTime = &t
-								}
 								data, _ := json.Marshal(map[string]interface{}{
 									"type":       "execution_update",
 									"status":     exec.Status,
-									"output":     outputStr,
-									"error":      errorStr,
-									"start_time": startTime,
-									"end_time":   endTime,
+									"output":     safeString(exec.Output),
+									"error":      safeString(exec.Error),
+									"start_time": safeTimePtr(exec.StartTime.Time),
+									"end_time":   safeTimePtr(exec.EndTime.Time),
 								})
 								c.Writer.Write([]byte("data: " + string(data) + "\n\n"))
 								c.Writer.Flush()
@@ -358,14 +393,54 @@ func fnvHash(s string) uint64 {
 	return h
 }
 
-// TaskLogResponse 用于 API 返回的任务日志
+type TaskExecutionResponse struct {
+	ID           int64   `json:"id"`
+	TaskID       int64   `json:"task_id"`
+	ExecutionID  string  `json:"execution_id"`
+	ExecutorID   string  `json:"executor_id"`
+	ExecutorName *string `json:"executor_name,omitempty"`
+	TaskName    *string `json:"task_name,omitempty"`
+	TaskType    *string `json:"task_type,omitempty"`
+	Status      string  `json:"status"`
+	StartTime   *string `json:"start_time,omitempty"`
+	EndTime     *string `json:"end_time,omitempty"`
+	Output      string  `json:"output,omitempty"`
+	Error       string  `json:"error,omitempty"`
+	RetryTimes  int32   `json:"retry_times"`
+	CreatedAt   string  `json:"created_at"`
+}
+
+func toTaskExecutionResponse(exec *model.TaskExecution) *TaskExecutionResponse {
+	resp := &TaskExecutionResponse{
+		ID:          exec.ID,
+		TaskID:      exec.TaskID,
+		ExecutionID: exec.ExecutionID,
+		ExecutorID:  exec.ExecutorID,
+		Status:      exec.Status,
+		Output:      exec.Output,
+		Error:       exec.Error,
+		RetryTimes:  exec.RetryTimes,
+		CreatedAt:   exec.CreatedAt.UTC().Format(TimeResponseFormat),
+	}
+
+	if exec.StartTime.Valid {
+		resp.StartTime = safeTimePtr(exec.StartTime.Time)
+	}
+	if exec.EndTime.Valid {
+		resp.EndTime = safeTimePtr(exec.EndTime.Time)
+	}
+
+	return resp
+}
+
 type TaskLogResponse struct {
 	ID          int64  `json:"id"`
 	ExecutionID string `json:"execution_id"`
 	TaskID      int64  `json:"task_id"`
-	NodeID      string `json:"node_id"`
-	LogLevel    string `json:"log_level"`
-	Message     string `json:"message"`
+	ExecutorID  string `json:"executor_id,omitempty"`
+	NodeID      string `json:"node_id,omitempty"`
+	LogLevel    string `json:"log_level,omitempty"`
+	Message     string `json:"message,omitempty"`
 	LogTime     string `json:"log_time"`
 }
 
@@ -374,24 +449,27 @@ func toTaskLogResponse(tl *model.TaskLog) *TaskLogResponse {
 		ID:          tl.ID,
 		ExecutionID: tl.ExecutionID,
 		TaskID:      tl.TaskID,
+		ExecutorID:  tl.ExecutorID,
 		NodeID:      tl.NodeID,
 		LogLevel:    tl.LogLevel,
 		Message:     tl.Message,
-		LogTime:     tl.LogTime.UTC().Format(time.RFC3339),
+		LogTime:     tl.LogTime.UTC().Format(TimeResponseFormat),
 	}
 }
 
 func (h *TaskHandler) ExecutionLogs(c *gin.Context) {
 	executionID := c.Param("executionId")
-	if executionID == "" {
-		c.JSON(400, gin.H{"error": "executionId required"})
+	if safeString(executionID) == "" {
+		slog.Warn("TaskHandler.ExecutionLogs: executionId required")
+		c.JSON(http.StatusBadRequest, gin.H{"error": "executionId required"})
 		return
 	}
 
 	ctx := c.Request.Context()
 	logs, err := h.svc.GetTaskLogs(ctx, executionID)
 	if err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+		slog.Error("TaskHandler.ExecutionLogs: failed to get logs", "execution_id", executionID, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -400,7 +478,7 @@ func (h *TaskHandler) ExecutionLogs(c *gin.Context) {
 		response = append(response, toTaskLogResponse(log))
 	}
 
-	c.JSON(200, response)
+	c.JSON(http.StatusOK, response)
 }
 
 func escapeJSON(s string) string {

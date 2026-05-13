@@ -54,16 +54,18 @@ func (e *TaskExecutor) Execute(ctx context.Context, task *pb.Task, client *grpcc
 	sendLog(client, task, "info", fmt.Sprintf("Task execution finished, status: %s", status))
 
 	now := time.Now().Unix()
-	client.ReportResult(&pb.ReportTaskResultRequest{
-		ExecutionId: task.ExecutionId,
-		TaskId:      task.TaskId,
-		Status:      status,
-		Output:      output,
-		Error:       errorMsg,
-		StartTime:   now,
-		EndTime:     time.Now().Unix(),
-		RetryTimes:  0,
-	})
+	if client != nil {
+		client.ReportResult(&pb.ReportTaskResultRequest{
+			ExecutionId: task.ExecutionId,
+			TaskId:      task.TaskId,
+			Status:      status,
+			Output:      output,
+			Error:       errorMsg,
+			StartTime:   now,
+			EndTime:     time.Now().Unix(),
+			RetryTimes:  0,
+		})
+	}
 }
 
 func (e *TaskExecutor) executeTask(ctx context.Context, task *pb.Task, client *grpcclient.Client) (string, error) {
@@ -208,6 +210,9 @@ func (e *TaskExecutor) executeShell(ctx context.Context, task *pb.Task, client *
 
 // 发送 stdout/stderr 的特殊日志
 func sendOutputLog(client *grpcclient.Client, task *pb.Task, logType string, message string) {
+	if client == nil {
+		return
+	}
 	err := client.ReportLog(&pb.ReportTaskLogRequest{
 		ExecutionId: task.ExecutionId,
 		TaskId:      task.TaskId,
@@ -221,6 +226,9 @@ func sendOutputLog(client *grpcclient.Client, task *pb.Task, logType string, mes
 }
 
 func sendLog(client *grpcclient.Client, task *pb.Task, level string, message string) {
+	if client == nil {
+		return
+	}
 	err := client.ReportLog(&pb.ReportTaskLogRequest{
 		ExecutionId: task.ExecutionId,
 		TaskId:      task.TaskId,
