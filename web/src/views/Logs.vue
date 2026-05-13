@@ -1,10 +1,5 @@
 <template>
-  <div class="logs-container">
-    <div class="page-header">
-      <h2>任务执行历史</h2>
-      <p>查看所有任务的执行记录和详细日志</p>
-    </div>
-
+  <div class="logs-page">
     <div class="main-content">
       <div class="executions-section" :class="{ 'with-logs': showLogs }">
         <!-- 筛选栏 -->
@@ -184,7 +179,13 @@
         </div>
 
         <div class="empty-state" v-if="!loading && (!executions || executions.length === 0)">
-          <el-empty description="暂无执行记录" />
+          <div class="empty-icon">
+            <el-icon :size="64"><Document /></el-icon>
+          </div>
+          <div class="empty-text">
+            <h3>暂无执行记录</h3>
+            <p>暂无任务执行历史记录</p>
+          </div>
         </div>
       </div>
 
@@ -204,7 +205,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Refresh, Delete } from '@element-plus/icons-vue'
+import { Refresh, Delete, Document } from '@element-plus/icons-vue'
 import { logAPI, taskAPI, executorAPI } from '@/api'
 import TaskLogViewer from '@/components/TaskLogViewer.vue'
 import type { TaskExecutionListResponse, Task, Executor } from '@/types'
@@ -361,7 +362,7 @@ const loadExecutors = async () => {
 const loadTasks = async () => {
   try {
     const response = await taskAPI.list()
-    tasks.value = response.data || []
+    tasks.value = response.data?.items || []
   } catch (error) {
     console.error('加载任务列表失败', error)
   }
@@ -448,89 +449,66 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.logs-container {
+.logs-page {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: var(--space-4);
+  padding-bottom: var(--space-6);
   height: 100%;
-  padding: 0;
 }
 
-.page-header {
-  background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ed 100%);
-  padding: 20px 24px;
-  border-radius: 12px;
-  border: 1px solid #e2e8f0;
-}
-
-.page-header h2 {
-  margin: 0;
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: #1e293b;
-}
-
-.page-header p {
-  margin: 8px 0 0;
-  color: #64748b;
-  font-size: 0.9375rem;
-}
-
+/* Main Content */
 .main-content {
   display: flex;
-  gap: 20px;
-  flex: 1;
+  gap: var(--space-4);
   min-height: 0;
+  flex: 1;
 }
 
+/* Executions Section */
 .executions-section {
-  flex: 1;
-  background: #ffffff;
-  border-radius: 12px;
-  border: 1px solid #e2e8f0;
-  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
-  overflow: hidden;
   display: flex;
   flex-direction: column;
+  gap: var(--space-4);
+  flex: 1;
   min-width: 0;
+  overflow: hidden;
 }
 
 .executions-section.with-logs {
   flex: 0 0 60%;
 }
 
-.table-wrapper {
-  flex: 1;
-  overflow: hidden;
+/* Filter Bar */
+.filter-bar {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  box-shadow: var(--shadow-sm);
   display: flex;
   flex-direction: column;
-  min-height: 400px;
-}
-
-.filter-bar {
-  background: linear-gradient(to bottom, #f8fafc 0%, #ffffff 100%);
-  padding: 20px;
-  border-bottom: 1px solid #e2e8f0;
+  gap: var(--space-3);
 }
 
 .filter-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 16px;
-  margin-bottom: 16px;
+  gap: var(--space-3);
 }
 
 .filter-item {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-1);
 }
 
 .filter-label {
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   font-weight: 500;
-  color: #475569;
-  margin: 0;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 .filter-select {
@@ -539,56 +517,74 @@ onMounted(() => {
 
 .filter-actions {
   display: flex;
-  gap: 12px;
+  gap: var(--space-3);
   justify-content: flex-end;
-  border-top: 1px solid #f1f5f9;
-  padding-top: 16px;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: var(--space-3);
 }
 
 .refresh-btn {
   font-weight: 500;
-  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
   border: none;
+  box-shadow: var(--shadow-sm);
+  transition: all var(--duration-normal) var(--ease-out);
 }
 
 .refresh-btn:hover {
-  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
 }
 
 .delete-btn {
   font-weight: 500;
-  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  background: linear-gradient(135deg, var(--accent-danger) 0%, #dc2626 100%);
   border: none;
+  box-shadow: var(--shadow-sm);
+  transition: all var(--duration-normal) var(--ease-out);
 }
 
 .delete-btn:hover {
-  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
 }
 
-.pagination-container {
-  padding: 20px;
-  display: flex;
-  justify-content: flex-end;
-  background: #f8fafc;
-  border-top: 1px solid #e2e8f0;
-}
-
-.empty-state {
-  padding: 60px 20px;
+/* Table */
+.table-wrapper {
   flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.logs-section {
-  flex: 1;
-  min-width: 400px;
-  background: #ffffff;
-  border-radius: 12px;
-  border: 1px solid #e2e8f0;
-  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+:deep(.el-table) {
+  border-radius: var(--radius-lg);
+}
+
+:deep(.el-table--border::after),
+:deep(.el-table--group::after),
+:deep(.el-table::before) {
+  display: none;
+}
+
+:deep(.el-table tr) {
+  transition: background-color var(--duration-normal) var(--ease-out);
+}
+
+:deep(.el-table .current-row) {
+  background-color: rgba(59, 130, 246, 0.08) !important;
+}
+
+:deep(.el-table .current-row:hover > td) {
+  background-color: rgba(59, 130, 246, 0.12) !important;
+}
+
+:deep(.el-table__row:hover) {
+  background-color: var(--bg-secondary) !important;
 }
 
 .status-dot {
@@ -596,41 +592,155 @@ onMounted(() => {
   height: 8px;
   border-radius: 50%;
   display: inline-block;
-  margin-right: 6px;
-}
-
-.dot-info {
-  background: #60a5fa;
+  margin-right: 8px;
   box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.2);
 }
 
-.dot-warning {
-  background: #f59e0b;
-  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.2);
-}
-
 .dot-success {
-  background: #22c55e;
+  background: var(--accent-success);
   box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.2);
 }
 
+.dot-warning {
+  background: var(--accent-warning);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.2);
+}
+
+.dot-info {
+  background: var(--accent-primary);
+  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.2);
+}
+
 .dot-danger {
-  background: #ef4444;
+  background: var(--accent-danger);
   box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2);
 }
 
-:deep(.el-table .current-row) {
-  background-color: #eff6ff !important;
+/* Empty State */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-12) var(--space-6);
+  gap: var(--space-4);
+  text-align: center;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
 }
 
-:deep(.el-table .current-row:hover > td) {
-  background-color: #dbeafe !important;
+.empty-icon {
+  color: var(--text-muted);
+  opacity: 0.5;
+  animation: float 3s ease-in-out infinite;
 }
 
-:deep(.el-pagination.is-background .el-pager li.is-active) {
-  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
 }
 
+.empty-text h3 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin: 0 0 var(--space-2) 0;
+}
+
+.empty-text p {
+  font-size: 0.9375rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* Pagination */
+.pagination-container {
+  display: flex;
+  justify-content: flex-end;
+  padding: var(--space-4);
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.pagination-container :deep(.el-pagination) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pagination-container :deep(.el-pagination__total) {
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.pagination-container :deep(.el-pagination__sizes) .el-select .el-input__wrapper {
+  border-radius: var(--radius-md);
+  box-shadow: 0 0 0 1px var(--border-default) inset;
+  transition: all var(--duration-normal) var(--ease-out);
+}
+
+.pagination-container :deep(.el-pagination__sizes) .el-select .el-input__wrapper:hover {
+  box-shadow: 0 0 0 1px var(--accent-primary) inset;
+}
+
+.pagination-container :deep(.el-pager li) {
+  border-radius: var(--radius-md);
+  margin: 0 4px;
+  transition: all var(--duration-normal) var(--ease-out);
+  font-weight: 500;
+  height: 36px;
+  min-width: 36px;
+  line-height: 36px;
+}
+
+.pagination-container :deep(.el-pager li:not(.is-active)) {
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+}
+
+.pagination-container :deep(.el-pager li:not(.is-active):hover) {
+  color: var(--accent-primary);
+  background: var(--bg-primary);
+  transform: translateY(-1px);
+}
+
+.pagination-container :deep(.el-pager li.is-active) {
+  background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+  color: white;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+}
+
+.pagination-container :deep(.btn-prev),
+.pagination-container :deep(.btn-next) {
+  border-radius: var(--radius-md);
+  transition: all var(--duration-normal) var(--ease-out);
+  height: 36px;
+  width: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pagination-container :deep(.btn-prev:hover),
+.pagination-container :deep(.btn-next:hover) {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Logs Section */
+.logs-section {
+  flex: 1;
+  min-width: 400px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Responsive */
 @media (max-width: 1200px) {
   .main-content {
     flex-direction: column;
@@ -642,25 +752,13 @@ onMounted(() => {
   
   .logs-section {
     min-width: 100%;
-    height: 400px;
+    height: 500px;
   }
 }
 
 @media (max-width: 768px) {
-  .logs-container {
-    gap: 12px;
-  }
-  
-  .page-header {
-    padding: 16px;
-  }
-  
-  .page-header h2 {
-    font-size: 1.25rem;
-  }
-  
-  .filter-bar {
-    padding: 16px;
+  .logs-page {
+    gap: var(--space-3);
   }
   
   .filter-grid {

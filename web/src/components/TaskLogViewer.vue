@@ -1,15 +1,23 @@
 <template>
   <div class="task-log-viewer">
-    <div class="log-header">
+    <div class="log-header" v-if="!props.inDialog">
       <div class="log-title">
         <el-icon><Document /></el-icon>
-        <span>执行详情</span>
+        <span v-if="props.taskName">{{ props.taskName }}</span>
+        <span v-else>执行详情</span>
         <el-tag v-if="executionStatus" :type="statusTagType" size="small" class="status-tag">
           {{ statusText }}
         </el-tag>
       </div>
       <div class="log-actions">
         <el-button :icon="Close" size="small" text @click="$emit('close')">关闭</el-button>
+      </div>
+    </div>
+    <div class="log-header in-dialog" v-else>
+      <div class="log-title">
+        <el-tag v-if="executionStatus" :type="statusTagType" size="small" class="status-tag">
+          {{ statusText }}
+        </el-tag>
       </div>
     </div>
 
@@ -88,8 +96,10 @@ interface LogEntry {
 const props = defineProps<{
   executionId: string
   executionStatus?: string
+  taskName?: string
   output?: string
   error?: string
+  inDialog?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -335,6 +345,12 @@ const formatLogTime = (timeStr: string | number | undefined): string => {
   padding: 14px 18px;
   background: #161b22;
   border-bottom: 1px solid #30363d;
+}
+
+.log-header.in-dialog {
+  padding: 12px 18px;
+  background: transparent;
+  border-bottom: none;
 }
 
 .log-title {

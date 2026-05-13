@@ -1,415 +1,703 @@
 <template>
   <div class="tasks-page">
-    <div class="action-bar">
-      <el-button :icon="Plus" type="primary" size="default" @click="handleCreate" class="create-btn">
-        <span>创建任务</span>
-      </el-button>
-    </div>
-
-    <div class="tasks-content">
-      <div class="tasks-table-section" :class="{ 'with-logs': showLogs }">
-        <div class="table-wrapper">
-          <el-table 
-            :data="tasks" 
-            stripe 
-            v-loading="loading" 
-            class="tasks-table"
-            :header-cell-style="{ background: '#f8fafc', color: '#475569', fontWeight: 600 }"
-            :cell-style="{ padding: '12px 16px' }"
-          >
-            <el-table-column prop="id" label="ID" width="70" align="center" />
-            <el-table-column prop="name" label="任务名称" min-width="200">
-              <template #default="{ row }">
-                <div class="task-name-cell">
-                  <div class="type-icon-wrapper" :style="{ background: getTypeBg(row.type) }">
-                    <el-icon :size="18" :color="getTypeColor(row.type)">
-                      <component :is="getTypeIcon(row.type)" />
-                    </el-icon>
-                  </div>
-                  <div class="task-info">
-                    <div class="task-name">{{ row.name }}</div>
-                    <div class="task-id">ID: {{ row.id }}</div>
-                  </div>
-                </div>
-              </template>
-            </el-table-column>
-            <el-table-column prop="type" label="类型" width="120" align="center">
-              <template #default="{ row }">
-                <div class="type-badge" :class="row.type">
-                  <el-icon :size="14">
-                    <component :is="getTypeIcon(row.type)" />
-                  </el-icon>
-                  <span>{{ getTypeLabel(row.type) }}</span>
-                </div>
-              </template>
-            </el-table-column>
-            <el-table-column prop="cron_expression" label="Cron表达式" min-width="180">
-              <template #default="{ row }">
-                <div class="cron-cell">
-                  <code class="cron-code" v-if="row.cron_expression">{{ row.cron_expression }}</code>
-                  <span v-else class="text-muted">
-                    <el-icon><Clock /></el-icon>
-                    <span>手动触发</span>
-                  </span>
-                </div>
-              </template>
-            </el-table-column>
-            <el-table-column prop="status" label="状态" width="110" align="center">
-              <template #default="{ row }">
-                <div class="status-wrapper">
-                  <span class="status-dot" :class="getStatusDot(row.status)"></span>
-                  <el-tag :type="getStatusTag(row.status)" size="default" effect="light" class="status-tag">
-                    {{ getStatusText(row.status) }}
-                  </el-tag>
-                </div>
-              </template>
-            </el-table-column>
-            <el-table-column label="操作" width="280" fixed="right" align="center">
-              <template #default="{ row }">
-                <div class="action-btns">
-                  <el-button
-                    :icon="VideoPlay"
-                    size="small"
-                    type="primary"
-                    @click="handleTrigger(row)"
-                    :loading="triggeringId === row.id"
-                    class="run-btn"
-                  >
-                    运行
-                  </el-button>
-                  <div class="icon-btns">
-                    <el-button 
-                      :icon="View" 
-                      size="small" 
-                      circle
-                      @click="handleViewLogs(row)" 
-                      class="icon-btn log-btn"
-                    />
-                    <el-button 
-                      :icon="Edit" 
-                      size="small" 
-                      circle
-                      @click="handleEdit(row)" 
-                      class="icon-btn edit-btn"
-                    />
-                    <el-button 
-                      :icon="Delete" 
-                      size="small" 
-                      circle
-                      type="danger" 
-                      @click="handleDelete(row)" 
-                      class="icon-btn delete-btn"
-                    />
-                  </div>
-                </div>
-              </template>
-            </el-table-column>
-          </el-table>
+    <!-- Stats Cards -->
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-icon stat-icon-primary">
+          <el-icon :size="24"><List /></el-icon>
         </div>
-        
-        <div class="empty-state" v-if="!loading && tasks.length === 0">
-          <el-empty description="暂无任务，点击右上角创建">
-            <el-button :icon="Plus" type="primary" @click="handleCreate">创建任务</el-button>
-          </el-empty>
+        <div class="stat-content">
+          <div class="stat-value">{{ tasks.length }}</div>
+          <div class="stat-label">总任务数</div>
         </div>
       </div>
+      <div class="stat-card">
+        <div class="stat-icon stat-icon-success">
+          <el-icon :size="24"><CircleCheck /></el-icon>
+        </div>
+        <div class="stat-content">
+          <div class="stat-value">{{ enabledTasks }}</div>
+          <div class="stat-label">启用</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon stat-icon-warning">
+          <el-icon :size="24"><Clock /></el-icon>
+        </div>
+        <div class="stat-content">
+          <div class="stat-value">{{ cronTasks }}</div>
+          <div class="stat-label">定时任务</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon stat-icon-info">
+          <el-icon :size="24"><Timer /></el-icon>
+        </div>
+        <div class="stat-content">
+          <div class="stat-value">{{ manualTasks }}</div>
+          <div class="stat-label">手动任务</div>
+        </div>
+      </div>
+    </div>
 
-      <div class="log-section" v-if="showLogs">
-        <TaskLogViewer
-          :execution-id="activeExecutionId"
-          :execution-status="activeExecutionStatus"
-          @close="showLogs = false"
+    <!-- Toolbar -->
+    <div class="page-toolbar">
+      <div class="toolbar-left">
+        <el-input
+          v-model="searchQuery"
+          placeholder="搜索任务..."
+          :prefix-icon="Search"
+          class="search-input"
+          clearable
         />
+        <el-select v-model="filterType" placeholder="任务类型" clearable class="filter-select">
+          <el-option label="HTTP" value="http" />
+          <el-option label="Shell" value="shell" />
+        </el-select>
+        <el-select v-model="filterStatus" placeholder="状态" clearable class="filter-select">
+          <el-option label="启用" :value="true" />
+          <el-option label="停用" :value="false" />
+        </el-select>
+      </div>
+      <div class="toolbar-right">
+        <el-button :icon="Refresh" @click="loadTasks" :loading="loading">刷新</el-button>
+        <el-button type="primary" :icon="Plus" @click="handleCreate">
+          创建任务
+        </el-button>
       </div>
     </div>
 
+    <!-- Tasks Grid -->
+    <div v-loading="loading" class="tasks-grid">
+      <div
+        v-for="task in pagedTasks"
+        :key="task.id"
+        class="task-card"
+        :class="{ 'task-card-disabled': !task.is_enabled }"
+      >
+        <div class="task-card-header">
+          <div class="task-type-badge" :class="task.type">
+            <el-icon :size="18">
+              <component :is="getTypeIcon(task.type)" />
+            </el-icon>
+          </div>
+          <div class="task-status-toggle">
+            <el-switch
+              v-model="task.is_enabled"
+              @change="() => handleToggleStatus(task)"
+              :loading="toggleLoading === task.id"
+              size="small"
+            />
+          </div>
+        </div>
+
+        <div class="task-card-body">
+          <h3 class="task-name">{{ task.name }}</h3>
+          <p class="task-id">ID: {{ task.id }}</p>
+
+          <div class="task-meta">
+            <div class="meta-item" v-if="task.cron_expression">
+              <el-icon><Calendar /></el-icon>
+              <span class="meta-value">{{ task.cron_expression }}</span>
+            </div>
+            <div class="meta-item">
+              <el-icon><Clock /></el-icon>
+              <span class="meta-value">{{ task.cron_expression ? '定时' : '手动' }}</span>
+            </div>
+            <div class="meta-item">
+              <el-icon><Timer /></el-icon>
+              <span class="meta-value">
+                {{ task.timeout_seconds }}s 超时
+              </span>
+            </div>
+          </div>
+
+          <div class="task-execution">
+            <div class="execution-info" v-if="task.is_enabled && task.next_execution_time">
+              <div class="execution-label">下次执行</div>
+              <div class="execution-time">
+                <el-icon :size="14"><Timer /></el-icon>
+                {{ formatDateTime(task.next_execution_time) }}
+              </div>
+            </div>
+            <div class="execution-info" v-if="task.last_execution_status">
+              <div class="execution-label">上次执行</div>
+              <div class="execution-result" :class="getResultClass(task.last_execution_status)">
+                <span class="result-dot"></span>
+                {{ getResultText(task.last_execution_status) }}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="task-card-footer">
+          <div class="task-actions">
+            <el-button
+              type="primary"
+              size="small"
+              :icon="VideoPlay"
+              @click="handleTrigger(task)"
+              :loading="triggeringId === task.id"
+            >
+              运行
+            </el-button>
+            <el-button
+              size="small"
+              :icon="View"
+              @click="handleViewLastExecution(task)"
+            >
+              日志
+            </el-button>
+            <el-button
+              size="small"
+              :icon="DocumentCopy"
+              @click="handleViewHistory(task)"
+            >
+              历史
+            </el-button>
+            <el-button
+              size="small"
+              :icon="Edit"
+              @click="handleEdit(task)"
+            >
+              编辑
+            </el-button>
+            <el-button
+              size="small"
+              :icon="Delete"
+              type="danger"
+              @click="handleDelete(task)"
+            >
+              删除
+            </el-button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Empty State -->
+      <div v-if="!loading && filteredTasks.length === 0" class="empty-state">
+        <div class="empty-icon">
+          <el-icon :size="64"><Document /></el-icon>
+        </div>
+        <div class="empty-text">
+          <h3>暂无任务</h3>
+          <p>点击右上角按钮创建第一个任务</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Pagination -->
+    <div v-if="filteredTasks.length > 0" class="pagination-container">
+      <el-pagination
+        v-model:current-page="currentPage"
+        v-model:page-size="pageSize"
+        :page-sizes="[10, 20, 50, 100]"
+        :total="filteredTasks.length"
+        layout="total, sizes, prev, pager, next, jumper"
+        :pager-count="5"
+      />
+    </div>
+
+    <!-- Task Form Dialog -->
     <el-dialog
       v-model="dialogVisible"
-      :title="isEdit ? '编辑任务' : '创建任务'"
-      width="720px"
-      :close-on-click-modal="false"
-      destroy-on-close
+      :title="editingTask ? '编辑任务' : '创建任务'"
+      width="700px"
       class="task-dialog"
+      @close="handleDialogClose"
     >
-      <el-form :model="taskForm" label-position="top" class="task-form">
-        <div class="form-row">
-          <el-form-item label="任务名称" required class="form-item-full">
-            <el-input v-model="taskForm.name" placeholder="输入任务名称" size="large" />
-          </el-form-item>
-        </div>
+      <el-form ref="formRef" :model="form" :rules="rules" label-width="100px" class="task-form">
+        <el-form-item label="任务名称" prop="name">
+          <el-input v-model="form.name" placeholder="输入任务名称" />
+        </el-form-item>
 
-        <div class="form-row">
-          <el-form-item label="任务类型" class="form-item-half">
-            <el-select v-model="taskForm.type" @change="handleTypeChange" style="width:100%" size="large">
-              <el-option label="HTTP 请求" value="http" />
-              <el-option label="Shell 脚本" value="shell" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="超时(秒)" class="form-item-half">
-            <el-input-number v-model="taskForm.timeout_seconds" :min="1" :max="3600" style="width:100%" size="large" />
-          </el-form-item>
-        </div>
+        <el-row :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="任务类型" prop="type">
+              <el-select v-model="form.type" placeholder="选择任务类型" style="width: 100%">
+                <el-option label="HTTP" value="http">
+                  <span class="type-option">
+                    <el-icon><Position /></el-icon>
+                    HTTP
+                  </span>
+                </el-option>
+                <el-option label="Shell" value="shell">
+                  <span class="type-option">
+                    <el-icon><Operation /></el-icon>
+                    Shell
+                  </span>
+                </el-option>
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="超时时间" prop="timeout_seconds">
+              <el-input-number
+                v-model="form.timeout_seconds"
+                :min="1"
+                :max="3600"
+                placeholder="秒"
+                style="width: 100%"
+              />
+            </el-form-item>
+          </el-col>
+        </el-row>
 
-        <div class="form-row">
-          <el-form-item label="调度配置 (Cron表达式)" class="form-item-full">
-            <CronEditor v-model="taskForm.cron_expression" />
-          </el-form-item>
-        </div>
-
-        <div class="form-row">
-          <el-form-item label="任务配置" class="form-item-full">
-            <div class="config-card">
-              <template v-if="taskForm.type === 'http'">
-                <el-input v-model="httpConfig.url" placeholder="请求URL" class="config-input" size="large" />
-                <div class="config-row">
-                  <el-select v-model="httpConfig.method" style="width:140px" size="large">
-                    <el-option label="GET" value="GET" />
-                    <el-option label="POST" value="POST" />
-                    <el-option label="PUT" value="PUT" />
-                    <el-option label="DELETE" value="DELETE" />
-                  </el-select>
-                  <el-input
-                    v-model="httpConfig.body"
-                    type="textarea"
-                    :rows="4"
-                    placeholder="请求体 (JSON)"
-                    class="config-textarea"
-                    size="large"
-                  />
-                </div>
+        <el-form-item label="Cron 表达式" prop="cron_expression">
+          <div class="cron-input-wrapper">
+            <el-input v-model="form.cron_expression" placeholder="留空则为手动触发任务" clearable>
+              <template #suffix>
+                <div class="cron-hint">秒 分 时 日 月 周</div>
               </template>
-              <template v-else>
+            </el-input>
+          </div>
+        </el-form-item>
+
+        <el-form-item label="任务配置" prop="config">
+          <div class="config-card">
+            <div v-if="form.type === 'http'" class="config-http">
+              <el-form-item label="URL" prop="config.url" class="config-input">
+                <el-input v-model="form.config.url" placeholder="https://example.com" />
+              </el-form-item>
+              <el-row :gutter="16">
+                <el-col :span="12">
+                  <el-form-item label="方法" prop="config.method" class="config-input">
+                    <el-select v-model="form.config.method" style="width: 100%">
+                      <el-option label="GET" value="GET" />
+                      <el-option label="POST" value="POST" />
+                      <el-option label="PUT" value="PUT" />
+                      <el-option label="DELETE" value="DELETE" />
+                    </el-select>
+                  </el-form-item>
+                </el-col>
+                <el-col :span="12">
+                  <el-form-item label="超时" prop="config.timeout" class="config-input">
+                    <el-input-number
+                      v-model="form.config.timeout"
+                      :min="1"
+                      :max="300"
+                      style="width: 100%"
+                    />
+                  </el-form-item>
+                </el-col>
+              </el-row>
+              <el-form-item label="请求头" prop="config.headers" class="config-input">
                 <el-input
-                  v-model="shellConfig.script"
+                  v-model="form.config.headers"
+                  type="textarea"
+                  :rows="3"
+                  placeholder='{"Authorization": "Bearer xxx"}'
+                />
+              </el-form-item>
+              <el-form-item label="请求体" prop="config.body" class="config-input">
+                <el-input
+                  v-model="form.config.body"
+                  type="textarea"
+                  :rows="3"
+                  placeholder="请求体内容"
+                />
+              </el-form-item>
+            </div>
+            <div v-if="form.type === 'shell'" class="config-shell">
+              <el-form-item label="脚本" prop="config.script" class="config-input">
+                <el-input
+                  v-model="form.config.script"
                   type="textarea"
                   :rows="8"
-                  placeholder="输入 Shell 脚本"
-                  class="config-textarea"
-                  size="large"
+                  placeholder="echo 'Hello World'"
+                  class="code-textarea"
                 />
-              </template>
+              </el-form-item>
             </div>
-          </el-form-item>
-        </div>
+          </div>
+        </el-form-item>
 
-        <div class="form-row">
-          <el-form-item label="重试次数" class="form-item-third">
-            <el-input-number v-model="taskForm.retry_count" :min="0" :max="10" style="width:100%" size="large" />
-          </el-form-item>
-          <el-form-item label="重试间隔(秒)" class="form-item-third">
-            <el-input-number v-model="taskForm.retry_interval" :min="1" :max="300" style="width:100%" size="large" />
-          </el-form-item>
-          <el-form-item label="启用" class="form-item-third">
-            <div class="switch-wrapper">
-              <el-switch v-model="taskForm.is_enabled" size="large" />
-              <span class="switch-text">{{ taskForm.is_enabled ? '已启用' : '已禁用' }}</span>
-            </div>
-          </el-form-item>
-        </div>
+        <el-row :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="失败重试" prop="retry_max">
+              <el-input-number
+                v-model="form.retry_max"
+                :min="0"
+                :max="10"
+                placeholder="重试次数"
+                style="width: 100%"
+              />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="重试间隔" prop="retry_delay_seconds">
+              <el-input-number
+                v-model="form.retry_delay_seconds"
+                :min="1"
+                :max="300"
+                placeholder="秒"
+                style="width: 100%"
+              />
+            </el-form-item>
+          </el-col>
+        </el-row>
+
+        <el-form-item label="初始状态">
+          <div class="switch-wrapper">
+            <el-switch v-model="form.is_enabled" size="large" />
+            <span class="switch-text">{{ form.is_enabled ? '任务将立即启用' : '任务将处于停用状态' }}</span>
+          </div>
+        </el-form-item>
       </el-form>
 
       <template #footer>
         <div class="dialog-footer">
-          <el-button @click="dialogVisible = false" size="large">取消</el-button>
-          <el-button type="primary" @click="handleSubmit" :loading="submitting" size="large">
-            {{ isEdit ? '保存' : '创建' }}
+          <el-button @click="dialogVisible = false">取消</el-button>
+          <el-button type="primary" @click="handleSubmit" :loading="submitting">
+            保存
           </el-button>
         </div>
       </template>
+    </el-dialog>
+
+    <!-- Task Log Viewer Dialog - 显示最后一次执行日志 -->
+    <el-dialog
+      v-model="logViewerVisible"
+      :title="selectedTaskName"
+      width="80%"
+      class="log-dialog"
+      destroy-on-close
+    >
+      <TaskLogViewer
+        v-if="selectedExecutionId"
+        :execution-id="selectedExecutionId"
+        :execution-status="selectedExecutionStatus"
+        :task-name="selectedTaskName"
+        :in-dialog="true"
+        @close="logViewerVisible = false"
+      />
+      <div v-else class="no-execution">
+        <el-icon :size="48"><Document /></el-icon>
+        <p>暂无执行记录</p>
+      </div>
     </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, computed } from 'vue'
-import { Plus, VideoPlay, Edit, Delete, View, Link, Monitor, Clock } from '@element-plus/icons-vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ref, computed, onMounted, nextTick, watch } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
+import { ElMessage, ElMessageBox, FormInstance, FormRules } from 'element-plus'
+import {
+  Plus,
+  List,
+  Edit,
+  Delete,
+  View,
+  Document,
+  Search,
+  Refresh,
+  Timer,
+  Clock,
+  Position,
+  Operation,
+  Calendar,
+  VideoPlay,
+  CircleCheck,
+  Loading,
+  DocumentCopy
+} from '@element-plus/icons-vue'
 import { taskAPI } from '@/api'
-import CronEditor from '@/components/CronEditor.vue'
+import type { Task, TaskConfig } from '@/types'
 import TaskLogViewer from '@/components/TaskLogViewer.vue'
-import type { Task } from '@/types'
+
+const router = useRouter()
+const route = useRoute()
 
 const tasks = ref<Task[]>([])
 const loading = ref(false)
-const dialogVisible = ref(false)
-const isEdit = ref(false)
 const submitting = ref(false)
+const toggleLoading = ref<number | null>(null)
 const triggeringId = ref<number | null>(null)
-const showLogs = ref(false)
-const activeExecutionId = ref('')
-const activeExecutionStatus = ref('')
+const dialogVisible = ref(false)
+const editingTask = ref<Task | null>(null)
+const formRef = ref<FormInstance>()
+const searchQuery = ref('')
+const filterType = ref<string | null>(null)
+const filterStatus = ref<boolean | null>(null)
+const currentPage = ref(1)
+const pageSize = ref(20)
 
-const taskForm = reactive<Record<string, any>>({
+const logViewerVisible = ref(false)
+const selectedTaskId = ref<number | null>(null)
+const selectedTaskName = ref('')
+const selectedExecutionId = ref<string | null>(null)
+const selectedExecutionStatus = ref<string | undefined>(undefined)
+
+const defaultForm = {
   name: '',
-  type: 'http',
-  config: '',
+  type: 'http' as const,
+  timeout_seconds: 60,
   cron_expression: '',
-  timeout_seconds: 300,
-  retry_count: 3,
-  retry_interval: 5,
-  is_enabled: true,
-  domain_id: 1,
+  config: {
+    url: '',
+    method: 'GET' as const,
+    timeout: 30,
+    headers: '',
+    body: '',
+    script: ''
+  } as TaskConfig,
+  retry_max: 0,
+  retry_delay_seconds: 5,
+  is_enabled: true
+}
+
+const form = ref({ ...defaultForm })
+
+const rules = {
+  name: [{ required: true, message: '请输入任务名称', trigger: 'blur' }],
+  type: [{ required: true, message: '请选择任务类型', trigger: 'change' }]
+} satisfies FormRules
+
+const enabledTasks = computed(() => tasks.value.filter(t => t.is_enabled).length)
+const cronTasks = computed(() => tasks.value.filter(t => t.cron_expression).length)
+const manualTasks = computed(() => tasks.value.filter(t => !t.cron_expression).length)
+
+const filteredTasks = computed(() => {
+  return tasks.value.filter(task => {
+    const matchSearch = !searchQuery.value ||
+      task.name.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
+      task.id.toString().includes(searchQuery.value)
+    const matchType = filterType.value == null || task.type === filterType.value
+    const matchStatus = filterStatus.value == null || task.is_enabled === filterStatus.value
+    return matchSearch && matchType && matchStatus
+  })
 })
 
-const httpConfig = reactive({ url: '', method: 'GET', body: '' })
-const shellConfig = reactive({ script: '' })
+const pagedTasks = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  const end = start + pageSize.value
+  return filteredTasks.value.slice(start, end)
+})
 
-const getTypeIcon = (type: string) => type === 'http' ? Link : Monitor
-const getTypeColor = (type: string) => type === 'http' ? '#2563eb' : '#d97706'
-const getTypeBg = (type: string) => type === 'http' ? '#eff6ff' : '#fffbeb'
-const getTypeTag = (type: string) => type === 'http' ? 'primary' : 'warning'
-const getTypeLabel = (type: string) => type === 'http' ? 'HTTP' : 'Shell'
-
-const getStatusTag = (status: string) => {
-  const map: Record<string, string> = { pending: 'info', running: 'warning', success: 'success', failed: 'danger' }
-  return map[status] || 'info'
+const getTypeIcon = (type: string) => {
+  return type === 'http' ? Position : Operation
 }
 
-const getStatusDot = (status: string) => {
-  const map: Record<string, string> = { pending: 'dot-info', running: 'dot-warning', success: 'dot-success', failed: 'dot-danger' }
-  return map[status] || 'dot-info'
+const getTypeColor = (type: string) => {
+  return type === 'http' ? '#3b82f6' : '#f59e0b'
 }
 
-const getStatusText = (status: string) => {
-  const map: Record<string, string> = { pending: '待执行', running: '运行中', success: '成功', failed: '失败' }
-  return map[status] || status
+const getTypeBg = (type: string) => {
+  return type === 'http' ? '#dbeafe' : '#fef3c7'
+}
+
+const getTypeLabel = (type: string) => {
+  return type === 'http' ? 'HTTP' : 'Shell'
+}
+
+const formatDateTime = (dateStr: string) => {
+  if (!dateStr) return '-'
+  const date = new Date(dateStr)
+  return date.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  })
+}
+
+const getResultClass = (status: string) => {
+  const map: Record<string, string> = {
+    success: 'success',
+    failed: 'failed',
+    running: 'running',
+    pending: 'pending'
+  }
+  return map[status] || 'none'
+}
+
+const getResultText = (status: string) => {
+  const map: Record<string, string> = {
+    success: '成功',
+    failed: '失败',
+    running: '运行中',
+    pending: '等待中'
+  }
+  return map[status] || '未执行'
+}
+
+const parseConfig = (config: string | TaskConfig): TaskConfig => {
+  if (typeof config === 'string') {
+    try {
+      return JSON.parse(config)
+    } catch {
+      return {}
+    }
+  }
+  return config || {}
+}
+
+const stringifyConfig = (config: TaskConfig | string): string => {
+  if (typeof config === 'string') {
+    return config
+  }
+  return JSON.stringify(config)
 }
 
 const loadTasks = async () => {
   loading.value = true
   try {
     const res = await taskAPI.list()
-    tasks.value = res.data || []
-  } catch (err) {
-    console.error('加载任务失败', err)
+    tasks.value = (res.data.items || []).map(task => {
+      if (task.config && typeof task.config === 'string') {
+        try {
+          return {
+            ...task,
+            config: JSON.parse(task.config)
+          }
+        } catch {
+        }
+      }
+      return task
+    })
+  } catch (err: any) {
+    ElMessage.error(err.message || '加载任务列表失败')
   } finally {
     loading.value = false
   }
 }
 
 const handleCreate = () => {
-  isEdit.value = false
-  delete taskForm.id
-  delete taskForm.workflow_id
-  Object.assign(taskForm, {
-    name: '',
-    type: 'http',
-    config: '',
-    cron_expression: '',
-    timeout_seconds: 300,
-    retry_count: 3,
-    retry_interval: 5,
-    is_enabled: true,
-    domain_id: 1,
-  })
-  httpConfig.url = ''
-  httpConfig.method = 'GET'
-  httpConfig.body = ''
-  shellConfig.script = ''
+  editingTask.value = null
+  form.value = { ...defaultForm }
   dialogVisible.value = true
 }
 
-const handleEdit = (row: Task) => {
-  isEdit.value = true
-  Object.assign(taskForm, row)
-  try {
-    const config = JSON.parse(row.config || '{}')
-    if (row.type === 'http') {
-      httpConfig.url = config.url || ''
-      httpConfig.method = config.method || 'GET'
-      httpConfig.body = config.body || ''
-    } else {
-      shellConfig.script = config.script || ''
-    }
-  } catch {
-    // ignore
+const handleEdit = (task: Task) => {
+  editingTask.value = task
+  const parsedConfig = parseConfig(task.config)
+  form.value = {
+    name: task.name,
+    type: task.type,
+    timeout_seconds: task.timeout_seconds,
+    cron_expression: task.cron_expression || '',
+    config: { ...parsedConfig },
+    retry_max: task.retry_count,
+    retry_delay_seconds: task.retry_interval,
+    is_enabled: task.is_enabled
   }
   dialogVisible.value = true
-}
-
-const handleTypeChange = () => {
-  // reset config when type changes
-}
-
-const buildConfig = (): string => {
-  if (taskForm.type === 'http') {
-    return JSON.stringify({
-      url: httpConfig.url,
-      method: httpConfig.method,
-      body: httpConfig.body,
-    })
-  }
-  return JSON.stringify({
-    script: shellConfig.script,
-  })
 }
 
 const handleSubmit = async () => {
-  submitting.value = true
-  try {
-    const payload = { ...taskForm, config: buildConfig() }
-    if (isEdit.value) {
-      await taskAPI.update(taskForm.id, payload)
-      ElMessage.success('任务更新成功')
-    } else {
-      await taskAPI.create(payload)
-      ElMessage.success('任务创建成功')
+  if (!formRef.value) return
+  await formRef.value.validate(async (valid) => {
+    if (!valid) return
+    submitting.value = true
+    try {
+      const submitData = {
+        ...form.value,
+        config: stringifyConfig(form.value.config)
+      }
+      if (editingTask.value) {
+        await taskAPI.update(editingTask.value.id, submitData)
+        ElMessage.success('任务更新成功')
+      } else {
+        await taskAPI.create(submitData)
+        ElMessage.success('任务创建成功')
+      }
+      dialogVisible.value = false
+      await loadTasks()
+    } catch (err: any) {
+      ElMessage.error(err.message || '操作失败')
+    } finally {
+      submitting.value = false
     }
-    dialogVisible.value = false
+  })
+}
+
+const handleDialogClose = () => {
+  formRef.value?.resetFields()
+  form.value = { ...defaultForm }
+}
+
+const handleToggleStatus = async (task: Task) => {
+  toggleLoading.value = task.id
+  try {
+    await taskAPI.update(task.id, { is_enabled: task.is_enabled })
+    ElMessage.success(task.is_enabled ? '任务已启用' : '任务已停用')
     await loadTasks()
-  } catch (err) {
-    console.error('保存任务失败', err)
-    ElMessage.error('保存任务失败')
+  } catch (err: any) {
+    task.is_enabled = !task.is_enabled
+    ElMessage.error(err.message || '操作失败')
   } finally {
-    submitting.value = false
+    toggleLoading.value = null
   }
 }
 
-const handleDelete = async (row: Task) => {
+const handleDelete = async (task: Task) => {
   try {
-    await ElMessageBox.confirm(`确定删除任务 "${row.name}" 吗？`, '确认删除', { type: 'warning' })
-    await taskAPI.delete(row.id)
-    ElMessage.success('删除成功')
+    await ElMessageBox.confirm(`确定要删除任务 "${task.name}" 吗？`, '确认删除', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    await taskAPI.delete(task.id)
+    ElMessage.success('任务已删除')
     await loadTasks()
-  } catch {
-    // cancelled
+  } catch (err: any) {
+    if (err !== 'cancel') {
+      ElMessage.error(err.message || '删除失败')
+    }
   }
 }
 
-const handleTrigger = async (row: Task) => {
-  triggeringId.value = row.id
+const handleTrigger = async (task: Task) => {
+  triggeringId.value = task.id
   try {
-    const res = await taskAPI.trigger(row.id)
-    const data = res.data as any
-    activeExecutionId.value = data.execution_id || ''
-    activeExecutionStatus.value = 'running'
-    showLogs.value = true
+    await taskAPI.trigger(task.id)
     ElMessage.success('任务已触发')
-    await loadTasks()
-  } catch (err) {
-    console.error('触发任务失败', err)
-    ElMessage.error('触发任务失败')
+  } catch (err: any) {
+    ElMessage.error(err.message || '触发失败')
   } finally {
     triggeringId.value = null
   }
 }
 
-const handleViewLogs = (row: Task) => {
-  if (!row.id) return
-  taskAPI.getExecutions(row.id).then((res: any) => {
-    const execs = res.data || []
-    if (execs.length > 0) {
-      activeExecutionId.value = execs[0].execution_id || ''
-      activeExecutionStatus.value = execs[0].status || ''
-    } else {
-      activeExecutionId.value = ''
-      activeExecutionStatus.value = ''
+// 查看最后一次执行日志
+const handleViewLastExecution = async (task: Task) => {
+  selectedTaskId.value = task.id
+  selectedTaskName.value = task.name
+  selectedExecutionId.value = null
+  selectedExecutionStatus.value = undefined
+
+  try {
+    const res = await taskAPI.getExecutions(task.id)
+    const executions = res.data || []
+    if (executions.length > 0) {
+      const lastExecution = executions[0]
+      selectedExecutionId.value = lastExecution.execution_id || String(lastExecution.id)
+      selectedExecutionStatus.value = lastExecution.status
     }
-    showLogs.value = true
-  }).catch(() => {
-    showLogs.value = true
+  } catch (err: any) {
+    ElMessage.error(err.message || '加载执行记录失败')
+  } finally {
+    logViewerVisible.value = true
+  }
+}
+
+// 跳转到日志页面，筛选当前任务名的日志执行历史
+const handleViewHistory = (task: Task) => {
+  router.push({
+    path: '/logs',
+    query: {
+      task_name: task.name
+    }
   })
 }
+
+// 监听筛选条件变化，重置页码
+watch([searchQuery, filterType, filterStatus], () => {
+  currentPage.value = 1
+})
 
 onMounted(() => {
   loadTasks()
@@ -420,464 +708,620 @@ onMounted(() => {
 .tasks-page {
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  height: 100%;
+  gap: var(--space-6);
+  padding-bottom: var(--space-8);
+  overflow-y: auto;
 }
 
-.action-bar {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-}
-
-.create-btn {
-  font-weight: 600;
-  border-radius: 8px;
-  padding: 10px 20px;
-  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
-  transition: all 0.2s;
-}
-
-.create-btn:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1);
-}
-
-.tasks-content {
-  display: flex;
-  gap: 20px;
-  flex: 1;
-  min-height: 0;
-}
-
-.tasks-table-section {
-  flex: 1;
-  background: #ffffff;
-  border-radius: 12px;
-  border: 1px solid #e2e8f0;
-  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
-  overflow: hidden;
-  transition: all 0.3s;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.tasks-table-section.with-logs {
-  flex: 0 0 55%;
-}
-
-.table-wrapper {
-  flex: 1;
-  overflow: auto;
-}
-
-.tasks-table {
-  border: none;
-}
-
-.tasks-table :deep(.el-table__inner-wrapper::before) {
-  display: none;
-}
-
-.task-name-cell {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.type-icon-wrapper {
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.task-info {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.task-info .task-name {
-  font-weight: 600;
-  color: #1e293b;
-  font-size: 0.9375rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.task-info .task-id {
-  font-size: 0.75rem;
-  color: #94a3b8;
-}
-
-.type-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 14px;
-  border-radius: 20px;
-  font-size: 0.8125rem;
-  font-weight: 600;
-  transition: all 0.2s ease;
-}
-
-.type-badge.http {
-  background: linear-gradient(135deg, #eff6ff, #dbeafe);
-  color: #1d4ed8;
-}
-
-.type-badge.http:hover {
-  background: linear-gradient(135deg, #dbeafe, #bfdbfe);
-}
-
-.type-badge.shell {
-  background: linear-gradient(135deg, #fffbeb, #fef3c7);
-  color: #b45309;
-}
-
-.type-badge.shell:hover {
-  background: linear-gradient(135deg, #fef3c7, #fde68a);
-}
-
-.cron-cell {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.cron-code {
-  font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
-  font-size: 0.8125rem;
-  background: linear-gradient(135deg, #f1f5f9, #e2e8f0);
-  padding: 4px 10px;
-  border-radius: 6px;
-  color: #1e293b;
-  border: 1px solid #cbd5e1;
-  white-space: nowrap;
-}
-
-.text-muted {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  color: #94a3b8;
-  font-size: 0.875rem;
-  white-space: nowrap;
-}
-
-.status-wrapper {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-}
-
-.status-dot {
+.tasks-page::-webkit-scrollbar {
   width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  display: inline-block;
+}
+
+.tasks-page::-webkit-scrollbar-thumb {
+  background: var(--border-default);
+  border-radius: 4px;
+}
+
+.tasks-page::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+/* Stats Grid */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-4);
+}
+
+.stat-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  box-shadow: var(--shadow-md);
+  transition: all var(--duration-normal) var(--ease-out);
+}
+
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg), var(--shadow-glow);
+  border-color: var(--border-default);
+}
+
+.stat-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
 }
 
-.status-dot.dot-info {
-  background: #60a5fa;
-  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.2);
+.stat-icon-primary {
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.1), rgba(37, 99, 235, 0.05));
+  color: var(--accent-primary);
 }
 
-.status-dot.dot-warning {
-  background: #f59e0b;
-  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.2);
-  animation: pulse 2s infinite;
+.stat-icon-success {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(16, 185, 129, 0.05));
+  color: var(--accent-success);
 }
 
-.status-dot.dot-success {
-  background: #22c55e;
-  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.2);
+.stat-icon-warning {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.1), rgba(245, 158, 11, 0.05));
+  color: var(--accent-warning);
 }
 
-.status-dot.dot-danger {
-  background: #ef4444;
-  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2);
+.stat-icon-info {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.1), rgba(139, 92, 246, 0.05));
+  color: var(--accent-secondary);
 }
 
-@keyframes pulse {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
+.stat-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
 }
 
-.status-tag {
+.stat-value {
+  font-family: var(--font-display);
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1;
+}
+
+.stat-label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
   font-weight: 500;
 }
 
-.action-btns {
+/* Toolbar */
+.page-toolbar {
   display: flex;
-  gap: 8px;
-  flex-wrap: nowrap;
-  justify-content: center;
   align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
 }
 
-.run-btn {
-  border-radius: 8px;
-  font-weight: 600;
-  padding: 8px 16px;
-  background: linear-gradient(135deg, #3b82f6, #1d4ed8);
-  border: none;
-  color: white;
-  transition: all 0.2s ease;
-  box-shadow: 0 2px 4px -1px rgba(59, 130, 246, 0.4);
-}
-
-.run-btn:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px -2px rgba(59, 130, 246, 0.5);
-  background: linear-gradient(135deg, #2563eb, #1e40af);
-}
-
-.run-btn:active {
-  transform: translateY(0);
-}
-
-.icon-btns {
+.toolbar-left {
   display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: 1;
+}
+
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.search-input {
+  width: 280px;
+}
+
+.filter-select {
+  width: 140px;
+}
+
+/* Tasks Grid */
+.tasks-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+  gap: var(--space-5);
+  align-content: start;
+  padding-bottom: var(--space-4);
+}
+
+.task-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-md);
+  transition: all var(--duration-normal) var(--ease-out);
+  display: flex;
+  flex-direction: column;
+}
+
+.task-card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-lg), var(--shadow-glow);
+  border-color: var(--border-default);
+}
+
+.task-card-disabled {
+  opacity: 0.6;
+}
+
+.task-card-disabled:hover {
+  transform: none;
+  box-shadow: var(--shadow-md);
+}
+
+/* Task Card Header */
+.task-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--border-subtle);
+  background: linear-gradient(180deg, var(--bg-secondary) 0%, transparent 100%);
+}
+
+.task-type-badge {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-sm);
+}
+
+.task-type-badge.http {
+  background: linear-gradient(135deg, #dbeafe, #bfdbfe);
+  color: var(--accent-primary);
+}
+
+.task-type-badge.shell {
+  background: linear-gradient(135deg, #fef3c7, #fde68a);
+  color: var(--accent-warning);
+}
+
+/* Task Card Body */
+.task-card-body {
+  padding: var(--space-5);
+  flex: 1;
+}
+
+.task-name {
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 var(--space-1) 0;
+  letter-spacing: -0.01em;
+}
+
+.task-id {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin: 0 0 var(--space-4) 0;
+}
+
+.task-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-4);
+  border-bottom: 1px dashed var(--border-subtle);
+}
+
+.meta-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+}
+
+.meta-item .el-icon {
+  color: var(--text-muted);
+}
+
+.meta-value {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+}
+
+.task-execution {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.execution-info {
+  display: flex;
+  flex-direction: column;
   gap: 4px;
 }
 
-.icon-btn {
-  width: 32px;
-  height: 32px;
-  padding: 0;
+.execution-label {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 500;
+}
+
+.execution-time {
   display: flex;
   align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+
+.execution-time .el-icon {
+  color: var(--accent-success);
+}
+
+.execution-result {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.execution-result.success {
+  color: var(--status-success);
+}
+
+.execution-result.failed {
+  color: var(--status-error);
+}
+
+.execution-result.running {
+  color: var(--status-running);
+}
+
+.execution-result.pending {
+  color: var(--status-pending);
+}
+
+.result-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.execution-result.success .result-dot {
+  background: var(--status-success);
+}
+
+.execution-result.failed .result-dot {
+  background: var(--status-error);
+}
+
+.execution-result.running .result-dot {
+  background: var(--status-running);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.execution-result.pending .result-dot {
+  background: var(--status-pending);
+}
+
+/* Task Card Footer */
+.task-card-footer {
+  padding: var(--space-4);
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.task-actions {
+  display: flex;
+  flex-direction: row !important;
+  gap: 4px;
+  flex-wrap: nowrap;
+  width: 100%;
+  padding: 0 2px;
+  box-sizing: border-box;
+}
+
+.task-actions :deep(.el-button) {
+  flex: 1 1 0;
+  font-size: 0.68rem;
+  padding: 5px 2px;
+  min-width: 0 !important;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
   justify-content: center;
-  transition: all 0.2s ease;
+  width: auto !important;
+  height: auto;
 }
 
-.icon-btn:hover {
-  transform: scale(1.1);
-}
-
-.log-btn {
-  color: #6366f1;
-  border-color: #c7d2fe;
-  background: #eef2ff;
-}
-
-.log-btn:hover {
-  background: #e0e7ff;
-  color: #4f46e5;
-  border-color: #a5b4fc;
-}
-
-.edit-btn {
-  color: #f59e0b;
-  border-color: #fde68a;
-  background: #fef3c7;
-}
-
-.edit-btn:hover {
-  background: #fde68a;
-  color: #d97706;
-  border-color: #fcd34d;
-}
-
-.delete-btn {
-  color: #ef4444;
-  border-color: #fecaca;
-  background: #fee2e2;
-}
-
-.delete-btn:hover {
-  background: #fecaca;
-  color: #dc2626;
-  border-color: #fca5a5;
-}
-
+/* Empty State */
 .empty-state {
-  padding: 60px 20px;
-  flex: 1;
+  grid-column: 1 / -1;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  padding: var(--space-16) var(--space-6);
+  gap: var(--space-4);
 }
 
-.log-section {
-  flex: 1;
-  min-width: 400px;
-  background: #ffffff;
-  border-radius: 12px;
-  border: 1px solid #e2e8f0;
-  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
-  overflow: hidden;
+.empty-icon {
+  color: var(--text-muted);
+  opacity: 0.4;
 }
 
-.task-dialog :deep(.el-dialog__header) {
-  border-bottom: 1px solid #e2e8f0;
-  padding: 20px 24px;
-  margin: 0;
-}
-
-.task-dialog :deep(.el-dialog__title) {
+.empty-text h3 {
   font-size: 1.25rem;
-  font-weight: 700;
-  color: #1e293b;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin: 0 0 var(--space-2) 0;
+  text-align: center;
 }
 
-.task-dialog :deep(.el-dialog__body) {
-  padding: 24px;
+.empty-text p {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  margin: 0;
+  text-align: center;
 }
 
-.task-dialog :deep(.el-dialog__footer) {
-  padding: 16px 24px;
-  border-top: 1px solid #e2e8f0;
-}
-
+/* Form Styles */
 .task-form {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
-.form-row {
-  display: flex;
-  gap: 12px;
+.cron-input-wrapper {
+  width: 100%;
 }
 
-.form-item-full {
-  flex: 1;
-  margin-bottom: 0 !important;
-}
-
-.form-item-half {
-  flex: 1;
-  margin-bottom: 0 !important;
-}
-
-.form-item-third {
-  flex: 1;
-  margin-bottom: 0 !important;
-}
-
-.task-form :deep(.el-form-item__label) {
-  font-weight: 600;
-  color: #475569;
-  margin-bottom: 6px;
-  line-height: 1.4;
-}
-
-.task-form :deep(.el-form-item) {
-  margin-bottom: 0;
+.cron-hint {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  white-space: nowrap;
 }
 
 .config-card {
-  background: linear-gradient(135deg, #f8fafc, #f1f5f9);
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  padding: 20px;
-}
-
-.config-row {
-  display: flex;
-  gap: 12px;
-  margin-top: 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
 }
 
 .config-input {
-  margin-top: 0;
+  margin-bottom: var(--space-3) !important;
 }
 
-.config-textarea {
-  margin-top: 0;
+.config-input:last-child {
+  margin-bottom: 0 !important;
+}
+
+.code-textarea :deep(.el-textarea__inner) {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  line-height: 1.6;
 }
 
 .switch-wrapper {
   display: flex;
   align-items: center;
-  gap: 10px;
-  height: 40px;
+  gap: var(--space-3);
 }
 
 .switch-text {
-  font-size: 0.9375rem;
-  color: #475569;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
   font-weight: 500;
 }
 
 .dialog-footer {
   display: flex;
   justify-content: flex-end;
-  gap: 12px;
+  gap: var(--space-3);
+}
+
+.type-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Log Dialog Styles */
+.log-dialog :deep(.el-dialog) {
+  border-radius: 12px;
+  overflow: hidden;
+  max-width: 1400px;
+}
+
+.log-dialog :deep(.el-dialog__header) {
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 16px 24px;
+}
+
+.log-dialog :deep(.el-dialog__title) {
+  font-family: var(--font-display);
+  font-weight: 600;
+}
+
+.log-dialog :deep(.el-dialog__body) {
+  padding: 0;
+  height: 80vh;
+  max-height: 700px;
+}
+
+.log-dialog :deep(.el-dialog__headerbtn) {
+  top: 18px;
+}
+
+.no-execution {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 60vh;
+  color: var(--text-muted);
+  gap: 16px;
+  font-size: 1rem;
+}
+
+/* Pagination */
+.pagination-container {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-6);
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-sm);
+  margin-top: var(--space-4);
+}
+
+.pagination-container :deep(.el-pagination) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pagination-container :deep(.el-pagination__total) {
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.pagination-container :deep(.el-pagination__sizes) {
+  .el-select .el-input__wrapper {
+    border-radius: var(--radius-md);
+    box-shadow: 0 0 0 1px var(--border-default) inset;
+    transition: all var(--duration-normal) var(--ease-out);
+    
+    &:hover {
+      box-shadow: 0 0 0 1px var(--accent-primary) inset;
+    }
+  }
+}
+
+.pagination-container :deep(.el-pager li) {
+  border-radius: var(--radius-md);
+  margin: 0 4px;
+  transition: all var(--duration-normal) var(--ease-out);
+  font-weight: 500;
+  height: 36px;
+  min-width: 36px;
+  line-height: 36px;
+}
+
+.pagination-container :deep(.el-pager li:not(.is-active)) {
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  
+  &:hover {
+    color: var(--accent-primary);
+    background: var(--bg-primary);
+    transform: translateY(-1px);
+  }
+}
+
+.pagination-container :deep(.el-pager li.is-active) {
+  background: linear-gradient(135deg, var(--accent-primary), #6366f1);
+  color: white;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+}
+
+.pagination-container :deep(.btn-prev),
+.pagination-container :deep(.btn-next) {
+  border-radius: var(--radius-md);
+  transition: all var(--duration-normal) var(--ease-out);
+  height: 36px;
+  width: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pagination-container :deep(.btn-prev:hover),
+.pagination-container :deep(.btn-next:hover) {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.pagination-container :deep(.el-pagination__jump) {
+  .el-input__wrapper {
+    border-radius: var(--radius-md);
+  }
 }
 
 /* Responsive */
 @media (max-width: 1400px) {
-  .tasks-table-section.with-logs {
-    flex: 0 0 50%;
-  }
-  
-  .log-section {
-    min-width: 350px;
+  .tasks-grid {
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   }
 }
 
-@media (max-width: 1200px) {
-  .tasks-content {
+@media (max-width: 1024px) {
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .tasks-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .page-toolbar {
     flex-direction: column;
+    align-items: stretch;
   }
-  
-  .tasks-table-section.with-logs {
+
+  .toolbar-left {
+    flex-wrap: wrap;
+  }
+
+  .search-input {
     flex: 1;
-  }
-  
-  .log-section {
-    min-width: 100%;
-    height: 400px;
+    min-width: 200px;
   }
 }
 
-@media (max-width: 768px) {
-  .action-bar {
-    justify-content: stretch;
+@media (max-width: 640px) {
+  .stats-grid {
+    grid-template-columns: 1fr;
   }
-  
-  .create-btn {
-    width: 100%;
-  }
-  
-  .tasks-content {
-    gap: 12px;
-  }
-  
-  .cron-code {
-    font-size: 0.7rem;
-    padding: 3px 6px;
-  }
-  
-  .type-badge {
-    padding: 5px 10px;
-    font-size: 0.75rem;
-  }
-  
-  .run-btn {
-    padding: 6px 12px;
-    font-size: 0.8125rem;
-  }
-  
-  .icon-btn {
-    width: 28px;
-    height: 28px;
+
+  .task-actions {
+    flex-direction: column;
   }
 }
 </style>

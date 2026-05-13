@@ -1,13 +1,17 @@
 import api from '@/utils/api'
 import type { Task, Workflow, TaskExecution, TaskExecutionListResponse, Executor, LoginRequest, LoginResponse, WorkflowExecution, TaskLog } from '@/types'
 
+interface TaskListResponse {
+  items: Task[]
+}
+
 export const authAPI = {
   login: (data: LoginRequest) => api.post<LoginResponse>('/auth/login', data),
   getCurrentUser: () => api.get('/auth/current'),
 }
 
 export const taskAPI = {
-  list: () => api.get<Task[]>('/tasks'),
+  list: () => api.get<TaskListResponse>('/tasks'),
   get: (id: number) => api.get<Task>(`/tasks/${id}`),
   create: (data: Partial<Task>) => api.post<Task>('/tasks', data),
   update: (id: number, data: Partial<Task>) => api.put(`/tasks/${id}`, data),

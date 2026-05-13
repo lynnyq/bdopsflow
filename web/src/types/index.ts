@@ -13,11 +13,13 @@ export interface Task {
   workflow_id: number | null
   name: string
   type: string
-  config: string
+  config: string | TaskConfig
   cron_expression: string
   timeout_seconds: number
   retry_count: number
   retry_interval: number
+  retry_max?: number
+  retry_delay_seconds?: number
   is_enabled: boolean
   status: string
   domain_id: number
@@ -25,6 +27,17 @@ export interface Task {
   created_by: number
   created_at: string
   updated_at: string
+  next_execution_time?: string
+  last_execution_status?: string
+}
+
+export interface TaskConfig {
+  url?: string
+  method?: string
+  timeout?: number
+  headers?: string
+  body?: string
+  script?: string
 }
 
 export interface Workflow {
