@@ -17,22 +17,26 @@ type CronScheduler struct {
 	cron         *cron.Cron
 	svc          *service.SchedulerService
 	redis        *redis.Client
-	lastExecuted sync.Map // 记录每个任务的最后执行时间
+	taskEntries  map[int64]cron.EntryID // 任务ID到cron entry的映射
+	mu           sync.RWMutex
 }
 
 func NewCronScheduler(svc *service.SchedulerService, redis *redis.Client) *CronScheduler {
 	return &CronScheduler{
-		cron:         cron.New(cron.WithSeconds()),
-		svc:          svc,
-		redis:        redis,
-		lastExecuted: sync.Map{},
+		cron:        cron.New(cron.WithSeconds()),
+		svc:         svc,
+		redis:       redis,
+		taskEntries: make(map[int64]cron.EntryID),
 	}
 }
 
 func (cs *CronScheduler) Start() error {
-	cs.cron.AddFunc("@every 10s", cs.scanAndTriggerTasks) // 增加扫描频率到10秒一次
 	cs.cron.Start()
-	slog.Info("cron scheduler started", "mode", "6-field (with seconds)", "scan_interval", "10s", "distributed_lock", "enabled")
+	slog.Info("cron scheduler started", "mode", "6-field (with seconds)", "distributed_lock", "enabled")
+	
+	// 启动后立即加载和注册所有任务
+	go cs.loadAndRegisterTasks()
+	
 	return nil
 }
 
@@ -40,27 +44,119 @@ func (cs *CronScheduler) Stop() {
 	cs.cron.Stop()
 }
 
-// acquireTaskLock 尝试获取任务执行锁，防止多个实例同时执行同一个任务
+// loadAndRegisterTasks 从数据库加载并注册所有任务
+func (cs *CronScheduler) loadAndRegisterTasks() {
+	if cs.svc == nil {
+		slog.Debug("Scheduler service is nil, skipping task loading")
+		return
+	}
+
+	ctx := context.Background()
+	tasks, err := cs.svc.ScanPendingTasks(ctx)
+	if err != nil {
+		slog.Error("load tasks failed", "error", err)
+		return
+	}
+
+	if len(tasks) == 0 {
+		slog.Debug("no tasks found to load")
+		return
+	}
+
+	slog.Info("loading tasks from database", "count", len(tasks))
+
+	for _, task := range tasks {
+		if task.CronExpression != "" && task.IsEnabled {
+			cs.RegisterTask(task.ID, task.CronExpression)
+		}
+	}
+}
+
+// RegisterTask 注册一个新的定时任务
+func (cs *CronScheduler) RegisterTask(taskID int64, cronExpr string) {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+
+	// 如果任务已存在，先移除旧的
+	if entryID, exists := cs.taskEntries[taskID]; exists {
+		cs.cron.Remove(entryID)
+		delete(cs.taskEntries, taskID)
+	}
+
+	// 使用 AddFunc 注册任务
+	entryID, err := cs.cron.AddFunc(cronExpr, func() {
+		cs.executeTask(taskID)
+	})
+
+	if err != nil {
+		slog.Error("register task failed", "task_id", taskID, "cron", cronExpr, "error", err)
+		return
+	}
+
+	cs.taskEntries[taskID] = entryID
+	slog.Info("task registered", "task_id", taskID, "cron", cronExpr, "entry_id", entryID)
+}
+
+// UnregisterTask 取消注册任务
+func (cs *CronScheduler) UnregisterTask(taskID int64) {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+
+	if entryID, exists := cs.taskEntries[taskID]; exists {
+		cs.cron.Remove(entryID)
+		delete(cs.taskEntries, taskID)
+		slog.Info("task unregistered", "task_id", taskID)
+	}
+}
+
+// executeTask 执行单个任务
+func (cs *CronScheduler) executeTask(taskID int64) {
+	if cs.svc == nil {
+		slog.Debug("Scheduler service is nil, skipping task execution", "task_id", taskID)
+		return
+	}
+
+	ctx := context.Background()
+	
+	// 获取分布式锁，避免多实例重复执行
+	acquired, err := cs.acquireTaskLock(ctx, taskID)
+	if err != nil || !acquired {
+		if err != nil {
+			slog.Warn("acquire task lock failed", "task_id", taskID, "error", err)
+		}
+		return
+	}
+	defer cs.releaseTaskLock(ctx, taskID)
+
+	slog.Info("cron task triggering", "task_id", taskID)
+
+	executionID, err := cs.svc.TriggerTask(ctx, taskID)
+	if err != nil {
+		slog.Error("cron trigger task failed",
+			"task_id", taskID,
+			"execution_id", executionID,
+			"error", err,
+		)
+	} else {
+		slog.Info("cron task triggered successfully",
+			"task_id", taskID,
+			"execution_id", executionID,
+		)
+	}
+}
+
+// acquireTaskLock 尝试获取任务执行锁
 func (cs *CronScheduler) acquireTaskLock(ctx context.Context, taskID int64) (bool, error) {
 	if cs.redis == nil {
-		slog.Warn("redis client not available, skipping distributed lock", "task_id", taskID)
 		return true, nil
 	}
 
 	lockKey := fmt.Sprintf("cron:lock:task:%d", taskID)
-	// 设置锁过期时间为2分钟，避免死锁
-	ok, err := cs.redis.SetNX(ctx, lockKey, "locked", 2*time.Minute).Result()
+	ok, err := cs.redis.SetNX(ctx, lockKey, "locked", 30*time.Second).Result()
 	if err != nil {
 		slog.Warn("failed to acquire lock", "task_id", taskID, "error", err)
 		return false, err
 	}
-
-	if ok {
-		slog.Debug("acquired task lock", "task_id", taskID, "lock_key", lockKey)
-	} else {
-		slog.Debug("task already locked by another instance", "task_id", taskID)
-	}
-
 	return ok, nil
 }
 
@@ -74,92 +170,5 @@ func (cs *CronScheduler) releaseTaskLock(ctx context.Context, taskID int64) {
 	err := cs.redis.Del(ctx, lockKey).Err()
 	if err != nil {
 		slog.Warn("failed to release lock", "task_id", taskID, "error", err)
-	} else {
-		slog.Debug("released task lock", "task_id", taskID)
-	}
-}
-
-func (cs *CronScheduler) scanAndTriggerTasks() {
-	ctx := context.Background()
-	tasks, err := cs.svc.ScanPendingTasks(ctx)
-	if err != nil {
-		slog.Error("scan pending tasks failed", "error", err)
-		return
-	}
-
-	now := time.Now()
-	slog.Debug("scanning for cron tasks", "count", len(tasks), "time", now)
-
-	for _, task := range tasks {
-		if task.CronExpression != "" {
-			parser := cron.NewParser(cron.SecondOptional | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
-			schedule, err := parser.Parse(task.CronExpression)
-			if err != nil {
-				slog.Warn("invalid cron expression", "task_id", task.ID, "cron", task.CronExpression, "error", err)
-				continue
-			}
-
-			// 获取上次执行时间
-			var lastExecTime time.Time
-			if val, ok := cs.lastExecuted.Load(task.ID); ok {
-				lastExecTime = val.(time.Time)
-			}
-
-			// 计算下一个应该触发的时间
-			var triggerTime time.Time
-			if lastExecTime.IsZero() {
-				// 第一次执行，从任务创建时间开始算
-				triggerTime = schedule.Next(task.CreatedAt)
-			} else {
-				triggerTime = schedule.Next(lastExecTime)
-			}
-
-			// 判断是否需要触发：如果下一个触发时间已经到了或者在30秒内，并且还没有执行过
-			if !triggerTime.IsZero() && (now.After(triggerTime) || now.Sub(triggerTime) < 30*time.Second) {
-				// 检查是否在最近1分钟内已经执行过（避免重复触发）
-				if now.Sub(lastExecTime) < 1*time.Minute {
-					slog.Debug("task already executed recently, skipping",
-						"task_id", task.ID,
-						"name", task.Name,
-						"last_executed", lastExecTime,
-					)
-					continue
-				}
-
-				// 尝试获取分布式锁
-				acquired, err := cs.acquireTaskLock(ctx, task.ID)
-				if err != nil || !acquired {
-					continue
-				}
-
-				slog.Info("cron task triggering",
-					"task_id", task.ID,
-					"name", task.Name,
-					"cron", task.CronExpression,
-					"trigger_time", triggerTime,
-				)
-				
-				// 更新最后执行时间
-				cs.lastExecuted.Store(task.ID, now)
-				
-				go func(taskID int64) {
-					defer cs.releaseTaskLock(ctx, taskID) // 确保锁被释放
-					
-					executionID, err := cs.svc.TriggerTask(ctx, taskID)
-					if err != nil {
-						slog.Error("cron trigger task failed",
-							"task_id", taskID,
-							"execution_id", executionID,
-							"error", err,
-						)
-					} else {
-						slog.Info("cron task triggered successfully",
-							"task_id", taskID,
-							"execution_id", executionID,
-						)
-					}
-				}(task.ID)
-			}
-		}
 	}
 }
