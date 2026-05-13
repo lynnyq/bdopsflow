@@ -55,6 +55,9 @@ func main() {
 	grpcSrv := grpcserver.NewServer(cfg.GRPCPort, schedulerService)
 
 	cronScheduler := cron.NewCronScheduler(schedulerService, redisClient)
+	// 把 cronScheduler 注入到 schedulerService
+	schedulerService.SetCronScheduler(cronScheduler)
+	
 	if err := cronScheduler.Start(); err != nil {
 		slog.Error("failed to start cron scheduler", "error", err)
 		os.Exit(1)

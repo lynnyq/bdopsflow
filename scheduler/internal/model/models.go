@@ -38,22 +38,24 @@ type Workflow struct {
 }
 
 type Task struct {
-	ID             int64     `db:"id" json:"id"`
-	WorkflowID     *int64    `db:"workflow_id" json:"workflow_id"`
-	Name           string    `db:"name" json:"name"`
-	Type           string    `db:"type" json:"type"`
-	Config         string    `db:"config" json:"config"`
-	CronExpression string    `db:"cron_expression" json:"cron_expression"`
-	TimeoutSeconds int32     `db:"timeout_seconds" json:"timeout_seconds"`
-	RetryCount     int32     `db:"retry_count" json:"retry_count"`
-	RetryInterval  int32     `db:"retry_interval" json:"retry_interval"`
-	IsEnabled      bool      `db:"is_enabled" json:"is_enabled"`
-	Status         string    `db:"status" json:"status"`
-	DomainID       int64     `db:"domain_id" json:"domain_id"`
-	WebhookConfig  string    `db:"webhook_config" json:"webhook_config"`
-	CreatedBy      int64     `db:"created_by" json:"created_by"`
-	CreatedAt      time.Time `db:"created_at" json:"created_at"`
-	UpdatedAt      time.Time `db:"updated_at" json:"updated_at"`
+	ID                  int64     `db:"id" json:"id"`
+	WorkflowID          *int64    `db:"workflow_id" json:"workflow_id"`
+	Name                string    `db:"name" json:"name"`
+	Type                string    `db:"type" json:"type"`
+	Config              string    `db:"config" json:"config"`
+	CronExpression      string    `db:"cron_expression" json:"cron_expression"`
+	TimeoutSeconds      int32     `db:"timeout_seconds" json:"timeout_seconds"`
+	RetryCount          int32     `db:"retry_count" json:"retry_count"`
+	RetryInterval       int32     `db:"retry_interval" json:"retry_interval"`
+	IsEnabled           bool      `db:"is_enabled" json:"is_enabled"`
+	Status              string    `db:"status" json:"status"`
+	DomainID            int64     `db:"domain_id" json:"domain_id"`
+	WebhookConfig       string    `db:"webhook_config" json:"webhook_config"`
+	CreatedBy           int64     `db:"created_by" json:"created_by"`
+	CreatedAt           time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt           time.Time `db:"updated_at" json:"updated_at"`
+	NextExecutionTime   string    `db:"-" json:"next_execution_time"`
+	LastExecutionStatus string    `db:"-" json:"last_execution_status"`
 }
 
 type TaskExecution struct {

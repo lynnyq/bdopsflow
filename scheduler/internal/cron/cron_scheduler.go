@@ -117,6 +117,26 @@ func (cs *CronScheduler) executeTask(taskID int64) {
 	}
 
 	ctx := context.Background()
+
+	// 重新获取任务并检查是否仍然启用
+	task, err := cs.svc.GetTaskByID(ctx, taskID)
+	if err != nil {
+		slog.Warn("get task failed before cron execution", "task_id", taskID, "error", err)
+		return
+	}
+
+	if !task.IsEnabled {
+		slog.Debug("task is disabled, skipping execution", "task_id", taskID)
+		// 清理任务调度
+		cs.UnregisterTask(taskID)
+		return
+	}
+
+	if task.CronExpression == "" {
+		slog.Debug("task has no cron expression, skipping execution", "task_id", taskID)
+		cs.UnregisterTask(taskID)
+		return
+	}
 	
 	// 获取分布式锁，避免多实例重复执行
 	acquired, err := cs.acquireTaskLock(ctx, taskID)
@@ -128,7 +148,7 @@ func (cs *CronScheduler) executeTask(taskID int64) {
 	}
 	defer cs.releaseTaskLock(ctx, taskID)
 
-	slog.Info("cron task triggering", "task_id", taskID)
+	slog.Info("cron task triggering", "task_id", taskID, "task_name", task.Name)
 
 	executionID, err := cs.svc.TriggerTask(ctx, taskID)
 	if err != nil {

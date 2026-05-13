@@ -65,7 +65,7 @@ func (h *TaskHandler) List(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, tasks)
+	c.JSON(http.StatusOK, gin.H{"items": tasks})
 }
 
 func (h *TaskHandler) Get(c *gin.Context) {
@@ -95,16 +95,19 @@ func (h *TaskHandler) Get(c *gin.Context) {
 
 func (h *TaskHandler) Create(c *gin.Context) {
 	var req struct {
-		WorkflowID     *int64 `json:"workflow_id"`
-		Name           string `json:"name"`
-		Type           string `json:"type"`
-		Config         string `json:"config"`
-		CronExpression string `json:"cron_expression"`
-		TimeoutSeconds int32  `json:"timeout_seconds"`
-		RetryCount     int32  `json:"retry_count"`
-		RetryInterval  int32  `json:"retry_interval"`
-		DomainID       int64  `json:"domain_id"`
-		WebhookConfig  string `json:"webhook_config"`
+		WorkflowID         *int64      `json:"workflow_id"`
+		Name               string      `json:"name"`
+		Type               string      `json:"type"`
+		Config             interface{} `json:"config"`
+		CronExpression     string      `json:"cron_expression"`
+		TimeoutSeconds     int32       `json:"timeout_seconds"`
+		RetryMax           int32       `json:"retry_max"`
+		RetryDelaySeconds  int32       `json:"retry_delay_seconds"`
+		RetryCount         int32       `json:"retry_count"`
+		RetryInterval      int32       `json:"retry_interval"`
+		IsEnabled          bool        `json:"is_enabled"`
+		DomainID           int64       `json:"domain_id"`
+		WebhookConfig      string      `json:"webhook_config"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -124,47 +127,77 @@ func (h *TaskHandler) Create(c *gin.Context) {
 		return
 	}
 
-	if req.TimeoutSeconds <= 0 {
-		req.TimeoutSeconds = 300
+	// 处理 Config，支持对象和字符串
+	configStr := ""
+	if req.Config != nil {
+		if str, ok := req.Config.(string); ok {
+			configStr = str
+		} else {
+			configBytes, _ := json.Marshal(req.Config)
+			configStr = string(configBytes)
+		}
 	}
-	if req.RetryCount <= 0 {
-		req.RetryCount = 3
+
+	// 兼容新旧字段名
+	retryCount := req.RetryCount
+	if retryCount <= 0 {
+		retryCount = req.RetryMax
 	}
-	if req.RetryInterval <= 0 {
-		req.RetryInterval = 5
+	if retryCount <= 0 {
+		retryCount = 3
 	}
-	if req.DomainID <= 0 {
-		req.DomainID = 1
+
+	retryInterval := req.RetryInterval
+	if retryInterval <= 0 {
+		retryInterval = req.RetryDelaySeconds
+	}
+	if retryInterval <= 0 {
+		retryInterval = 5
+	}
+
+	timeoutSeconds := req.TimeoutSeconds
+	if timeoutSeconds <= 0 {
+		timeoutSeconds = 300
+	}
+
+	domainID := req.DomainID
+	if domainID <= 0 {
+		domainID = 1
 	}
 
 	var query string
 	var args []interface{}
 	now := time.Now().Format(DateTimeFormat)
-	ts := int64(req.TimeoutSeconds)
-	rc := int64(req.RetryCount)
-	ri := int64(req.RetryInterval)
+	ts := int64(timeoutSeconds)
+	rc := int64(retryCount)
+	ri := int64(retryInterval)
+
+	isEnabled := int64(0)
+	if req.IsEnabled {
+		isEnabled = 1
+	}
 
 	if req.WorkflowID != nil && *req.WorkflowID > 0 {
 		query = `
 			INSERT INTO tasks (workflow_id, name, type, config, cron_expression, timeout_seconds,
 			                  retry_count, retry_interval, is_enabled, status, domain_id, webhook_config,
 			                  created_by, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 'pending', ?, ?, 1, ?, ?)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, 1, ?, ?)
 		`
 		args = []interface{}{
-			*req.WorkflowID, safeString(req.Name), safeString(req.Type), safeString(req.Config),
-			safeString(req.CronExpression), ts, rc, ri, req.DomainID, safeString(req.WebhookConfig), now, now,
+			*req.WorkflowID, safeString(req.Name), safeString(req.Type), safeString(configStr),
+			safeString(req.CronExpression), ts, rc, ri, isEnabled, domainID, safeString(req.WebhookConfig), now, now,
 		}
 	} else {
 		query = `
 			INSERT INTO tasks (name, type, config, cron_expression, timeout_seconds,
 			                  retry_count, retry_interval, is_enabled, status, domain_id, webhook_config,
 			                  created_by, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'pending', ?, ?, 1, ?, ?)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, 1, ?, ?)
 		`
 		args = []interface{}{
-			safeString(req.Name), safeString(req.Type), safeString(req.Config),
-			safeString(req.CronExpression), ts, rc, ri, req.DomainID, safeString(req.WebhookConfig), now, now,
+			safeString(req.Name), safeString(req.Type), safeString(configStr),
+			safeString(req.CronExpression), ts, rc, ri, isEnabled, domainID, safeString(req.WebhookConfig), now, now,
 		}
 	}
 
@@ -195,24 +228,109 @@ func (h *TaskHandler) Update(c *gin.Context) {
 		return
 	}
 
-	var task model.Task
-	if err := c.ShouldBindJSON(&task); err != nil {
+	ctx := c.Request.Context()
+	// 先获取当前任务
+	currentTask, err := h.svc.GetTaskByID(ctx, id)
+	if err != nil {
+		slog.Error("TaskHandler.Update: task not found", "id", id, "error", err)
+		c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
+		return
+	}
+
+	var req struct {
+		Name               string      `json:"name"`
+		Type               string      `json:"type"`
+		Config             interface{} `json:"config"`
+		CronExpression     string      `json:"cron_expression"`
+		TimeoutSeconds     int32       `json:"timeout_seconds"`
+		RetryMax           int32       `json:"retry_max"`
+		RetryDelaySeconds  int32       `json:"retry_delay_seconds"`
+		RetryCount         int32       `json:"retry_count"`
+		RetryInterval      int32       `json:"retry_interval"`
+		IsEnabled          *bool       `json:"is_enabled"`
+		DomainID           int64       `json:"domain_id"`
+		WebhookConfig      string      `json:"webhook_config"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
 		slog.Warn("TaskHandler.Update: invalid request body", "error", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	ctx := c.Request.Context()
-	err = h.svc.UpdateTask(ctx, id, &task)
+	// 更新字段
+	if req.Name != "" {
+		currentTask.Name = req.Name
+	}
+	if req.Type != "" {
+		currentTask.Type = req.Type
+	}
+
+	// 处理 Config，支持对象和字符串
+	if req.Config != nil {
+		if str, ok := req.Config.(string); ok {
+			currentTask.Config = str
+		} else {
+			configBytes, _ := json.Marshal(req.Config)
+			currentTask.Config = string(configBytes)
+		}
+	}
+
+	if req.CronExpression != "" || (req.CronExpression == "" && req.Config != nil) { // 允许清空
+		currentTask.CronExpression = req.CronExpression
+	}
+	if req.TimeoutSeconds > 0 {
+		currentTask.TimeoutSeconds = req.TimeoutSeconds
+	}
+
+	// 兼容新旧字段名
+	if req.RetryCount >= 0 {
+		currentTask.RetryCount = req.RetryCount
+	} else if req.RetryMax >= 0 {
+		currentTask.RetryCount = req.RetryMax
+	}
+
+	if req.RetryInterval > 0 {
+		currentTask.RetryInterval = req.RetryInterval
+	} else if req.RetryDelaySeconds > 0 {
+		currentTask.RetryInterval = req.RetryDelaySeconds
+	}
+
+	// 布尔值总是更新（如果提供）
+	if req.IsEnabled != nil {
+		currentTask.IsEnabled = *req.IsEnabled
+	}
+
+	if req.DomainID > 0 {
+		currentTask.DomainID = req.DomainID
+	}
+	if req.WebhookConfig != "" {
+		currentTask.WebhookConfig = req.WebhookConfig
+	}
+
+	slog.Info("TaskHandler.Update: updating task",
+		"id", id,
+		"is_enabled", currentTask.IsEnabled,
+		"cron_expression", currentTask.CronExpression)
+
+	err = h.svc.UpdateTask(ctx, id, currentTask)
 	if err != nil {
 		slog.Error("TaskHandler.Update: failed to update task", "id", id, "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	task.ID = id
+	// 返回更新后的任务
+	updatedTask, err := h.svc.GetTaskByID(ctx, id)
+	if err != nil {
+		slog.Error("TaskHandler.Update: failed to get updated task", "id", id, "error", err)
+	} else {
+		c.JSON(http.StatusOK, updatedTask)
+		return
+	}
+
 	slog.Info("TaskHandler.Update: task updated", "id", id)
-	c.JSON(http.StatusOK, task)
+	c.JSON(http.StatusOK, currentTask)
 }
 
 func (h *TaskHandler) Delete(c *gin.Context) {

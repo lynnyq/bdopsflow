@@ -12,8 +12,31 @@ import (
 	"github.com/lynnyq/bdopsflow/scheduler/internal/dag"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/model"
 	"github.com/redis/go-redis/v9"
+	"github.com/robfig/cron/v3"
 	rqlite "github.com/rqlite/gorqlite"
 )
+
+func CalculateNextExecutionTime(cronExpr string, isEnabled bool) string {
+	if cronExpr == "" || !isEnabled {
+		return ""
+	}
+
+	parser := cron.NewParser(cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+	schedule, err := parser.Parse(cronExpr)
+	if err != nil {
+		schedule, err = cron.ParseStandard(cronExpr)
+		if err != nil {
+			slog.Debug("failed to parse cron expression", "cron", cronExpr, "error", err)
+			return ""
+		}
+	}
+
+	nextTime := schedule.Next(time.Now())
+	if nextTime.IsZero() {
+		return ""
+	}
+	return nextTime.Format(time.RFC3339)
+}
 
 type TaskDispatcher func(executorID string, task *pb.Task) error
 
@@ -21,6 +44,10 @@ type SchedulerService struct {
 	DB        rqlite.Connection
 	redis     *redis.Client
 	dispatcher TaskDispatcher
+	cronScheduler interface {
+		RegisterTask(taskID int64, cronExpr string)
+		UnregisterTask(taskID int64)
+	}
 }
 
 func NewSchedulerService(db rqlite.Connection, redis *redis.Client) *SchedulerService {
@@ -28,6 +55,13 @@ func NewSchedulerService(db rqlite.Connection, redis *redis.Client) *SchedulerSe
 		DB:    db,
 		redis: redis,
 	}
+}
+
+func (s *SchedulerService) SetCronScheduler(cs interface {
+	RegisterTask(taskID int64, cronExpr string)
+	UnregisterTask(taskID int64)
+}) {
+	s.cronScheduler = cs
 }
 
 func (s *SchedulerService) SetTaskDispatcher(dispatcher TaskDispatcher) {
@@ -48,7 +82,36 @@ func (s *SchedulerService) CreateTask(ctx context.Context, query string, args ..
 	}
 
 	id := result.LastInsertID
-	return s.GetTaskByID(ctx, id)
+	task, err := s.GetTaskByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	if s.cronScheduler != nil && task.IsEnabled && task.CronExpression != "" {
+		s.cronScheduler.RegisterTask(task.ID, task.CronExpression)
+	}
+
+	return task, nil
+}
+
+func (s *SchedulerService) getLastExecutionStatus(ctx context.Context, taskID int64) string {
+	query := `SELECT status FROM task_executions WHERE task_id = ? ORDER BY created_at DESC LIMIT 1`
+	stmt := rqlite.ParameterizedStatement{
+		Query:     query,
+		Arguments: []interface{}{taskID},
+	}
+	qr, err := s.DB.QueryOneParameterized(stmt)
+	if err != nil || qr.Err != nil {
+		return ""
+	}
+	if !qr.Next() {
+		return ""
+	}
+	row, err := qr.Slice()
+	if err != nil {
+		return ""
+	}
+	return rowString(row[0])
 }
 
 func (s *SchedulerService) GetTaskByID(ctx context.Context, id int64) (*model.Task, error) {
@@ -82,6 +145,9 @@ func (s *SchedulerService) GetTaskByID(ctx context.Context, id int64) (*model.Ta
 		return nil, err
 	}
 
+	task.NextExecutionTime = CalculateNextExecutionTime(task.CronExpression, task.IsEnabled)
+	task.LastExecutionStatus = s.getLastExecutionStatus(ctx, task.ID)
+
 	return task, nil
 }
 
@@ -108,6 +174,8 @@ func (s *SchedulerService) ListTasks(ctx context.Context) ([]*model.Task, error)
 		if err := scanTaskResult(&qr, task); err != nil {
 			return nil, err
 		}
+		task.NextExecutionTime = CalculateNextExecutionTime(task.CronExpression, task.IsEnabled)
+		task.LastExecutionStatus = s.getLastExecutionStatus(ctx, task.ID)
 		tasks = append(tasks, task)
 	}
 
@@ -145,6 +213,24 @@ func (s *SchedulerService) UpdateTask(ctx context.Context, id int64, task *model
 		return result.Err
 	}
 
+	// 重新从数据库获取最新的任务信息
+	updatedTask, err := s.GetTaskByID(ctx, id)
+	if err != nil {
+		slog.Error("UpdateTask: failed to get updated task", "id", id, "error", err)
+		return err
+	}
+
+	// 使用最新的数据库信息来更新 Cron 调度器
+	if s.cronScheduler != nil {
+		if updatedTask.IsEnabled && updatedTask.CronExpression != "" {
+			s.cronScheduler.RegisterTask(id, updatedTask.CronExpression)
+			slog.Info("UpdateTask: task registered to cron", "id", id, "cron", updatedTask.CronExpression)
+		} else {
+			s.cronScheduler.UnregisterTask(id)
+			slog.Info("UpdateTask: task unregistered from cron", "id", id)
+		}
+	}
+
 	return nil
 }
 
@@ -163,6 +249,10 @@ func (s *SchedulerService) DeleteTask(ctx context.Context, id int64) error {
 
 	if result.Err != nil {
 		return result.Err
+	}
+
+	if s.cronScheduler != nil {
+		s.cronScheduler.UnregisterTask(id)
 	}
 
 	return nil
@@ -293,7 +383,7 @@ func (s *SchedulerService) ScanPendingTasks(ctx context.Context) ([]*model.Task,
 		       retry_count, retry_interval, is_enabled, status, domain_id, webhook_config,
 		       created_by, created_at, updated_at
 		FROM tasks
-		WHERE is_enabled = 1 AND status = 'pending'
+		WHERE is_enabled = 1 AND cron_expression != ''
 	`
 
 	qr, err := s.DB.QueryOne(query)
