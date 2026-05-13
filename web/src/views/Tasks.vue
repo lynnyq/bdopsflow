@@ -1,5 +1,7 @@
 <template>
   <div class="tasks-page">
+    <div class="main-content">
+      <div class="tasks-section" :class="{ 'with-logs': showLogs }">
     <!-- Stats Cards -->
     <div class="stats-grid">
       <div class="stat-card">
@@ -60,26 +62,36 @@
         </el-select>
       </div>
       <div class="toolbar-right">
-        <el-button :icon="Refresh" @click="loadTasks" :loading="loading">刷新</el-button>
-        <el-button type="primary" :icon="Plus" @click="handleCreate">
+        <el-button :icon="Refresh" @click="loadTasks" :loading="loading" class="refresh-btn">刷新</el-button>
+        <el-button :icon="Plus" @click="handleCreate" class="create-btn">
           创建任务
         </el-button>
       </div>
     </div>
 
     <!-- Tasks Grid -->
-    <div v-loading="loading" class="tasks-grid">
+    <div v-loading="loading" class="tasks-grid" ref="tasksGridRef">
       <div
         v-for="task in pagedTasks"
         :key="task.id"
+        :ref="el => setTaskCardRef(el, task.id)"
         class="task-card"
-        :class="{ 'task-card-disabled': !task.is_enabled }"
+        :class="{ 
+          'task-card-disabled': !task.is_enabled,
+          'task-card-highlighted': selectedTaskId === task.id
+        }"
       >
         <div class="task-card-header">
-          <div class="task-type-badge" :class="task.type">
-            <el-icon :size="18">
-              <component :is="getTypeIcon(task.type)" />
-            </el-icon>
+          <div class="task-header-left">
+            <div class="task-type-badge" :class="task.type">
+              <el-icon :size="18">
+                <component :is="getTypeIcon(task.type)" />
+              </el-icon>
+            </div>
+            <div class="task-title-info">
+              <h3 class="task-name">{{ task.name }}</h3>
+              <p class="task-id">ID: {{ task.id }}</p>
+            </div>
           </div>
           <div class="task-status-toggle">
             <el-switch
@@ -92,8 +104,6 @@
         </div>
 
         <div class="task-card-body">
-          <h3 class="task-name">{{ task.name }}</h3>
-          <p class="task-id">ID: {{ task.id }}</p>
 
           <div class="task-meta">
             <div class="meta-item" v-if="task.cron_expression">
@@ -198,6 +208,58 @@
       />
     </div>
 
+    </div>
+
+    <!-- Logs Section -->
+    <div class="logs-section" v-if="showLogs">
+      <TaskLogViewer
+        v-if="selectedExecutionId"
+        :execution-id="selectedExecutionId"
+        :execution-status="selectedExecutionStatus"
+        :output="selectedExecutionOutput"
+        :error="selectedExecutionError"
+        @close="closeLogs"
+      />
+      <div v-else class="no-execution-container">
+        <div class="log-header">
+          <div class="log-title">
+            <el-icon><Document /></el-icon>
+            <span>执行详情</span>
+          </div>
+          <div class="log-actions">
+            <el-button :icon="Close" size="small" text @click="closeLogs">关闭</el-button>
+          </div>
+        </div>
+        <el-tabs class="log-tabs">
+          <el-tab-pane label="执行日志" name="logs">
+            <div class="log-body">
+              <div class="log-empty">
+                <el-icon><InfoFilled /></el-icon>
+                <span>暂无执行记录</span>
+              </div>
+            </div>
+          </el-tab-pane>
+          <el-tab-pane label="标准输出" name="output">
+            <div class="output-body">
+              <div class="log-empty">
+                <el-icon><InfoFilled /></el-icon>
+                <span>暂无标准输出</span>
+              </div>
+            </div>
+          </el-tab-pane>
+          <el-tab-pane label="标准错误" name="error">
+            <div class="output-body">
+              <div class="log-empty">
+                <el-icon><InfoFilled /></el-icon>
+                <span>暂无标准错误</span>
+              </div>
+            </div>
+          </el-tab-pane>
+        </el-tabs>
+      </div>
+    </div>
+    </div>
+
     <!-- Task Form Dialog -->
     <el-dialog
       v-model="dialogVisible"
@@ -217,13 +279,13 @@
               <el-select v-model="form.type" placeholder="选择任务类型" style="width: 100%">
                 <el-option label="HTTP" value="http">
                   <span class="type-option">
-                    <el-icon><Position /></el-icon>
+                    <el-icon><Promotion /></el-icon>
                     HTTP
                   </span>
                 </el-option>
                 <el-option label="Shell" value="shell">
                   <span class="type-option">
-                    <el-icon><Operation /></el-icon>
+                    <el-icon><Tools /></el-icon>
                     Shell
                   </span>
                 </el-option>
@@ -355,27 +417,7 @@
       </template>
     </el-dialog>
 
-    <!-- Task Log Viewer Dialog - 显示最后一次执行日志 -->
-    <el-dialog
-      v-model="logViewerVisible"
-      :title="selectedTaskName"
-      width="80%"
-      class="log-dialog"
-      destroy-on-close
-    >
-      <TaskLogViewer
-        v-if="selectedExecutionId"
-        :execution-id="selectedExecutionId"
-        :execution-status="selectedExecutionStatus"
-        :task-name="selectedTaskName"
-        :in-dialog="true"
-        @close="logViewerVisible = false"
-      />
-      <div v-else class="no-execution">
-        <el-icon :size="48"><Document /></el-icon>
-        <p>暂无执行记录</p>
-      </div>
-    </el-dialog>
+
   </div>
 </template>
 
@@ -394,13 +436,15 @@ import {
   Refresh,
   Timer,
   Clock,
-  Position,
-  Operation,
   Calendar,
   VideoPlay,
   CircleCheck,
   Loading,
-  DocumentCopy
+  DocumentCopy,
+  Close,
+  InfoFilled,
+  Tools,
+  Promotion
 } from '@element-plus/icons-vue'
 import { taskAPI } from '@/api'
 import type { Task, TaskConfig } from '@/types'
@@ -423,11 +467,23 @@ const filterStatus = ref<boolean | null>(null)
 const currentPage = ref(1)
 const pageSize = ref(20)
 
-const logViewerVisible = ref(false)
+const showLogs = ref(false)
 const selectedTaskId = ref<number | null>(null)
 const selectedTaskName = ref('')
 const selectedExecutionId = ref<string | null>(null)
 const selectedExecutionStatus = ref<string | undefined>(undefined)
+const selectedExecutionOutput = ref<string | null | undefined>(undefined)
+const selectedExecutionError = ref<string | null | undefined>(undefined)
+const tasksGridRef = ref<HTMLElement | null>(null)
+const taskCardRefs = ref<Map<number, HTMLElement>>(new Map())
+
+const setTaskCardRef = (el: any, taskId: number) => {
+  if (el) {
+    taskCardRefs.value.set(taskId, el)
+  } else {
+    taskCardRefs.value.delete(taskId)
+  }
+}
 
 const defaultForm = {
   name: '',
@@ -476,7 +532,7 @@ const pagedTasks = computed(() => {
 })
 
 const getTypeIcon = (type: string) => {
-  return type === 'http' ? Position : Operation
+  return type === 'http' ? Promotion : Tools
 }
 
 const getTypeColor = (type: string) => {
@@ -668,6 +724,8 @@ const handleViewLastExecution = async (task: Task) => {
   selectedTaskName.value = task.name
   selectedExecutionId.value = null
   selectedExecutionStatus.value = undefined
+  selectedExecutionOutput.value = undefined
+  selectedExecutionError.value = undefined
 
   try {
     const res = await taskAPI.getExecutions(task.id)
@@ -676,12 +734,31 @@ const handleViewLastExecution = async (task: Task) => {
       const lastExecution = executions[0]
       selectedExecutionId.value = lastExecution.execution_id || String(lastExecution.id)
       selectedExecutionStatus.value = lastExecution.status
+      selectedExecutionOutput.value = lastExecution.output
+      selectedExecutionError.value = lastExecution.error
     }
   } catch (err: any) {
     ElMessage.error(err.message || '加载执行记录失败')
   } finally {
-    logViewerVisible.value = true
+    showLogs.value = true
+    
+    // 滚动到被点击的任务卡片
+    await nextTick()
+    const taskCardEl = taskCardRefs.value.get(task.id)
+    if (taskCardEl) {
+      taskCardEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
   }
+}
+
+// 关闭日志查看
+const closeLogs = () => {
+  showLogs.value = false
+  selectedExecutionId.value = null
+  selectedExecutionStatus.value = undefined
+  selectedExecutionOutput.value = undefined
+  selectedExecutionError.value = undefined
+  selectedTaskId.value = null
 }
 
 // 跳转到日志页面，筛选当前任务名的日志执行历史
@@ -711,6 +788,182 @@ onMounted(() => {
   gap: var(--space-6);
   padding-bottom: var(--space-8);
   overflow-y: auto;
+  height: 100%;
+}
+
+/* Main Content */
+.main-content {
+  display: flex;
+  gap: var(--space-4);
+  min-height: 0;
+  flex: 1;
+}
+
+/* Tasks Section */
+.tasks-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--space-1);
+}
+
+.tasks-section.with-logs {
+  flex: 0 0 60%;
+}
+
+/* Logs Section */
+.logs-section {
+  flex: 1;
+  min-width: 400px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* No Execution Container - Dark Theme */
+.no-execution-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #0d1117;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.no-execution-container .log-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 18px;
+  background: #161b22;
+  border-bottom: 1px solid #30363d;
+}
+
+.no-execution-container .log-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #e6edf3;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.no-execution-container .log-title .el-icon {
+  color: #58a6ff;
+}
+
+.no-execution-container .log-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.no-execution-container .log-actions .el-button {
+  color: #8b949e;
+}
+
+.no-execution-container .log-actions .el-button:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.no-execution-container .log-tabs {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.no-execution-container .log-tabs :deep(.el-tabs__header) {
+  margin: 0;
+  background: #161b22;
+  border-bottom: 1px solid #30363d;
+}
+
+.no-execution-container .log-tabs :deep(.el-tabs__nav-wrap) {
+  padding: 0 18px;
+}
+
+.no-execution-container .log-tabs :deep(.el-tabs__item) {
+  color: #8b949e;
+  font-weight: 500;
+}
+
+.no-execution-container .log-tabs :deep(.el-tabs__item:hover) {
+  color: #e6edf3;
+}
+
+.no-execution-container .log-tabs :deep(.el-tabs__item.is-active) {
+  color: #58a6ff;
+  font-weight: 600;
+}
+
+.no-execution-container .log-tabs :deep(.el-tabs__active-bar) {
+  background-color: #58a6ff;
+  height: 2px;
+}
+
+.no-execution-container .log-tabs :deep(.el-tabs__content) {
+  flex: 1;
+  overflow: hidden;
+  padding: 0;
+}
+
+.no-execution-container .log-tabs :deep(.el-tab-pane) {
+  height: 100%;
+  overflow: hidden;
+}
+
+.no-execution-container .log-body,
+.no-execution-container .output-body {
+  height: 100%;
+  overflow-y: auto;
+  padding: 16px 20px;
+  font-family: 'SF Mono', 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', monospace;
+  font-size: 13.5px;
+  line-height: 1.6;
+  background: #0d1117;
+}
+
+.no-execution-container .log-body::-webkit-scrollbar,
+.no-execution-container .output-body::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.no-execution-container .log-body::-webkit-scrollbar-thumb,
+.no-execution-container .output-body::-webkit-scrollbar-thumb {
+  background: #30363d;
+  border-radius: 5px;
+}
+
+.no-execution-container .log-body::-webkit-scrollbar-thumb:hover,
+.no-execution-container .output-body::-webkit-scrollbar-thumb:hover {
+  background: #484f58;
+}
+
+.no-execution-container .log-body::-webkit-scrollbar-track,
+.no-execution-container .output-body::-webkit-scrollbar-track {
+  background: #0d1117;
+}
+
+.no-execution-container .log-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #8b949e;
+  gap: 12px;
+}
+
+.no-execution-container .log-empty .el-icon {
+  font-size: 40px;
+  color: #30363d;
 }
 
 .tasks-page::-webkit-scrollbar {
@@ -833,8 +1086,75 @@ onMounted(() => {
   width: 280px;
 }
 
+.search-input :deep(.el-input__wrapper),
+.filter-select :deep(.el-input__wrapper) {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  box-shadow: none;
+  transition: all var(--duration-normal) var(--ease-out);
+}
+
+.search-input :deep(.el-input__wrapper:hover),
+.filter-select :deep(.el-input__wrapper:hover) {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+}
+
+.search-input :deep(.el-input__wrapper.is-focus),
+.filter-select :deep(.el-input__wrapper.is-focus) {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
 .filter-select {
   width: 140px;
+}
+
+/* Toolbar Buttons */
+.refresh-btn {
+  font-weight: 500;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  color: var(--text-primary);
+  border-radius: var(--radius-md);
+  box-shadow: none;
+  transition: all var(--duration-normal) var(--ease-out);
+  padding: 8px 16px;
+}
+
+.refresh-btn:hover {
+  background: var(--bg-primary);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-sm);
+}
+
+.refresh-btn:active {
+  transform: translateY(0);
+}
+
+.create-btn {
+  font-weight: 500;
+  background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
+  border: none;
+  color: white;
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+  transition: all var(--duration-normal) var(--ease-out);
+  padding: 8px 20px;
+}
+
+.create-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4);
+  filter: brightness(1.05);
+}
+
+.create-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
 }
 
 /* Tasks Grid */
@@ -872,6 +1192,16 @@ onMounted(() => {
   box-shadow: var(--shadow-md);
 }
 
+.task-card-highlighted {
+  border: 2px solid var(--accent-primary);
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.15), var(--shadow-lg), var(--shadow-glow);
+  z-index: 10;
+}
+
+.task-card-highlighted:hover {
+  transform: translateY(-4px);
+}
+
 /* Task Card Header */
 .task-card-header {
   display: flex;
@@ -880,6 +1210,21 @@ onMounted(() => {
   padding: var(--space-4);
   border-bottom: 1px solid var(--border-subtle);
   background: linear-gradient(180deg, var(--bg-secondary) 0%, transparent 100%);
+}
+
+.task-header-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: 1;
+  min-width: 0;
+}
+
+.task-title-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 
 .task-type-badge {
@@ -910,18 +1255,21 @@ onMounted(() => {
 
 .task-name {
   font-family: var(--font-display);
-  font-size: 1.1rem;
+  font-size: 1rem;
   font-weight: 600;
   color: var(--text-primary);
-  margin: 0 0 var(--space-1) 0;
+  margin: 0;
   letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .task-id {
   font-family: var(--font-mono);
   font-size: 0.75rem;
   color: var(--text-muted);
-  margin: 0 0 var(--space-4) 0;
+  margin: 0;
 }
 
 .task-meta {
@@ -1160,44 +1508,7 @@ onMounted(() => {
   gap: 6px;
 }
 
-/* Log Dialog Styles */
-.log-dialog :deep(.el-dialog) {
-  border-radius: 12px;
-  overflow: hidden;
-  max-width: 1400px;
-}
 
-.log-dialog :deep(.el-dialog__header) {
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-subtle);
-  padding: 16px 24px;
-}
-
-.log-dialog :deep(.el-dialog__title) {
-  font-family: var(--font-display);
-  font-weight: 600;
-}
-
-.log-dialog :deep(.el-dialog__body) {
-  padding: 0;
-  height: 80vh;
-  max-height: 700px;
-}
-
-.log-dialog :deep(.el-dialog__headerbtn) {
-  top: 18px;
-}
-
-.no-execution {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 60vh;
-  color: var(--text-muted);
-  gap: 16px;
-  font-size: 1rem;
-}
 
 /* Pagination */
 .pagination-container {
@@ -1291,6 +1602,21 @@ onMounted(() => {
   }
 }
 
+@media (max-width: 1200px) {
+  .main-content {
+    flex-direction: column;
+  }
+  
+  .tasks-section.with-logs {
+    flex: 1;
+  }
+  
+  .logs-section {
+    min-width: 100%;
+    height: 500px;
+  }
+}
+
 @media (max-width: 1024px) {
   .stats-grid {
     grid-template-columns: repeat(2, 1fr);
@@ -1312,6 +1638,12 @@ onMounted(() => {
   .search-input {
     flex: 1;
     min-width: 200px;
+  }
+}
+
+@media (max-width: 768px) {
+  .tasks-page {
+    gap: var(--space-4);
   }
 }
 

@@ -40,14 +40,20 @@ export const executorAPI = {
 }
 
 export const logAPI = {
-  list: (params?: {
-    executor_name?: string,
-    task_name?: string,
-    task_type?: string,
-    status?: string,
-    page?: number,
-    page_size?: number
-  }) => api.get<PaginatedResponse<TaskExecutionListResponse>>('/logs', { params }),
-  delete: (id: number) => api.delete(`/logs/${id}`),
-  batchDelete: (ids: number[]) => api.post('/logs/batch-delete', { ids }),
+	list: (params?: {
+		executor_name?: string,
+		task_name?: string,
+		task_type?: string,
+		status?: string,
+		page?: number,
+		page_size?: number
+	}) => api.get<PaginatedResponse<TaskExecutionListResponse>>('/logs', { params }),
+	getStats: (params?: {
+		executor_name?: string,
+		task_name?: string,
+		task_type?: string,
+		status?: string
+	}) => api.get<{ [key: string]: number }>('/logs/stats', { params }),
+	delete: (id: number) => api.delete(`/logs/${id}`),
+	batchDelete: (ids: number[]) => api.post('/logs/batch-delete', { ids }),
 }

@@ -39,6 +39,10 @@
           <el-icon><List /></el-icon>
           <template #title>任务管理</template>
         </el-menu-item>
+        <el-menu-item index="/logs">
+          <el-icon><Document /></el-icon>
+          <template #title>任务日志</template>
+        </el-menu-item>
         <el-menu-item index="/workflows">
           <el-icon><Connection /></el-icon>
           <template #title>工作流</template>
@@ -46,10 +50,6 @@
         <el-menu-item index="/executors">
           <el-icon><Cpu /></el-icon>
           <template #title>执行器</template>
-        </el-menu-item>
-        <el-menu-item index="/logs">
-          <el-icon><Document /></el-icon>
-          <template #title>任务日志</template>
         </el-menu-item>
       </el-menu>
 

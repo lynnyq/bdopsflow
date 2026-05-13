@@ -1601,3 +1601,75 @@ func rowBool(v interface{}) bool {
 	}
 	return false
 }
+
+// GetExecutionStats 获取执行记录统计信息
+func (s *SchedulerService) GetExecutionStats(ctx context.Context, filter map[string]string) (map[string]int, error) {
+	// 构建 WHERE 条件
+	whereClause := " WHERE 1=1"
+	var args []interface{}
+
+	// 应用筛选条件
+	if filter["executor_name"] != "" {
+		whereClause += " AND e.name LIKE ?"
+		args = append(args, "%"+filter["executor_name"]+"%")
+	}
+	if filter["task_name"] != "" {
+		whereClause += " AND t.name LIKE ?"
+		args = append(args, "%"+filter["task_name"]+"%")
+	}
+	if filter["task_type"] != "" {
+		whereClause += " AND t.type = ?"
+		args = append(args, filter["task_type"])
+	}
+	if filter["status"] != "" {
+		whereClause += " AND te.status = ?"
+		args = append(args, filter["status"])
+	}
+
+	// 统一使用 JOIN
+	joinClause := `
+		FROM task_executions te
+		LEFT JOIN tasks t ON te.task_id = t.id
+		LEFT JOIN executors e ON te.executor_id = e.executor_id
+	`
+
+	// 统计各个状态的数量
+	query := `
+		SELECT te.status, COUNT(*) as count
+	` + joinClause + whereClause + " GROUP BY te.status"
+
+	var qr rqlite.QueryResult
+	var err error
+
+	if len(args) > 0 {
+		stmt := rqlite.ParameterizedStatement{
+			Query:     query,
+			Arguments: args,
+		}
+		qr, err = s.DB.QueryOneParameterized(stmt)
+	} else {
+		qr, err = s.DB.QueryOne(query)
+	}
+
+	if err != nil {
+		slog.Error("GetExecutionStats: query failed", "error", err)
+		return nil, err
+	}
+	if qr.Err != nil {
+		slog.Error("GetExecutionStats: query returned error", "error", qr.Err)
+		return nil, qr.Err
+	}
+
+	stats := make(map[string]int)
+	for qr.Next() {
+		row, err := qr.Slice()
+		if err != nil {
+			continue
+		}
+		status := rowString(row[0])
+		count := int(rowInt64(row[1]))
+		stats[status] = count
+	}
+
+	return stats, nil
+}

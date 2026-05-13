@@ -148,3 +148,34 @@ type TaskExecutionWithNames struct {
 	TaskType     string `db:"task_type" json:"task_type"`
 	ExecutorName string `db:"executor_name" json:"executor_name"`
 }
+
+func (h *LogHandler) GetStats(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("LogHandler.GetStats: panic recovered", "panic", r)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		}
+	}()
+
+	slog.Debug("LogHandler.GetStats: handling request")
+
+	// 构建筛选条件
+	filter := make(map[string]string)
+	filter["executor_name"] = c.Query("executor_name")
+	filter["task_name"] = c.Query("task_name")
+	filter["task_type"] = c.Query("task_type")
+	filter["status"] = c.Query("status")
+
+	stats, err := h.svc.GetExecutionStats(ctx, filter)
+	if err != nil {
+		slog.Error("LogHandler.GetStats: failed to get stats", "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	slog.Debug("LogHandler.GetStats: returning stats", "stats", stats)
+
+	c.JSON(http.StatusOK, stats)
+}

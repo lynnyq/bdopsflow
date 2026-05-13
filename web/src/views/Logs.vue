@@ -2,86 +2,107 @@
   <div class="logs-page">
     <div class="main-content">
       <div class="executions-section" :class="{ 'with-logs': showLogs }">
-        <!-- 筛选栏 -->
-        <div class="filter-bar">
-          <div class="filter-grid">
-            <div class="filter-item">
-              <label class="filter-label">执行节点</label>
-              <el-select
-                v-model="filters.executor_name"
-                placeholder="选择执行节点"
-                clearable
-                class="filter-select"
-                @change="loadExecutions(1)"
-              >
-                <el-option label="全部" value="" />
-                <el-option
-                  v-for="exec in executors"
-                  :key="exec.executor_id"
-                  :label="exec.name"
-                  :value="exec.name"
-                />
-              </el-select>
+        <!-- Stats Cards -->
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-icon stat-icon-primary">
+              <el-icon :size="24"><List /></el-icon>
             </div>
-            
-            <div class="filter-item">
-              <label class="filter-label">任务名称</label>
-              <el-select
-                v-model="filters.task_name"
-                placeholder="选择任务名称"
-                clearable
-                class="filter-select"
-                @change="loadExecutions(1)"
-              >
-                <el-option label="全部" value="" />
-                <el-option
-                  v-for="task in tasks"
-                  :key="task.id"
-                  :label="task.name"
-                  :value="task.name"
-                />
-              </el-select>
-            </div>
-            
-            <div class="filter-item">
-              <label class="filter-label">任务类型</label>
-              <el-select
-                v-model="filters.task_type"
-                placeholder="选择任务类型"
-                clearable
-                class="filter-select"
-                @change="loadExecutions(1)"
-              >
-                <el-option label="全部" value="" />
-                <el-option label="Shell" value="shell" />
-                <el-option label="HTTP" value="http" />
-                <el-option label="Delay" value="delay" />
-              </el-select>
-            </div>
-            
-            <div class="filter-item">
-              <label class="filter-label">执行状态</label>
-              <el-select
-                v-model="filters.status"
-                placeholder="选择执行状态"
-                clearable
-                class="filter-select"
-                @change="loadExecutions(1)"
-              >
-                <el-option label="全部" value="" />
-                <el-option label="成功" value="success" />
-                <el-option label="失败" value="failed" />
-                <el-option label="运行中" value="running" />
-                <el-option label="待执行" value="pending" />
-              </el-select>
+            <div class="stat-content">
+              <div class="stat-value">{{ total }}</div>
+              <div class="stat-label">总日志数</div>
             </div>
           </div>
-          
-          <div class="filter-actions">
-            <el-button type="primary" @click="loadExecutions(1)" class="refresh-btn">
-              <el-icon><Refresh /></el-icon>
-              刷新
-            </el-button>
+          <div class="stat-card">
+            <div class="stat-icon stat-icon-success">
+              <el-icon :size="24"><CircleCheck /></el-icon>
+            </div>
+            <div class="stat-content">
+              <div class="stat-value">{{ successCount }}</div>
+              <div class="stat-label">成功日志</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon stat-icon-danger">
+              <el-icon :size="24"><CircleClose /></el-icon>
+            </div>
+            <div class="stat-content">
+              <div class="stat-value">{{ failedCount }}</div>
+              <div class="stat-label">失败日志</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon stat-icon-warning">
+              <el-icon :size="24"><Loading /></el-icon>
+            </div>
+            <div class="stat-content">
+              <div class="stat-value">{{ runningCount }}</div>
+              <div class="stat-label">运行中</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Toolbar -->
+        <div class="page-toolbar">
+          <div class="toolbar-left">
+            <el-select
+              v-model="filters.executor_name"
+              placeholder="执行节点"
+              clearable
+              class="filter-select"
+              @change="loadExecutions(1)"
+            >
+              <el-option label="全部" value="" />
+              <el-option
+                v-for="exec in executors"
+                :key="exec.executor_id"
+                :label="exec.name"
+                :value="exec.name"
+              />
+            </el-select>
+            <el-select
+              v-model="filters.task_name"
+              placeholder="任务名称"
+              clearable
+              class="filter-select"
+              @change="loadExecutions(1)"
+            >
+              <el-option label="全部" value="" />
+              <el-option
+                v-for="task in tasks"
+                :key="task.id"
+                :label="task.name"
+                :value="task.name"
+              />
+            </el-select>
+            <el-select
+              v-model="filters.task_type"
+              placeholder="任务类型"
+              clearable
+              class="filter-select"
+              @change="loadExecutions(1)"
+            >
+              <el-option label="全部" value="" />
+              <el-option label="Shell" value="shell" />
+              <el-option label="HTTP" value="http" />
+              <el-option label="Delay" value="delay" />
+            </el-select>
+            <el-select
+              v-model="filters.status"
+              placeholder="执行状态"
+              clearable
+              class="filter-select"
+              @change="loadExecutions(1)"
+            >
+              <el-option label="全部" value="" />
+              <el-option label="成功" value="success" />
+              <el-option label="失败" value="failed" />
+              <el-option label="运行中" value="running" />
+              <el-option label="待执行" value="pending" />
+            </el-select>
+          </div>
+          <div class="toolbar-right">
+            <el-button :icon="Refresh" @click="loadExecutions(1)" :loading="loading" class="refresh-btn">刷新</el-button>
             <el-button
               v-if="selectedIds && selectedIds.length > 0"
               type="danger"
@@ -142,26 +163,34 @@
                 {{ formatDuration(row.start_time, row.end_time, row.status) }}
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="160" fixed="right" align="center">
+            <el-table-column label="操作" width="140" fixed="right" align="center">
               <template #default="{ row }">
                 <el-button
                   type="primary"
-                  link
                   size="small"
+                  circle
                   @click.stop="viewLogs(row)"
+                  class="action-btn view-btn"
                 >
-                  查看日志
+                  <el-icon><View /></el-icon>
                 </el-button>
                 <el-button
                   type="danger"
-                  link
                   size="small"
+                  circle
                   @click.stop="handleDelete(row)"
+                  class="action-btn delete-btn"
                 >
-                  删除
+                  <el-icon><Delete /></el-icon>
                 </el-button>
               </template>
             </el-table-column>
+            <template #empty>
+              <div class="table-empty-state">
+                <el-icon :size="32"><Document /></el-icon>
+                <p>暂无执行记录</p>
+              </div>
+            </template>
           </el-table>
         </div>
 
@@ -176,16 +205,6 @@
             @size-change="handleSizeChange"
             @current-change="handleCurrentChange"
           />
-        </div>
-
-        <div class="empty-state" v-if="!loading && (!executions || executions.length === 0)">
-          <div class="empty-icon">
-            <el-icon :size="64"><Document /></el-icon>
-          </div>
-          <div class="empty-text">
-            <h3>暂无执行记录</h3>
-            <p>暂无任务执行历史记录</p>
-          </div>
         </div>
       </div>
 
@@ -203,13 +222,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Refresh, Delete, Document } from '@element-plus/icons-vue'
+import { Refresh, Delete, Document, View, List, CircleCheck, CircleClose, Loading } from '@element-plus/icons-vue'
 import { logAPI, taskAPI, executorAPI } from '@/api'
 import TaskLogViewer from '@/components/TaskLogViewer.vue'
 import type { TaskExecutionListResponse, Task, Executor } from '@/types'
 
+const route = useRoute()
 const executions = ref<TaskExecutionListResponse[]>([])
 const executors = ref<Executor[]>([])
 const tasks = ref<Task[]>([])
@@ -230,6 +251,18 @@ const filters = ref({
 const total = ref(0)
 const currentPage = ref(1)
 const pageSize = ref(20)
+
+// 统计数据
+const stats = ref({
+  success: 0,
+  failed: 0,
+  running: 0
+})
+
+// 统计计算属性
+const successCount = computed(() => stats.value.success)
+const failedCount = computed(() => stats.value.failed)
+const runningCount = computed(() => stats.value.running)
 
 const getStatusType = (status: string) => {
   switch (status) {
@@ -332,6 +365,8 @@ const loadExecutions = async (page: number = currentPage.value) => {
   loading.value = true
   try {
     console.log('Loading executions with filters:', filters.value, 'page:', page, 'pageSize:', pageSize.value)
+    
+    // 加载分页数据
     const response = await logAPI.list({
       ...filters.value,
       page: page,
@@ -342,6 +377,15 @@ const loadExecutions = async (page: number = currentPage.value) => {
     executions.value = response.data.data || []
     total.value = response.data.total || 0
     currentPage.value = response.data.page || 1
+    
+    // 加载统计数据
+    const statsResponse = await logAPI.getStats(filters.value)
+    const statsData = statsResponse.data || {}
+    stats.value = {
+      success: statsData.success || 0,
+      failed: statsData.failed || 0,
+      running: statsData.running || 0
+    }
   } catch (error) {
     console.error('Failed to load executions:', error)
     ElMessage.error('加载执行记录失败')
@@ -441,10 +485,18 @@ const handleCurrentChange = (val: number) => {
   loadExecutions(val)
 }
 
-onMounted(() => {
+onMounted(async () => {
+  await Promise.all([
+    loadExecutors(),
+    loadTasks()
+  ])
+  
+  // 检查路由参数
+  if (route.query.task_name) {
+    filters.value.task_name = route.query.task_name as string
+  }
+  
   loadExecutions()
-  loadExecutors()
-  loadTasks()
 })
 </script>
 
@@ -455,6 +507,84 @@ onMounted(() => {
   gap: var(--space-4);
   padding-bottom: var(--space-6);
   height: 100%;
+}
+
+/* Stats Grid */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.stat-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  box-shadow: var(--shadow-md);
+  transition: all var(--duration-normal) var(--ease-out);
+}
+
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg), var(--shadow-glow);
+  border-color: var(--border-default);
+}
+
+.stat-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.stat-icon-primary {
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.1), rgba(37, 99, 235, 0.05));
+  color: var(--accent-primary);
+}
+
+.stat-icon-success {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(16, 185, 129, 0.05));
+  color: var(--accent-success);
+}
+
+.stat-icon-warning {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.1), rgba(245, 158, 11, 0.05));
+  color: var(--accent-warning);
+}
+
+.stat-icon-danger {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.1), rgba(239, 68, 68, 0.05));
+  color: var(--accent-danger);
+}
+
+.stat-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.stat-value {
+  font-family: var(--font-display);
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1;
+}
+
+.stat-label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 500;
 }
 
 /* Main Content */
@@ -479,74 +609,97 @@ onMounted(() => {
   flex: 0 0 60%;
 }
 
-/* Filter Bar */
-.filter-bar {
+/* Page Toolbar */
+.page-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-4);
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
-  padding: var(--space-4);
   box-shadow: var(--shadow-sm);
+}
+
+.toolbar-left {
   display: flex;
-  flex-direction: column;
+  align-items: center;
   gap: var(--space-3);
+  flex: 1;
 }
 
-.filter-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: var(--space-3);
-}
-
-.filter-item {
+.toolbar-right {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-
-.filter-label {
-  font-size: 0.8125rem;
-  font-weight: 500;
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  align-items: center;
+  gap: var(--space-3);
 }
 
 .filter-select {
-  width: 100%;
+  width: 140px;
 }
 
-.filter-actions {
-  display: flex;
-  gap: var(--space-3);
-  justify-content: flex-end;
-  border-top: 1px solid var(--border-subtle);
-  padding-top: var(--space-3);
-}
-
-.refresh-btn {
-  font-weight: 500;
-  background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
-  border: none;
-  box-shadow: var(--shadow-sm);
+.filter-select :deep(.el-input__wrapper) {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  box-shadow: none;
   transition: all var(--duration-normal) var(--ease-out);
 }
 
+.filter-select :deep(.el-input__wrapper:hover) {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+}
+
+.filter-select :deep(.el-input__wrapper.is-focus) {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+/* Toolbar Buttons */
+.refresh-btn {
+  font-weight: 500;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  color: var(--text-primary);
+  border-radius: var(--radius-md);
+  box-shadow: none;
+  transition: all var(--duration-normal) var(--ease-out);
+  padding: 8px 16px;
+}
+
 .refresh-btn:hover {
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-md);
+  background: var(--bg-primary);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-sm);
+}
+
+.refresh-btn:active {
+  transform: translateY(0);
 }
 
 .delete-btn {
   font-weight: 500;
-  background: linear-gradient(135deg, var(--accent-danger) 0%, #dc2626 100%);
-  border: none;
-  box-shadow: var(--shadow-sm);
+  background: var(--bg-secondary);
+  border: 1px solid var(--accent-danger);
+  color: var(--accent-danger);
+  border-radius: var(--radius-md);
+  box-shadow: none;
   transition: all var(--duration-normal) var(--ease-out);
+  padding: 8px 16px;
 }
 
 .delete-btn:hover {
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-md);
+  background: rgba(239, 68, 68, 0.05);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-sm);
+}
+
+.delete-btn:active {
+  transform: translateY(0);
 }
 
 /* Table */
@@ -616,43 +769,43 @@ onMounted(() => {
   box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2);
 }
 
-/* Empty State */
-.empty-state {
+/* Table Empty State */
+.table-empty-state {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: var(--space-12) var(--space-6);
-  gap: var(--space-4);
-  text-align: center;
-  background: var(--bg-card);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
-}
-
-.empty-icon {
+  padding: var(--space-8);
+  gap: var(--space-3);
   color: var(--text-muted);
-  opacity: 0.5;
-  animation: float 3s ease-in-out infinite;
 }
 
-@keyframes float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-10px); }
+.table-empty-state .el-icon {
+  opacity: 0.4;
 }
 
-.empty-text h3 {
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: var(--text-secondary);
-  margin: 0 0 var(--space-2) 0;
-}
-
-.empty-text p {
-  font-size: 0.9375rem;
-  color: var(--text-muted);
+.table-empty-state p {
   margin: 0;
+  font-size: 0.875rem;
+}
+
+/* Action Buttons */
+.action-btn {
+  transition: all var(--duration-normal) var(--ease-out);
+  opacity: 0.8;
+}
+
+.action-btn:hover {
+  opacity: 1;
+  transform: scale(1.1);
+}
+
+.view-btn {
+  margin-right: 4px;
+}
+
+.delete-btn {
+  margin-left: 4px;
 }
 
 /* Pagination */

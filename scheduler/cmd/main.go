@@ -121,6 +121,7 @@ func main() {
 		logs := protected.Group("/logs")
 		{
 			logs.GET("", logHandler.List)
+			logs.GET("/stats", logHandler.GetStats)
 			logs.DELETE("/:id", logHandler.Delete)
 			logs.POST("/batch-delete", logHandler.BatchDelete)
 		}
