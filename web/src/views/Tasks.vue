@@ -592,6 +592,47 @@
               </div>
             </div>
           </div>
+
+          <!-- Webhook推送配置 -->
+          <div class="form-section">
+            <div class="section-header">
+              <el-icon :size="18"><Connection /></el-icon>
+              <span>Webhook推送配置</span>
+            </div>
+            <div class="section-body">
+              <el-row :gutter="16">
+                <el-col :span="24">
+                  <el-form-item label="Webhook URL" class="form-item">
+                    <el-input 
+                      v-model="form.webhook_url" 
+                      placeholder="https://example.com/webhook"
+                      class="form-input"
+                    >
+                      <template #prefix>
+                        <el-icon><Link /></el-icon>
+                      </template>
+                    </el-input>
+                  </el-form-item>
+                </el-col>
+              </el-row>
+              <el-row :gutter="16">
+                <el-col :span="24">
+                  <el-form-item label="推送时机" class="form-item">
+                    <el-select 
+                      v-model="form.webhook_events" 
+                      multiple
+                      placeholder="选择推送时机"
+                      class="form-select"
+                    >
+                      <el-option label="任务成功" value="success" />
+                      <el-option label="任务失败" value="failed" />
+                      <el-option label="每次执行" value="*" />
+                    </el-select>
+                  </el-form-item>
+                </el-col>
+              </el-row>
+            </div>
+          </div>
         </el-form>
       </div>
 
@@ -638,7 +679,8 @@ import {
   Bell,
   Setting,
   SwitchButton,
-  DataAnalysis
+  DataAnalysis,
+  Link
 } from '@element-plus/icons-vue'
 import { taskAPI } from '@/api'
 import type { Task, TaskConfig } from '@/types'
@@ -721,7 +763,9 @@ const defaultForm = {
   } as TaskConfig,
   retry_count: 0,
   retry_interval: 5,
-  is_enabled: true
+  is_enabled: true,
+  webhook_url: '',
+  webhook_events: [] as string[]
 }
 
 const form = ref({ ...defaultForm })
@@ -852,6 +896,22 @@ const handleCreate = () => {
 const handleEdit = (task: Task) => {
   editingTask.value = task
   const parsedConfig = parseConfig(task.config)
+  
+  // 解析webhook配置
+  let webhookUrl = ''
+  let webhookEvents: string[] = []
+  if (task.webhook_config) {
+    try {
+      const parsedWebhook = typeof task.webhook_config === 'string' 
+        ? JSON.parse(task.webhook_config) 
+        : task.webhook_config
+      webhookUrl = parsedWebhook.url || ''
+      webhookEvents = parsedWebhook.events || []
+    } catch {
+      // 解析失败时使用默认值
+    }
+  }
+  
   form.value = {
     name: task.name,
     type: task.type,
@@ -860,7 +920,9 @@ const handleEdit = (task: Task) => {
     config: { ...parsedConfig },
     retry_count: task.retry_count,
     retry_interval: task.retry_interval,
-    is_enabled: task.is_enabled
+    is_enabled: task.is_enabled,
+    webhook_url: webhookUrl,
+    webhook_events: webhookEvents
   }
   
   // 根据当前任务的 cron 表达式设置预设
@@ -894,9 +956,21 @@ const handleSubmit = async () => {
     if (!valid) return
     submitting.value = true
     try {
+      // 构建 webhook 配置
+      let webhookConfig = ''
+      if (form.value.webhook_url) {
+        webhookConfig = JSON.stringify({
+          url: form.value.webhook_url,
+          method: 'POST',
+          headers: {},
+          events: form.value.webhook_events || []
+        })
+      }
+      
       const submitData = {
         ...form.value,
-        config: stringifyConfig(form.value.config)
+        config: stringifyConfig(form.value.config),
+        webhook_config: webhookConfig
       }
       if (editingTask.value) {
         await taskAPI.update(editingTask.value.id, submitData)
