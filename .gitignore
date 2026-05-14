@@ -114,10 +114,10 @@ logs/
 .env.production.local
 
 # Configuration files (keep *.yaml.example only)
-scheduler/config.yaml
-scheduler/config.yml
-executor/config.yaml
-executor/config.yml
+scheduler/config*.yaml
+scheduler/config*.yml
+executor/config*.yaml
+executor/config*.yml
 
 # Database files
 *.db
