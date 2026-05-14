@@ -341,6 +341,12 @@
                             手动触发
                           </span>
                         </el-option>
+                        <el-option label="每30秒" value="30sec">
+                          <span class="option-content">
+                            <el-icon :size="14"><Timer /></el-icon>
+                            每30秒
+                          </span>
+                        </el-option>
                         <el-option label="每分钟" value="minute">
                           <span class="option-content">
                             <el-icon :size="14"><Timer /></el-icon>
@@ -402,7 +408,7 @@
                       class="form-input"
                     >
                       <template #suffix>
-                        <span class="cron-hint">秒 分 时 日 月 周</span>
+                        <span class="cron-hint" title="支持5位（分 时 日 月 周）或6位（秒 分 时 日 月 周）格式">秒 分 时 日 月 周</span>
                       </template>
                     </el-input>
                   </el-form-item>
@@ -670,13 +676,14 @@ const cronPreset = ref('manual')
 
 const cronPlaceholder = computed(() => {
   if (cronPreset.value === 'manual') return '手动触发'
-  if (cronPreset.value === 'custom') return '自定义 Cron 表达式'
+  if (cronPreset.value === 'custom') return '输入 Cron 表达式（支持5位或6位）'
   return form.value.cron_expression || ''
 })
 
 const handleCronPresetChange = (preset: string) => {
   const presets: Record<string, string> = {
     manual: '',
+    '30sec': '*/30 * * * * *',
     minute: '* * * * *',
     '5minute': '*/5 * * * *',
     '10minute': '*/10 * * * *',

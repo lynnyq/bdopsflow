@@ -83,10 +83,25 @@ func (cs *CronScheduler) RegisterTask(taskID int64, cronExpr string) {
 		delete(cs.taskEntries, taskID)
 	}
 
-	// 使用 AddFunc 注册任务
-	entryID, err := cs.cron.AddFunc(cronExpr, func() {
+	var entryID cron.EntryID
+	var err error
+	
+	// 先尝试直接添加（可能是6位）
+	entryID, err = cs.cron.AddFunc(cronExpr, func() {
 		cs.executeTask(taskID)
 	})
+	
+	// 如果失败，尝试解析为标准的5位表达式并加上秒位0
+	if err != nil {
+		// 先检查是否是标准5位格式
+		_, parseErr := cron.ParseStandard(cronExpr)
+		if parseErr == nil {
+			// 如果是标准格式，尝试添加前缀 "0 " 变成6位
+			entryID, err = cs.cron.AddFunc("0 "+cronExpr, func() {
+				cs.executeTask(taskID)
+			})
+		}
+	}
 
 	if err != nil {
 		slog.Error("register task failed", "task_id", taskID, "cron", cronExpr, "error", err)
