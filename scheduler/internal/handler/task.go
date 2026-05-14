@@ -156,8 +156,8 @@ func (h *TaskHandler) Create(c *gin.Context) {
 	}
 
 	timeoutSeconds := req.TimeoutSeconds
-	if timeoutSeconds <= 0 {
-		timeoutSeconds = 300
+	if timeoutSeconds < 0 {
+		timeoutSeconds = 0
 	}
 
 	domainID := req.DomainID
@@ -279,7 +279,7 @@ func (h *TaskHandler) Update(c *gin.Context) {
 	if req.CronExpression != "" || (req.CronExpression == "" && req.Config != nil) { // 允许清空
 		currentTask.CronExpression = req.CronExpression
 	}
-	if req.TimeoutSeconds > 0 {
+	if req.TimeoutSeconds >= 0 {
 		currentTask.TimeoutSeconds = req.TimeoutSeconds
 	}
 
@@ -290,9 +290,9 @@ func (h *TaskHandler) Update(c *gin.Context) {
 		currentTask.RetryCount = req.RetryMax
 	}
 
-	if req.RetryInterval > 0 {
+	if req.RetryInterval >= 0 {
 		currentTask.RetryInterval = req.RetryInterval
-	} else if req.RetryDelaySeconds > 0 {
+	} else if req.RetryDelaySeconds >= 0 {
 		currentTask.RetryInterval = req.RetryDelaySeconds
 	}
 
