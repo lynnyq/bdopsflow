@@ -11,25 +11,35 @@ import (
 	"github.com/lynnyq/bdopsflow/executor/internal/executor"
 	"github.com/lynnyq/bdopsflow/executor/internal/grpcclient"
 	"github.com/lynnyq/bdopsflow/executor/internal/logger"
+	"github.com/lynnyq/bdopsflow/executor/internal/pool"
 )
 
 func main() {
 	configFile := flag.String("config", "", "path to config file (default: config.yaml in current directory)")
+	hostname := flag.String("hostname", "", "hostname or IP:port for executor registration")
 	flag.Parse()
 
 	logger.Init()
 
 	cfg := config.Load(*configFile)
 
+	if *hostname != "" {
+		cfg.Hostname = *hostname
+	}
+
 	slog.Info("executor starting",
 		"executor_id", cfg.ExecutorID,
 		"executor_name", cfg.ExecutorName,
 		"scheduler_addr", cfg.SchedulerAddr,
 		"capacity", cfg.Capacity,
+		"hostname", cfg.Hostname,
 		"config_file", cfg.ConfigFile,
 	)
 
-	exec := executor.NewTaskExecutor(cfg.ExecutorID)
+	taskPool := pool.NewPool(cfg.Capacity)
+	taskPool.Start()
+
+	exec := executor.NewTaskExecutor(cfg.ExecutorID, taskPool)
 
 	client, err := grpcclient.NewClient(cfg.SchedulerAddr)
 	if err != nil {
@@ -38,7 +48,7 @@ func main() {
 	}
 
 	go func() {
-		if err := client.Subscribe(cfg.ExecutorID, cfg.ExecutorName, cfg.ExecutorName, cfg.Capacity, exec); err != nil {
+		if err := client.Subscribe(cfg.ExecutorID, cfg.ExecutorName, cfg.Hostname, cfg.Capacity, exec); err != nil {
 			slog.Error("gRPC subscription failed", "error", err)
 			os.Exit(1)
 		}
@@ -54,5 +64,6 @@ func main() {
 	<-quit
 
 	slog.Info("executor shutting down")
+	taskPool.Stop()
 	client.Close()
 }

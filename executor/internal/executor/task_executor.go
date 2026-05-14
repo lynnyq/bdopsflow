@@ -14,14 +14,19 @@ import (
 
 	pb "github.com/lynnyq/bdopsflow/proto"
 	"github.com/lynnyq/bdopsflow/executor/internal/grpcclient"
+	"github.com/lynnyq/bdopsflow/executor/internal/pool"
 )
 
 type TaskExecutor struct {
 	executorID string
+	taskPool   *pool.Pool
 }
 
-func NewTaskExecutor(executorID string) *TaskExecutor {
-	return &TaskExecutor{executorID: executorID}
+func NewTaskExecutor(executorID string, taskPool *pool.Pool) *TaskExecutor {
+	return &TaskExecutor{
+		executorID: executorID,
+		taskPool:   taskPool,
+	}
 }
 
 func (e *TaskExecutor) Execute(ctx context.Context, task *pb.Task, client *grpcclient.Client) {
@@ -32,6 +37,11 @@ func (e *TaskExecutor) Execute(ctx context.Context, task *pb.Task, client *grpcc
 	)
 
 	sendLog(client, task, "info", "Task execution started")
+
+	if e.taskPool != nil {
+		e.taskPool.IncRunning()
+		defer e.taskPool.DecRunning()
+	}
 
 	output, err := e.executeTask(ctx, task, client)
 
@@ -68,6 +78,13 @@ func (e *TaskExecutor) Execute(ctx context.Context, task *pb.Task, client *grpcc
 			RetryTimes:  0,
 		})
 	}
+}
+
+func (e *TaskExecutor) GetRunningTasks() int32 {
+	if e.taskPool != nil {
+		return e.taskPool.Running()
+	}
+	return 0
 }
 
 func (e *TaskExecutor) executeTask(ctx context.Context, task *pb.Task, client *grpcclient.Client) (string, error) {

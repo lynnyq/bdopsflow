@@ -65,6 +65,14 @@ func (p *Pool) Running() int32 {
 	return atomic.LoadInt32(&p.running)
 }
 
+func (p *Pool) IncRunning() {
+	atomic.AddInt32(&p.running, 1)
+}
+
+func (p *Pool) DecRunning() {
+	atomic.AddInt32(&p.running, -1)
+}
+
 func (p *Pool) Stop() {
 	p.cancel()
 	close(p.taskQueue)

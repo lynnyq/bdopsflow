@@ -10,12 +10,22 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
+type TaskRunner interface {
+	Execute(ctx context.Context, task *pb.Task, client *Client)
+}
+
+type TaskRunnerStats interface {
+	TaskRunner
+	GetRunningTasks() int32
+}
+
 type Client struct {
 	conn          *grpc.ClientConn
 	client        pb.ExecutorServiceClient
 	stream        pb.ExecutorService_SubscribeTaskClient
 	schedulerAddr string
 	stopCh        chan struct{}
+	taskRunner    TaskRunnerStats
 }
 
 func NewClient(schedulerAddr string) (*Client, error) {
@@ -71,10 +81,6 @@ func (c *Client) ensureConnected() error {
 	return nil
 }
 
-type TaskRunner interface {
-	Execute(ctx context.Context, task *pb.Task, client *Client)
-}
-
 func (c *Client) ReportResult(req *pb.ReportTaskResultRequest) error {
 	if err := c.ensureConnected(); err != nil {
 		return err
@@ -96,7 +102,8 @@ func (c *Client) ReportLog(req *pb.ReportTaskLogRequest) error {
 }
 
 func (c *Client) Subscribe(executorID, name, address string, capacity int32, runner TaskRunner) error {
-	// 使用一个 ticker 来处理重连
+	c.taskRunner = runner.(TaskRunnerStats)
+
 	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
 
@@ -140,9 +147,13 @@ func (c *Client) Subscribe(executorID, name, address string, capacity int32, run
 					select {
 					case <-heartbeatTicker.C:
 						if c.client != nil {
+							currentLoad := int32(0)
+							if c.taskRunner != nil {
+								currentLoad = c.taskRunner.GetRunningTasks()
+							}
 							c.client.Heartbeat(context.Background(), &pb.HeartbeatRequest{
 								ExecutorId:  executorID,
-								CurrentLoad: 0,
+								CurrentLoad: currentLoad,
 							})
 						}
 					case <-c.stopCh:

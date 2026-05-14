@@ -79,6 +79,7 @@ func (s *SchedulerService) cleanupStuckTasks() {
 			return
 		case <-ticker.C:
 			s.cleanupDeadTasks()
+			s.cleanupOfflineExecutors()
 		}
 	}
 }
@@ -166,6 +167,29 @@ func (s *SchedulerService) cleanupDeadTasks() {
 				slog.Error("cleanup: failed to update task status", "error", err, "task_id", exec.TaskID)
 			}
 		}
+	}
+}
+
+func (s *SchedulerService) cleanupOfflineExecutors() {
+	query := `
+		UPDATE executors 
+		SET status = 'offline', updated_at = datetime('now')
+		WHERE status = 'online' 
+		AND last_heartbeat < datetime('now', '-60 seconds')
+	`
+
+	result, err := s.DB.WriteOne(query)
+	if err != nil {
+		slog.Error("cleanup: update offline executors failed", "error", err)
+		return
+	}
+	if result.Err != nil {
+		slog.Error("cleanup: update offline executors returned error", "error", result.Err)
+		return
+	}
+
+	if result.RowsAffected > 0 {
+		slog.Warn("marked executors as offline", "count", result.RowsAffected)
 	}
 }
 

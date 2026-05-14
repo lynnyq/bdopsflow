@@ -16,7 +16,10 @@
       <el-table-column prop="last_heartbeat" label="最后心跳" width="180">
         <template #default="{ row }">
           <span v-if="row.last_heartbeat?.Valid">
-            {{ formatTime(row.last_heartbeat.Time) }}
+            {{ formatLocalTime(row.last_heartbeat.Time) }}
+          </span>
+          <span v-else-if="row.last_heartbeat">
+            {{ formatLocalTime(row.last_heartbeat) }}
           </span>
           <span v-else class="text-muted">无</span>
         </template>
@@ -24,15 +27,15 @@
       <el-table-column label="负载" width="150">
         <template #default="{ row }">
           <el-progress
-            :percentage="(row.current_load / row.capacity) * 100"
-            :color="getLoadColor(row.current_load / row.capacity)"
+            :percentage="getLoadPercentage(row)"
+            :color="getLoadColor(getLoadPercentage(row))"
           />
           <span class="load-text">{{ row.current_load }}/{{ row.capacity }}</span>
         </template>
       </el-table-column>
       <el-table-column prop="created_at" label="注册时间" width="180">
         <template #default="{ row }">
-          {{ formatTime(row.created_at) }}
+          {{ formatLocalTime(row.created_at) }}
         </template>
       </el-table-column>
     </el-table>
@@ -48,13 +51,18 @@ import type { Executor } from '@/types'
 const executors = ref<Executor[]>([])
 const loading = ref(false)
 
+const getLoadPercentage = (row: Executor) => {
+  if (!row.capacity || row.capacity === 0) return 0
+  return Math.min(100, Math.round((row.current_load / row.capacity) * 100))
+}
+
 const getLoadColor = (ratio: number) => {
-  if (ratio < 0.5) return '#67c23a'
-  if (ratio < 0.8) return '#e6a23c'
+  if (ratio < 50) return '#67c23a'
+  if (ratio < 80) return '#e6a23c'
   return '#f56c6c'
 }
 
-const formatTime = (timeStr: string) => {
+const formatLocalTime = (timeStr: string) => {
   if (!timeStr) return '无'
   try {
     const date = new Date(timeStr)

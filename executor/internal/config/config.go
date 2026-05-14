@@ -9,6 +9,7 @@ import (
 type Config struct {
 	ExecutorID    string
 	ExecutorName  string
+	Hostname      string
 	Capacity      int32
 	SchedulerAddr string
 	Timeout       int
@@ -40,6 +41,7 @@ func Load(configFile string) *Config {
 	return &Config{
 		ExecutorID:    executorID,
 		ExecutorName:  cfg.GetString("app.executor_name", executorID),
+		Hostname:      cfg.GetString("app.hostname", executorID),
 		Capacity:      cfg.GetInt32("app.capacity", 10),
 		SchedulerAddr: cfg.GetString("scheduler.addr", "localhost:50051"),
 		Timeout:       cfg.GetInt("scheduler.timeout", 30),
@@ -53,6 +55,7 @@ func defaultConfig() *Config {
 	return &Config{
 		ExecutorID:    "executor-1",
 		ExecutorName:  "executor-1",
+		Hostname:      "executor-1",
 		Capacity:      10,
 		SchedulerAddr: "localhost:50051",
 		Timeout:       30,
