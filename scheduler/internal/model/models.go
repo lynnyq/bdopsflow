@@ -51,6 +51,7 @@ type Task struct {
 	Status              string    `db:"status" json:"status"`
 	DomainID            int64     `db:"domain_id" json:"domain_id"`
 	WebhookConfig       string    `db:"webhook_config" json:"webhook_config"`
+	AssignedExecutorID  string    `db:"assigned_executor_id" json:"assigned_executor_id"`
 	CreatedBy           int64     `db:"created_by" json:"created_by"`
 	CreatedAt           time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt           time.Time `db:"updated_at" json:"updated_at"`

@@ -108,6 +108,7 @@ func (h *TaskHandler) Create(c *gin.Context) {
 		IsEnabled          bool        `json:"is_enabled"`
 		DomainID           int64       `json:"domain_id"`
 		WebhookConfig      string      `json:"webhook_config"`
+		AssignedExecutorID string      `json:"assigned_executor_id"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -165,6 +166,12 @@ func (h *TaskHandler) Create(c *gin.Context) {
 		domainID = 1
 	}
 
+	// 处理 AssignedExecutorID，如果为空字符串则设置为 NULL
+	assignedExecutorID := req.AssignedExecutorID
+	if assignedExecutorID == "" {
+		assignedExecutorID = "" // 空字符串会在 SQL 中设为 NULL
+	}
+
 	var query string
 	var args []interface{}
 	now := time.Now().Format(DateTimeFormat)
@@ -181,23 +188,25 @@ func (h *TaskHandler) Create(c *gin.Context) {
 		query = `
 			INSERT INTO tasks (workflow_id, name, type, config, cron_expression, timeout_seconds,
 			                  retry_count, retry_interval, is_enabled, status, domain_id, webhook_config,
-			                  created_by, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, 1, ?, ?)
+			                  assigned_executor_id, created_by, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, 1, ?, ?)
 		`
 		args = []interface{}{
 			*req.WorkflowID, safeString(req.Name), safeString(req.Type), safeString(configStr),
-			safeString(req.CronExpression), ts, rc, ri, isEnabled, domainID, safeString(req.WebhookConfig), now, now,
+			safeString(req.CronExpression), ts, rc, ri, isEnabled, domainID, safeString(req.WebhookConfig),
+			assignedExecutorID, now, now,
 		}
 	} else {
 		query = `
 			INSERT INTO tasks (name, type, config, cron_expression, timeout_seconds,
 			                  retry_count, retry_interval, is_enabled, status, domain_id, webhook_config,
-			                  created_by, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, 1, ?, ?)
+			                  assigned_executor_id, created_by, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, 1, ?, ?)
 		`
 		args = []interface{}{
 			safeString(req.Name), safeString(req.Type), safeString(configStr),
-			safeString(req.CronExpression), ts, rc, ri, isEnabled, domainID, safeString(req.WebhookConfig), now, now,
+			safeString(req.CronExpression), ts, rc, ri, isEnabled, domainID, safeString(req.WebhookConfig),
+			assignedExecutorID, now, now,
 		}
 	}
 
@@ -250,6 +259,7 @@ func (h *TaskHandler) Update(c *gin.Context) {
 		IsEnabled          *bool       `json:"is_enabled"`
 		DomainID           int64       `json:"domain_id"`
 		WebhookConfig      string      `json:"webhook_config"`
+		AssignedExecutorID string      `json:"assigned_executor_id"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -307,6 +317,8 @@ func (h *TaskHandler) Update(c *gin.Context) {
 	if req.WebhookConfig != "" {
 		currentTask.WebhookConfig = req.WebhookConfig
 	}
+	// 更新 AssignedExecutorID（允许设置为空字符串来清除）
+	currentTask.AssignedExecutorID = req.AssignedExecutorID
 
 	slog.Info("TaskHandler.Update: updating task",
 		"id", id,

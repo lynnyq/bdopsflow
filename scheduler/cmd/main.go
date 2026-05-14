@@ -63,6 +63,9 @@ func main() {
 
 	schedulerService := service.NewSchedulerService(*db, redisClient)
 
+	// 启动定时清理卡住任务的例程
+	schedulerService.StartCleanupRoutine()
+
 	webhookSvc := webhook.NewService()
 	schedulerService.SetWebhookService(webhookSvc)
 
@@ -76,6 +79,7 @@ func main() {
 		os.Exit(1)
 	}
 	defer cronScheduler.Stop()
+	defer schedulerService.StopCleanupRoutine()
 
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.Default()

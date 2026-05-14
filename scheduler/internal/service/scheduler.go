@@ -50,13 +50,128 @@ type SchedulerService struct {
 		UnregisterTask(taskID int64)
 	}
 	webhookSvc *webhook.Service
+	stopCleanupCh chan struct{}
 }
 
 func NewSchedulerService(db rqlite.Connection, redis *redis.Client) *SchedulerService {
 	return &SchedulerService{
 		DB:    db,
 		redis: redis,
+		stopCleanupCh: make(chan struct{}),
 	}
+}
+
+// StartCleanupRoutine 启动定时清理卡住任务的例程
+func (s *SchedulerService) StartCleanupRoutine() {
+	go s.cleanupStuckTasks()
+}
+
+func (s *SchedulerService) cleanupStuckTasks() {
+	ticker := time.NewTicker(60 * time.Second) // 每分钟检查一次
+	defer ticker.Stop()
+
+	slog.Info("stuck task cleanup routine started")
+
+	for {
+		select {
+		case <-s.stopCleanupCh:
+			slog.Info("stuck task cleanup routine stopped")
+			return
+		case <-ticker.C:
+			s.cleanupDeadTasks()
+		}
+	}
+}
+
+func (s *SchedulerService) cleanupDeadTasks() {
+	ctx := context.Background()
+
+	// 查找所有 running 状态超过 10 分钟的任务
+	query := `
+		SELECT id, task_id, execution_id, start_time, created_at
+		FROM task_executions
+		WHERE status = 'running'
+		AND (start_time IS NOT NULL AND start_time != '')
+		AND created_at < datetime('now', '-10 minutes')
+	`
+
+	qr, err := s.DB.QueryOne(query)
+	if err != nil {
+		slog.Error("cleanup: query stuck tasks failed", "error", err)
+		return
+	}
+	if qr.Err != nil {
+		slog.Error("cleanup: query returned error", "error", qr.Err)
+		return
+	}
+
+	var stuckExecutions []struct {
+		ID           int64
+		TaskID       int64
+		ExecutionID  string
+		StartTime    string
+	}
+
+	for qr.Next() {
+		row, err := qr.Slice()
+		if err != nil {
+			continue
+		}
+		stuck := struct {
+			ID           int64
+			TaskID       int64
+			ExecutionID  string
+			StartTime    string
+		}{
+			ID:          rowInt64(row[0]),
+			TaskID:      rowInt64(row[1]),
+			ExecutionID: rowString(row[2]),
+			StartTime:   rowString(row[3]),
+		}
+		stuckExecutions = append(stuckExecutions, stuck)
+	}
+
+	if len(stuckExecutions) == 0 {
+		return
+	}
+
+	slog.Warn("found stuck tasks", "count", len(stuckExecutions))
+
+	for _, exec := range stuckExecutions {
+		// 检查锁是否存在
+		lockKey := fmt.Sprintf("task:lock:%s", exec.ExecutionID)
+		lockExists, err := s.redis.Exists(ctx, lockKey).Result()
+		if err != nil {
+			slog.Error("cleanup: check lock existence failed", "error", err, "execution_id", exec.ExecutionID)
+			continue
+		}
+
+		if lockExists == 0 {
+			// 锁不存在，说明任务已经卡死，强制更新状态
+			slog.Warn("cleanup: task is stuck, force updating status to failed",
+				"task_id", exec.TaskID,
+				"execution_id", exec.ExecutionID,
+				"start_time", exec.StartTime,
+			)
+
+			// 更新执行状态为失败
+			err := s.UpdateExecutionResult(ctx, exec.ExecutionID, "failed", "", "task execution timeout or crashed, no lock found")
+			if err != nil {
+				slog.Error("cleanup: failed to update execution result", "error", err, "execution_id", exec.ExecutionID)
+			}
+
+			// 更新任务状态
+			err = s.UpdateTaskStatusByID(ctx, exec.TaskID, "failed")
+			if err != nil {
+				slog.Error("cleanup: failed to update task status", "error", err, "task_id", exec.TaskID)
+			}
+		}
+	}
+}
+
+// StopCleanupRoutine 停止定时清理例程
+func (s *SchedulerService) StopCleanupRoutine() {
+	close(s.stopCleanupCh)
 }
 
 func (s *SchedulerService) SetCronScheduler(cs interface {
@@ -183,7 +298,7 @@ func (s *SchedulerService) GetTaskByID(ctx context.Context, id int64) (*model.Ta
 	query := `
 		SELECT id, workflow_id, name, type, config, cron_expression, timeout_seconds,
 		       retry_count, retry_interval, is_enabled, status, domain_id, webhook_config,
-		       created_by, created_at, updated_at
+		       assigned_executor_id, created_by, created_at, updated_at
 		FROM tasks WHERE id = ?
 	`
 
@@ -220,7 +335,7 @@ func (s *SchedulerService) ListTasks(ctx context.Context) ([]*model.Task, error)
 	query := `
 		SELECT id, workflow_id, name, type, config, cron_expression, timeout_seconds,
 		       retry_count, retry_interval, is_enabled, status, domain_id, webhook_config,
-		       created_by, created_at, updated_at
+		       assigned_executor_id, created_by, created_at, updated_at
 		FROM tasks ORDER BY created_at DESC
 	`
 
@@ -251,7 +366,7 @@ func (s *SchedulerService) UpdateTask(ctx context.Context, id int64, task *model
 	query := `
 		UPDATE tasks SET name = ?, type = ?, config = ?, cron_expression = ?,
 		               timeout_seconds = ?, retry_count = ?, retry_interval = ?,
-		               is_enabled = ?, webhook_config = ?, updated_at = ?
+		               is_enabled = ?, webhook_config = ?, assigned_executor_id = ?, updated_at = ?
 		WHERE id = ?
 	`
 
@@ -265,7 +380,7 @@ func (s *SchedulerService) UpdateTask(ctx context.Context, id int64, task *model
 		Arguments: []interface{}{
 			task.Name, task.Type, task.Config, task.CronExpression,
 			int64(task.TimeoutSeconds), int64(task.RetryCount), int64(task.RetryInterval),
-			isEnabled, task.WebhookConfig, time.Now().Format("2006-01-02 15:04:05"), id,
+			isEnabled, task.WebhookConfig, task.AssignedExecutorID, time.Now().Format("2006-01-02 15:04:05"), id,
 		},
 	}
 
@@ -324,30 +439,10 @@ func (s *SchedulerService) DeleteTask(ctx context.Context, id int64) error {
 }
 
 func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (string, error) {
-	lockKey := fmt.Sprintf("task:lock:%d", taskID)
-	lockValue := fmt.Sprintf("%d", time.Now().UnixNano())
-	
-	// 尝试获取分布式锁
-	lockSet, err := s.redis.SetNX(ctx, lockKey, lockValue, 30*time.Second).Result()
-	if err != nil {
-		return "", fmt.Errorf("acquire lock failed: %w", err)
-	}
-	if !lockSet {
-		return "", fmt.Errorf("task %d is already being executed", taskID)
-	}
-
-	// 确保任务执行完成后释放锁
-	defer func() {
-		// 只有持有锁的人才能释放
-		if val, _ := s.redis.Get(ctx, lockKey).Result(); val == lockValue {
-			s.redis.Del(ctx, lockKey)
-		}
-	}()
-
-	// 检查任务是否已经在运行
+	// 检查任务是否已经在运行（数据库级别）
 	checkRunningQuery := `
-		SELECT status FROM task_executions 
-		WHERE task_id = ? AND status IN ('running')
+		SELECT execution_id FROM task_executions 
+		WHERE task_id = ? AND status = 'running'
 		ORDER BY created_at DESC
 		LIMIT 1
 	`
@@ -358,9 +453,34 @@ func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (strin
 	checkQr, err := s.DB.QueryOneParameterized(checkStmt)
 	if err == nil && checkQr.Err == nil && checkQr.Next() {
 		row, _ := checkQr.Slice()
-		if rowString(row[0]) == "running" {
-			return "", fmt.Errorf("task %d is already running", taskID)
+		runningExecID := rowString(row[0])
+		
+		// 任务正在运行，记录一个 skipped 的执行
+		skippedExecutionID := fmt.Sprintf("exec-%d-%d", taskID, time.Now().UnixNano())
+		nowUTC := time.Now().UTC().Format("2006-01-02 15:04:05")
+		skippedReason := fmt.Sprintf("skipped: previous execution (id: %s) is still running", runningExecID)
+		
+		insertQuery := `
+			INSERT INTO task_executions (task_id, execution_id, executor_id, status, output, error, start_time, retry_times, created_at)
+			VALUES (?, ?, '', 'skipped', '', ?, ?, 0, ?)
+		`
+		insertStmt := rqlite.ParameterizedStatement{
+			Query:     insertQuery,
+			Arguments: []interface{}{taskID, skippedExecutionID, skippedReason, nowUTC, nowUTC},
 		}
+		
+		// 忽略插入错误，继续执行
+		if _, dbErr := s.DB.WriteOneParameterized(insertStmt); dbErr != nil {
+			slog.Warn("failed to record skipped execution", "task_id", taskID, "error", dbErr)
+		} else {
+			slog.Warn("task skipped: previous execution still running",
+				"task_id", taskID,
+				"skipped_execution_id", skippedExecutionID,
+				"running_execution_id", runningExecID,
+			)
+		}
+		
+		return "", fmt.Errorf("task %d is already running (execution_id: %s), skipped", taskID, runningExecID)
 	}
 
 	task, err := s.GetTaskByID(ctx, taskID)
@@ -370,18 +490,46 @@ func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (strin
 
 	executionID := fmt.Sprintf("exec-%d-%d", taskID, time.Now().UnixNano())
 
+	// 使用 execution_id 作为锁的标识
+	lockKey := fmt.Sprintf("task:lock:%s", executionID)
+	lockValue := fmt.Sprintf("%d", time.Now().UnixNano())
+	
+	// 尝试获取分布式锁，锁超时时间设置为任务超时时间的2倍，最小60秒，最大3600秒
+	lockTTL := time.Duration(task.TimeoutSeconds) * 2 * time.Second
+	if lockTTL < 60*time.Second {
+		lockTTL = 60 * time.Second
+	}
+	if lockTTL > 3600*time.Second {
+		lockTTL = 3600 * time.Second
+	}
+	if task.TimeoutSeconds == 0 {
+		// 如果任务没有超时限制，锁超时设为10分钟
+		lockTTL = 600 * time.Second
+	}
+	
+	lockSet, err := s.redis.SetNX(ctx, lockKey, lockValue, lockTTL).Result()
+	if err != nil {
+		slog.Warn("acquire lock failed, continuing anyway", "error", err)
+	} else if !lockSet {
+		return "", fmt.Errorf("task %d is already being executed (lock conflict)", taskID)
+	}
+
 	nowUTC := time.Now().UTC().Format("2006-01-02 15:04:05")
-	query := `
+	insertQuery := `
 		INSERT INTO task_executions (task_id, execution_id, executor_id, status, start_time, retry_times, created_at)
 		VALUES (?, ?, '', 'running', ?, 0, ?)
 	`
 
 	stmt := rqlite.ParameterizedStatement{
-		Query:     query,
+		Query:     insertQuery,
 		Arguments: []interface{}{taskID, executionID, nowUTC, nowUTC},
 	}
 	_, err = s.DB.WriteOneParameterized(stmt)
 	if err != nil {
+		// 插入失败，清理锁
+		if lockSet {
+			s.redis.Del(ctx, lockKey)
+		}
 		return "", fmt.Errorf("create execution record failed: %w", err)
 	}
 
@@ -390,14 +538,74 @@ func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (strin
 		"execution_id", executionID,
 		"type", task.Type,
 		"name", task.Name,
+		"lock_ttl", lockTTL,
 	)
 
-	executor, err := s.SelectAvailableExecutor(ctx)
-	if err != nil {
-		slog.Error("no available executor", "task_id", taskID, "error", err)
-		s.UpdateExecutionResult(ctx, executionID, "failed", "", fmt.Sprintf("no available executor: %v", err))
-		s.UpdateTaskStatusByID(ctx, taskID, "failed")
-		return executionID, fmt.Errorf("no available executor: %w", err)
+	// 选择执行器：如果任务指定了执行器，则使用指定的执行器；否则使用负载均衡
+	var executor *model.Executor
+	if task.AssignedExecutorID != "" {
+		// 使用指定的执行器
+		executor, err = s.GetExecutorByID(ctx, task.AssignedExecutorID)
+		if err != nil {
+			slog.Error("specified executor not found",
+				"task_id", taskID,
+				"assigned_executor_id", task.AssignedExecutorID,
+				"error", err,
+			)
+			s.UpdateExecutionResult(ctx, executionID, "failed", "", fmt.Sprintf("specified executor %s not found: %v", task.AssignedExecutorID, err))
+			s.UpdateTaskStatusByID(ctx, taskID, "failed")
+			s.redis.Del(ctx, lockKey)
+			return executionID, fmt.Errorf("specified executor %s not found: %w", task.AssignedExecutorID, err)
+		}
+
+		// 检查执行器是否在线且有容量
+		if executor.Status != "online" {
+			slog.Error("specified executor is not online",
+				"task_id", taskID,
+				"assigned_executor_id", task.AssignedExecutorID,
+				"executor_status", executor.Status,
+			)
+			s.UpdateExecutionResult(ctx, executionID, "failed", "", fmt.Sprintf("specified executor %s is not online (status: %s)", task.AssignedExecutorID, executor.Status))
+			s.UpdateTaskStatusByID(ctx, taskID, "failed")
+			s.redis.Del(ctx, lockKey)
+			return executionID, fmt.Errorf("specified executor %s is not online", task.AssignedExecutorID)
+		}
+
+		if executor.CurrentLoad >= executor.Capacity {
+			slog.Error("specified executor has no capacity",
+				"task_id", taskID,
+				"assigned_executor_id", task.AssignedExecutorID,
+				"current_load", executor.CurrentLoad,
+				"capacity", executor.Capacity,
+			)
+			s.UpdateExecutionResult(ctx, executionID, "failed", "", fmt.Sprintf("specified executor %s has no capacity (load: %d/%d)", task.AssignedExecutorID, executor.CurrentLoad, executor.Capacity))
+			s.UpdateTaskStatusByID(ctx, taskID, "failed")
+			s.redis.Del(ctx, lockKey)
+			return executionID, fmt.Errorf("specified executor %s has no capacity", task.AssignedExecutorID)
+		}
+
+		slog.Info("using specified executor",
+			"task_id", taskID,
+			"execution_id", executionID,
+			"assigned_executor_id", task.AssignedExecutorID,
+			"executor_name", executor.Name,
+		)
+	} else {
+		// 使用默认负载均衡算法
+		executor, err = s.SelectAvailableExecutor(ctx)
+		if err != nil {
+			slog.Error("no available executor", "task_id", taskID, "error", err)
+			s.UpdateExecutionResult(ctx, executionID, "failed", "", fmt.Sprintf("no available executor: %v", err))
+			s.UpdateTaskStatusByID(ctx, taskID, "failed")
+			s.redis.Del(ctx, lockKey)
+			return executionID, fmt.Errorf("no available executor: %w", err)
+		}
+		slog.Info("using load-balanced executor",
+			"task_id", taskID,
+			"execution_id", executionID,
+			"executor_id", executor.ExecutorID,
+			"executor_name", executor.Name,
+		)
 	}
 
 	grpcTask := &pb.Task{
@@ -414,6 +622,8 @@ func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (strin
 		slog.Warn("no task dispatcher set", "task_id", taskID)
 		s.UpdateExecutionResult(ctx, executionID, "failed", "", "dispatcher not configured")
 		s.UpdateTaskStatusByID(ctx, taskID, "failed")
+		// 清理锁
+		s.redis.Del(ctx, lockKey)
 		return executionID, fmt.Errorf("dispatcher not configured")
 	}
 
@@ -433,6 +643,8 @@ func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (strin
 		slog.Error("dispatch task failed", "task_id", taskID, "executor", executor.ExecutorID, "error", err)
 		s.UpdateExecutionResult(ctx, executionID, "failed", "", fmt.Sprintf("dispatch failed: %v", err))
 		s.UpdateTaskStatusByID(ctx, taskID, "failed")
+		// 清理锁
+		s.redis.Del(ctx, lockKey)
 		return executionID, fmt.Errorf("dispatch failed: %w", err)
 	}
 
@@ -485,7 +697,7 @@ func (s *SchedulerService) ScanPendingTasks(ctx context.Context) ([]*model.Task,
 	query := `
 		SELECT id, workflow_id, name, type, config, cron_expression, timeout_seconds,
 		       retry_count, retry_interval, is_enabled, status, domain_id, webhook_config,
-		       created_by, created_at, updated_at
+		       assigned_executor_id, created_by, created_at, updated_at
 		FROM tasks
 		WHERE is_enabled = 1 AND cron_expression != ''
 	`
@@ -592,6 +804,37 @@ func (s *SchedulerService) UpdateExecutorHeartbeat(ctx context.Context, executor
 	return nil
 }
 
+// GetExecutorByID 根据 executor_id 获取执行器信息
+func (s *SchedulerService) GetExecutorByID(ctx context.Context, executorID string) (*model.Executor, error) {
+	query := `
+		SELECT id, executor_id, name, address, status, last_heartbeat, capacity, current_load, created_at, updated_at
+		FROM executors WHERE executor_id = ?
+	`
+
+	stmt := rqlite.ParameterizedStatement{
+		Query:     query,
+		Arguments: []interface{}{executorID},
+	}
+	qr, err := s.DB.QueryOneParameterized(stmt)
+	if err != nil {
+		return nil, err
+	}
+	if qr.Err != nil {
+		return nil, qr.Err
+	}
+
+	if !qr.Next() {
+		return nil, fmt.Errorf("executor not found")
+	}
+
+	exec := &model.Executor{}
+	if err := scanExecutorResult(&qr, exec); err != nil {
+		return nil, err
+	}
+
+	return exec, nil
+}
+
 func (s *SchedulerService) ListExecutors(ctx context.Context) ([]*model.Executor, error) {
 	query := `
 		SELECT id, executor_id, name, address, status, last_heartbeat, capacity, current_load, created_at, updated_at
@@ -655,8 +898,9 @@ func (s *SchedulerService) UpdateExecutionResult(ctx context.Context, executionI
 		row, _ := taskIDQr.Slice()
 		taskID := rowInt64(row[0])
 		// 清理锁
-		lockKey := fmt.Sprintf("task:lock:%d", taskID)
+		lockKey := fmt.Sprintf("task:lock:%s", executionID)
 		s.redis.Del(ctx, lockKey)
+		slog.Debug("cleaned up task lock", "task_id", taskID, "execution_id", executionID)
 	}
 
 	slog.Info("task execution finished",
@@ -1502,11 +1746,12 @@ func scanTaskResult(qr *rqlite.QueryResult, task *model.Task) error {
 	task.Status = rowString(row[10])
 	task.DomainID = rowInt64(row[11])
 	task.WebhookConfig = rowString(row[12])
-	task.CreatedBy = rowInt64(row[13])
-	if t, ok := row[14].(time.Time); ok {
+	task.AssignedExecutorID = rowString(row[13])
+	task.CreatedBy = rowInt64(row[14])
+	if t, ok := row[15].(time.Time); ok {
 		task.CreatedAt = t
 	}
-	if t, ok := row[15].(time.Time); ok {
+	if t, ok := row[16].(time.Time); ok {
 		task.UpdatedAt = t
 	}
 	return nil

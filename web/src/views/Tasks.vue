@@ -315,6 +315,45 @@
                   </el-form-item>
                 </el-col>
               </el-row>
+
+              <!-- 执行器选择 -->
+              <el-row :gutter="16">
+                <el-col :span="24">
+                  <el-form-item label="执行器" class="form-item">
+                    <el-select
+                      v-model="form.assigned_executor_id"
+                      clearable
+                      placeholder="默认调度（自动选择）"
+                      class="form-select"
+                    >
+                      <template #prefix>
+                        <el-icon><Cpu /></el-icon>
+                      </template>
+                      <el-option label="默认调度（自动选择）" value="" />
+                      <el-option
+                        v-for="executor in executors"
+                        :key="executor.executor_id"
+                        :label="`${executor.name} (${executor.current_load}/${executor.capacity})`"
+                        :value="executor.executor_id"
+                      >
+                        <div class="executor-option">
+                          <span>{{ executor.name }}</span>
+                          <span class="executor-status" :class="executor.status">
+                            {{ executor.status === 'online' ? '在线' : '离线' }}
+                          </span>
+                          <span class="executor-load">
+                            负载: {{ executor.current_load }}/{{ executor.capacity }}
+                          </span>
+                        </div>
+                      </el-option>
+                    </el-select>
+                    <div class="form-tip">
+                      <el-icon><InfoFilled /></el-icon>
+                      <span>留空则使用默认调度算法，指定执行器则任务将在该执行器上执行</span>
+                    </div>
+                  </el-form-item>
+                </el-col>
+              </el-row>
             </div>
           </div>
 
@@ -683,14 +722,15 @@ import {
   DataAnalysis,
   Link
 } from '@element-plus/icons-vue'
-import { taskAPI } from '@/api'
-import type { Task, TaskConfig } from '@/types'
+import { taskAPI, executorAPI } from '@/api'
+import type { Task, TaskConfig, Executor } from '@/types'
 import TaskLogViewer from '@/components/TaskLogViewer.vue'
 
 const router = useRouter()
 const route = useRoute()
 
 const tasks = ref<Task[]>([])
+const executors = ref<Executor[]>([])
 const loading = ref(false)
 const submitting = ref(false)
 const toggleLoading = ref<number | null>(null)
@@ -766,7 +806,8 @@ const defaultForm = {
   retry_interval: 5,
   is_enabled: true,
   webhook_url: '',
-  webhook_events: [] as string[]
+  webhook_events: [] as string[],
+  assigned_executor_id: '' // 指定执行器，空表示使用默认调度
 }
 
 const form = ref({ ...defaultForm })
@@ -923,7 +964,8 @@ const handleEdit = (task: Task) => {
     retry_interval: task.retry_interval,
     is_enabled: task.is_enabled,
     webhook_url: webhookUrl,
-    webhook_events: webhookEvents
+    webhook_events: webhookEvents,
+    assigned_executor_id: task.assigned_executor_id || ''
   }
   
   // 根据当前任务的 cron 表达式设置预设
@@ -1104,9 +1146,22 @@ watch(() => form.value.timeout_seconds, (newVal) => {
   }
 }, { immediate: true })
 
-onMounted(() => {
-  loadTasks()
+onMounted(async () => {
+  await Promise.all([
+    loadTasks(),
+    loadExecutors()
+  ])
 })
+
+const loadExecutors = async () => {
+  try {
+    const response = await executorAPI.list()
+    executors.value = response.data
+  } catch (error) {
+    console.error('Failed to load executors:', error)
+    ElMessage.error('加载执行器列表失败')
+  }
+}
 </script>
 
 <style scoped>

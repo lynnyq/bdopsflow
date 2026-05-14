@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -152,9 +153,22 @@ func (cs *CronScheduler) executeTask(taskID int64) {
 		cs.UnregisterTask(taskID)
 		return
 	}
-	
+
 	// 获取分布式锁，避免多实例重复执行
-	acquired, err := cs.acquireTaskLock(ctx, taskID)
+	// 锁超时时间与任务超时时间相关，最小60秒，最大3600秒
+	lockTTL := time.Duration(task.TimeoutSeconds) * 2
+	if lockTTL < 60*time.Second {
+		lockTTL = 60 * time.Second
+	}
+	if lockTTL > 3600*time.Second {
+		lockTTL = 3600 * time.Second
+	}
+	if task.TimeoutSeconds == 0 {
+		// 如果任务没有超时限制，锁超时设为10分钟
+		lockTTL = 600 * time.Second
+	}
+
+	acquired, err := cs.acquireTaskLock(ctx, taskID, lockTTL)
 	if err != nil || !acquired {
 		if err != nil {
 			slog.Warn("acquire task lock failed", "task_id", taskID, "error", err)
@@ -165,29 +179,61 @@ func (cs *CronScheduler) executeTask(taskID int64) {
 
 	slog.Info("cron task triggering", "task_id", taskID, "task_name", task.Name)
 
-	executionID, err := cs.svc.TriggerTask(ctx, taskID)
-	if err != nil {
+	// 尝试触发任务，如果正在运行则等待重试
+	maxRetries := 10 // 最多重试10次
+	retryInterval := 10 * time.Second // 每10秒重试一次
+	
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		executionID, err := cs.svc.TriggerTask(ctx, taskID)
+		if err == nil {
+			// 成功触发
+			slog.Info("cron task triggered successfully",
+				"task_id", taskID,
+				"execution_id", executionID,
+			)
+			return
+		}
+
+		// 检查是否是"正在运行"错误
+		if strings.Contains(err.Error(), "already running") || strings.Contains(err.Error(), "skipped") {
+			slog.Warn("task is still running, waiting for retry",
+				"task_id", taskID,
+				"attempt", attempt,
+				"max_retries", maxRetries,
+				"retry_interval", retryInterval,
+				"error", err,
+			)
+			
+			// 等待后重试
+			time.Sleep(retryInterval)
+			continue
+		}
+
+		// 其他错误，不再重试
 		slog.Error("cron trigger task failed",
 			"task_id", taskID,
 			"execution_id", executionID,
 			"error", err,
 		)
-	} else {
-		slog.Info("cron task triggered successfully",
-			"task_id", taskID,
-			"execution_id", executionID,
-		)
+		return
 	}
+
+	// 所有重试都失败
+	slog.Error("cron trigger task failed after all retries",
+		"task_id", taskID,
+		"max_retries", maxRetries,
+		"total_wait_time", maxRetries*int(retryInterval),
+	)
 }
 
 // acquireTaskLock 尝试获取任务执行锁
-func (cs *CronScheduler) acquireTaskLock(ctx context.Context, taskID int64) (bool, error) {
+func (cs *CronScheduler) acquireTaskLock(ctx context.Context, taskID int64, lockTTL time.Duration) (bool, error) {
 	if cs.redis == nil {
 		return true, nil
 	}
 
 	lockKey := fmt.Sprintf("cron:lock:task:%d", taskID)
-	ok, err := cs.redis.SetNX(ctx, lockKey, "locked", 30*time.Second).Result()
+	ok, err := cs.redis.SetNX(ctx, lockKey, "locked", lockTTL).Result()
 	if err != nil {
 		slog.Warn("failed to acquire lock", "task_id", taskID, "error", err)
 		return false, err
