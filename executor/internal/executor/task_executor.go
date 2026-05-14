@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os/exec"
+	"strings"
 	"time"
 
 	pb "github.com/lynnyq/bdopsflow/proto"
@@ -84,9 +86,10 @@ func (e *TaskExecutor) executeTask(ctx context.Context, task *pb.Task, client *g
 
 func (e *TaskExecutor) executeHTTP(ctx context.Context, task *pb.Task, client *grpcclient.Client) (string, error) {
 	var config struct {
-		URL    string `json:"url"`
-		Method string `json:"method"`
-		Body   string `json:"body"`
+		URL     string `json:"url"`
+		Method  string `json:"method"`
+		Body    string `json:"body"`
+		Headers string `json:"headers"`
 	}
 	if err := json.Unmarshal([]byte(task.Config), &config); err != nil {
 		return "", fmt.Errorf("invalid http config: %w", err)
@@ -96,28 +99,109 @@ func (e *TaskExecutor) executeHTTP(ctx context.Context, task *pb.Task, client *g
 		config.Method = "GET"
 	}
 
-	sendLog(client, task, "info", fmt.Sprintf("HTTP %s %s", config.Method, config.URL))
+	sendLog(client, task, "info", fmt.Sprintf("🚀 Sending HTTP %s request to: %s", config.Method, config.URL))
+	
+	if config.Headers != "" {
+		sendLog(client, task, "info", fmt.Sprintf("📋 Request headers: %s", config.Headers))
+	}
+	if config.Body != "" && config.Method != "GET" {
+		sendLog(client, task, "info", fmt.Sprintf("📦 Request body: %s", config.Body))
+	}
 
 	req, err := http.NewRequestWithContext(ctx, config.Method, config.URL, bytes.NewBuffer([]byte(config.Body)))
 	if err != nil {
+		sendLog(client, task, "error", fmt.Sprintf("❌ Failed to create request: %v", err))
 		return "", fmt.Errorf("create request failed: %w", err)
+	}
+
+	// 添加请求头
+	if config.Headers != "" {
+		var headers map[string]string
+		if err := json.Unmarshal([]byte(config.Headers), &headers); err == nil {
+			for key, value := range headers {
+				req.Header.Set(key, value)
+			}
+		}
 	}
 
 	httpClient := &http.Client{Timeout: time.Duration(task.TimeoutSeconds) * time.Second}
 	resp, err := httpClient.Do(req)
 	if err != nil {
+		sendLog(client, task, "error", fmt.Sprintf("❌ HTTP request failed: %v", err))
 		return "", fmt.Errorf("http request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
-	buf := new(bytes.Buffer)
-	buf.ReadFrom(resp.Body)
-	body := buf.String()
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		sendLog(client, task, "error", fmt.Sprintf("❌ Failed to read response body: %v", err))
+		return "", fmt.Errorf("read response body failed: %w", err)
+	}
+	body := string(bodyBytes)
 
-	sendLog(client, task, "info", fmt.Sprintf("HTTP response: %d, body length: %d", resp.StatusCode, len(body)))
-
+	contentType := resp.Header.Get("Content-Type")
+	
+	// 根据状态码和内容类型分别处理日志输出
 	if resp.StatusCode >= 400 {
+		// 错误响应 - 输出到 stderr
+		sendLog(client, task, "error", fmt.Sprintf("❌ HTTP Error Response"))
+		sendLog(client, task, "error", fmt.Sprintf("Status: %d %s", resp.StatusCode, resp.Status))
+		sendLog(client, task, "error", fmt.Sprintf("Content-Type: %s", contentType))
+		
+		// 格式化错误响应体
+		if strings.Contains(strings.ToLower(contentType), "json") {
+			var jsonData interface{}
+			if err := json.Unmarshal(bodyBytes, &jsonData); err == nil {
+				formattedJSON, _ := json.MarshalIndent(jsonData, "", "  ")
+				sendLog(client, task, "error", fmt.Sprintf("Response Body (JSON):\n%s", string(formattedJSON)))
+			} else {
+				sendOutputLog(client, task, "stderr", body)
+			}
+		} else {
+			sendOutputLog(client, task, "stderr", body)
+		}
+		
 		return body, fmt.Errorf("http status %d: %s", resp.StatusCode, body)
+	}
+
+	// 成功响应 - 输出到 stdout
+	sendLog(client, task, "info", fmt.Sprintf("✅ HTTP Success Response"))
+	sendLog(client, task, "info", fmt.Sprintf("Status: %d %s", resp.StatusCode, resp.Status))
+	sendLog(client, task, "info", fmt.Sprintf("Content-Type: %s", contentType))
+	sendLog(client, task, "info", fmt.Sprintf("Response size: %d bytes", len(body)))
+
+	// 格式化响应体输出
+	if strings.Contains(strings.ToLower(contentType), "json") {
+		var jsonData interface{}
+		if err := json.Unmarshal(bodyBytes, &jsonData); err == nil {
+			formattedJSON, prettyJSONErr := json.MarshalIndent(jsonData, "", "  ")
+			if prettyJSONErr == nil {
+				sendLog(client, task, "info", fmt.Sprintf("📄 Response Body (JSON):"))
+				sendOutputLog(client, task, "stdout", string(formattedJSON))
+			} else {
+				sendOutputLog(client, task, "stdout", body)
+			}
+		} else {
+			sendOutputLog(client, task, "stdout", body)
+		}
+	} else if strings.Contains(strings.ToLower(contentType), "text") || 
+	           strings.Contains(strings.ToLower(contentType), "html") {
+		// 文本或HTML内容
+		sendLog(client, task, "info", fmt.Sprintf("📄 Response Body (Text):"))
+		sendOutputLog(client, task, "stdout", body)
+	} else {
+		// 其他类型，二进制或未知
+		if len(body) > 0 {
+			sendLog(client, task, "info", fmt.Sprintf("📄 Response Body (Binary/Unknown, %d bytes)", len(body)))
+			// 只显示前1KB预览
+			previewLen := len(body)
+			if previewLen > 1024 {
+				previewLen = 1024
+				sendOutputLog(client, task, "stdout", body[:previewLen]+"\n... (truncated)")
+			} else {
+				sendOutputLog(client, task, "stdout", body)
+			}
+		}
 	}
 
 	return body, nil
