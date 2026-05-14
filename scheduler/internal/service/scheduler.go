@@ -11,6 +11,7 @@ import (
 	pb "github.com/lynnyq/bdopsflow/proto"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/dag"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/model"
+	"github.com/lynnyq/bdopsflow/scheduler/internal/webhook"
 	"github.com/redis/go-redis/v9"
 	"github.com/robfig/cron/v3"
 	rqlite "github.com/rqlite/gorqlite"
@@ -48,6 +49,7 @@ type SchedulerService struct {
 		RegisterTask(taskID int64, cronExpr string)
 		UnregisterTask(taskID int64)
 	}
+	webhookSvc *webhook.Service
 }
 
 func NewSchedulerService(db rqlite.Connection, redis *redis.Client) *SchedulerService {
@@ -66,6 +68,69 @@ func (s *SchedulerService) SetCronScheduler(cs interface {
 
 func (s *SchedulerService) SetTaskDispatcher(dispatcher TaskDispatcher) {
 	s.dispatcher = dispatcher
+}
+
+func (s *SchedulerService) SetWebhookService(webhookSvc *webhook.Service) {
+	s.webhookSvc = webhookSvc
+}
+
+func (s *SchedulerService) SendWebhookNotification(ctx context.Context, taskID int64, executionID, status, output, errorMsg string, durationMs int64) {
+	slog.Info("SendWebhookNotification called", "task_id", taskID, "execution_id", executionID, "status", status)
+	
+	if s.webhookSvc == nil {
+		slog.Info("webhook service not configured, skipping notification")
+		return
+	}
+
+	task, err := s.GetTaskByID(ctx, taskID)
+	if err != nil {
+		slog.Error("failed to get task for webhook notification", "task_id", taskID, "error", err)
+		return
+	}
+
+	if task.WebhookConfig == "" {
+		slog.Info("no webhook configured for task", "task_id", taskID)
+		return
+	}
+
+	var config map[string]interface{}
+	if err := json.Unmarshal([]byte(task.WebhookConfig), &config); err != nil {
+		slog.Error("failed to parse webhook config", "task_id", taskID, "error", err)
+		return
+	}
+
+	event := "success"
+	if status == "failed" {
+		event = "failed"
+	}
+
+	payload := map[string]interface{}{
+		"event":        event,
+		"timestamp":    time.Now().Unix(),
+		"task_id":      taskID,
+		"execution_id": executionID,
+		"status":       status,
+		"output":       output,
+		"error":        errorMsg,
+		"duration_ms":  durationMs,
+	}
+
+	if task.Name != "" || task.Type != "" {
+		metadata := make(map[string]interface{})
+		if task.Name != "" {
+			metadata["task_name"] = task.Name
+		}
+		if task.Type != "" {
+			metadata["task_type"] = task.Type
+		}
+		payload["metadata"] = metadata
+	}
+
+	if err := s.webhookSvc.SendFromMap(ctx, config, payload); err != nil {
+		slog.Error("failed to send webhook notification", "task_id", taskID, "execution_id", executionID, "error", err)
+	} else {
+		slog.Info("webhook notification sent", "task_id", taskID, "execution_id", executionID, "event", event)
+	}
 }
 
 func (s *SchedulerService) CreateTask(ctx context.Context, query string, args ...interface{}) (*model.Task, error) {

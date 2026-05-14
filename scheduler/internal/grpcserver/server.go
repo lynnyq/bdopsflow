@@ -106,6 +106,7 @@ func (s *Server) ReportTaskResult(ctx context.Context, req *pb.ReportTaskResultR
 	slog.Info("task result received",
 		"execution_id", req.ExecutionId,
 		"status", req.Status,
+		"task_id", req.TaskId,
 	)
 
 	s.scheduler.UpdateExecutionResult(ctx, req.ExecutionId, req.Status, req.Output, req.Error)
@@ -115,6 +116,9 @@ func (s *Server) ReportTaskResult(ctx context.Context, req *pb.ReportTaskResultR
 		status = "failed"
 	}
 	s.scheduler.UpdateTaskStatusByID(ctx, req.TaskId, status)
+
+	slog.Info("calling SendWebhookNotification", "task_id", req.TaskId, "execution_id", req.ExecutionId)
+	s.scheduler.SendWebhookNotification(ctx, req.TaskId, req.ExecutionId, status, req.Output, req.Error, 0)
 
 	return &pb.ReportTaskResultResponse{
 		Success: true,

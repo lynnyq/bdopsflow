@@ -22,6 +22,7 @@ import (
 	"github.com/lynnyq/bdopsflow/scheduler/internal/logger"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/middleware"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/service"
+	"github.com/lynnyq/bdopsflow/scheduler/internal/webhook"
 )
 
 func main() {
@@ -51,6 +52,9 @@ func main() {
 	slog.Info("connected to rqlite")
 
 	schedulerService := service.NewSchedulerService(*db, redisClient)
+
+	webhookSvc := webhook.NewService()
+	schedulerService.SetWebhookService(webhookSvc)
 
 	grpcSrv := grpcserver.NewServer(cfg.GRPCPort, schedulerService)
 

@@ -23,6 +23,8 @@
 - ✅ **JWT 认证**：完整的用户认证和 RBAC 权限管理
 - ✅ **多租户**：一级领域划分
 - ✅ **可观测**：任务执行历史、日志记录
+- ✅ **Webhook 回调**：灵活的推送时机配置（成功/失败/全部）
+- ✅ **Cron 兼容**：支持 5 位分钟级和 6 位秒级 Cron 表达式
 - ✅ **前端**：Vue3 + Element Plus + Neo-Brutalist 设计风格
 
 ## 🛠️ 技术栈
@@ -49,7 +51,9 @@ bdopsflow/
 ├── docs/                    # 文档
 │   ├── ARCHITECTURE.md      # 架构设计
 │   ├── DEPLOYMENT.md        # 部署文档
-│   └── PHASES.md            # 开发阶段计划
+│   ├── PHASES.md            # 开发阶段计划
+│   ├── API.md               # API 接口文档
+│   └── WEBHOOK.md           # Webhook 接入指南
 ├── deploy/                  # 部署文件
 │   ├── Dockerfile.scheduler
 │   ├── Dockerfile.executor
@@ -211,6 +215,8 @@ curl -X POST http://localhost:8080/api/auth/register \
 - [架构设计文档](docs/ARCHITECTURE.md)
 - [部署文档](docs/DEPLOYMENT.md)
 - [开发阶段计划](docs/PHASES.md)
+- [API 接口文档](docs/API.md)
+- [Webhook 接入指南](docs/WEBHOOK.md)
 
 ## 🔌 API 接口
 
