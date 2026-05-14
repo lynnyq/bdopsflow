@@ -1,0 +1,24 @@
+# Scheduler 服务配置
+app:
+  http_port: "8080"
+  grpc_port: "50051"
+
+# 数据库配置
+database:
+  rqlite_dsn: "http://localhost:4001"
+
+# Redis 配置
+redis:
+  addr: "localhost:6379"
+  password: ""
+  db: 0
+
+# JWT 配置
+jwt:
+  secret: "your-secret-key-change-in-production"
+  expiry_hours: 24
+
+# 日志配置
+log:
+  level: "info"
+  format: "json"

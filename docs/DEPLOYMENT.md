@@ -430,11 +430,12 @@ docker run -d \
   -p 8080:8080 \
   -p 50051:50051 \
   --restart unless-stopped \
-  -e HTTP_PORT=8080 \
-  -e GRPC_PORT=50051 \
-  -e RQLITE_DSN=http://rqlite-1:4001,http://rqlite-2:4001,http://rqlite-3:4001 \
+  -e APP_HTTP_PORT=8080 \
+  -e APP_GRPC_PORT=50051 \
+  -e DATABASE_RQLITE_DSN=http://rqlite-1:4001,http://rqlite-2:4001,http://rqlite-3:4001 \
   -e REDIS_ADDR=redis:6379 \
   -e REDIS_PASSWORD=your_redis_password \
+  -e JWT_SECRET=your_jwt_secret \
   bdopsflow/scheduler:latest
 ```
 
@@ -446,11 +447,12 @@ docker run -d \
   -p 8081:8080 \
   -p 50052:50051 \
   --restart unless-stopped \
-  -e HTTP_PORT=8080 \
-  -e GRPC_PORT=50051 \
-  -e RQLITE_DSN=http://rqlite-1:4001,http://rqlite-2:4001,http://rqlite-3:4001 \
+  -e APP_HTTP_PORT=8080 \
+  -e APP_GRPC_PORT=50051 \
+  -e DATABASE_RQLITE_DSN=http://rqlite-1:4001,http://rqlite-2:4001,http://rqlite-3:4001 \
   -e REDIS_ADDR=redis:6379 \
   -e REDIS_PASSWORD=your_redis_password \
+  -e JWT_SECRET=your_jwt_secret \
   bdopsflow/scheduler:latest
 ```
 
@@ -462,10 +464,10 @@ docker run -d \
 docker run -d \
   --name executor-1 \
   --restart unless-stopped \
-  -e EXECUTOR_ID=executor-1 \
-  -e EXECUTOR_NAME=executor-1 \
+  -e APP_EXECUTOR_ID=executor-1 \
+  -e APP_EXECUTOR_NAME=executor-1 \
   -e SCHEDULER_ADDR=scheduler-1:50051,scheduler-2:50051 \
-  -e CAPACITY=20 \
+  -e APP_CAPACITY=20 \
   bdopsflow/executor:latest
 ```
 
@@ -475,10 +477,10 @@ docker run -d \
 docker run -d \
   --name executor-2 \
   --restart unless-stopped \
-  -e EXECUTOR_ID=executor-2 \
-  -e EXECUTOR_NAME=executor-2 \
+  -e APP_EXECUTOR_ID=executor-2 \
+  -e APP_EXECUTOR_NAME=executor-2 \
   -e SCHEDULER_ADDR=scheduler-1:50051,scheduler-2:50051 \
-  -e CAPACITY=20 \
+  -e APP_CAPACITY=20 \
   bdopsflow/executor:latest
 ```
 
@@ -587,11 +589,12 @@ services:
       context: ..
       dockerfile: deploy/Dockerfile.scheduler
     environment:
-      - HTTP_PORT=8080
-      - GRPC_PORT=50051
-      - RQLITE_DSN=http://rqlite-1:4001,http://rqlite-2:4001,http://rqlite-3:4001
+      - APP_HTTP_PORT=8080
+      - APP_GRPC_PORT=50051
+      - DATABASE_RQLITE_DSN=http://rqlite-1:4001,http://rqlite-2:4001,http://rqlite-3:4001
       - REDIS_ADDR=redis:6379
       - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - JWT_SECRET=${JWT_SECRET:-default-secret-change-in-production}
     depends_on:
       - redis
       - rqlite-1
@@ -604,11 +607,12 @@ services:
       context: ..
       dockerfile: deploy/Dockerfile.scheduler
     environment:
-      - HTTP_PORT=8080
-      - GRPC_PORT=50051
-      - RQLITE_DSN=http://rqlite-1:4001,http://rqlite-2:4001,http://rqlite-3:4001
+      - APP_HTTP_PORT=8080
+      - APP_GRPC_PORT=50051
+      - DATABASE_RQLITE_DSN=http://rqlite-1:4001,http://rqlite-2:4001,http://rqlite-3:4001
       - REDIS_ADDR=redis:6379
       - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - JWT_SECRET=${JWT_SECRET:-default-secret-change-in-production}
     depends_on:
       - redis
       - rqlite-1
@@ -622,10 +626,10 @@ services:
       context: ..
       dockerfile: deploy/Dockerfile.executor
     environment:
-      - EXECUTOR_ID=executor-1
-      - EXECUTOR_NAME=executor-1
+      - APP_EXECUTOR_ID=executor-1
+      - APP_EXECUTOR_NAME=executor-1
       - SCHEDULER_ADDR=scheduler-1:50051,scheduler-2:50051
-      - CAPACITY=20
+      - APP_CAPACITY=20
     depends_on:
       - scheduler-1
     networks:
@@ -637,10 +641,10 @@ services:
       context: ..
       dockerfile: deploy/Dockerfile.executor
     environment:
-      - EXECUTOR_ID=executor-2
-      - EXECUTOR_NAME=executor-2
+      - APP_EXECUTOR_ID=executor-2
+      - APP_EXECUTOR_NAME=executor-2
       - SCHEDULER_ADDR=scheduler-1:50051,scheduler-2:50051
-      - CAPACITY=20
+      - APP_CAPACITY=20
     depends_on:
       - scheduler-1
     networks:
@@ -687,61 +691,211 @@ curl -XPOST 'http://localhost:4001/db/load?pretty' --data-binary @deploy/schema.
 
 ## 五、配置文件详解
 
-### 5.1 调度中心配置
+### 5.1 配置方式
+
+系统支持三种配置方式，优先级从高到低为：
+
+1. **环境变量**（最高优先级）
+2. **YAML 配置文件**（config.yaml）
+3. **默认值**（最低优先级）
+
+### 5.2 YAML 配置文件（推荐）
+
+系统支持使用 `config.yaml` 配置文件管理配置，这种方式更易于维护和版本控制。
+
+#### 5.2.1 配置文件路径
+
+系统会按以下顺序查找配置文件：
+
+1. **命令行指定**（最高优先级）：`-config /path/to/config.yaml`
+2. **当前目录**：`config.yaml` 或 `config.yml`
+3. **可执行文件同目录**：`$(dirname $(which scheduler))/config.yaml`
+4. **系统目录**：`/etc/bdopsflow/config.yaml`
+
+#### 5.2.2 调度中心配置
+
+复制示例配置文件：
+
+```bash
+cd scheduler
+cp config.yaml.example config.yaml
+```
+
+编辑 `config.yaml`：
+
+```yaml
+# 调度中心配置
+app:
+  http_port: "8080"
+  grpc_port: "50051"
+
+# 数据库配置
+database:
+  rqlite_dsn: "http://localhost:4001"
+
+# Redis 配置
+redis:
+  addr: "localhost:6379"
+  password: ""
+  db: 0
+
+# JWT 配置
+jwt:
+  secret: "your-secret-key-change-in-production"
+  expiry_hours: 24
+
+# 日志配置
+log:
+  level: "info"
+  format: "json"
+```
+
+#### 5.2.3 执行器配置
+
+复制示例配置文件：
+
+```bash
+cd executor
+cp config.yaml.example config.yaml
+```
+
+编辑 `config.yaml`：
+
+```yaml
+# 执行器配置
+app:
+  executor_id: "executor-1"
+  executor_name: "executor-1"
+  capacity: 10
+
+# Scheduler gRPC 地址
+scheduler:
+  addr: "localhost:50051"
+  timeout: 30
+
+# 日志配置
+log:
+  level: "info"
+  format: "json"
+```
+
+### 5.3 命令行参数
+
+#### 调度中心
+
+```bash
+# 使用默认配置文件（config.yaml）
+./scheduler
+
+# 指定配置文件路径
+./scheduler -config /path/to/config.yaml
+
+# 查看帮助
+./scheduler -h
+```
+
+参数说明：
+- `-config string`：配置文件路径（可选）
+
+#### 执行器
+
+```bash
+# 使用默认配置文件（config.yaml）
+./executor
+
+# 指定配置文件路径
+./executor -config /path/to/config.yaml
+
+# 查看帮助
+./executor -h
+```
+
+参数说明：
+- `-config string`：配置文件路径（可选）
+
+### 5.4 环境变量配置
+
+#### 5.4.1 调度中心环境变量
 
 | 环境变量 | 默认值 | 说明 | 必须 |
 |---------|-------|------|------|
-| HTTP_PORT | 8080 | HTTP API 服务端口 | 否 |
-| GRPC_PORT | 50051 | gRPC 服务端口（与执行器通信） | 否 |
-| RQLITE_DSN | http://localhost:4001 | rqlite HTTP API 地址，生产环境多节点用逗号分隔 | 是 |
+| APP_HTTP_PORT | 8080 | HTTP API 服务端口 | 否 |
+| APP_GRPC_PORT | 50051 | gRPC 服务端口（与执行器通信） | 否 |
+| DATABASE_RQLITE_DSN | http://localhost:4001 | rqlite HTTP API 地址，生产环境多节点用逗号分隔 | 是 |
 | REDIS_ADDR | localhost:6379 | Redis 连接地址 | 否 |
 | REDIS_PASSWORD | (空) | Redis 密码 | 否 |
 | REDIS_DB | 0 | Redis 数据库编号 | 否 |
+| JWT_SECRET | (空) | JWT 密钥 | 否 |
+| JWT_EXPIRY_HOURS | 24 | JWT 过期时间（小时） | 否 |
+| LOG_LEVEL | info | 日志级别 | 否 |
+| LOG_FORMAT | json | 日志格式 | 否 |
 
 **开发环境配置：**
 ```bash
-export HTTP_PORT=8080
-export GRPC_PORT=50051
-export RQLITE_DSN=http://localhost:4001
+export APP_HTTP_PORT=8080
+export APP_GRPC_PORT=50051
+export DATABASE_RQLITE_DSN=http://localhost:4001
 export REDIS_ADDR=localhost:6379
 export REDIS_PASSWORD=
 ```
 
 **生产环境配置：**
 ```bash
-export HTTP_PORT=8080
-export GRPC_PORT=50051
-export RQLITE_DSN=http://rqlite-1:4001,http://rqlite-2:4001,http://rqlite-3:4001
+export APP_HTTP_PORT=8080
+export APP_GRPC_PORT=50051
+export DATABASE_RQLITE_DSN=http://rqlite-1:4001,http://rqlite-2:4001,http://rqlite-3:4001
 export REDIS_ADDR=redis-cluster:6379
 export REDIS_PASSWORD=your_strong_password
+export JWT_SECRET=your-production-secret-key
 ```
 
-### 5.2 执行器配置
+#### 5.3.2 执行器环境变量
 
 | 环境变量 | 默认值 | 说明 | 必须 |
 |---------|-------|------|------|
-| EXECUTOR_ID | executor-1 | 执行器唯一标识 | 否 |
-| EXECUTOR_NAME | executor-1 | 执行器显示名称 | 否 |
+| APP_EXECUTOR_ID | executor-1 | 执行器唯一标识 | 否 |
+| APP_EXECUTOR_NAME | executor-1 | 执行器显示名称 | 否 |
+| APP_CAPACITY | 10 | 最大并发执行任务数 | 否 |
 | SCHEDULER_ADDR | localhost:50051 | 调度中心 gRPC 地址，多节点用逗号分隔 | 否 |
-| CAPACITY | 10 | 最大并发执行任务数 | 否 |
+| SCHEDULER_TIMEOUT | 30 | gRPC 连接超时（秒） | 否 |
+| LOG_LEVEL | info | 日志级别 | 否 |
+| LOG_FORMAT | json | 日志格式 | 否 |
 
 **开发环境配置：**
 ```bash
-export EXECUTOR_ID=executor-1
-export EXECUTOR_NAME=executor-1
+export APP_EXECUTOR_ID=executor-1
+export APP_EXECUTOR_NAME=executor-1
 export SCHEDULER_ADDR=localhost:50051
-export CAPACITY=10
+export APP_CAPACITY=10
 ```
 
 **生产环境配置：**
 ```bash
-export EXECUTOR_ID=executor-prod-1
-export EXECUTOR_NAME=生产执行器-1
+export APP_EXECUTOR_ID=executor-prod-1
+export APP_EXECUTOR_NAME=生产执行器-1
 export SCHEDULER_ADDR=scheduler-1:50051,scheduler-2:50051
-export CAPACITY=50
+export APP_CAPACITY=50
 ```
 
-### 5.3 前端配置
+### 5.4 配置优先级与混合使用
+
+配置文件和环境变量可以混合使用，环境变量会覆盖配置文件中的值。
+
+**示例：**
+
+1. `config.yaml` 中设置基础配置
+2. 通过环境变量覆盖特定配置
+
+```bash
+# config.yaml 中设置
+jwt:
+  secret: "default-secret"
+
+# 通过环境变量覆盖
+export JWT_SECRET="my-production-secret"
+```
+
+### 5.5 前端配置
 
 前端配置通过 Vite 环境变量设置：
 

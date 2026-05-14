@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -26,9 +27,18 @@ import (
 )
 
 func main() {
+	configFile := flag.String("config", "", "path to config file (default: config.yaml in current directory)")
+	flag.Parse()
+
 	logger.Init()
 
-	cfg := config.Load()
+	cfg := config.Load(*configFile)
+
+	slog.Info("scheduler starting",
+		"http_port", cfg.HTTPPort,
+		"grpc_port", cfg.GRPCPort,
+		"config_file", cfg.ConfigFile,
+	)
 
 	redisClient := redis.NewClient(&redis.Options{
 		Addr:     cfg.RedisAddr,
@@ -59,9 +69,8 @@ func main() {
 	grpcSrv := grpcserver.NewServer(cfg.GRPCPort, schedulerService)
 
 	cronScheduler := cron.NewCronScheduler(schedulerService, redisClient)
-	// 把 cronScheduler 注入到 schedulerService
 	schedulerService.SetCronScheduler(cronScheduler)
-	
+
 	if err := cronScheduler.Start(); err != nil {
 		slog.Error("failed to start cron scheduler", "error", err)
 		os.Exit(1)

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -13,13 +14,19 @@ import (
 )
 
 func main() {
+	configFile := flag.String("config", "", "path to config file (default: config.yaml in current directory)")
+	flag.Parse()
+
 	logger.Init()
 
-	cfg := config.Load()
+	cfg := config.Load(*configFile)
 
 	slog.Info("executor starting",
 		"executor_id", cfg.ExecutorID,
+		"executor_name", cfg.ExecutorName,
 		"scheduler_addr", cfg.SchedulerAddr,
+		"capacity", cfg.Capacity,
+		"config_file", cfg.ConfigFile,
 	)
 
 	exec := executor.NewTaskExecutor(cfg.ExecutorID)

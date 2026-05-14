@@ -1,0 +1,15 @@
+# Executor 执行器配置
+app:
+  executor_id: "executor-1"
+  executor_name: "executor-1"
+  capacity: 10
+
+# Scheduler gRPC 地址
+scheduler:
+  addr: "localhost:50051"
+  timeout: 30
+
+# 日志配置
+log:
+  level: "info"
+  format: "json"

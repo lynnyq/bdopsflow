@@ -1,29 +1,62 @@
 package config
 
 import (
-	"os"
+	"log/slog"
+
+	"github.com/lynnyq/bdopsflow/scheduler/pkg/config"
 )
 
 type Config struct {
-	ExecutorID       string
-	ExecutorName     string
-	SchedulerAddr    string
-	Capacity         int32
+	ExecutorID    string
+	ExecutorName  string
+	Capacity      int32
+	SchedulerAddr string
+	Timeout       int
+	LogLevel      string
+	LogFormat     string
+	ConfigFile    string
 }
 
-func Load() *Config {
-	executorID := getEnv("EXECUTOR_ID", "executor-1")
+func Load(configFile string) *Config {
+	cfg, err := config.New(config.Options{
+		ConfigFile: configFile,
+	})
+	if err != nil {
+		slog.Warn("failed to load config file, using defaults", "error", err)
+		return defaultConfig()
+	}
+
+	if cfg == nil {
+		return defaultConfig()
+	}
+
+	configured := cfg.ConfigFile()
+	if configured != "" {
+		slog.Info("loaded config from file", "file", configured)
+	}
+
+	executorID := cfg.GetString("app.executor_id", "executor-1")
+
 	return &Config{
 		ExecutorID:    executorID,
-		ExecutorName:  getEnv("EXECUTOR_NAME", executorID),
-		SchedulerAddr: getEnv("SCHEDULER_ADDR", "localhost:50051"),
-		Capacity:      10,
+		ExecutorName:  cfg.GetString("app.executor_name", executorID),
+		Capacity:      cfg.GetInt32("app.capacity", 10),
+		SchedulerAddr: cfg.GetString("scheduler.addr", "localhost:50051"),
+		Timeout:       cfg.GetInt("scheduler.timeout", 30),
+		LogLevel:      cfg.GetString("log.level", "info"),
+		LogFormat:     cfg.GetString("log.format", "json"),
+		ConfigFile:    configured,
 	}
 }
 
-func getEnv(key, fallback string) string {
-	if value, ok := os.LookupEnv(key); ok {
-		return value
+func defaultConfig() *Config {
+	return &Config{
+		ExecutorID:    "executor-1",
+		ExecutorName:  "executor-1",
+		Capacity:      10,
+		SchedulerAddr: "localhost:50051",
+		Timeout:       30,
+		LogLevel:      "info",
+		LogFormat:     "json",
 	}
-	return fallback
 }

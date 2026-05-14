@@ -322,25 +322,86 @@ docker-compose up -d
 
 ## ⚙️ 配置说明
 
-### 调度中心配置
+### 配置方式
+
+系统支持三种配置方式，优先级从高到低为：
+
+1. **环境变量**（最高优先级）
+2. **YAML 配置文件**（config.yaml）
+3. **默认值**（最低优先级）
+
+### YAML 配置文件（推荐）
+
+#### 调度中心配置
+
+```bash
+cd scheduler
+cp config.yaml.example config.yaml
+```
+
+编辑 `scheduler/config.yaml`：
+
+```yaml
+app:
+  http_port: "8080"
+  grpc_port: "50051"
+
+database:
+  rqlite_dsn: "http://localhost:4001"
+
+redis:
+  addr: "localhost:6379"
+  password: ""
+  db: 0
+
+jwt:
+  secret: "your-secret-key-change-in-production"
+  expiry_hours: 24
+```
+
+#### 执行器配置
+
+```bash
+cd executor
+cp config.yaml.example config.yaml
+```
+
+编辑 `executor/config.yaml`：
+
+```yaml
+app:
+  executor_id: "executor-1"
+  executor_name: "executor-1"
+  capacity: 10
+
+scheduler:
+  addr: "localhost:50051"
+  timeout: 30
+```
+
+### 环境变量配置
+
+#### 调度中心环境变量
 
 | 环境变量 | 默认值 | 说明 |
 |---------|-------|------|
-| HTTP_PORT | 8080 | HTTP API 服务端口 |
-| GRPC_PORT | 50051 | gRPC 服务端口 |
-| RQLITE_DSN | http://localhost:4001 | rqlite HTTP API 地址，多节点用逗号分隔 |
+| APP_HTTP_PORT | 8080 | HTTP API 服务端口 |
+| APP_GRPC_PORT | 50051 | gRPC 服务端口 |
+| DATABASE_RQLITE_DSN | http://localhost:4001 | rqlite HTTP API 地址 |
 | REDIS_ADDR | localhost:6379 | Redis 连接地址 |
 | REDIS_PASSWORD | (空) | Redis 密码 |
-| REDIS_DB | 0 | Redis 数据库编号 |
+| JWT_SECRET | (空) | JWT 密钥 |
+| LOG_LEVEL | info | 日志级别 |
 
-### 执行器配置
+#### 执行器环境变量
 
 | 环境变量 | 默认值 | 说明 |
 |---------|-------|------|
-| EXECUTOR_ID | executor-1 | 执行器唯一标识 |
-| EXECUTOR_NAME | executor-1 | 执行器显示名称 |
+| APP_EXECUTOR_ID | executor-1 | 执行器唯一标识 |
+| APP_EXECUTOR_NAME | executor-1 | 执行器显示名称 |
+| APP_CAPACITY | 10 | 最大并发执行任务数 |
 | SCHEDULER_ADDR | localhost:50051 | 调度中心 gRPC 地址 |
-| CAPACITY | 10 | 最大并发执行任务数 |
+| SCHEDULER_TIMEOUT | 30 | gRPC 连接超时（秒） |
 
 详细配置说明请参考 [部署文档](docs/DEPLOYMENT.md)。
 
