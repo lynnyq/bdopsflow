@@ -138,7 +138,7 @@ Authorization: Bearer {token}
       "type": "http",
       "config": "{\"url\":\"https://example.com\"}",
       "cron_expression": "0 * * * *",
-      "timeout_seconds": 300,
+      "timeout_seconds": 0,
       "retry_count": 3,
       "retry_interval": 5,
       "is_enabled": true,
@@ -172,7 +172,7 @@ Authorization: Bearer {token}
   "type": "http",
   "config": "{\"url\":\"https://example.com\"}",
   "cron_expression": "0 * * * *",
-  "timeout_seconds": 300,
+  "timeout_seconds": 0,
   "retry_count": 3,
   "retry_interval": 5,
   "is_enabled": true,
@@ -200,7 +200,7 @@ Authorization: Bearer {token}
     "headers": {}
   },
   "cron_expression": "0 * * * *",
-  "timeout_seconds": 300,
+  "timeout_seconds": 0,
   "retry_count": 3,
   "retry_interval": 5,
   "is_enabled": true,
@@ -216,7 +216,7 @@ Authorization: Bearer {token}
 | type | string | 是 | 任务类型 (http, shell等) |
 | config | object/string | 是 | 任务配置 |
 | cron_expression | string | 否 | Cron表达式，支持5位或6位格式 |
-| timeout_seconds | integer | 否 | 超时时间(秒)，默认300 |
+| timeout_seconds | integer | 否 | 超时时间(秒)，0或不填表示不限制超时，默认0 |
 | retry_count | integer | 否 | 重试次数，默认3 |
 | retry_interval | integer | 否 | 重试间隔(秒)，默认5 |
 | is_enabled | boolean | 否 | 是否启用，默认false |
@@ -242,7 +242,7 @@ Authorization: Bearer {token}
   "type": "http",
   "config": "{\"url\":\"https://example.com\"}",
   "cron_expression": "0 * * * *",
-  "timeout_seconds": 300,
+  "timeout_seconds": 0,
   "retry_count": 3,
   "retry_interval": 5,
   "is_enabled": true,
@@ -280,7 +280,7 @@ Authorization: Bearer {token}
   "type": "http",
   "config": "{\"url\":\"https://example.com\"}",
   "cron_expression": "*/30 * * * *",
-  "timeout_seconds": 300,
+  "timeout_seconds": 0,
   "retry_count": 3,
   "retry_interval": 5,
   "is_enabled": false,

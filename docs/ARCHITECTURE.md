@@ -182,7 +182,7 @@ CREATE TABLE tasks (
     type TEXT NOT NULL,
     config TEXT NOT NULL,
     cron_expression TEXT,
-    timeout_seconds INTEGER DEFAULT 300,
+    timeout_seconds INTEGER DEFAULT 0,
     retry_count INTEGER DEFAULT 3,
     retry_interval INTEGER DEFAULT 5,
     is_enabled BOOLEAN DEFAULT 1,
