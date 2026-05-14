@@ -71,14 +71,21 @@ func (e *TaskExecutor) Execute(ctx context.Context, task *pb.Task, client *grpcc
 }
 
 func (e *TaskExecutor) executeTask(ctx context.Context, task *pb.Task, client *grpcclient.Client) (string, error) {
-	timeoutCtx, cancel := context.WithTimeout(ctx, time.Duration(task.TimeoutSeconds)*time.Second)
-	defer cancel()
+	var execCtx context.Context
+	var cancel context.CancelFunc
+
+	if task.TimeoutSeconds > 0 {
+		execCtx, cancel = context.WithTimeout(ctx, time.Duration(task.TimeoutSeconds)*time.Second)
+		defer cancel()
+	} else {
+		execCtx = ctx
+	}
 
 	switch task.Type {
 	case "http":
-		return e.executeHTTP(timeoutCtx, task, client)
+		return e.executeHTTP(execCtx, task, client)
 	case "shell":
-		return e.executeShell(timeoutCtx, task, client)
+		return e.executeShell(execCtx, task, client)
 	default:
 		return "", fmt.Errorf("unsupported task type: %s", task.Type)
 	}
@@ -124,7 +131,12 @@ func (e *TaskExecutor) executeHTTP(ctx context.Context, task *pb.Task, client *g
 		}
 	}
 
-	httpClient := &http.Client{Timeout: time.Duration(task.TimeoutSeconds) * time.Second}
+	var httpClient *http.Client
+	if task.TimeoutSeconds > 0 {
+		httpClient = &http.Client{Timeout: time.Duration(task.TimeoutSeconds) * time.Second}
+	} else {
+		httpClient = &http.Client{}
+	}
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		sendLog(client, task, "error", fmt.Sprintf("❌ HTTP request failed: %v", err))

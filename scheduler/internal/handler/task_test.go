@@ -261,7 +261,7 @@ func TestCreateTask_DefaultValues(t *testing.T) {
 	for _, arg := range mock.lastArgs {
 		switch v := arg.(type) {
 		case int64:
-			if v == 300 {
+			if v == 0 {
 				defaultTimeoutFound = true
 			}
 			if v == 3 {
@@ -274,7 +274,7 @@ func TestCreateTask_DefaultValues(t *testing.T) {
 	}
 
 	if !defaultTimeoutFound {
-		t.Errorf("timeout_seconds default 300 not applied, args: %v", mock.lastArgs)
+		t.Errorf("timeout_seconds default 0 not applied, args: %v", mock.lastArgs)
 	}
 	if !defaultRetryFound {
 		t.Errorf("retry_count default 3 not applied, args: %v", mock.lastArgs)
