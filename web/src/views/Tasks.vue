@@ -417,17 +417,18 @@
               <el-row :gutter="16">
                 <el-col :span="12">
                   <el-form-item label="超时时间" prop="timeout_seconds" class="form-item">
-                    <el-input-number
-                      v-model="form.timeout_seconds"
-                      :min="1"
-                      :max="3600"
-                      placeholder="秒"
-                      class="form-input-number"
-                    >
-                      <template #suffix>
-                        <span>秒</span>
-                      </template>
-                    </el-input-number>
+                    <div class="timeout-input-wrapper">
+                      <el-input-number
+                        v-model="form.timeout_seconds"
+                        :min="0"
+                        :max="3600"
+                        placeholder="秒"
+                        class="form-input-number"
+                        controls-position="right"
+                      >
+                      </el-input-number>
+                      <span class="timeout-hint">秒 (0=不限制)</span>
+                    </div>
                   </el-form-item>
                 </el-col>
                 <el-col :span="12">
@@ -751,7 +752,7 @@ const setTaskCardRef = (el: any, taskId: number) => {
 const defaultForm = {
   name: '',
   type: 'shell' as const,
-  timeout_seconds: 60,
+  timeout_seconds: 0,
   cron_expression: '',
   config: {
     url: '',
@@ -1095,6 +1096,13 @@ const handleViewHistory = (task: Task) => {
 watch([searchQuery, filterType, filterStatus], () => {
   currentPage.value = 1
 })
+
+// 确保 timeout_seconds 始终是数字类型，且 0 值被正确保留
+watch(() => form.value.timeout_seconds, (newVal) => {
+  if (typeof newVal !== 'number') {
+    form.value.timeout_seconds = 0
+  }
+}, { immediate: true })
 
 onMounted(() => {
   loadTasks()
@@ -2008,6 +2016,23 @@ onMounted(() => {
   transform: translateY(-1px);
   box-shadow: 0 6px 16px rgba(59, 130, 246, 0.4);
   filter: brightness(1.05);
+}
+
+.timeout-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-left: 8px;
+  white-space: nowrap;
+}
+
+.timeout-input-wrapper {
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.timeout-input-wrapper .form-input-number {
+  flex: 0 0 140px;
 }
 
 .form-input-number :deep(.el-input-number__decrease),
