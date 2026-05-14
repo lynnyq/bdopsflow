@@ -18,8 +18,6 @@ export interface Task {
   timeout_seconds: number
   retry_count: number
   retry_interval: number
-  retry_max?: number
-  retry_delay_seconds?: number
   is_enabled: boolean
   status: string
   domain_id: number

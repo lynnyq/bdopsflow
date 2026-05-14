@@ -167,8 +167,8 @@ func TestCreateTask_WithWorkflowID(t *testing.T) {
 		t.Errorf("INSERT should contain workflow_id when provided, got query: %s", mock.lastQuery)
 	}
 
-	if len(mock.lastArgs) != 12 {
-		t.Errorf("expected 12 args with workflow_id, got %d", len(mock.lastArgs))
+	if len(mock.lastArgs) != 13 {
+		t.Errorf("expected 13 args with workflow_id, got %d", len(mock.lastArgs))
 	}
 
 	foundWFID := false
@@ -305,10 +305,12 @@ func TestListTasks(t *testing.T) {
 		t.Errorf("expected status 200, got %d", w.Code)
 	}
 
-	var tasks []model.Task
-	json.Unmarshal(w.Body.Bytes(), &tasks)
-	if len(tasks) != 2 {
-		t.Errorf("expected 2 tasks, got %d", len(tasks))
+	var resp struct {
+		Items []model.Task `json:"items"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if len(resp.Items) != 2 {
+		t.Errorf("expected 2 tasks, got %d", len(resp.Items))
 	}
 }
 

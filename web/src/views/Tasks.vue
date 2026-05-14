@@ -376,9 +376,9 @@
 
         <el-row :gutter="16">
           <el-col :span="12">
-            <el-form-item label="失败重试" prop="retry_max">
+            <el-form-item label="失败重试" prop="retry_count">
               <el-input-number
-                v-model="form.retry_max"
+                v-model="form.retry_count"
                 :min="0"
                 :max="10"
                 placeholder="重试次数"
@@ -387,9 +387,9 @@
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="重试间隔" prop="retry_delay_seconds">
+            <el-form-item label="重试间隔" prop="retry_interval">
               <el-input-number
-                v-model="form.retry_delay_seconds"
+                v-model="form.retry_interval"
                 :min="1"
                 :max="300"
                 placeholder="秒"
@@ -498,8 +498,8 @@ const defaultForm = {
     body: '',
     script: ''
   } as TaskConfig,
-  retry_max: 0,
-  retry_delay_seconds: 5,
+  retry_count: 0,
+  retry_interval: 5,
   is_enabled: true
 }
 
@@ -636,8 +636,8 @@ const handleEdit = (task: Task) => {
     timeout_seconds: task.timeout_seconds,
     cron_expression: task.cron_expression || '',
     config: { ...parsedConfig },
-    retry_max: task.retry_count,
-    retry_delay_seconds: task.retry_interval,
+    retry_count: task.retry_count,
+    retry_interval: task.retry_interval,
     is_enabled: task.is_enabled
   }
   dialogVisible.value = true
