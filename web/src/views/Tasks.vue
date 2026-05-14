@@ -264,154 +264,336 @@
     <el-dialog
       v-model="dialogVisible"
       :title="editingTask ? '编辑任务' : '创建任务'"
-      width="700px"
+      width="800px"
       class="task-dialog"
+      :close-on-click-modal="false"
       @close="handleDialogClose"
     >
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="100px" class="task-form">
-        <el-form-item label="任务名称" prop="name">
-          <el-input v-model="form.name" placeholder="输入任务名称" />
-        </el-form-item>
-
-        <el-row :gutter="16">
-          <el-col :span="12">
-            <el-form-item label="任务类型" prop="type">
-              <el-select v-model="form.type" placeholder="选择任务类型" style="width: 100%">
-                <el-option label="HTTP" value="http">
-                  <span class="type-option">
-                    <el-icon><Promotion /></el-icon>
-                    HTTP
-                  </span>
-                </el-option>
-                <el-option label="Shell" value="shell">
-                  <span class="type-option">
-                    <el-icon><Tools /></el-icon>
-                    Shell
-                  </span>
-                </el-option>
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="超时时间" prop="timeout_seconds">
-              <el-input-number
-                v-model="form.timeout_seconds"
-                :min="1"
-                :max="3600"
-                placeholder="秒"
-                style="width: 100%"
-              />
-            </el-form-item>
-          </el-col>
-        </el-row>
-
-        <el-form-item label="Cron 表达式" prop="cron_expression">
-          <div class="cron-input-wrapper">
-            <el-input v-model="form.cron_expression" placeholder="留空则为手动触发任务" clearable>
-              <template #suffix>
-                <div class="cron-hint">秒 分 时 日 月 周</div>
-              </template>
-            </el-input>
-          </div>
-        </el-form-item>
-
-        <el-form-item label="任务配置" prop="config">
-          <div class="config-card">
-            <div v-if="form.type === 'http'" class="config-http">
-              <el-form-item label="URL" prop="config.url" class="config-input">
-                <el-input v-model="form.config.url" placeholder="https://example.com" />
-              </el-form-item>
+      <div class="task-form-container">
+        <el-form ref="formRef" :model="form" :rules="rules" class="task-form">
+          <!-- 基本信息 -->
+          <div class="form-section">
+            <div class="section-header">
+              <el-icon :size="18"><Document /></el-icon>
+              <span>基本信息</span>
+            </div>
+            <div class="section-body">
               <el-row :gutter="16">
                 <el-col :span="12">
-                  <el-form-item label="方法" prop="config.method" class="config-input">
-                    <el-select v-model="form.config.method" style="width: 100%">
-                      <el-option label="GET" value="GET" />
-                      <el-option label="POST" value="POST" />
-                      <el-option label="PUT" value="PUT" />
-                      <el-option label="DELETE" value="DELETE" />
+                  <el-form-item label="任务名称" prop="name" class="form-item">
+                    <el-input 
+                      v-model="form.name" 
+                      placeholder="请输入任务名称"
+                      class="form-input"
+                    >
+                      <template #prefix>
+                        <el-icon><Bell /></el-icon>
+                      </template>
+                    </el-input>
+                  </el-form-item>
+                </el-col>
+                <el-col :span="12">
+                  <el-form-item label="任务类型" prop="type" class="form-item">
+                    <el-select 
+                      v-model="form.type" 
+                      placeholder="请选择任务类型" 
+                      class="form-select"
+                    >
+                      <el-option label="HTTP 请求" value="http">
+                        <span class="option-content">
+                          <el-icon :size="16"><Connection /></el-icon>
+                          HTTP 请求
+                        </span>
+                      </el-option>
+                      <el-option label="Shell 脚本" value="shell">
+                        <span class="option-content">
+                          <el-icon :size="16"><Cpu /></el-icon>
+                          Shell 脚本
+                        </span>
+                      </el-option>
                     </el-select>
                   </el-form-item>
                 </el-col>
+              </el-row>
+            </div>
+          </div>
+
+          <!-- 调度配置 -->
+          <div class="form-section">
+            <div class="section-header">
+              <el-icon :size="18"><Clock /></el-icon>
+              <span>调度配置</span>
+            </div>
+            <div class="section-body">
+              <el-row :gutter="16">
                 <el-col :span="12">
-                  <el-form-item label="超时" prop="config.timeout" class="config-input">
-                    <el-input-number
-                      v-model="form.config.timeout"
-                      :min="1"
-                      :max="300"
-                      style="width: 100%"
-                    />
+                  <el-form-item label="执行频率" prop="cron_expression" class="form-item">
+                    <div class="cron-wrapper">
+                      <el-select 
+                        v-model="cronPreset" 
+                        placeholder="选择预设" 
+                        class="cron-preset-select"
+                        @change="handleCronPresetChange"
+                      >
+                        <el-option label="手动触发" value="manual">
+                          <span class="option-content">
+                            <el-icon :size="14"><DataAnalysis /></el-icon>
+                            手动触发
+                          </span>
+                        </el-option>
+                        <el-option label="每分钟" value="minute">
+                          <span class="option-content">
+                            <el-icon :size="14"><Timer /></el-icon>
+                            每分钟
+                          </span>
+                        </el-option>
+                        <el-option label="每5分钟" value="5minute">
+                          <span class="option-content">
+                            <el-icon :size="14"><Timer /></el-icon>
+                            每5分钟
+                          </span>
+                        </el-option>
+                        <el-option label="每10分钟" value="10minute">
+                          <span class="option-content">
+                            <el-icon :size="14"><Timer /></el-icon>
+                            每10分钟
+                          </span>
+                        </el-option>
+                        <el-option label="每小时" value="hour">
+                          <span class="option-content">
+                            <el-icon :size="14"><Clock /></el-icon>
+                            每小时
+                          </span>
+                        </el-option>
+                        <el-option label="每天" value="day">
+                          <span class="option-content">
+                            <el-icon :size="14"><Calendar /></el-icon>
+                            每天 00:00
+                          </span>
+                        </el-option>
+                        <el-option label="每周" value="week">
+                          <span class="option-content">
+                            <el-icon :size="14"><Calendar /></el-icon>
+                            每周一 00:00
+                          </span>
+                        </el-option>
+                        <el-option label="每月" value="month">
+                          <span class="option-content">
+                            <el-icon :size="14"><Calendar /></el-icon>
+                            每月1日 00:00
+                          </span>
+                        </el-option>
+                        <el-option label="自定义" value="custom">
+                          <span class="option-content">
+                            <el-icon :size="14"><Setting /></el-icon>
+                            自定义表达式
+                          </span>
+                        </el-option>
+                      </el-select>
+                    </div>
+                  </el-form-item>
+                </el-col>
+                <el-col :span="12">
+                  <el-form-item label="Cron 值" prop="cron_expression" class="form-item">
+                    <el-input 
+                      v-model="form.cron_expression" 
+                      :placeholder="cronPlaceholder"
+                      :disabled="cronPreset !== 'custom'"
+                      class="form-input"
+                    >
+                      <template #suffix>
+                        <span class="cron-hint">秒 分 时 日 月 周</span>
+                      </template>
+                    </el-input>
                   </el-form-item>
                 </el-col>
               </el-row>
-              <el-form-item label="请求头" prop="config.headers" class="config-input">
-                <el-input
-                  v-model="form.config.headers"
-                  type="textarea"
-                  :rows="3"
-                  placeholder='{"Authorization": "Bearer xxx"}'
-                />
-              </el-form-item>
-              <el-form-item label="请求体" prop="config.body" class="config-input">
-                <el-input
-                  v-model="form.config.body"
-                  type="textarea"
-                  :rows="3"
-                  placeholder="请求体内容"
-                />
-              </el-form-item>
-            </div>
-            <div v-if="form.type === 'shell'" class="config-shell">
-              <el-form-item label="脚本" prop="config.script" class="config-input">
-                <el-input
-                  v-model="form.config.script"
-                  type="textarea"
-                  :rows="8"
-                  placeholder="echo 'Hello World'"
-                  class="code-textarea"
-                />
-              </el-form-item>
+              <el-row :gutter="16">
+                <el-col :span="12">
+                  <el-form-item label="超时时间" prop="timeout_seconds" class="form-item">
+                    <el-input-number
+                      v-model="form.timeout_seconds"
+                      :min="1"
+                      :max="3600"
+                      placeholder="秒"
+                      class="form-input-number"
+                    >
+                      <template #suffix>
+                        <span>秒</span>
+                      </template>
+                    </el-input-number>
+                  </el-form-item>
+                </el-col>
+                <el-col :span="12">
+                  <div class="empty-col"></div>
+                </el-col>
+              </el-row>
             </div>
           </div>
-        </el-form-item>
 
-        <el-row :gutter="16">
-          <el-col :span="12">
-            <el-form-item label="失败重试" prop="retry_count">
-              <el-input-number
-                v-model="form.retry_count"
-                :min="0"
-                :max="10"
-                placeholder="重试次数"
-                style="width: 100%"
-              />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="重试间隔" prop="retry_interval">
-              <el-input-number
-                v-model="form.retry_interval"
-                :min="1"
-                :max="300"
-                placeholder="秒"
-                style="width: 100%"
-              />
-            </el-form-item>
-          </el-col>
-        </el-row>
+          <!-- 任务配置 -->
+          <div class="form-section">
+            <div class="section-header">
+              <el-icon :size="18"><Setting /></el-icon>
+              <span>任务配置</span>
+            </div>
+            <div class="section-body">
+              <!-- HTTP 配置 -->
+              <div v-if="form.type === 'http'" class="config-panel">
+                <el-row :gutter="16">
+                  <el-col :span="24">
+                    <el-form-item label="请求 URL" prop="config.url" class="form-item">
+                      <el-input 
+                        v-model="form.config.url" 
+                        placeholder="https://example.com/api"
+                        class="form-input"
+                      >
+                        <template #prefix>
+                          <el-icon><Connection /></el-icon>
+                        </template>
+                      </el-input>
+                    </el-form-item>
+                  </el-col>
+                </el-row>
+                <el-row :gutter="16">
+                  <el-col :span="8">
+                    <el-form-item label="请求方法" prop="config.method" class="form-item">
+                      <el-select 
+                        v-model="form.config.method" 
+                        class="form-select"
+                      >
+                        <el-option label="GET" value="GET" />
+                        <el-option label="POST" value="POST" />
+                        <el-option label="PUT" value="PUT" />
+                        <el-option label="DELETE" value="DELETE" />
+                      </el-select>
+                    </el-form-item>
+                  </el-col>
+                  <el-col :span="8">
+                    <el-form-item label="连接超时" prop="config.timeout" class="form-item">
+                      <el-input-number
+                        v-model="form.config.timeout"
+                        :min="1"
+                        :max="300"
+                        placeholder="秒"
+                        class="form-input-number"
+                      >
+                        <template #suffix>
+                          <span>秒</span>
+                        </template>
+                      </el-input-number>
+                    </el-form-item>
+                  </el-col>
+                  <el-col :span="8">
+                    <div class="empty-col"></div>
+                  </el-col>
+                </el-row>
+                <el-row :gutter="16">
+                  <el-col :span="12">
+                    <el-form-item label="请求头" prop="config.headers" class="form-item">
+                      <el-input
+                        v-model="form.config.headers"
+                        type="textarea"
+                        :rows="3"
+                        placeholder='{"Authorization": "Bearer xxx"}'
+                        class="form-textarea"
+                      />
+                    </el-form-item>
+                  </el-col>
+                  <el-col :span="12">
+                    <el-form-item label="请求体" prop="config.body" class="form-item">
+                      <el-input
+                        v-model="form.config.body"
+                        type="textarea"
+                        :rows="3"
+                        placeholder="请求体内容（JSON或表单）"
+                        class="form-textarea"
+                      />
+                    </el-form-item>
+                  </el-col>
+                </el-row>
+              </div>
 
-        <el-form-item label="初始状态">
-          <div class="switch-wrapper">
-            <el-switch v-model="form.is_enabled" size="large" />
-            <span class="switch-text">{{ form.is_enabled ? '任务将立即启用' : '任务将处于停用状态' }}</span>
+              <!-- Shell 配置 -->
+              <div v-if="form.type === 'shell'" class="config-panel">
+                <el-form-item label="Shell 脚本" prop="config.script" class="form-item">
+                  <div class="script-editor">
+                    <el-input
+                      v-model="form.config.script"
+                      type="textarea"
+                      :rows="8"
+                      placeholder="echo 'Hello World'"
+                      class="form-textarea script-textarea"
+                    />
+                  </div>
+                </el-form-item>
+              </div>
+            </div>
           </div>
-        </el-form-item>
-      </el-form>
+
+          <!-- 重试配置 -->
+          <div class="form-section">
+            <div class="section-header">
+              <el-icon :size="18"><Refresh /></el-icon>
+              <span>重试配置</span>
+            </div>
+            <div class="section-body">
+              <el-row :gutter="16">
+                <el-col :span="12">
+                  <el-form-item label="失败重试次数" prop="retry_count" class="form-item">
+                    <el-input-number
+                      v-model="form.retry_count"
+                      :min="0"
+                      :max="10"
+                      placeholder="重试次数"
+                      class="form-input-number"
+                    >
+                      <template #suffix>
+                        <span>次</span>
+                      </template>
+                    </el-input-number>
+                  </el-form-item>
+                </el-col>
+                <el-col :span="12">
+                  <el-form-item label="重试间隔" prop="retry_interval" class="form-item">
+                    <el-input-number
+                      v-model="form.retry_interval"
+                      :min="1"
+                      :max="300"
+                      placeholder="秒"
+                      class="form-input-number"
+                    >
+                      <template #suffix>
+                        <span>秒</span>
+                      </template>
+                    </el-input-number>
+                  </el-form-item>
+                </el-col>
+              </el-row>
+            </div>
+          </div>
+
+          <!-- 初始状态 -->
+          <div class="form-section">
+            <div class="section-header">
+              <el-icon :size="18"><SwitchButton /></el-icon>
+              <span>初始状态</span>
+            </div>
+            <div class="section-body">
+              <div class="switch-wrapper">
+                <el-switch v-model="form.is_enabled" size="large" />
+                <span class="switch-text">{{ form.is_enabled ? '任务将立即启用' : '任务将处于停用状态' }}</span>
+              </div>
+            </div>
+          </div>
+        </el-form>
+      </div>
 
       <template #footer>
         <div class="dialog-footer">
           <el-button @click="dialogVisible = false">取消</el-button>
           <el-button type="primary" @click="handleSubmit" :loading="submitting">
-            保存
+            {{ editingTask ? '更新' : '创建' }}
           </el-button>
         </div>
       </template>
@@ -444,7 +626,13 @@ import {
   Close,
   InfoFilled,
   Tools,
-  Promotion
+  Promotion,
+  Connection,
+  Cpu,
+  Bell,
+  Setting,
+  SwitchButton,
+  DataAnalysis
 } from '@element-plus/icons-vue'
 import { taskAPI } from '@/api'
 import type { Task, TaskConfig } from '@/types'
@@ -477,6 +665,32 @@ const selectedExecutionError = ref<string | null | undefined>(undefined)
 const tasksGridRef = ref<HTMLElement | null>(null)
 const taskCardRefs = ref<Map<number, HTMLElement>>(new Map())
 
+// Cron 预设相关
+const cronPreset = ref('manual')
+
+const cronPlaceholder = computed(() => {
+  if (cronPreset.value === 'manual') return '手动触发'
+  if (cronPreset.value === 'custom') return '自定义 Cron 表达式'
+  return form.value.cron_expression || ''
+})
+
+const handleCronPresetChange = (preset: string) => {
+  const presets: Record<string, string> = {
+    manual: '',
+    minute: '* * * * *',
+    '5minute': '*/5 * * * *',
+    '10minute': '*/10 * * * *',
+    hour: '0 * * * *',
+    day: '0 0 * * *',
+    week: '0 0 * * 1',
+    month: '0 0 1 * *',
+    custom: form.value.cron_expression || ''
+  }
+  if (preset !== 'custom') {
+    form.value.cron_expression = presets[preset] || ''
+  }
+}
+
 const setTaskCardRef = (el: any, taskId: number) => {
   if (el) {
     taskCardRefs.value.set(taskId, el)
@@ -487,7 +701,7 @@ const setTaskCardRef = (el: any, taskId: number) => {
 
 const defaultForm = {
   name: '',
-  type: 'http' as const,
+  type: 'shell' as const,
   timeout_seconds: 60,
   cron_expression: '',
   config: {
@@ -624,6 +838,7 @@ const loadTasks = async () => {
 const handleCreate = () => {
   editingTask.value = null
   form.value = { ...defaultForm }
+  cronPreset.value = 'manual'
   dialogVisible.value = true
 }
 
@@ -640,6 +855,29 @@ const handleEdit = (task: Task) => {
     retry_interval: task.retry_interval,
     is_enabled: task.is_enabled
   }
+  
+  // 根据当前任务的 cron 表达式设置预设
+  const cron = task.cron_expression || ''
+  if (!cron) {
+    cronPreset.value = 'manual'
+  } else if (cron === '* * * * *') {
+    cronPreset.value = 'minute'
+  } else if (cron === '*/5 * * * *') {
+    cronPreset.value = '5minute'
+  } else if (cron === '*/10 * * * *') {
+    cronPreset.value = '10minute'
+  } else if (cron === '0 * * * *') {
+    cronPreset.value = 'hour'
+  } else if (cron === '0 0 * * *') {
+    cronPreset.value = 'day'
+  } else if (cron === '0 0 * * 1') {
+    cronPreset.value = 'week'
+  } else if (cron === '0 0 1 * *') {
+    cronPreset.value = 'month'
+  } else {
+    cronPreset.value = 'custom'
+  }
+  
   dialogVisible.value = true
 }
 
@@ -673,6 +911,7 @@ const handleSubmit = async () => {
 const handleDialogClose = () => {
   formRef.value?.resetFields()
   form.value = { ...defaultForm }
+  cronPreset.value = 'manual'
 }
 
 const handleToggleStatus = async (task: Task) => {
@@ -1506,6 +1745,209 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+/* 任务表单新样式 */
+.task-form-container {
+  padding: 8px 0;
+}
+
+.task-form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.form-section {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.form-section:hover {
+  border-color: var(--accent-primary);
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.1);
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 20px;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.05), rgba(99, 102, 241, 0.05));
+  border-bottom: 1px solid var(--border-default);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.section-body {
+  padding: 20px;
+}
+
+.form-item {
+  margin-bottom: 0 !important;
+}
+
+.form-input,
+.form-select,
+.cron-preset-select,
+.form-input-number {
+  width: 100%;
+}
+
+.form-input :deep(.el-input__wrapper),
+.form-select :deep(.el-input__wrapper),
+.cron-preset-select :deep(.el-input__wrapper) {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  box-shadow: none;
+  transition: all 0.2s ease;
+  padding: 6px 12px;
+}
+
+.form-input :deep(.el-input__wrapper:hover),
+.form-select :deep(.el-input__wrapper:hover),
+.cron-preset-select :deep(.el-input__wrapper:hover) {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.form-input :deep(.el-input__wrapper.is-focus),
+.form-select :deep(.el-input__wrapper.is-focus),
+.cron-preset-select :deep(.el-input__wrapper.is-focus) {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+}
+
+.form-textarea :deep(.el-textarea__inner) {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  transition: all 0.2s ease;
+}
+
+.form-textarea :deep(.el-textarea__inner:hover) {
+  border-color: var(--accent-primary);
+}
+
+.form-textarea :deep(.el-textarea__inner:focus) {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+}
+
+.cron-wrapper {
+  width: 100%;
+}
+
+.cron-hint {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.option-content {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.config-panel {
+  width: 100%;
+}
+
+.script-editor {
+  width: 100%;
+}
+
+.script-textarea :deep(.el-textarea__inner) {
+  background: #1e1e1e;
+  color: #d4d4d4;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+  font-size: 14px;
+  line-height: 1.6;
+  padding: 16px;
+}
+
+.empty-col {
+  height: 1px;
+}
+
+.task-dialog :deep(.el-dialog__header) {
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid var(--border-default);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.03), rgba(99, 102, 241, 0.03));
+}
+
+.task-dialog :deep(.el-dialog__title) {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.task-dialog :deep(.el-dialog__body) {
+  padding: 24px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.task-dialog :deep(.el-dialog__footer) {
+  padding: 16px 24px 20px;
+  border-top: 1px solid var(--border-default);
+  background: var(--bg-secondary);
+}
+
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.dialog-footer :deep(.el-button) {
+  padding: 10px 24px;
+  font-size: 14px;
+  font-weight: 500;
+  border-radius: 8px;
+}
+
+.dialog-footer :deep(.el-button--primary) {
+  background: linear-gradient(135deg, var(--accent-primary), #6366f1);
+  border: none;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+  transition: all 0.2s ease;
+}
+
+.dialog-footer :deep(.el-button--primary:hover) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(59, 130, 246, 0.4);
+  filter: brightness(1.05);
+}
+
+.form-input-number :deep(.el-input-number__decrease),
+.form-input-number :deep(.el-input-number__increase) {
+  border-color: var(--border-default);
+}
+
+.form-input-number :deep(.el-input__wrapper) {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  box-shadow: none;
+  transition: all 0.2s ease;
+}
+
+.form-input-number :deep(.el-input__wrapper:hover) {
+  border-color: var(--accent-primary);
+}
+
+.form-input-number :deep(.el-input__wrapper.is-focus) {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
 }
 
 
