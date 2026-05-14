@@ -324,6 +324,45 @@ func (s *SchedulerService) DeleteTask(ctx context.Context, id int64) error {
 }
 
 func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (string, error) {
+	lockKey := fmt.Sprintf("task:lock:%d", taskID)
+	lockValue := fmt.Sprintf("%d", time.Now().UnixNano())
+	
+	// 尝试获取分布式锁
+	lockSet, err := s.redis.SetNX(ctx, lockKey, lockValue, 30*time.Second).Result()
+	if err != nil {
+		return "", fmt.Errorf("acquire lock failed: %w", err)
+	}
+	if !lockSet {
+		return "", fmt.Errorf("task %d is already being executed", taskID)
+	}
+
+	// 确保任务执行完成后释放锁
+	defer func() {
+		// 只有持有锁的人才能释放
+		if val, _ := s.redis.Get(ctx, lockKey).Result(); val == lockValue {
+			s.redis.Del(ctx, lockKey)
+		}
+	}()
+
+	// 检查任务是否已经在运行
+	checkRunningQuery := `
+		SELECT status FROM task_executions 
+		WHERE task_id = ? AND status IN ('running')
+		ORDER BY created_at DESC
+		LIMIT 1
+	`
+	checkStmt := rqlite.ParameterizedStatement{
+		Query:     checkRunningQuery,
+		Arguments: []interface{}{taskID},
+	}
+	checkQr, err := s.DB.QueryOneParameterized(checkStmt)
+	if err == nil && checkQr.Err == nil && checkQr.Next() {
+		row, _ := checkQr.Slice()
+		if rowString(row[0]) == "running" {
+			return "", fmt.Errorf("task %d is already running", taskID)
+		}
+	}
+
 	task, err := s.GetTaskByID(ctx, taskID)
 	if err != nil {
 		return "", fmt.Errorf("get task failed: %w", err)
@@ -477,7 +516,7 @@ func (s *SchedulerService) SelectAvailableExecutor(ctx context.Context) (*model.
 		SELECT id, executor_id, name, address, status, last_heartbeat, capacity, current_load, created_at, updated_at
 		FROM executors
 		WHERE status = 'online' AND current_load < capacity
-		ORDER BY (capacity - current_load) DESC
+		ORDER BY current_load ASC, RANDOM()
 		LIMIT 1
 	`
 
@@ -602,6 +641,22 @@ func (s *SchedulerService) UpdateExecutionResult(ctx context.Context, executionI
 
 	if result.Err != nil {
 		return result.Err
+	}
+
+	// 任务完成后，尝试清理锁
+	// 先获取 task_id
+	getTaskIDQuery := `SELECT task_id FROM task_executions WHERE execution_id = ?`
+	getTaskIDStmt := rqlite.ParameterizedStatement{
+		Query:     getTaskIDQuery,
+		Arguments: []interface{}{executionID},
+	}
+	taskIDQr, err := s.DB.QueryOneParameterized(getTaskIDStmt)
+	if err == nil && taskIDQr.Err == nil && taskIDQr.Next() {
+		row, _ := taskIDQr.Slice()
+		taskID := rowInt64(row[0])
+		// 清理锁
+		lockKey := fmt.Sprintf("task:lock:%d", taskID)
+		s.redis.Del(ctx, lockKey)
 	}
 
 	slog.Info("task execution finished",
