@@ -967,6 +967,7 @@ func (s *SchedulerService) cleanupStaleTaskLocks() {
 	now := time.Now().Unix()
 	lockTTLSeconds := int64(300) // 与 renewTaskLock 中的 TTL 一致（秒）
 	maxInterval := lockTTLSeconds // 给足够的缓冲时间，超过 TTL 才标记为失败
+	requiredFailCount := int64(3) // 连续失败 3 次才标记为失败
 
 	for qr.Next() {
 		row, err := qr.Slice()
@@ -978,14 +979,33 @@ func (s *SchedulerService) cleanupStaleTaskLocks() {
 		taskID := rowInt64(row[1])
 
 		renewKey := fmt.Sprintf("task:renew:%s", executionID)
+		failCountKey := fmt.Sprintf("task:renew:fail:count:%s", executionID)
+
 		lastRenewStr, err := s.redis.Get(ctx, renewKey).Result()
 		if err != nil {
-			slog.Warn("cleanup: no renewal record found, marking task as failed",
-				"execution_id", executionID,
-				"task_id", taskID,
-				"reason", "no heartbeat received",
-			)
-			s.forceFailTask(ctx, executionID, taskID, "executor heartbeat timeout, task may be stuck")
+			failCountStr, _ := s.redis.Get(ctx, failCountKey).Result()
+			var failCount int64 = 0
+			if failCountStr != "" {
+				fmt.Sscanf(failCountStr, "%d", &failCount)
+			}
+			failCount++
+
+			s.redis.Set(ctx, failCountKey, failCount, 0)
+
+			if failCount >= requiredFailCount {
+				slog.Warn("cleanup: consecutive renewal failures reached threshold, marking task as failed",
+					"execution_id", executionID,
+					"task_id", taskID,
+					"fail_count", failCount,
+				)
+				s.forceFailTask(ctx, executionID, taskID, fmt.Sprintf("executor heartbeat timeout after %d consecutive failures", failCount))
+			} else {
+				slog.Warn("cleanup: no renewal record found, incrementing fail count",
+					"execution_id", executionID,
+					"task_id", taskID,
+					"fail_count", failCount,
+				)
+			}
 			continue
 		}
 
@@ -994,12 +1014,39 @@ func (s *SchedulerService) cleanupStaleTaskLocks() {
 
 		interval := now - lastRenew
 		if interval > maxInterval {
-			slog.Warn("cleanup: task lock renewal timeout, marking as failed",
-				"execution_id", executionID,
-				"task_id", taskID,
-				"last_renew_seconds_ago", interval,
-			)
-			s.forceFailTask(ctx, executionID, taskID, fmt.Sprintf("task execution timeout, no heartbeat for %d seconds", interval))
+			failCountStr, _ := s.redis.Get(ctx, failCountKey).Result()
+			var failCount int64 = 0
+			if failCountStr != "" {
+				fmt.Sscanf(failCountStr, "%d", &failCount)
+			}
+			failCount++
+
+			s.redis.Set(ctx, failCountKey, failCount, 0)
+
+			if failCount >= requiredFailCount {
+				slog.Warn("cleanup: consecutive renewal failures reached threshold, marking task as failed",
+					"execution_id", executionID,
+					"task_id", taskID,
+					"fail_count", failCount,
+					"last_renew_seconds_ago", interval,
+				)
+				s.forceFailTask(ctx, executionID, taskID, fmt.Sprintf("task execution timeout, no heartbeat for %d seconds after %d consecutive failures", interval, failCount))
+			} else {
+				slog.Warn("cleanup: task lock renewal timeout, incrementing fail count",
+					"execution_id", executionID,
+					"task_id", taskID,
+					"fail_count", failCount,
+					"last_renew_seconds_ago", interval,
+				)
+			}
+		} else {
+			if failCountStr, _ := s.redis.Get(ctx, failCountKey).Result(); failCountStr != "" {
+				s.redis.Del(ctx, failCountKey)
+				slog.Debug("cleanup: renewal recovered, reset fail count",
+					"execution_id", executionID,
+					"task_id", taskID,
+				)
+			}
 		}
 	}
 }
