@@ -752,6 +752,7 @@ func (s *SchedulerService) SelectAvailableExecutor(ctx context.Context) (*model.
 		SELECT id, executor_id, name, address, status, last_heartbeat, capacity, current_load, created_at, updated_at
 		FROM executors
 		WHERE status = 'online' AND current_load < capacity
+		  AND last_heartbeat > datetime('now', '-30 seconds')
 		ORDER BY current_load ASC, RANDOM()
 		LIMIT 1
 	`
