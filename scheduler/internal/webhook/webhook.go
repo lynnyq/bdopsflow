@@ -177,16 +177,19 @@ func (s *Service) SendWithRetry(ctx context.Context, config WebhookConfig, paylo
 }
 
 func shouldSendForEvent(configuredEvents []string, event string) bool {
+	log.Printf("[Webhook] shouldSendForEvent: configuredEvents=%v, event=%s", configuredEvents, event)
 	if len(configuredEvents) == 0 {
 		return true
 	}
 
 	for _, e := range configuredEvents {
 		if e == event || e == "*" {
+			log.Printf("[Webhook] shouldSendForEvent: match found, e=%s, event=%s, returning true", e, event)
 			return true
 		}
 	}
 
+	log.Printf("[Webhook] shouldSendForEvent: no match found, returning false")
 	return false
 }
 

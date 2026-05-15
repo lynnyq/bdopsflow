@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -176,6 +177,8 @@ func (s *SchedulerService) cleanupDeadTasks() {
 				s.redis.Del(ctx, lockKey)
 				slog.Info("cleanup: removed stale lock", "execution_id", exec.ExecutionID)
 			}
+
+			s.SendWebhookNotification(ctx, exec.TaskID, exec.ExecutionID, "failed", "", "task execution timeout or executor crashed", 0)
 		} else {
 			slog.Warn("cleanup: task has valid lock, skipping",
 				"task_id", exec.TaskID,
@@ -252,6 +255,8 @@ func (s *SchedulerService) cleanupTasksFromOfflineExecutors(ctx context.Context)
 			slog.Error("cleanup: failed to update task status", "error", err, "task_id", taskID)
 		}
 
+		s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", "executor went offline during task execution", 0)
+
 		lockKey := fmt.Sprintf("task:lock:%s", executionID)
 		s.redis.Del(ctx, lockKey)
 	}
@@ -302,9 +307,13 @@ func (s *SchedulerService) SendWebhookNotification(ctx context.Context, taskID i
 		return
 	}
 
+	log.Printf("[Webhook] SendWebhookNotification: taskID=%d, status=%s, webhookConfig=%s", taskID, status, task.WebhookConfig)
+
 	event := "success"
 	if status == "failed" {
 		event = "failed"
+	} else if status == "skipped" {
+		event = "skipped"
 	}
 
 	payload := map[string]interface{}{
@@ -566,6 +575,8 @@ func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (strin
 				"skipped_execution_id", skippedExecutionID,
 				"running_execution_id", runningExecID,
 			)
+
+			s.SendWebhookNotification(ctx, taskID, skippedExecutionID, "skipped", "", skippedReason, 0)
 		}
 		
 		return "", fmt.Errorf("task %d is already running (execution_id: %s), skipped", taskID, runningExecID)
@@ -642,6 +653,7 @@ func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (strin
 			)
 			s.UpdateExecutionResult(ctx, executionID, "failed", "", fmt.Sprintf("specified executor %s not found: %v", task.AssignedExecutorID, err))
 			s.UpdateTaskStatusByID(ctx, taskID, "failed")
+			s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", fmt.Sprintf("specified executor %s not found: %v", task.AssignedExecutorID, err), 0)
 			s.redis.Del(ctx, lockKey)
 			return executionID, fmt.Errorf("specified executor %s not found: %w", task.AssignedExecutorID, err)
 		}
@@ -655,6 +667,7 @@ func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (strin
 			)
 			s.UpdateExecutionResult(ctx, executionID, "failed", "", fmt.Sprintf("specified executor %s is not online (status: %s)", task.AssignedExecutorID, executor.Status))
 			s.UpdateTaskStatusByID(ctx, taskID, "failed")
+			s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", fmt.Sprintf("specified executor %s is not online (status: %s)", task.AssignedExecutorID, executor.Status), 0)
 			s.redis.Del(ctx, lockKey)
 			return executionID, fmt.Errorf("specified executor %s is not online", task.AssignedExecutorID)
 		}
@@ -668,6 +681,7 @@ func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (strin
 			)
 			s.UpdateExecutionResult(ctx, executionID, "failed", "", fmt.Sprintf("specified executor %s has no capacity (load: %d/%d)", task.AssignedExecutorID, executor.CurrentLoad, executor.Capacity))
 			s.UpdateTaskStatusByID(ctx, taskID, "failed")
+			s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", fmt.Sprintf("specified executor %s has no capacity (load: %d/%d)", task.AssignedExecutorID, executor.CurrentLoad, executor.Capacity), 0)
 			s.redis.Del(ctx, lockKey)
 			return executionID, fmt.Errorf("specified executor %s has no capacity", task.AssignedExecutorID)
 		}
@@ -685,6 +699,7 @@ func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (strin
 			slog.Error("no available executor", "task_id", taskID, "error", err)
 			s.UpdateExecutionResult(ctx, executionID, "failed", "", fmt.Sprintf("no available executor: %v", err))
 			s.UpdateTaskStatusByID(ctx, taskID, "failed")
+			s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", fmt.Sprintf("no available executor: %v", err), 0)
 			s.redis.Del(ctx, lockKey)
 			return executionID, fmt.Errorf("no available executor: %w", err)
 		}
@@ -710,7 +725,7 @@ func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (strin
 		slog.Warn("no task dispatcher set", "task_id", taskID)
 		s.UpdateExecutionResult(ctx, executionID, "failed", "", "dispatcher not configured")
 		s.UpdateTaskStatusByID(ctx, taskID, "failed")
-		// 清理锁
+		s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", "dispatcher not configured", 0)
 		s.redis.Del(ctx, lockKey)
 		return executionID, fmt.Errorf("dispatcher not configured")
 	}
@@ -731,7 +746,7 @@ func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (strin
 		slog.Error("dispatch task failed", "task_id", taskID, "executor", executor.ExecutorID, "error", err)
 		s.UpdateExecutionResult(ctx, executionID, "failed", "", fmt.Sprintf("dispatch failed: %v", err))
 		s.UpdateTaskStatusByID(ctx, taskID, "failed")
-		// 清理锁
+		s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", fmt.Sprintf("dispatch failed: %v", err), 0)
 		s.redis.Del(ctx, lockKey)
 		return executionID, fmt.Errorf("dispatch failed: %w", err)
 	}
@@ -1007,6 +1022,8 @@ func (s *SchedulerService) forceFailTask(ctx context.Context, executionID string
 
 	renewKey := fmt.Sprintf("task:renew:%s", executionID)
 	s.redis.Del(ctx, renewKey)
+
+	s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", reason, 0)
 }
 
 // GetExecutorByID 根据 executor_id 获取执行器信息

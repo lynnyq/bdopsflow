@@ -666,6 +666,7 @@
                     >
                       <el-option label="任务成功" value="success" />
                       <el-option label="任务失败" value="failed" />
+                      <el-option label="任务跳过" value="skipped" />
                       <el-option label="每次执行" value="*" />
                     </el-select>
                   </el-form-item>
