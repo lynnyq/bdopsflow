@@ -41,10 +41,17 @@ func (h *LogHandler) List(c *gin.Context) {
 	}
 
 	filter := make(map[string]string)
+	filter["id"] = c.Query("id")
+	filter["execution_id"] = c.Query("execution_id")
 	filter["executor_name"] = c.Query("executor_name")
 	filter["task_name"] = c.Query("task_name")
-	filter["task_type"] = c.Query("task_type")
 	filter["status"] = c.Query("status")
+	filter["start_time_from"] = c.Query("start_time_from")
+	filter["start_time_to"] = c.Query("start_time_to")
+	filter["end_time_from"] = c.Query("end_time_from")
+	filter["end_time_to"] = c.Query("end_time_to")
+	filter["duration_min"] = c.Query("duration_min")
+	filter["duration_max"] = c.Query("duration_max")
 
 	executions, total, err := h.svc.GetAllExecutions(ctx, filter, page, pageSize)
 	if err != nil {
@@ -163,10 +170,17 @@ func (h *LogHandler) GetStats(c *gin.Context) {
 
 	// 构建筛选条件
 	filter := make(map[string]string)
+	filter["id"] = c.Query("id")
+	filter["execution_id"] = c.Query("execution_id")
 	filter["executor_name"] = c.Query("executor_name")
 	filter["task_name"] = c.Query("task_name")
-	filter["task_type"] = c.Query("task_type")
 	filter["status"] = c.Query("status")
+	filter["start_time_from"] = c.Query("start_time_from")
+	filter["start_time_to"] = c.Query("start_time_to")
+	filter["end_time_from"] = c.Query("end_time_from")
+	filter["end_time_to"] = c.Query("end_time_to")
+	filter["duration_min"] = c.Query("duration_min")
+	filter["duration_max"] = c.Query("duration_max")
 
 	stats, err := h.svc.GetExecutionStats(ctx, filter)
 	if err != nil {

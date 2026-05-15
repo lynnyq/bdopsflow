@@ -16,7 +16,7 @@ import (
 
 const (
 	DateTimeFormat = "2006-01-02 15:04:05"
-	TimeResponseFormat = time.RFC3339
+	TimeResponseFormat = "2006-01-02 15:04:05"
 )
 
 func safeString(s string) string {
@@ -30,7 +30,7 @@ func safeTimePtr(t time.Time) *string {
 	if t.IsZero() {
 		return nil
 	}
-	s := t.UTC().Format(TimeResponseFormat)
+	s := t.Format(TimeResponseFormat)
 	return &s
 }
 
@@ -467,7 +467,7 @@ func (h *TaskHandler) StreamLogs(c *gin.Context) {
 						lastLogID = log.ID
 						data := fmt.Sprintf(`{"id":%d,"execution_id":"%s","task_id":%d,"node_id":"%s","log_level":"%s","message":"%s","log_time":"%s"}`,
 							log.ID, log.ExecutionID, log.TaskID, log.NodeID, log.LogLevel,
-							escapeJSON(log.Message), log.LogTime.UTC().Format(TimeResponseFormat))
+							escapeJSON(log.Message), log.LogTime.Format(TimeResponseFormat))
 						c.Writer.Write([]byte("data: " + data + "\n\n"))
 						c.Writer.Flush()
 					}
@@ -550,7 +550,7 @@ func toTaskExecutionResponse(exec *model.TaskExecution) *TaskExecutionResponse {
 		Output:      exec.Output,
 		Error:       exec.Error,
 		RetryTimes:  exec.RetryTimes,
-		CreatedAt:   exec.CreatedAt.UTC().Format(TimeResponseFormat),
+		CreatedAt:   exec.CreatedAt.Format(TimeResponseFormat),
 	}
 
 	if exec.StartTime.Valid {
@@ -583,7 +583,7 @@ func toTaskLogResponse(tl *model.TaskLog) *TaskLogResponse {
 		NodeID:      tl.NodeID,
 		LogLevel:    tl.LogLevel,
 		Message:     tl.Message,
-		LogTime:     tl.LogTime.UTC().Format(TimeResponseFormat),
+		LogTime:     tl.LogTime.Format(TimeResponseFormat),
 	}
 }
 

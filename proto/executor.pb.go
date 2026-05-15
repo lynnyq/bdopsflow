@@ -142,11 +142,12 @@ func (x *RegisterResponse) GetMessage() string {
 }
 
 type HeartbeatRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ExecutorId    string                 `protobuf:"bytes,1,opt,name=executor_id,json=executorId,proto3" json:"executor_id,omitempty"`
-	CurrentLoad   int32                  `protobuf:"varint,2,opt,name=current_load,json=currentLoad,proto3" json:"current_load,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state                 protoimpl.MessageState `protogen:"open.v1"`
+	ExecutorId            string                 `protobuf:"bytes,1,opt,name=executor_id,json=executorId,proto3" json:"executor_id,omitempty"`
+	CurrentLoad           int32                  `protobuf:"varint,2,opt,name=current_load,json=currentLoad,proto3" json:"current_load,omitempty"`
+	RunningExecutionIds   []string               `protobuf:"bytes,3,rep,name=running_execution_ids,json=runningExecutionIds,proto3" json:"running_execution_ids,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *HeartbeatRequest) Reset() {
@@ -191,6 +192,13 @@ func (x *HeartbeatRequest) GetCurrentLoad() int32 {
 		return x.CurrentLoad
 	}
 	return 0
+}
+
+func (x *HeartbeatRequest) GetRunningExecutionIds() []string {
+	if x != nil {
+		return x.RunningExecutionIds
+	}
+	return nil
 }
 
 type HeartbeatResponse struct {

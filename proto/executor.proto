@@ -27,6 +27,7 @@ message RegisterResponse {
 message HeartbeatRequest {
   string executor_id = 1;
   int32 current_load = 2;
+  repeated string running_execution_ids = 3;
 }
 
 message HeartbeatResponse {

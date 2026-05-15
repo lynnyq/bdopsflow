@@ -74,7 +74,13 @@ func (s *Server) Register(ctx context.Context, req *pb.RegisterRequest) (*pb.Reg
 }
 
 func (s *Server) Heartbeat(ctx context.Context, req *pb.HeartbeatRequest) (*pb.HeartbeatResponse, error) {
-	s.scheduler.UpdateExecutorHeartbeat(ctx, req.ExecutorId, req.CurrentLoad)
+	if req.ExecutorId == "" {
+		return &pb.HeartbeatResponse{
+			Success: true,
+			Message: "ok",
+		}, nil
+	}
+	s.scheduler.UpdateExecutorHeartbeatWithRunningTasks(ctx, req.ExecutorId, req.CurrentLoad, req.RunningExecutionIds)
 	return &pb.HeartbeatResponse{
 		Success: true,
 		Message: "ok",

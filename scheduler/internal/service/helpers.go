@@ -13,20 +13,26 @@ const (
 )
 
 func nowUTC() string {
-	return time.Now().UTC().Format(DateTimeFormat)
+	// 直接返回本地时间，不做UTC转换
+	return time.Now().Format(DateTimeFormat)
 }
 
 func parseDateTime(v interface{}) time.Time {
 	if t, ok := v.(time.Time); ok {
-		return t.UTC()
+		return t
 	}
 	if s, ok := v.(string); ok && s != "" {
 		parsed, err := time.Parse(DateTimeFormat, s)
 		if err == nil {
-			return parsed.UTC()
+			return parsed
 		}
 	}
 	return time.Time{}
+}
+
+func parseTimeInLocalTimezone(timeStr string) (time.Time, error) {
+	// 直接解析时间字符串，不需要时区转换
+	return time.Parse(DateTimeFormat, timeStr)
 }
 
 func scanNullTime(row []interface{}, idx int) rqlite.NullTime {

@@ -17,6 +17,7 @@ type TaskRunner interface {
 type TaskRunnerStats interface {
 	TaskRunner
 	GetRunningTasks() int32
+	GetRunningExecutionIds() []string
 }
 
 type Client struct {
@@ -53,11 +54,10 @@ func NewClient(schedulerAddr string) (*Client, error) {
 
 func (c *Client) ensureConnected() error {
 	if c.client != nil {
-		// 简单检查连接是否还活着
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		_, err := c.client.Heartbeat(ctx, &pb.HeartbeatRequest{
-			ExecutorId:  "check",
+			ExecutorId:  "",
 			CurrentLoad: 0,
 		})
 		if err == nil {
@@ -66,7 +66,6 @@ func (c *Client) ensureConnected() error {
 		slog.Warn("connection check failed, reconnecting", "error", err)
 	}
 
-	// 尝试重新连接
 	conn, err := grpc.Dial(c.schedulerAddr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithBlock(),
@@ -148,12 +147,20 @@ func (c *Client) Subscribe(executorID, name, address string, capacity int32, run
 					case <-heartbeatTicker.C:
 						if c.client != nil {
 							currentLoad := int32(0)
+							runningExecIds := []string{}
 							if c.taskRunner != nil {
 								currentLoad = c.taskRunner.GetRunningTasks()
+								runningExecIds = c.taskRunner.GetRunningExecutionIds()
 							}
+							slog.Info("sending heartbeat",
+								"executor_id", executorID,
+								"current_load", currentLoad,
+								"running_executions", len(runningExecIds),
+							)
 							c.client.Heartbeat(context.Background(), &pb.HeartbeatRequest{
-								ExecutorId:  executorID,
-								CurrentLoad: currentLoad,
+								ExecutorId:          executorID,
+								CurrentLoad:         currentLoad,
+								RunningExecutionIds: runningExecIds,
 							})
 						}
 					case <-c.stopCh:

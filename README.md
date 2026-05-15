@@ -18,6 +18,7 @@
 - ✅ **工作流 DAG**：支持任务依赖和工作流编排
 - ✅ **高可用**：主节点选举、故障自动转移
 - ✅ **幂等控制**：Redis 分布式锁 + 状态机，防止重复执行
+- ✅ **锁续期机制**：执行器心跳续期锁 TTL，防止任务卡死
 - ✅ **任务执行**：支持 HTTP、Shell 任务类型
 - ✅ **超时重试**：超时控制、可配置重试策略
 - ✅ **JWT 认证**：完整的用户认证和 RBAC 权限管理
@@ -30,6 +31,7 @@
 ## 🛠️ 技术栈
 
 ### 后端
+
 - **语言**：Go 1.24+
 - **框架**：Gin (HTTP API), gRPC (通信)
 - **数据库**：rqlite (分布式 SQLite) - 开发和生产环境统一使用
@@ -38,6 +40,7 @@
 - **密码加密**：bcrypt
 
 ### 前端
+
 - **框架**：Vue 3 + TypeScript
 - **构建**：Vite
 - **UI 组件库**：Element Plus
@@ -120,6 +123,7 @@ cd bdopsflow
 ### 2. 启动依赖服务
 
 #### 启动 Redis
+
 ```bash
 # 使用 Docker（推荐）
 docker run -d --name bdopsflow-redis -p 6379:6379 redis:7-alpine
@@ -129,9 +133,10 @@ redis-server
 ```
 
 #### 启动 rqlite
+
 ```bash
 # 使用 Docker（推荐）
-docker run -d --name bdopsflow-rqlite -p 4001:4001 rqlite/rqlite:latest
+docker run -d --name bdopsflow-rqlite --hostname localhost -p 4001:4001 rqlite/rqlite:latest
 
 # 等待几秒让 rqlite 启动
 sleep 3
@@ -153,6 +158,7 @@ go build -o bin/scheduler ./cmd/main.go
 ```
 
 预期输出：
+
 ```
 Connected to Redis successfully
 Connected to rqlite successfully
@@ -173,6 +179,7 @@ go build -o bin/executor ./cmd/main.go
 ```
 
 预期输出：
+
 ```
 [Executor] Registered with scheduler successfully
 [Executor] Subscribed to tasks
@@ -191,117 +198,64 @@ npm install
 npm run dev
 ```
 
-访问 http://localhost:5173
+访问 <http://localhost:5173>
 
-### 6. 初始化系统
+### 6. 登录系统
 
-首次启动后，需要注册管理员账号：
+默认管理员账号：
 
-```bash
-curl -X POST http://localhost:8080/api/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{
-    "username": "admin",
-    "password": "admin123",
-    "role": "admin",
-    "email": "admin@example.com"
-  }'
-```
-
-然后就可以使用 admin / admin123 登录系统了！
+- 用户名：`admin`
+- 密码：`admin123`
 
 ## 📖 文档
 
-- [架构设计文档](docs/ARCHITECTURE.md)
-- [部署文档](docs/DEPLOYMENT.md)
-- [开发阶段计划](docs/PHASES.md)
-- [API 接口文档](docs/API.md)
-- [Webhook 接入指南](docs/WEBHOOK.md)
+- [架构设计文档](docs/ARCHITECTURE.md) - 系统架构详细说明
+- [部署文档](docs/DEPLOYMENT.md) - 生产环境部署指南
+- [API 接口文档](docs/API.md) - 完整 API 接口说明
+- [Webhook 接入指南](docs/WEBHOOK.md) - Webhook 配置和使用
 
-## 🔌 API 接口
+## 🔌 API 接口概览
 
 ### 认证接口
 
-| 方法 | 接口 | 说明 |
-|------|------|------|
-| POST | /api/auth/login | 用户登录 |
-| POST | /api/auth/register | 用户注册 |
-| GET | /api/auth/current | 获取当前用户信息 |
+| 方法   | 接口                 | 说明       |
+| ---- | ------------------ | -------- |
+| POST | /api/auth/login    | 用户登录     |
+| POST | /api/auth/register | 用户注册     |
+| GET  | /api/auth/current  | 获取当前用户信息 |
 
 ### 任务接口
 
-| 方法 | 接口 | 说明 |
-|------|------|------|
-| GET | /api/tasks | 获取任务列表 |
-| POST | /api/tasks | 创建任务 |
-| GET | /api/tasks/:id | 获取任务详情 |
-| PUT | /api/tasks/:id | 更新任务 |
-| DELETE | /api/tasks/:id | 删除任务 |
-| POST | /api/tasks/:id/trigger | 手动触发任务 |
-| GET | /api/tasks/:id/executions | 获取任务执行历史 |
+| 方法     | 接口                        | 说明       |
+| ------ | ------------------------- | -------- |
+| GET    | /api/tasks                | 获取任务列表   |
+| POST   | /api/tasks                | 创建任务     |
+| GET    | /api/tasks/:id            | 获取任务详情   |
+| PUT    | /api/tasks/:id            | 更新任务     |
+| DELETE | /api/tasks/:id            | 删除任务     |
+| POST   | /api/tasks/:id/trigger    | 手动触发任务   |
+| GET    | /api/tasks/:id/executions | 获取任务执行历史 |
 
 ### 工作流接口
 
-| 方法 | 接口 | 说明 |
-|------|------|------|
-| GET | /api/workflows | 获取工作流列表 |
-| POST | /api/workflows | 创建工作流 |
-| GET | /api/workflows/:id | 获取工作流详情 |
-| PUT | /api/workflows/:id | 更新工作流 |
-| DELETE | /api/workflows/:id | 删除工作流 |
+| 方法     | 接口                         | 说明      |
+| ------ | -------------------------- | ------- |
+| GET    | /api/workflows             | 获取工作流列表 |
+| POST   | /api/workflows             | 创建工作流   |
+| GET    | /api/workflows/:id         | 获取工作流详情 |
+| PUT    | /api/workflows/:id         | 更新工作流   |
+| DELETE | /api/workflows/:id         | 删除工作流   |
+| POST   | /api/workflows/:id/trigger | 触发工作流   |
 
 ### 执行器接口
 
-| 方法 | 接口 | 说明 |
-|------|------|------|
-| GET | /api/executors | 获取执行器列表 |
-| GET | /api/executors/:id | 获取执行器详情 |
-| DELETE | /api/executors/:id | 删除执行器 |
+| 方法     | 接口                 | 说明      |
+| ------ | ------------------ | ------- |
+| GET    | /api/executors     | 获取执行器列表 |
+| GET    | /api/executors/:id | 获取执行器详情 |
+| DELETE | /api/executors/:id | 删除执行器   |
 
-### 其他接口
-
-| 方法 | 接口 | 说明 |
-|------|------|------|
-| GET | /health | 健康检查 |
-
-## 💡 任务配置示例
-
-### HTTP 任务
-
-```json
-{
-  "name": "健康检查任务",
-  "type": "http",
-  "config": {
-    "url": "https://api.example.com/health",
-    "method": "GET",
-    "headers": {
-      "Authorization": "Bearer token"
-    },
-    "timeout": 10000
-  },
-  "timeout_seconds": 30,
-  "retry_count": 3,
-  "retry_interval": 5,
-  "domain_id": 1
-}
-```
-
-### Shell 任务
-
-```json
-{
-  "name": "备份任务",
-  "type": "shell",
-  "config": {
-    "script": "pg_dump -U postgres mydb > /backup/db-$(date +%Y%m%d).sql"
-  },
-  "timeout_seconds": 300,
-  "retry_count": 2,
-  "retry_interval": 10,
-  "domain_id": 1
-}
-```
+详细 API 文档请参考 [API.md](docs/API.md)
 
 ## 🐳 Docker Compose 部署
 
@@ -313,8 +267,9 @@ docker-compose up -d
 ```
 
 服务地址：
-- 前端：http://localhost:3000
-- 调度中心 HTTP API：http://localhost:8080
+
+- 前端：<http://localhost:3000>
+- 调度中心 HTTP API：<http://localhost:8080>
 - 调度中心 gRPC：localhost:50051
 - Redis：localhost:6379
 
@@ -322,86 +277,46 @@ docker-compose up -d
 
 ## ⚙️ 配置说明
 
-### 配置方式
-
-系统支持三种配置方式，优先级从高到低为：
-
-1. **环境变量**（最高优先级）
-2. **YAML 配置文件**（config.yaml）
-3. **默认值**（最低优先级）
-
-### YAML 配置文件（推荐）
-
-#### 调度中心配置
-
-```bash
-cd scheduler
-cp config.yaml.example config.yaml
-```
-
-编辑 `scheduler/config.yaml`：
+### 调度中心配置 (scheduler/config.yaml)
 
 ```yaml
 app:
-  http_port: "8080"
-  grpc_port: "50051"
+  http_port: "8080"        # HTTP API 端口
+  grpc_port: "50051"       # gRPC 服务端口
 
 database:
-  rqlite_dsn: "http://localhost:4001"
+  rqlite_dsn: "http://localhost:4001"  # rqlite 连接地址
 
 redis:
-  addr: "localhost:6379"
-  password: ""
-  db: 0
+  addr: "localhost:6379"   # Redis 地址
+  password: ""             # Redis 密码
+  db: 0                    # Redis 数据库
 
 jwt:
-  secret: "your-secret-key-change-in-production"
-  expiry_hours: 24
+  secret: "your-secret-key-change-in-production"  # JWT 密钥
+  expiry_hours: 24         # Token 过期时间（小时）
+
+log:
+  level: "info"            # 日志级别
+  format: "json"           # 日志格式
 ```
 
-#### 执行器配置
-
-```bash
-cd executor
-cp config.yaml.example config.yaml
-```
-
-编辑 `executor/config.yaml`：
+### 执行器配置 (executor/config.yaml)
 
 ```yaml
 app:
-  executor_id: "executor-1"
-  executor_name: "executor-1"
-  capacity: 10
+  executor_id: "executor-1"     # 执行器唯一 ID
+  executor_name: "executor-1"   # 执行器显示名称
+  capacity: 10                  # 最大并发任务数
 
 scheduler:
-  addr: "localhost:50051"
-  timeout: 30
+  addr: "localhost:50051"       # 调度中心 gRPC 地址
+  timeout: 30                   # 连接超时（秒）
+
+log:
+  level: "info"
+  format: "json"
 ```
-
-### 环境变量配置
-
-#### 调度中心环境变量
-
-| 环境变量 | 默认值 | 说明 |
-|---------|-------|------|
-| APP_HTTP_PORT | 8080 | HTTP API 服务端口 |
-| APP_GRPC_PORT | 50051 | gRPC 服务端口 |
-| DATABASE_RQLITE_DSN | http://localhost:4001 | rqlite HTTP API 地址 |
-| REDIS_ADDR | localhost:6379 | Redis 连接地址 |
-| REDIS_PASSWORD | (空) | Redis 密码 |
-| JWT_SECRET | (空) | JWT 密钥 |
-| LOG_LEVEL | info | 日志级别 |
-
-#### 执行器环境变量
-
-| 环境变量 | 默认值 | 说明 |
-|---------|-------|------|
-| APP_EXECUTOR_ID | executor-1 | 执行器唯一标识 |
-| APP_EXECUTOR_NAME | executor-1 | 执行器显示名称 |
-| APP_CAPACITY | 10 | 最大并发执行任务数 |
-| SCHEDULER_ADDR | localhost:50051 | 调度中心 gRPC 地址 |
-| SCHEDULER_TIMEOUT | 30 | gRPC 连接超时（秒） |
 
 详细配置说明请参考 [部署文档](docs/DEPLOYMENT.md)。
 
@@ -432,20 +347,6 @@ npm run type-check
 # 构建生产版本
 npm run build
 ```
-
-### 代码规范
-
-- Go：遵循 Go 官方代码规范
-- TypeScript：使用 ESLint + Prettier
-
-## 📊 当前进度
-
-- ✅ 阶段一：核心架构搭建
-- ✅ 阶段二：调度中心核心功能
-- ✅ 阶段三：执行器核心功能
-- ⚠️ 阶段四：完整功能实现（部分完成）
-- ✅ 阶段五：Vue3 前端开发（大部分完成）
-- ⚠️ 阶段六：测试、优化、部署（部分完成）
 
 ## 🔐 安全建议
 
@@ -501,19 +402,10 @@ sudo iptables -L -n
 3. 查看执行器日志
 4. 确认网络连通性
 
-## 🤝 贡献指南
-
-欢迎贡献代码、报告问题或提出建议！
-
 ## 📄 许可证
 
 MIT License
 
-## 📧 技术支持
-
-- 提交 Issue：GitHub Issues
-- 文档：[docs 目录](docs/)
-
----
+***
 
 **享受使用 BDopsFlow！** 🎉

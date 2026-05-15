@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -80,6 +81,7 @@ func (s *SchedulerService) cleanupStuckTasks() {
 		case <-ticker.C:
 			s.cleanupDeadTasks()
 			s.cleanupOfflineExecutors()
+			s.cleanupStaleTaskLocks()
 		}
 	}
 }
@@ -87,13 +89,12 @@ func (s *SchedulerService) cleanupStuckTasks() {
 func (s *SchedulerService) cleanupDeadTasks() {
 	ctx := context.Background()
 
-	// 查找所有 running 状态超过 10 分钟的任务
 	query := `
 		SELECT id, task_id, execution_id, start_time, created_at
 		FROM task_executions
 		WHERE status = 'running'
 		AND (start_time IS NOT NULL AND start_time != '')
-		AND created_at < datetime('now', '-10 minutes')
+		AND created_at < datetime('now', '-5 minutes')
 	`
 
 	qr, err := s.DB.QueryOne(query)
@@ -139,46 +140,61 @@ func (s *SchedulerService) cleanupDeadTasks() {
 	slog.Warn("found stuck tasks", "count", len(stuckExecutions))
 
 	for _, exec := range stuckExecutions {
-		// 检查锁是否存在
 		lockKey := fmt.Sprintf("task:lock:%s", exec.ExecutionID)
+		lockTTL, err := s.redis.TTL(ctx, lockKey).Result()
+		if err != nil {
+			slog.Warn("cleanup: get lock TTL failed, treating as stuck", "error", err, "execution_id", exec.ExecutionID)
+			lockTTL = -1
+		}
+
 		lockExists, err := s.redis.Exists(ctx, lockKey).Result()
 		if err != nil {
 			slog.Error("cleanup: check lock existence failed", "error", err, "execution_id", exec.ExecutionID)
 			continue
 		}
 
-		if lockExists == 0 {
-			// 锁不存在，说明任务已经卡死，强制更新状态
+		if lockExists == 0 || lockTTL < 0 {
 			slog.Warn("cleanup: task is stuck, force updating status to failed",
 				"task_id", exec.TaskID,
 				"execution_id", exec.ExecutionID,
 				"start_time", exec.StartTime,
+				"lock_exists", lockExists,
+				"lock_ttl_seconds", lockTTL,
 			)
 
-			// 更新执行状态为失败
-			err := s.UpdateExecutionResult(ctx, exec.ExecutionID, "failed", "", "task execution timeout or crashed, no lock found")
+			err := s.UpdateExecutionResult(ctx, exec.ExecutionID, "failed", "", "task execution timeout or executor crashed")
 			if err != nil {
 				slog.Error("cleanup: failed to update execution result", "error", err, "execution_id", exec.ExecutionID)
 			}
 
-			// 更新任务状态
 			err = s.UpdateTaskStatusByID(ctx, exec.TaskID, "failed")
 			if err != nil {
 				slog.Error("cleanup: failed to update task status", "error", err, "task_id", exec.TaskID)
 			}
+
+			if lockExists > 0 {
+				s.redis.Del(ctx, lockKey)
+				slog.Info("cleanup: removed stale lock", "execution_id", exec.ExecutionID)
+			}
+		} else {
+			slog.Warn("cleanup: task has valid lock, skipping",
+				"task_id", exec.TaskID,
+				"execution_id", exec.ExecutionID,
+				"lock_ttl_seconds", lockTTL,
+			)
 		}
 	}
 }
 
 func (s *SchedulerService) cleanupOfflineExecutors() {
-	query := `
+	ctx := context.Background()
+
+	result, err := s.DB.WriteOne(`
 		UPDATE executors 
 		SET status = 'offline', updated_at = datetime('now')
 		WHERE status = 'online' 
 		AND last_heartbeat < datetime('now', '-60 seconds')
-	`
-
-	result, err := s.DB.WriteOne(query)
+	`)
 	if err != nil {
 		slog.Error("cleanup: update offline executors failed", "error", err)
 		return
@@ -190,6 +206,54 @@ func (s *SchedulerService) cleanupOfflineExecutors() {
 
 	if result.RowsAffected > 0 {
 		slog.Warn("marked executors as offline", "count", result.RowsAffected)
+		s.cleanupTasksFromOfflineExecutors(ctx)
+	}
+}
+
+func (s *SchedulerService) cleanupTasksFromOfflineExecutors(ctx context.Context) {
+	query := `
+		SELECT te.id, te.task_id, te.execution_id, te.start_time
+		FROM task_executions te
+		JOIN executors e ON te.executor_id = e.executor_id
+		WHERE te.status = 'running' AND e.status = 'offline'
+	`
+
+	qr, err := s.DB.QueryOne(query)
+	if err != nil {
+		slog.Error("cleanup: query tasks from offline executors failed", "error", err)
+		return
+	}
+	if qr.Err != nil {
+		slog.Error("cleanup: query tasks from offline executors returned error", "error", qr.Err)
+		return
+	}
+
+	for qr.Next() {
+		row, err := qr.Slice()
+		if err != nil {
+			continue
+		}
+
+		taskID := rowInt64(row[1])
+		executionID := rowString(row[2])
+
+		slog.Warn("cleanup: found task on offline executor, marking as failed",
+			"execution_id", executionID,
+			"task_id", taskID,
+		)
+
+		err = s.UpdateExecutionResult(ctx, executionID, "failed", "", "executor went offline during task execution")
+		if err != nil {
+			slog.Error("cleanup: failed to update execution result", "error", err, "execution_id", executionID)
+		}
+
+		err = s.UpdateTaskStatusByID(ctx, taskID, "failed")
+		if err != nil {
+			slog.Error("cleanup: failed to update task status", "error", err, "task_id", taskID)
+		}
+
+		lockKey := fmt.Sprintf("task:lock:%s", executionID)
+		s.redis.Del(ctx, lockKey)
 	}
 }
 
@@ -481,7 +545,7 @@ func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (strin
 		
 		// 任务正在运行，记录一个 skipped 的执行
 		skippedExecutionID := fmt.Sprintf("exec-%d-%d", taskID, time.Now().UnixNano())
-		nowUTC := time.Now().UTC().Format("2006-01-02 15:04:05")
+		now := time.Now().Format("2006-01-02 15:04:05")
 		skippedReason := fmt.Sprintf("skipped: previous execution (id: %s) is still running", runningExecID)
 		
 		insertQuery := `
@@ -490,7 +554,7 @@ func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (strin
 		`
 		insertStmt := rqlite.ParameterizedStatement{
 			Query:     insertQuery,
-			Arguments: []interface{}{taskID, skippedExecutionID, skippedReason, nowUTC, nowUTC},
+			Arguments: []interface{}{taskID, skippedExecutionID, skippedReason, now, now},
 		}
 		
 		// 忽略插入错误，继续执行
@@ -538,7 +602,7 @@ func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (strin
 		return "", fmt.Errorf("task %d is already being executed (lock conflict)", taskID)
 	}
 
-	nowUTC := time.Now().UTC().Format("2006-01-02 15:04:05")
+	now := time.Now().Format("2006-01-02 15:04:05")
 	insertQuery := `
 		INSERT INTO task_executions (task_id, execution_id, executor_id, status, start_time, retry_times, created_at)
 		VALUES (?, ?, '', 'running', ?, 0, ?)
@@ -546,7 +610,7 @@ func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (strin
 
 	stmt := rqlite.ParameterizedStatement{
 		Query:     insertQuery,
-		Arguments: []interface{}{taskID, executionID, nowUTC, nowUTC},
+		Arguments: []interface{}{taskID, executionID, now, now},
 	}
 	_, err = s.DB.WriteOneParameterized(stmt)
 	if err != nil {
@@ -806,6 +870,10 @@ func (s *SchedulerService) RegisterExecutor(ctx context.Context, executorID, nam
 }
 
 func (s *SchedulerService) UpdateExecutorHeartbeat(ctx context.Context, executorID string, currentLoad int32) error {
+	return s.UpdateExecutorHeartbeatWithRunningTasks(ctx, executorID, currentLoad, nil)
+}
+
+func (s *SchedulerService) UpdateExecutorHeartbeatWithRunningTasks(ctx context.Context, executorID string, currentLoad int32, runningExecutionIds []string) error {
 	query := `
 		UPDATE executors SET current_load = ?, last_heartbeat = ?, status = 'online', updated_at = ?
 		WHERE executor_id = ?
@@ -826,7 +894,119 @@ func (s *SchedulerService) UpdateExecutorHeartbeat(ctx context.Context, executor
 		return result.Err
 	}
 
+	for _, execID := range runningExecutionIds {
+		if err := s.renewTaskLock(ctx, execID); err != nil {
+			slog.Warn("failed to renew task lock", "execution_id", execID, "error", err)
+		}
+	}
+
 	return nil
+}
+
+func (s *SchedulerService) renewTaskLock(ctx context.Context, executionID string) error {
+	lockKey := fmt.Sprintf("task:lock:%s", executionID)
+	exists, err := s.redis.Exists(ctx, lockKey).Result()
+	if err != nil {
+		return err
+	}
+
+	if exists == 0 {
+		slog.Warn("lock not found for renewal", "execution_id", executionID)
+		return fmt.Errorf("lock not found")
+	}
+
+	lockTTL := 300
+	if err := s.redis.Expire(ctx, lockKey, time.Duration(lockTTL)*time.Second).Err(); err != nil {
+		return err
+	}
+
+	renewKey := fmt.Sprintf("task:renew:%s", executionID)
+	s.redis.Set(ctx, renewKey, time.Now().Unix(), time.Duration(lockTTL)*time.Second)
+
+	slog.Debug("task lock renewed", "execution_id", executionID, "lock_ttl_seconds", lockTTL)
+	return nil
+}
+
+func (s *SchedulerService) cleanupStaleTaskLocks() {
+	ctx := context.Background()
+
+	query := `
+		SELECT execution_id, task_id
+		FROM task_executions
+		WHERE status = 'running'
+	`
+
+	qr, err := s.DB.QueryOne(query)
+	if err != nil {
+		slog.Error("cleanup: query running tasks failed", "error", err)
+		return
+	}
+	if qr.Err != nil {
+		slog.Error("cleanup: query returned error", "error", qr.Err)
+		return
+	}
+
+	now := time.Now().Unix()
+	maxInterval := int64(30)
+
+	for qr.Next() {
+		row, err := qr.Slice()
+		if err != nil {
+			continue
+		}
+
+		executionID := rowString(row[0])
+		taskID := rowInt64(row[1])
+
+		renewKey := fmt.Sprintf("task:renew:%s", executionID)
+		lastRenewStr, err := s.redis.Get(ctx, renewKey).Result()
+		if err != nil {
+			slog.Warn("cleanup: no renewal record found, marking task as failed",
+				"execution_id", executionID,
+				"task_id", taskID,
+				"reason", "no heartbeat received",
+			)
+			s.forceFailTask(ctx, executionID, taskID, "executor heartbeat timeout, task may be stuck")
+			continue
+		}
+
+		var lastRenew int64
+		fmt.Sscanf(lastRenewStr, "%d", &lastRenew)
+
+		interval := now - lastRenew
+		if interval > maxInterval {
+			slog.Warn("cleanup: task lock renewal timeout, marking as failed",
+				"execution_id", executionID,
+				"task_id", taskID,
+				"last_renew_seconds_ago", interval,
+			)
+			s.forceFailTask(ctx, executionID, taskID, fmt.Sprintf("task execution timeout, no heartbeat for %d seconds", interval))
+		}
+	}
+}
+
+func (s *SchedulerService) forceFailTask(ctx context.Context, executionID string, taskID int64, reason string) {
+	slog.Warn("force failing task",
+		"execution_id", executionID,
+		"task_id", taskID,
+		"reason", reason,
+	)
+
+	err := s.UpdateExecutionResult(ctx, executionID, "failed", "", reason)
+	if err != nil {
+		slog.Error("cleanup: failed to update execution result", "error", err, "execution_id", executionID)
+	}
+
+	err = s.UpdateTaskStatusByID(ctx, taskID, "failed")
+	if err != nil {
+		slog.Error("cleanup: failed to update task status", "error", err, "task_id", taskID)
+	}
+
+	lockKey := fmt.Sprintf("task:lock:%s", executionID)
+	s.redis.Del(ctx, lockKey)
+
+	renewKey := fmt.Sprintf("task:renew:%s", executionID)
+	s.redis.Del(ctx, renewKey)
 }
 
 // GetExecutorByID 根据 executor_id 获取执行器信息
@@ -888,7 +1068,7 @@ func (s *SchedulerService) ListExecutors(ctx context.Context) ([]*model.Executor
 }
 
 func (s *SchedulerService) UpdateExecutionResult(ctx context.Context, executionID, status, output, errorMsg string) error {
-	nowUTC := time.Now().UTC().Format("2006-01-02 15:04:05")
+	now := time.Now().Format("2006-01-02 15:04:05")
 	query := `
 		UPDATE task_executions
 		SET status = ?, output = ?, error = ?,
@@ -899,7 +1079,7 @@ func (s *SchedulerService) UpdateExecutionResult(ctx context.Context, executionI
 
 	stmt := rqlite.ParameterizedStatement{
 		Query:     query,
-		Arguments: []interface{}{status, output, errorMsg, status, nowUTC, nowUTC, executionID},
+		Arguments: []interface{}{status, output, errorMsg, status, now, now, executionID},
 	}
 
 	result, err := s.DB.WriteOneParameterized(stmt)
@@ -1020,6 +1200,16 @@ func (s *SchedulerService) GetAllExecutions(ctx context.Context, filter map[stri
 	var args []interface{}
 
 	// 应用筛选条件
+	if filter["id"] != "" {
+		if id, err := strconv.ParseInt(filter["id"], 10, 64); err == nil {
+			whereClause += " AND te.id = ?"
+			args = append(args, id)
+		}
+	}
+	if filter["execution_id"] != "" {
+		whereClause += " AND te.execution_id LIKE ?"
+		args = append(args, "%"+filter["execution_id"]+"%")
+	}
 	if filter["executor_name"] != "" {
 		whereClause += " AND e.name LIKE ?"
 		args = append(args, "%"+filter["executor_name"]+"%")
@@ -1028,13 +1218,42 @@ func (s *SchedulerService) GetAllExecutions(ctx context.Context, filter map[stri
 		whereClause += " AND t.name LIKE ?"
 		args = append(args, "%"+filter["task_name"]+"%")
 	}
-	if filter["task_type"] != "" {
-		whereClause += " AND t.type = ?"
-		args = append(args, filter["task_type"])
-	}
 	if filter["status"] != "" {
 		whereClause += " AND te.status = ?"
 		args = append(args, filter["status"])
+	}
+	if filter["start_time_from"] != "" {
+		whereClause += " AND te.start_time >= ?"
+		args = append(args, filter["start_time_from"])
+	}
+	if filter["start_time_to"] != "" {
+		whereClause += " AND te.start_time <= ?"
+		args = append(args, filter["start_time_to"])
+	}
+	if filter["end_time_from"] != "" {
+		whereClause += " AND te.end_time >= ?"
+		args = append(args, filter["end_time_from"])
+	}
+	if filter["end_time_to"] != "" {
+		whereClause += " AND te.end_time <= ?"
+		args = append(args, filter["end_time_to"])
+	}
+	if filter["duration_min"] != "" || filter["duration_max"] != "" {
+		whereClause += " AND te.end_time IS NOT NULL"
+		if filter["duration_min"] != "" {
+			if duration, err := strconv.ParseFloat(filter["duration_min"], 64); err == nil {
+				durationSecs := int64(duration)
+				whereClause += " AND (STRFTIME('%s', te.end_time) - STRFTIME('%s', te.start_time)) >= ?"
+				args = append(args, durationSecs)
+			}
+		}
+		if filter["duration_max"] != "" {
+			if duration, err := strconv.ParseFloat(filter["duration_max"], 64); err == nil {
+				durationSecs := int64(duration)
+				whereClause += " AND (STRFTIME('%s', te.end_time) - STRFTIME('%s', te.start_time)) <= ?"
+				args = append(args, durationSecs)
+			}
+		}
 	}
 
 	// 统一使用 JOIN，简化逻辑
@@ -1048,8 +1267,6 @@ func (s *SchedulerService) GetAllExecutions(ctx context.Context, filter map[stri
 	countQuery := "SELECT COUNT(*) " + joinClause + whereClause
 	var countQr rqlite.QueryResult
 	var err error
-
-	slog.Debug("GetAllExecutions: counting records", "filter", filter, "query", countQuery)
 
 	if len(args) > 0 {
 		countStmt := rqlite.ParameterizedStatement{
@@ -1131,21 +1348,21 @@ func (s *SchedulerService) GetAllExecutions(ctx context.Context, filter map[stri
 
 		// 处理 start_time
 		if t, ok := row[5].(time.Time); ok {
-			exec.StartTime = rqlite.NullTime{Time: t.UTC(), Valid: true}
+			exec.StartTime = rqlite.NullTime{Time: t, Valid: true}
 		} else if s, ok := row[5].(string); ok && s != "" {
 			parsed, err := time.Parse("2006-01-02 15:04:05", s)
 			if err == nil {
-				exec.StartTime = rqlite.NullTime{Time: parsed.UTC(), Valid: true}
+				exec.StartTime = rqlite.NullTime{Time: parsed, Valid: true}
 			}
 		}
 
 		// 处理 end_time
 		if t, ok := row[6].(time.Time); ok {
-			exec.EndTime = rqlite.NullTime{Time: t.UTC(), Valid: true}
+			exec.EndTime = rqlite.NullTime{Time: t, Valid: true}
 		} else if s, ok := row[6].(string); ok && s != "" {
 			parsed, err := time.Parse("2006-01-02 15:04:05", s)
 			if err == nil {
-				exec.EndTime = rqlite.NullTime{Time: parsed.UTC(), Valid: true}
+				exec.EndTime = rqlite.NullTime{Time: parsed, Valid: true}
 			}
 		}
 
@@ -1155,11 +1372,11 @@ func (s *SchedulerService) GetAllExecutions(ctx context.Context, filter map[stri
 
 		// 处理 created_at
 		if t, ok := row[10].(time.Time); ok {
-			exec.CreatedAt = t.UTC()
+			exec.CreatedAt = t
 		} else if s, ok := row[10].(string); ok && s != "" {
 			parsed, err := time.Parse("2006-01-02 15:04:05", s)
 			if err == nil {
-				exec.CreatedAt = parsed.UTC()
+				exec.CreatedAt = parsed
 			}
 		}
 
@@ -1341,10 +1558,10 @@ func (s *SchedulerService) AddTaskLog(ctx context.Context, executionID string, t
 		VALUES (?, ?, ?, ?, ?, ?, ?)
 	`
 
-	nowUTC := time.Now().UTC().Format("2006-01-02 15:04:05")
+	now := time.Now().Format("2006-01-02 15:04:05")
 	stmt := rqlite.ParameterizedStatement{
 		Query:     query,
-		Arguments: []interface{}{executionID, taskID, executorID, nodeID, logLevel, message, nowUTC},
+		Arguments: []interface{}{executionID, taskID, executorID, nodeID, logLevel, message, now},
 	}
 	result, err := s.DB.WriteOneParameterized(stmt)
 	
@@ -1357,7 +1574,7 @@ func (s *SchedulerService) AddTaskLog(ctx context.Context, executionID string, t
 		`
 		fallbackStmt := rqlite.ParameterizedStatement{
 			Query:     fallbackQuery,
-			Arguments: []interface{}{executionID, taskID, nodeID, logLevel, message, nowUTC},
+			Arguments: []interface{}{executionID, taskID, nodeID, logLevel, message, now},
 		}
 		result, err = s.DB.WriteOneParameterized(fallbackStmt)
 		if err != nil {
@@ -1847,21 +2064,21 @@ func scanExecutionResult(qr *rqlite.QueryResult, exec *model.TaskExecution) erro
 	
 	// 处理 start_time
 	if t, ok := row[5].(time.Time); ok {
-		exec.StartTime = rqlite.NullTime{Time: t.UTC(), Valid: true}
+		exec.StartTime = rqlite.NullTime{Time: t, Valid: true}
 	} else if s, ok := row[5].(string); ok && s != "" {
 		parsed, err := time.Parse("2006-01-02 15:04:05", s)
 		if err == nil {
-			exec.StartTime = rqlite.NullTime{Time: parsed.UTC(), Valid: true}
+			exec.StartTime = rqlite.NullTime{Time: parsed, Valid: true}
 		}
 	}
 	
 	// 处理 end_time
 	if t, ok := row[6].(time.Time); ok {
-		exec.EndTime = rqlite.NullTime{Time: t.UTC(), Valid: true}
+		exec.EndTime = rqlite.NullTime{Time: t, Valid: true}
 	} else if s, ok := row[6].(string); ok && s != "" {
 		parsed, err := time.Parse("2006-01-02 15:04:05", s)
 		if err == nil {
-			exec.EndTime = rqlite.NullTime{Time: parsed.UTC(), Valid: true}
+			exec.EndTime = rqlite.NullTime{Time: parsed, Valid: true}
 		}
 	}
 	
@@ -1871,11 +2088,11 @@ func scanExecutionResult(qr *rqlite.QueryResult, exec *model.TaskExecution) erro
 	
 	// 处理 created_at
 	if t, ok := row[10].(time.Time); ok {
-		exec.CreatedAt = t.UTC()
+		exec.CreatedAt = t
 	} else if s, ok := row[10].(string); ok && s != "" {
 		parsed, err := time.Parse("2006-01-02 15:04:05", s)
 		if err == nil {
-			exec.CreatedAt = parsed.UTC()
+			exec.CreatedAt = parsed
 		}
 	}
 	
@@ -1894,21 +2111,21 @@ func scanWorkflowExecutionResult(qr *rqlite.QueryResult, we *model.WorkflowExecu
 	
 	// 处理 start_time
 	if t, ok := row[4].(time.Time); ok {
-		we.StartTime = rqlite.NullTime{Time: t.UTC(), Valid: true}
+		we.StartTime = rqlite.NullTime{Time: t, Valid: true}
 	} else if s, ok := row[4].(string); ok && s != "" {
 		parsed, err := time.Parse("2006-01-02 15:04:05", s)
 		if err == nil {
-			we.StartTime = rqlite.NullTime{Time: parsed.UTC(), Valid: true}
+			we.StartTime = rqlite.NullTime{Time: parsed, Valid: true}
 		}
 	}
 	
 	// 处理 end_time
 	if t, ok := row[5].(time.Time); ok {
-		we.EndTime = rqlite.NullTime{Time: t.UTC(), Valid: true}
+		we.EndTime = rqlite.NullTime{Time: t, Valid: true}
 	} else if s, ok := row[5].(string); ok && s != "" {
 		parsed, err := time.Parse("2006-01-02 15:04:05", s)
 		if err == nil {
-			we.EndTime = rqlite.NullTime{Time: parsed.UTC(), Valid: true}
+			we.EndTime = rqlite.NullTime{Time: parsed, Valid: true}
 		}
 	}
 	
@@ -1916,11 +2133,11 @@ func scanWorkflowExecutionResult(qr *rqlite.QueryResult, we *model.WorkflowExecu
 	
 	// 处理 created_at
 	if t, ok := row[7].(time.Time); ok {
-		we.CreatedAt = t.UTC()
+		we.CreatedAt = t
 	} else if s, ok := row[7].(string); ok && s != "" {
 		parsed, err := time.Parse("2006-01-02 15:04:05", s)
 		if err == nil {
-			we.CreatedAt = parsed.UTC()
+			we.CreatedAt = parsed
 		}
 	}
 	
@@ -1942,11 +2159,11 @@ func scanTaskLogResult(qr *rqlite.QueryResult, tl *model.TaskLog) error {
 	
 	// 处理 log_time
 	if t, ok := row[7].(time.Time); ok {
-		tl.LogTime = t.UTC()
+		tl.LogTime = t
 	} else if s, ok := row[7].(string); ok && s != "" {
 		parsed, err := time.Parse("2006-01-02 15:04:05", s)
 		if err == nil {
-			tl.LogTime = parsed.UTC()
+			tl.LogTime = parsed
 		}
 	}
 	
@@ -1999,6 +2216,16 @@ func (s *SchedulerService) GetExecutionStats(ctx context.Context, filter map[str
 	var args []interface{}
 
 	// 应用筛选条件
+	if filter["id"] != "" {
+		if id, err := strconv.ParseInt(filter["id"], 10, 64); err == nil {
+			whereClause += " AND te.id = ?"
+			args = append(args, id)
+		}
+	}
+	if filter["execution_id"] != "" {
+		whereClause += " AND te.execution_id LIKE ?"
+		args = append(args, "%"+filter["execution_id"]+"%")
+	}
 	if filter["executor_name"] != "" {
 		whereClause += " AND e.name LIKE ?"
 		args = append(args, "%"+filter["executor_name"]+"%")
@@ -2007,13 +2234,42 @@ func (s *SchedulerService) GetExecutionStats(ctx context.Context, filter map[str
 		whereClause += " AND t.name LIKE ?"
 		args = append(args, "%"+filter["task_name"]+"%")
 	}
-	if filter["task_type"] != "" {
-		whereClause += " AND t.type = ?"
-		args = append(args, filter["task_type"])
-	}
 	if filter["status"] != "" {
 		whereClause += " AND te.status = ?"
 		args = append(args, filter["status"])
+	}
+	if filter["start_time_from"] != "" {
+		whereClause += " AND te.start_time >= ?"
+		args = append(args, filter["start_time_from"])
+	}
+	if filter["start_time_to"] != "" {
+		whereClause += " AND te.start_time <= ?"
+		args = append(args, filter["start_time_to"])
+	}
+	if filter["end_time_from"] != "" {
+		whereClause += " AND te.end_time >= ?"
+		args = append(args, filter["end_time_from"])
+	}
+	if filter["end_time_to"] != "" {
+		whereClause += " AND te.end_time <= ?"
+		args = append(args, filter["end_time_to"])
+	}
+	if filter["duration_min"] != "" || filter["duration_max"] != "" {
+		whereClause += " AND te.end_time IS NOT NULL"
+		if filter["duration_min"] != "" {
+			if duration, err := strconv.ParseFloat(filter["duration_min"], 64); err == nil {
+				durationSecs := int64(duration)
+				whereClause += " AND (STRFTIME('%s', te.end_time) - STRFTIME('%s', te.start_time)) >= ?"
+				args = append(args, durationSecs)
+			}
+		}
+		if filter["duration_max"] != "" {
+			if duration, err := strconv.ParseFloat(filter["duration_max"], 64); err == nil {
+				durationSecs := int64(duration)
+				whereClause += " AND (STRFTIME('%s', te.end_time) - STRFTIME('%s', te.start_time)) <= ?"
+				args = append(args, durationSecs)
+			}
+		}
 	}
 
 	// 统一使用 JOIN

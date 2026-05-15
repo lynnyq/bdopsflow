@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	pb "github.com/lynnyq/bdopsflow/proto"
@@ -18,8 +19,9 @@ import (
 )
 
 type TaskExecutor struct {
-	executorID string
-	taskPool   *pool.Pool
+	executorID  string
+	taskPool    *pool.Pool
+	runningTasks sync.Map
 }
 
 func NewTaskExecutor(executorID string, taskPool *pool.Pool) *TaskExecutor {
@@ -27,6 +29,36 @@ func NewTaskExecutor(executorID string, taskPool *pool.Pool) *TaskExecutor {
 		executorID: executorID,
 		taskPool:   taskPool,
 	}
+}
+
+func (e *TaskExecutor) GetRunningExecutionIds() []string {
+	var ids []string
+	e.runningTasks.Range(func(key, value interface{}) bool {
+		if id, ok := key.(string); ok {
+			ids = append(ids, id)
+		}
+		return true
+	})
+	return ids
+}
+
+func (e *TaskExecutor) addRunningTask(executionId string) {
+	e.runningTasks.Store(executionId, time.Now())
+	slog.Debug("added task to running list", "execution_id", executionId, "running_count", e.getRunningCount())
+}
+
+func (e *TaskExecutor) removeRunningTask(executionId string) {
+	e.runningTasks.Delete(executionId)
+	slog.Debug("removed task from running list", "execution_id", executionId, "running_count", e.getRunningCount())
+}
+
+func (e *TaskExecutor) getRunningCount() int {
+	count := 0
+	e.runningTasks.Range(func(_, _ interface{}) bool {
+		count++
+		return true
+	})
+	return count
 }
 
 func (e *TaskExecutor) Execute(ctx context.Context, task *pb.Task, client *grpcclient.Client) {
@@ -37,6 +69,8 @@ func (e *TaskExecutor) Execute(ctx context.Context, task *pb.Task, client *grpcc
 	)
 
 	sendLog(client, task, "info", "Task execution started")
+	e.addRunningTask(task.ExecutionId)
+	defer e.removeRunningTask(task.ExecutionId)
 
 	if e.taskPool != nil {
 		e.taskPool.IncRunning()

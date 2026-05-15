@@ -167,8 +167,8 @@ func TestCreateTask_WithWorkflowID(t *testing.T) {
 		t.Errorf("INSERT should contain workflow_id when provided, got query: %s", mock.lastQuery)
 	}
 
-	if len(mock.lastArgs) != 13 {
-		t.Errorf("expected 13 args with workflow_id, got %d", len(mock.lastArgs))
+	if len(mock.lastArgs) != 14 {
+		t.Errorf("expected 14 args with workflow_id, got %d", len(mock.lastArgs))
 	}
 
 	foundWFID := false

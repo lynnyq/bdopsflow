@@ -24,7 +24,7 @@ type CronScheduler struct {
 
 func NewCronScheduler(svc *service.SchedulerService, redis *redis.Client) *CronScheduler {
 	return &CronScheduler{
-		cron:        cron.New(cron.WithSeconds()),
+		cron:        cron.New(cron.WithSeconds()), // 使用本地时间
 		svc:         svc,
 		redis:       redis,
 		taskEntries: make(map[int64]cron.EntryID),

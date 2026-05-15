@@ -42,24 +42,23 @@
           </div>
         </div>
 
-        <!-- Toolbar -->
+        <!-- 工具栏 -->
         <div class="page-toolbar">
           <div class="toolbar-left">
-            <el-select
-              v-model="filters.executor_name"
-              placeholder="执行节点"
+            <el-input
+              v-model="filters.id"
+              placeholder="ID"
               clearable
-              class="filter-select"
-              @change="loadExecutions(1)"
-            >
-              <el-option label="全部" value="" />
-              <el-option
-                v-for="exec in executors"
-                :key="exec.executor_id"
-                :label="exec.name"
-                :value="exec.name"
-              />
-            </el-select>
+              class="filter-input"
+              @keyup.enter="loadExecutions(1)"
+            />
+            <el-input
+              v-model="filters.execution_id"
+              placeholder="执行ID"
+              clearable
+              class="filter-input"
+              @keyup.enter="loadExecutions(1)"
+            />
             <el-select
               v-model="filters.task_name"
               placeholder="任务名称"
@@ -67,7 +66,6 @@
               class="filter-select"
               @change="loadExecutions(1)"
             >
-              <el-option label="全部" value="" />
               <el-option
                 v-for="task in tasks"
                 :key="task.id"
@@ -76,25 +74,26 @@
               />
             </el-select>
             <el-select
-              v-model="filters.task_type"
-              placeholder="任务类型"
+              v-model="filters.executor_name"
+              placeholder="执行节点"
               clearable
               class="filter-select"
               @change="loadExecutions(1)"
             >
-              <el-option label="全部" value="" />
-              <el-option label="Shell" value="shell" />
-              <el-option label="HTTP" value="http" />
-              <el-option label="Delay" value="delay" />
+              <el-option
+                v-for="exec in executors"
+                :key="exec.executor_id"
+                :label="exec.name"
+                :value="exec.name"
+              />
             </el-select>
             <el-select
               v-model="filters.status"
-              placeholder="执行状态"
+              placeholder="状态"
               clearable
               class="filter-select"
               @change="loadExecutions(1)"
             >
-              <el-option label="全部" value="" />
               <el-option label="成功" value="success" />
               <el-option label="失败" value="failed" />
               <el-option label="运行中" value="running" />
@@ -102,6 +101,13 @@
             </el-select>
           </div>
           <div class="toolbar-right">
+            <el-button text @click="showAdvancedFilters = !showAdvancedFilters" class="advanced-filter-btn">
+              <el-icon><Filter /></el-icon>
+              高级筛选
+              <el-icon class="arrow-icon" :class="{ 'is-active': showAdvancedFilters }">
+                <ArrowDown />
+              </el-icon>
+            </el-button>
             <el-button :icon="Refresh" @click="loadExecutions(1)" :loading="loading" class="refresh-btn">刷新</el-button>
             <el-button
               v-if="selectedIds && selectedIds.length > 0"
@@ -112,6 +118,89 @@
               <el-icon><Delete /></el-icon>
               批量删除 ({{ selectedIds ? selectedIds.length : 0 }})
             </el-button>
+          </div>
+        </div>
+
+        <!-- 高级筛选区域 -->
+        <div v-if="showAdvancedFilters" class="advanced-filters">
+          <div class="advanced-filters-row">
+            <div class="filter-group">
+              <label class="filter-label">开始时间</label>
+              <div class="filter-range">
+                <el-date-picker
+                  v-model="filters.start_time_from"
+                  type="datetime"
+                  placeholder="开始时间"
+                  format="YYYY-MM-DD HH:mm:ss"
+                  value-format="YYYY-MM-DD HH:mm:ss"
+                  class="filter-date"
+                  @change="loadExecutions(1)"
+                />
+                <span class="range-separator">-</span>
+                <el-date-picker
+                  v-model="filters.start_time_to"
+                  type="datetime"
+                  placeholder="结束时间"
+                  format="YYYY-MM-DD HH:mm:ss"
+                  value-format="YYYY-MM-DD HH:mm:ss"
+                  class="filter-date"
+                  @change="loadExecutions(1)"
+                />
+              </div>
+            </div>
+            <div class="filter-group">
+              <label class="filter-label">结束时间</label>
+              <div class="filter-range">
+                <el-date-picker
+                  v-model="filters.end_time_from"
+                  type="datetime"
+                  placeholder="开始时间"
+                  format="YYYY-MM-DD HH:mm:ss"
+                  value-format="YYYY-MM-DD HH:mm:ss"
+                  class="filter-date"
+                  @change="loadExecutions(1)"
+                />
+                <span class="range-separator">-</span>
+                <el-date-picker
+                  v-model="filters.end_time_to"
+                  type="datetime"
+                  placeholder="结束时间"
+                  format="YYYY-MM-DD HH:mm:ss"
+                  value-format="YYYY-MM-DD HH:mm:ss"
+                  class="filter-date"
+                  @change="loadExecutions(1)"
+                />
+              </div>
+            </div>
+            <div class="filter-group">
+              <label class="filter-label">执行时长(秒)</label>
+              <div class="filter-range">
+                <el-input-number
+                  v-model="filters.duration_min"
+                  :min="0"
+                  :step="0.1"
+                  :precision="3"
+                  placeholder="最小值"
+                  controls-position="right"
+                  class="filter-number"
+                  @change="loadExecutions(1)"
+                />
+                <span class="range-separator">-</span>
+                <el-input-number
+                  v-model="filters.duration_max"
+                  :min="0"
+                  :step="0.1"
+                  :precision="3"
+                  placeholder="最大值"
+                  controls-position="right"
+                  class="filter-number"
+                  @change="loadExecutions(1)"
+                />
+              </div>
+            </div>
+            <div class="filter-group filter-actions">
+              <el-button @click="resetFilters" size="small">重置</el-button>
+            </div>
           </div>
         </div>
 
@@ -129,13 +218,13 @@
           >
             <el-table-column type="selection" width="55" fixed="left" />
             <el-table-column prop="id" label="ID" width="70" fixed="left" />
-            <el-table-column prop="execution_id" label="执行ID" min-width="180" show-overflow-tooltip />
-            <el-table-column label="任务名称" min-width="160" show-overflow-tooltip>
+            <el-table-column prop="execution_id" label="执行ID" :minWidth="180" show-overflow-tooltip />
+            <el-table-column label="任务名称" :minWidth="160" show-overflow-tooltip>
               <template #default="{ row }">
                 {{ row.task_name || '-' }}
               </template>
             </el-table-column>
-            <el-table-column label="执行节点" min-width="150" show-overflow-tooltip>
+            <el-table-column label="执行节点" :minWidth="150" show-overflow-tooltip>
               <template #default="{ row }">
                 {{ row.executor_name || '-' }}
               </template>
@@ -225,7 +314,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Refresh, Delete, Document, View, List, CircleCheck, CircleClose, Loading } from '@element-plus/icons-vue'
+import { Refresh, Delete, Document, View, List, CircleCheck, CircleClose, Loading, Filter, ArrowDown } from '@element-plus/icons-vue'
 import { logAPI, taskAPI, executorAPI } from '@/api'
 import TaskLogViewer from '@/components/TaskLogViewer.vue'
 import type { TaskExecutionListResponse, Task, Executor } from '@/types'
@@ -239,13 +328,38 @@ const showLogs = ref(false)
 const currentExecutionId = ref('')
 const currentExecution = ref<TaskExecutionListResponse | null>(null)
 const selectedIds = ref<number[]>([])
+const showAdvancedFilters = ref(false)
 
 const filters = ref({
-  executor_name: '',
+  id: '',
+  execution_id: '',
   task_name: '',
-  task_type: '',
-  status: ''
+  executor_name: '',
+  status: '',
+  start_time_from: '',
+  start_time_to: '',
+  end_time_from: '',
+  end_time_to: '',
+  duration_min: null as number | null,
+  duration_max: null as number | null
 })
+
+const resetFilters = () => {
+  filters.value = {
+    id: '',
+    execution_id: '',
+    task_name: '',
+    executor_name: '',
+    status: '',
+    start_time_from: '',
+    start_time_to: '',
+    end_time_from: '',
+    end_time_to: '',
+    duration_min: null,
+    duration_max: null
+  }
+  loadExecutions(1)
+}
 
 // 分页相关
 const total = ref(0)
@@ -366,12 +480,38 @@ const loadExecutions = async (page: number = currentPage.value) => {
   try {
     console.log('Loading executions with filters:', filters.value, 'page:', page, 'pageSize:', pageSize.value)
     
-    // 加载分页数据
-    const response = await logAPI.list({
-      ...filters.value,
+    // 处理筛选参数
+    const params: Record<string, any> = {
+      id: filters.value.id,
+      execution_id: filters.value.execution_id,
+      task_name: filters.value.task_name,
+      executor_name: filters.value.executor_name,
+      status: filters.value.status,
       page: page,
       page_size: pageSize.value
-    })
+    }
+    
+    if (filters.value.start_time_from) {
+      params.start_time_from = filters.value.start_time_from
+    }
+    if (filters.value.start_time_to) {
+      params.start_time_to = filters.value.start_time_to
+    }
+    if (filters.value.end_time_from) {
+      params.end_time_from = filters.value.end_time_from
+    }
+    if (filters.value.end_time_to) {
+      params.end_time_to = filters.value.end_time_to
+    }
+    if (filters.value.duration_min !== null && filters.value.duration_min !== undefined && filters.value.duration_min >= 0) {
+      params.duration_min = filters.value.duration_min
+    }
+    if (filters.value.duration_max !== null && filters.value.duration_max !== undefined && filters.value.duration_max >= 0) {
+      params.duration_max = filters.value.duration_max
+    }
+    
+    // 加载分页数据
+    const response = await logAPI.list(params)
     console.log('Received response:', response.data)
     // 安全地赋值，默认为空数组
     executions.value = response.data.data || []
@@ -379,7 +519,10 @@ const loadExecutions = async (page: number = currentPage.value) => {
     currentPage.value = response.data.page || 1
     
     // 加载统计数据
-    const statsResponse = await logAPI.getStats(filters.value)
+    const statsParams: Record<string, any> = { ...params }
+    delete statsParams.page
+    delete statsParams.page_size
+    const statsResponse = await logAPI.getStats(statsParams)
     const statsData = statsResponse.data || {}
     stats.value = {
       success: statsData.success || 0,
@@ -435,7 +578,7 @@ const closeLogs = () => {
 const handleDelete = async (row: TaskExecutionListResponse) => {
   try {
     await ElMessageBox.confirm(
-      `确认要删除这个执行记录吗？此操作将同时删除所有相关日志。`,
+      '确认要删除这个执行记录吗？此操作将同时删除所有相关日志。',
       '确认删除',
       {
         confirmButtonText: '删除',
@@ -635,10 +778,15 @@ onMounted(async () => {
   gap: var(--space-3);
 }
 
+.filter-input {
+  width: 150px;
+}
+
 .filter-select {
   width: 140px;
 }
 
+.filter-input :deep(.el-input__wrapper),
 .filter-select :deep(.el-input__wrapper) {
   background: var(--bg-secondary);
   border: 1px solid var(--border-subtle);
@@ -647,17 +795,49 @@ onMounted(async () => {
   transition: all var(--duration-normal) var(--ease-out);
 }
 
+.filter-input :deep(.el-input__wrapper:hover),
 .filter-select :deep(.el-input__wrapper:hover) {
   border-color: var(--accent-primary);
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
 }
 
+.filter-input :deep(.el-input__wrapper.is-focus),
 .filter-select :deep(.el-input__wrapper.is-focus) {
   border-color: var(--accent-primary);
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
 }
 
 /* Toolbar Buttons */
+.advanced-filter-btn {
+  font-weight: 500;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  color: var(--text-primary);
+  border-radius: var(--radius-md);
+  box-shadow: none;
+  transition: all var(--duration-normal) var(--ease-out);
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.advanced-filter-btn:hover {
+  background: var(--bg-primary);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-sm);
+}
+
+.advanced-filter-btn .arrow-icon {
+  transition: transform var(--duration-normal) var(--ease-out);
+}
+
+.advanced-filter-btn .arrow-icon.is-active {
+  transform: rotate(180deg);
+}
+
 .refresh-btn {
   font-weight: 500;
   background: var(--bg-secondary);
@@ -700,6 +880,94 @@ onMounted(async () => {
 
 .delete-btn:active {
   transform: translateY(0);
+}
+
+/* Advanced Filters */
+.advanced-filters {
+  padding: var(--space-4);
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  margin-top: calc(-1 * var(--space-2));
+}
+
+.advanced-filters-row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.filter-group.filter-actions {
+  flex-shrink: 0;
+}
+
+.filter-label {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.filter-range {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.range-separator {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.filter-number {
+  width: 100px;
+}
+
+.filter-number :deep(.el-input__wrapper) {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: none;
+  transition: all var(--duration-normal) var(--ease-out);
+}
+
+.filter-number :deep(.el-input__wrapper:hover) {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+}
+
+.filter-number :deep(.el-input__wrapper.is-focus) {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+.filter-date {
+  width: 200px;
+}
+
+.filter-date :deep(.el-input__wrapper) {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: none;
+  transition: all var(--duration-normal) var(--ease-out);
+}
+
+.filter-date :deep(.el-input__wrapper:hover) {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+}
+
+.filter-date :deep(.el-input__wrapper.is-focus) {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
 }
 
 /* Table */

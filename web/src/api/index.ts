@@ -40,20 +40,34 @@ export const executorAPI = {
 }
 
 export const logAPI = {
-	list: (params?: {
-		executor_name?: string,
-		task_name?: string,
-		task_type?: string,
-		status?: string,
-		page?: number,
-		page_size?: number
-	}) => api.get<PaginatedResponse<TaskExecutionListResponse>>('/logs', { params }),
-	getStats: (params?: {
-		executor_name?: string,
-		task_name?: string,
-		task_type?: string,
-		status?: string
-	}) => api.get<{ [key: string]: number }>('/logs/stats', { params }),
+  list: (params?: {
+    id?: string,
+    execution_id?: string,
+    executor_name?: string,
+    task_name?: string,
+    status?: string,
+    start_time_from?: string,
+    start_time_to?: string,
+    end_time_from?: string,
+    end_time_to?: string,
+    duration_min?: number,
+    duration_max?: number,
+    page?: number,
+    page_size?: number
+  }) => api.get<PaginatedResponse<TaskExecutionListResponse>>('/logs', { params }),
+  getStats: (params?: {
+    id?: string,
+    execution_id?: string,
+    executor_name?: string,
+    task_name?: string,
+    status?: string,
+    start_time_from?: string,
+    start_time_to?: string,
+    end_time_from?: string,
+    end_time_to?: string,
+    duration_min?: number,
+    duration_max?: number
+  }) => api.get<{ [key: string]: number }>('/logs/stats', { params }),
 	delete: (id: number) => api.delete(`/logs/${id}`),
 	batchDelete: (ids: number[]) => api.post('/logs/batch-delete', { ids }),
 }
