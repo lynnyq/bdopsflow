@@ -37,6 +37,9 @@ export const workflowAPI = {
 export const executorAPI = {
   list: () => api.get<Executor[]>('/executors'),
   get: (id: string) => api.get<Executor>(`/executors/${id}`),
+  delete: (executorId: string) => api.delete(`/executors/${executorId}`),
+  online: (executorId: string) => api.post(`/executors/${executorId}/online`),
+  offline: (executorId: string) => api.post(`/executors/${executorId}/offline`),
 }
 
 export const logAPI = {

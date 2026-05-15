@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -48,7 +49,8 @@ func main() {
 	}
 
 	go func() {
-		if err := client.Subscribe(cfg.ExecutorID, cfg.ExecutorName, cfg.Hostname, cfg.Capacity, exec); err != nil {
+		address := fmt.Sprintf("%s#%d", cfg.Hostname, os.Getpid())
+		if err := client.Subscribe(cfg.ExecutorID, cfg.ExecutorName, address, cfg.Capacity, exec); err != nil {
 			slog.Error("gRPC subscription failed", "error", err)
 			os.Exit(1)
 		}

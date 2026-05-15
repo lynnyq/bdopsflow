@@ -131,6 +131,8 @@ func main() {
 		{
 			executors.GET("", executorHandler.List)
 			executors.GET("/:id", executorHandler.Get)
+			executors.POST("/:id/online", middleware.RBACMiddleware("admin"), executorHandler.Online)
+			executors.POST("/:id/offline", middleware.RBACMiddleware("admin"), executorHandler.Offline)
 			executors.DELETE("/:id", middleware.RBACMiddleware("admin"), executorHandler.Delete)
 		}
 

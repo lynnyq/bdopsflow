@@ -6,11 +6,27 @@
       <el-table-column prop="executor_id" label="ID" width="150" />
       <el-table-column prop="name" label="名称" width="150" />
       <el-table-column prop="address" label="地址" width="200" />
-      <el-table-column prop="status" label="状态" width="100">
+      <el-table-column prop="status" label="状态" width="120">
         <template #default="{ row }">
           <el-tag :type="row.status === 'online' ? 'success' : 'danger'">
             {{ row.status === 'online' ? '在线' : '离线' }}
           </el-tag>
+          <el-button 
+            type="success" 
+            size="small" 
+            :disabled="row.status === 'online'"
+            @click="handleChangeStatus(row, 'online')"
+            style="margin-left: 5px;">
+            上线
+          </el-button>
+          <el-button 
+            type="warning" 
+            size="small" 
+            :disabled="row.status === 'offline'"
+            @click="handleChangeStatus(row, 'offline')"
+            style="margin-left: 5px;">
+            下线
+          </el-button>
         </template>
       </el-table-column>
       <el-table-column prop="last_heartbeat" label="最后心跳" width="180">
@@ -35,13 +51,20 @@
           {{ formatLocalTime(row.created_at) }}
         </template>
       </el-table-column>
+      <el-table-column label="操作" width="100" fixed="right">
+        <template #default="{ row }">
+          <el-button type="danger" size="small" @click="handleDelete(row)">
+            删除
+          </el-button>
+        </template>
+      </el-table-column>
     </el-table>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { executorAPI } from '@/api'
 import type { Executor } from '@/types'
 
@@ -72,6 +95,55 @@ const formatLocalTime = (timeStr: string) => {
     return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
   } catch {
     return timeStr
+  }
+}
+
+const handleChangeStatus = async (row: Executor, status: string) => {
+  try {
+    await ElMessageBox.confirm(
+      `确定要将执行器 "${row.executor_id}" 设置为${status === 'online' ? '上线' : '下线'}状态吗？`,
+      '状态变更确认',
+      {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning',
+      }
+    )
+
+    if (status === 'online') {
+      await executorAPI.online(row.executor_id)
+      ElMessage.success('上线成功')
+    } else {
+      await executorAPI.offline(row.executor_id)
+      ElMessage.success('下线成功')
+    }
+    loadExecutors()
+  } catch (error: any) {
+    if (error !== 'cancel') {
+      ElMessage.error('状态变更失败')
+    }
+  }
+}
+
+const handleDelete = async (row: Executor) => {
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除执行器 "${row.executor_id}" 吗？`,
+      '删除确认',
+      {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning',
+      }
+    )
+
+    await executorAPI.delete(row.executor_id)
+    ElMessage.success('删除成功')
+    loadExecutors()
+  } catch (error: any) {
+    if (error !== 'cancel') {
+      ElMessage.error('删除失败')
+    }
   }
 }
 

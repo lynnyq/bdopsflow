@@ -221,7 +221,8 @@ func (s *SchedulerService) cleanupTasksFromOfflineExecutors(ctx context.Context)
 		SELECT te.id, te.task_id, te.execution_id, te.start_time
 		FROM task_executions te
 		JOIN executors e ON te.executor_id = e.executor_id
-		WHERE te.status = 'running' AND e.status = 'offline'
+		WHERE te.status = 'running' 
+		  AND (e.status = 'offline' OR e.last_heartbeat < datetime('now', '-30 seconds'))
 	`
 
 	qr, err := s.DB.QueryOne(query)
@@ -867,21 +868,90 @@ func (s *SchedulerService) SelectAvailableExecutor(ctx context.Context) (*model.
 }
 
 func (s *SchedulerService) RegisterExecutor(ctx context.Context, executorID, name, address string, capacity int32) error {
+	existsQuery := `
+		SELECT id, address, status, last_heartbeat FROM executors 
+		WHERE executor_id = ?
+	`
+	stmt := rqlite.ParameterizedStatement{
+		Query:     existsQuery,
+		Arguments: []interface{}{executorID},
+	}
+	qr, err := s.DB.QueryOneParameterized(stmt)
+	if err != nil {
+		return fmt.Errorf("failed to check executor existence: %w", err)
+	}
+	if qr.Err != nil && !strings.Contains(qr.Err.Error(), "no rows") {
+		return fmt.Errorf("failed to query executor: %w", qr.Err)
+	}
+
+	if qr.Next() {
+		var existingID int64
+		var existingAddr string
+		var existingStatus string
+		var lastHeartbeat string
+		if err := qr.Scan(&existingID, &existingAddr, &existingStatus, &lastHeartbeat); err != nil {
+			return fmt.Errorf("failed to scan executor record: %w", err)
+		}
+
+		if existingStatus == "offline" {
+			return fmt.Errorf("executor %s is currently offline, please go online first", executorID)
+		}
+
+		if existingAddr != address {
+			return fmt.Errorf("executor %s already registered with different address (existing: %s, new: %s), please stop the existing instance first", executorID, existingAddr, address)
+		}
+	}
+
 	query := `
 		INSERT INTO executors (executor_id, name, address, status, capacity, current_load, last_heartbeat, created_at, updated_at)
 		VALUES (?, ?, ?, 'online', ?, 0, ?, ?, ?)
 		ON CONFLICT(executor_id) DO UPDATE SET
-			name = excluded.name, status = 'online', capacity = excluded.capacity,
+			name = excluded.name, address = excluded.address, status = 'online', capacity = excluded.capacity,
 			last_heartbeat = excluded.last_heartbeat, updated_at = excluded.updated_at
 	`
 
 	now := time.Now().Format("2006-01-02 15:04:05")
-	stmt := rqlite.ParameterizedStatement{
+	stmt = rqlite.ParameterizedStatement{
 		Query:     query,
 		Arguments: []interface{}{executorID, name, address, capacity, now, now, now},
 	}
 
 	result, err := s.DB.WriteOneParameterized(stmt)
+	if err != nil {
+		return err
+	}
+
+	if result.Err != nil {
+		return result.Err
+	}
+
+	return nil
+}
+
+func (s *SchedulerService) DeleteExecutor(ctx context.Context, executorID string) error {
+	query := `DELETE FROM executors WHERE executor_id = ?`
+	result, err := s.DB.WriteOneParameterized(rqlite.ParameterizedStatement{
+		Query:     query,
+		Arguments: []interface{}{executorID},
+	})
+	if err != nil {
+		return err
+	}
+
+	if result.Err != nil {
+		return result.Err
+	}
+
+	return nil
+}
+
+func (s *SchedulerService) SetExecutorStatus(ctx context.Context, executorID string, status string) error {
+	query := `UPDATE executors SET status = ?, updated_at = ? WHERE executor_id = ?`
+	now := time.Now().Format("2006-01-02 15:04:05")
+	result, err := s.DB.WriteOneParameterized(rqlite.ParameterizedStatement{
+		Query:     query,
+		Arguments: []interface{}{status, now, executorID},
+	})
 	if err != nil {
 		return err
 	}
@@ -899,8 +969,8 @@ func (s *SchedulerService) UpdateExecutorHeartbeat(ctx context.Context, executor
 
 func (s *SchedulerService) UpdateExecutorHeartbeatWithRunningTasks(ctx context.Context, executorID string, currentLoad int32, runningExecutionIds []string) error {
 	query := `
-		UPDATE executors SET current_load = ?, last_heartbeat = ?, status = 'online', updated_at = ?
-		WHERE executor_id = ?
+		UPDATE executors SET current_load = ?, last_heartbeat = ?, updated_at = ?
+		WHERE executor_id = ? AND status = 'online'
 	`
 
 	now := time.Now().Format("2006-01-02 15:04:05")

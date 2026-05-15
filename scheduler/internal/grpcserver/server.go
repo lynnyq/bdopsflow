@@ -65,7 +65,13 @@ func (s *Server) Register(ctx context.Context, req *pb.RegisterRequest) (*pb.Reg
 		"name", req.Name,
 	)
 
-	s.scheduler.RegisterExecutor(ctx, req.ExecutorId, req.Name, req.Address, req.Capacity)
+	if err := s.scheduler.RegisterExecutor(ctx, req.ExecutorId, req.Name, req.Address, req.Capacity); err != nil {
+		slog.Error("executor register failed", "executor_id", req.ExecutorId, "error", err)
+		return &pb.RegisterResponse{
+			Success: false,
+			Message: err.Error(),
+		}, nil
+	}
 
 	return &pb.RegisterResponse{
 		Success: true,
