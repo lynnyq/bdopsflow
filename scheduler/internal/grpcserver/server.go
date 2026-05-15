@@ -117,14 +117,25 @@ func (s *Server) ReportTaskResult(ctx context.Context, req *pb.ReportTaskResultR
 
 	s.scheduler.UpdateExecutionResult(ctx, req.ExecutionId, req.Status, req.Output, req.Error)
 
-	status := "success"
 	if req.Status == "failed" {
-		status = "failed"
-	}
-	s.scheduler.UpdateTaskStatusByID(ctx, req.TaskId, status)
+		slog.Info("task execution failed, checking retry policy",
+			"execution_id", req.ExecutionId,
+			"task_id", req.TaskId,
+		)
 
-	slog.Info("calling SendWebhookNotification", "task_id", req.TaskId, "execution_id", req.ExecutionId)
-	s.scheduler.SendWebhookNotification(ctx, req.TaskId, req.ExecutionId, status, req.Output, req.Error, 0)
+		go func() {
+			if err := s.scheduler.HandleTaskFailure(context.Background(), req.TaskId, req.ExecutionId, req.Output, req.Error); err != nil {
+				slog.Error("handle task failure failed",
+					"execution_id", req.ExecutionId,
+					"task_id", req.TaskId,
+					"error", err,
+				)
+			}
+		}()
+	} else {
+		s.scheduler.UpdateTaskStatusByID(ctx, req.TaskId, "success")
+		s.scheduler.SendWebhookNotification(ctx, req.TaskId, req.ExecutionId, "success", req.Output, req.Error, 0)
+	}
 
 	return &pb.ReportTaskResultResponse{
 		Success: true,

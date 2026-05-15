@@ -168,17 +168,20 @@ func (s *SchedulerService) cleanupDeadTasks() {
 				slog.Error("cleanup: failed to update execution result", "error", err, "execution_id", exec.ExecutionID)
 			}
 
-			err = s.UpdateTaskStatusByID(ctx, exec.TaskID, "failed")
-			if err != nil {
-				slog.Error("cleanup: failed to update task status", "error", err, "task_id", exec.TaskID)
-			}
-
 			if lockExists > 0 {
 				s.redis.Del(ctx, lockKey)
 				slog.Info("cleanup: removed stale lock", "execution_id", exec.ExecutionID)
 			}
 
-			s.SendWebhookNotification(ctx, exec.TaskID, exec.ExecutionID, "failed", "", "task execution timeout or executor crashed", 0)
+			go func() {
+				if err := s.HandleTaskFailure(context.Background(), exec.TaskID, exec.ExecutionID, "", "task execution timeout or executor crashed"); err != nil {
+					slog.Error("cleanupDeadTasks: HandleTaskFailure failed",
+						"execution_id", exec.ExecutionID,
+						"task_id", exec.TaskID,
+						"error", err,
+					)
+				}
+			}()
 		} else {
 			slog.Warn("cleanup: task has valid lock, skipping",
 				"task_id", exec.TaskID,
@@ -250,15 +253,18 @@ func (s *SchedulerService) cleanupTasksFromOfflineExecutors(ctx context.Context)
 			slog.Error("cleanup: failed to update execution result", "error", err, "execution_id", executionID)
 		}
 
-		err = s.UpdateTaskStatusByID(ctx, taskID, "failed")
-		if err != nil {
-			slog.Error("cleanup: failed to update task status", "error", err, "task_id", taskID)
-		}
-
-		s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", "executor went offline during task execution", 0)
-
 		lockKey := fmt.Sprintf("task:lock:%s", executionID)
 		s.redis.Del(ctx, lockKey)
+
+		go func() {
+			if err := s.HandleTaskFailure(context.Background(), taskID, executionID, "", "executor went offline during task execution"); err != nil {
+				slog.Error("cleanupTasksFromOfflineExecutors: HandleTaskFailure failed",
+					"execution_id", executionID,
+					"task_id", taskID,
+					"error", err,
+				)
+			}
+		}()
 	}
 }
 
@@ -1063,18 +1069,21 @@ func (s *SchedulerService) forceFailTask(ctx context.Context, executionID string
 		slog.Error("cleanup: failed to update execution result", "error", err, "execution_id", executionID)
 	}
 
-	err = s.UpdateTaskStatusByID(ctx, taskID, "failed")
-	if err != nil {
-		slog.Error("cleanup: failed to update task status", "error", err, "task_id", taskID)
-	}
-
 	lockKey := fmt.Sprintf("task:lock:%s", executionID)
 	s.redis.Del(ctx, lockKey)
 
 	renewKey := fmt.Sprintf("task:renew:%s", executionID)
 	s.redis.Del(ctx, renewKey)
 
-	s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", reason, 0)
+	go func() {
+		if err := s.HandleTaskFailure(context.Background(), taskID, executionID, "", reason); err != nil {
+			slog.Error("forceFailTask: HandleTaskFailure failed",
+				"execution_id", executionID,
+				"task_id", taskID,
+				"error", err,
+			)
+		}
+	}()
 }
 
 // GetExecutorByID 根据 executor_id 获取执行器信息
@@ -1106,6 +1115,203 @@ func (s *SchedulerService) GetExecutorByID(ctx context.Context, executorID strin
 	}
 
 	return exec, nil
+}
+
+func (s *SchedulerService) HandleTaskFailure(ctx context.Context, taskID int64, failedExecutionID, output, errorMsg string) error {
+	task, err := s.GetTaskByID(ctx, taskID)
+	if err != nil {
+		slog.Error("HandleTaskFailure: failed to get task", "task_id", taskID, "error", err)
+		s.UpdateTaskStatusByID(ctx, taskID, "failed")
+		s.SendWebhookNotification(ctx, taskID, failedExecutionID, "failed", output, errorMsg, 0)
+		return err
+	}
+
+	executions, err := s.GetTaskExecutions(ctx, taskID)
+	if err != nil {
+		slog.Error("HandleTaskFailure: failed to get task executions", "task_id", taskID, "error", err)
+		s.UpdateTaskStatusByID(ctx, taskID, "failed")
+		s.SendWebhookNotification(ctx, taskID, failedExecutionID, "failed", output, errorMsg, 0)
+		return err
+	}
+
+	maxRetries := int(task.RetryCount)
+	if maxRetries <= 0 {
+		maxRetries = 0
+	}
+
+	currentRetryTimes := 0
+	for _, exec := range executions {
+		if exec.ExecutionID == failedExecutionID {
+			currentRetryTimes = int(exec.RetryTimes)
+			break
+		}
+	}
+
+	if currentRetryTimes < maxRetries {
+		retryTimes := currentRetryTimes + 1
+		slog.Info("HandleTaskFailure: scheduling retry",
+			"task_id", taskID,
+			"failed_execution_id", failedExecutionID,
+			"retry_times", retryTimes,
+			"max_retries", maxRetries,
+			"retry_interval", task.RetryInterval,
+		)
+
+		go func() {
+			select {
+			case <-time.After(time.Duration(task.RetryInterval) * time.Second):
+				slog.Info("HandleTaskFailure: executing retry",
+					"task_id", taskID,
+					"retry_times", retryTimes,
+				)
+
+				newExecutionID, err := s.RetryTask(ctx, taskID, retryTimes)
+				if err != nil {
+					slog.Error("HandleTaskFailure: retry failed",
+						"task_id", taskID,
+						"retry_times", retryTimes,
+						"error", err,
+					)
+					s.UpdateTaskStatusByID(ctx, taskID, "failed")
+					s.SendWebhookNotification(ctx, taskID, failedExecutionID, "failed", output, fmt.Sprintf("retry %d failed: %v", retryTimes, err), 0)
+				} else {
+					slog.Info("HandleTaskFailure: retry scheduled successfully",
+						"task_id", taskID,
+						"retry_times", retryTimes,
+						"new_execution_id", newExecutionID,
+					)
+				}
+			}
+		}()
+	} else {
+		slog.Info("HandleTaskFailure: max retries reached, marking as failed",
+			"task_id", taskID,
+			"failed_execution_id", failedExecutionID,
+			"retry_times", currentRetryTimes,
+		)
+		s.UpdateTaskStatusByID(ctx, taskID, "failed")
+		s.SendWebhookNotification(ctx, taskID, failedExecutionID, "failed", output, errorMsg, 0)
+	}
+
+	return nil
+}
+
+func (s *SchedulerService) RetryTask(ctx context.Context, taskID int64, retryTimes int) (string, error) {
+	task, err := s.GetTaskByID(ctx, taskID)
+	if err != nil {
+		return "", fmt.Errorf("get task failed: %w", err)
+	}
+
+	executionID := fmt.Sprintf("exec-%d-%d-retry-%d", taskID, time.Now().UnixNano(), retryTimes)
+
+	lockKey := fmt.Sprintf("task:lock:%s", executionID)
+	lockValue := fmt.Sprintf("%d", time.Now().UnixNano())
+	lockTTL := time.Duration(task.TimeoutSeconds) * 2 * time.Second
+	if lockTTL < 60*time.Second {
+		lockTTL = 60 * time.Second
+	}
+	if lockTTL > 3600*time.Second {
+		lockTTL = 3600 * time.Second
+	}
+	if task.TimeoutSeconds == 0 {
+		lockTTL = 600 * time.Second
+	}
+
+	lockSet, err := s.redis.SetNX(ctx, lockKey, lockValue, lockTTL).Result()
+	if err != nil {
+		slog.Warn("acquire lock failed, continuing anyway", "error", err)
+	} else if !lockSet {
+		return "", fmt.Errorf("task %d is already being executed (lock conflict)", taskID)
+	}
+
+	now := time.Now().Format("2006-01-02 15:04:05")
+	insertQuery := `
+		INSERT INTO task_executions (task_id, execution_id, executor_id, status, start_time, retry_times, created_at)
+		VALUES (?, ?, '', 'running', ?, ?, ?)
+	`
+	stmt := rqlite.ParameterizedStatement{
+		Query:     insertQuery,
+		Arguments: []interface{}{taskID, executionID, now, retryTimes, now},
+	}
+	_, err = s.DB.WriteOneParameterized(stmt)
+	if err != nil {
+		if lockSet {
+			s.redis.Del(ctx, lockKey)
+		}
+		return "", fmt.Errorf("create retry execution record failed: %w", err)
+	}
+
+	slog.Info("task retry execution started",
+		"task_id", taskID,
+		"execution_id", executionID,
+		"retry_times", retryTimes,
+	)
+
+	var executor *model.Executor
+	if task.AssignedExecutorID != "" {
+		executor, err = s.GetExecutorByID(ctx, task.AssignedExecutorID)
+		if err != nil || executor.Status != "online" || executor.CurrentLoad >= executor.Capacity {
+			s.UpdateExecutionResult(ctx, executionID, "failed", "", "specified executor unavailable for retry")
+			s.UpdateTaskStatusByID(ctx, taskID, "failed")
+			s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", "retry failed: specified executor unavailable", 0)
+			s.redis.Del(ctx, lockKey)
+			return executionID, fmt.Errorf("specified executor unavailable for retry")
+		}
+	} else {
+		executor, err = s.SelectAvailableExecutor(ctx)
+		if err != nil {
+			s.UpdateExecutionResult(ctx, executionID, "failed", "", fmt.Sprintf("no available executor: %v", err))
+			s.UpdateTaskStatusByID(ctx, taskID, "failed")
+			s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", fmt.Sprintf("retry failed: no available executor: %v", err), 0)
+			s.redis.Del(ctx, lockKey)
+			return executionID, fmt.Errorf("no available executor: %w", err)
+		}
+	}
+
+	grpcTask := &pb.Task{
+		TaskId:         taskID,
+		ExecutionId:    executionID,
+		Type:           task.Type,
+		Config:         task.Config,
+		TimeoutSeconds: task.TimeoutSeconds,
+		RetryCount:     task.RetryCount,
+		RetryInterval:  task.RetryInterval,
+	}
+
+	if s.dispatcher == nil {
+		s.UpdateExecutionResult(ctx, executionID, "failed", "", "dispatcher not configured")
+		s.UpdateTaskStatusByID(ctx, taskID, "failed")
+		s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", "retry failed: dispatcher not configured", 0)
+		s.redis.Del(ctx, lockKey)
+		return executionID, fmt.Errorf("dispatcher not configured")
+	}
+
+	updateExecutorQuery := `UPDATE task_executions SET executor_id = ? WHERE execution_id = ?`
+	updateExecutorStmt := rqlite.ParameterizedStatement{
+		Query:     updateExecutorQuery,
+		Arguments: []interface{}{executor.ExecutorID, executionID},
+	}
+	s.DB.WriteOneParameterized(updateExecutorStmt)
+
+	if err := s.dispatcher(executor.ExecutorID, grpcTask); err != nil {
+		s.UpdateExecutionResult(ctx, executionID, "failed", "", fmt.Sprintf("dispatch failed: %v", err))
+		s.UpdateTaskStatusByID(ctx, taskID, "failed")
+		s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", fmt.Sprintf("retry failed: dispatch failed: %v", err), 0)
+		s.redis.Del(ctx, lockKey)
+		return executionID, fmt.Errorf("dispatch failed: %w", err)
+	}
+
+	renewKey := fmt.Sprintf("task:renew:%s", executionID)
+	s.redis.Set(ctx, renewKey, time.Now().Unix(), time.Duration(lockTTL)*time.Second)
+
+	slog.Info("task retry dispatched",
+		"task_id", taskID,
+		"execution_id", executionID,
+		"retry_times", retryTimes,
+		"executor", executor.ExecutorID,
+	)
+
+	return executionID, nil
 }
 
 func (s *SchedulerService) ListExecutors(ctx context.Context) ([]*model.Executor, error) {
