@@ -15,10 +15,7 @@
       </el-table-column>
       <el-table-column prop="last_heartbeat" label="最后心跳" width="180">
         <template #default="{ row }">
-          <span v-if="row.last_heartbeat?.Valid">
-            {{ formatLocalTime(row.last_heartbeat.Time) }}
-          </span>
-          <span v-else-if="row.last_heartbeat">
+          <span v-if="row.last_heartbeat">
             {{ formatLocalTime(row.last_heartbeat) }}
           </span>
           <span v-else class="text-muted">无</span>
