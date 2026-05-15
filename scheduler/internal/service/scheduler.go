@@ -757,6 +757,9 @@ func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (strin
 		"executor", executor.ExecutorID,
 	)
 
+	renewKey := fmt.Sprintf("task:renew:%s", executionID)
+	s.redis.Set(ctx, renewKey, time.Now().Unix(), time.Duration(lockTTL)*time.Second)
+
 	return executionID, nil
 }
 
@@ -962,7 +965,8 @@ func (s *SchedulerService) cleanupStaleTaskLocks() {
 	}
 
 	now := time.Now().Unix()
-	maxInterval := int64(30)
+	lockTTLSeconds := int64(300) // 与 renewTaskLock 中的 TTL 一致（秒）
+	maxInterval := lockTTLSeconds // 给足够的缓冲时间，超过 TTL 才标记为失败
 
 	for qr.Next() {
 		row, err := qr.Slice()
