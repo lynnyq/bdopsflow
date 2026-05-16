@@ -4,6 +4,9 @@ export interface User {
   email?: string
   role: string
   domain_id: number
+  is_active: boolean
+  last_login_at: string | null
+  created_by: number
   created_at: string
   updated_at: string
 }

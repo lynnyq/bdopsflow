@@ -1,13 +1,35 @@
 import api from '@/utils/api'
 import type { Task, Workflow, TaskExecution, TaskExecutionListResponse, Executor, LoginRequest, LoginResponse, WorkflowExecution, TaskLog, DashboardStats, TrendData } from '@/types'
+import { userAdminAPI, roleAdminAPI, domainAdminAPI, executorDomainAPI, permissionAPI } from './admin'
+import type { User, Role, Domain, Permission } from './admin'
 
 interface TaskListResponse {
   items: Task[]
 }
 
+interface UpdateProfileRequest {
+  email: string
+}
+
+interface ChangePasswordRequest {
+  old_password: string
+  new_password: string
+}
+
+interface ResetPasswordRequest {
+  new_password: string
+}
+
 export const authAPI = {
   login: (data: LoginRequest) => api.post<LoginResponse>('/auth/login', data),
   getCurrentUser: () => api.get('/auth/current'),
+  updateProfile: (data: UpdateProfileRequest) => api.put('/auth/profile', data),
+  changePassword: (data: ChangePasswordRequest) => api.post('/auth/change-password', data),
+}
+
+export const adminAPI = {
+  resetUserPassword: (userId: number, data: ResetPasswordRequest) => 
+    api.post(`/admin/users/${userId}/reset-password`, data),
 }
 
 export const taskAPI = {

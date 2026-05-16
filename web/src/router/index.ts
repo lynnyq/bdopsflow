@@ -24,9 +24,9 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/Tasks.vue'),
       },
       {
-        path: 'workflows',
-        name: 'Workflows',
-        component: () => import('@/views/Workflows.vue'),
+        path: 'logs',
+        name: 'Logs',
+        component: () => import('@/views/Logs.vue'),
       },
       {
         path: 'executors',
@@ -34,9 +34,27 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/Executors.vue'),
       },
       {
-        path: 'logs',
-        name: 'Logs',
-        component: () => import('@/views/Logs.vue'),
+        path: 'admin/users',
+        name: 'AdminUsers',
+        component: () => import('@/views/admin/Users.vue'),
+        meta: { requiresAdmin: true },
+      },
+      {
+        path: 'admin/roles',
+        name: 'AdminRoles',
+        component: () => import('@/views/admin/Roles.vue'),
+        meta: { requiresAdmin: true },
+      },
+      {
+        path: 'admin/domains',
+        name: 'AdminDomains',
+        component: () => import('@/views/admin/Domains.vue'),
+        meta: { requiresAdmin: true },
+      },
+      {
+        path: 'profile',
+        name: 'Profile',
+        component: () => import('@/views/Profile.vue'),
       },
     ],
   },

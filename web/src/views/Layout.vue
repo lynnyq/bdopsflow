@@ -47,6 +47,28 @@
           <el-icon><Cpu /></el-icon>
           <template #title>执行器</template>
         </el-menu-item>
+        <el-menu-item index="/profile">
+          <el-icon><UserFilled /></el-icon>
+          <template #title>个人设置</template>
+        </el-menu-item>
+        <el-sub-menu v-if="isAdmin" index="/admin">
+          <template #title>
+            <el-icon><Setting /></el-icon>
+            <span>系统管理</span>
+          </template>
+          <el-menu-item index="/admin/users">
+            <el-icon><User /></el-icon>
+            <template #title>用户管理</template>
+          </el-menu-item>
+          <el-menu-item index="/admin/roles">
+            <el-icon><Key /></el-icon>
+            <template #title>角色管理</template>
+          </el-menu-item>
+          <el-menu-item index="/admin/domains">
+            <el-icon><Grid /></el-icon>
+            <template #title>领域管理</template>
+          </el-menu-item>
+        </el-sub-menu>
       </el-menu>
 
       <div class="sidebar-footer">
@@ -58,29 +80,6 @@
             </Transition>
           </div>
         </div>
-
-        <div class="user-profile">
-          <div class="user-avatar">
-            {{ user?.username?.charAt(0)?.toUpperCase() || 'U' }}
-          </div>
-          <Transition name="fade">
-            <div v-if="!isCollapse" class="user-info">
-              <div class="user-name">{{ user?.username || '用户' }}</div>
-              <div class="user-role">{{ user?.role || '操作员' }}</div>
-            </div>
-          </Transition>
-        </div>
-
-        <el-button
-          :icon="SwitchButton"
-          text
-          @click="handleLogout"
-          class="logout-btn"
-        >
-          <Transition name="fade">
-            <span v-if="!isCollapse">退出登录</span>
-          </Transition>
-        </el-button>
       </div>
     </el-aside>
 
@@ -102,16 +101,37 @@
                 <span class="notification-badge">3</span>
               </template>
             </el-button>
-            <el-button :icon="Setting" circle size="small" />
+            <el-button :icon="Setting" circle size="small" @click="$router.push('/profile')" />
           </div>
 
           <div class="header-divider"></div>
 
-          <div class="user-menu">
-            <div class="user-avatar-small">
-              {{ user?.username?.charAt(0)?.toUpperCase() || 'U' }}
+          <el-dropdown trigger="click" @command="handleCommand">
+            <div class="user-menu">
+              <div class="user-avatar-small">
+                {{ user?.username?.charAt(0)?.toUpperCase() || 'U' }}
+              </div>
+              <Transition name="fade">
+                <div v-if="true" class="user-info-header">
+                  <div class="user-name">{{ user?.username || '用户' }}</div>
+                  <div class="user-role">{{ getUserRoleDisplay(user?.role) }}</div>
+                </div>
+              </Transition>
+              <el-icon class="el-icon--right"><ArrowDown /></el-icon>
             </div>
-          </div>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="profile">
+                  <el-icon><User /></el-icon>
+                  个人设置
+                </el-dropdown-item>
+                <el-dropdown-item divided command="logout">
+                  <el-icon><SwitchButton /></el-icon>
+                  退出登录
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </div>
       </el-header>
 
@@ -137,7 +157,12 @@ import {
   Setting,
   Expand,
   Fold,
-  Search
+  Search,
+  User,
+  Key,
+  Grid,
+  UserFilled,
+  ArrowDown
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -147,22 +172,39 @@ const authStore = useAuthStore()
 const isCollapse = ref(false)
 
 const user = computed(() => authStore.user)
+const isAdmin = computed(() => authStore.isAdmin)
 const activeMenu = computed(() => route.path)
 
 const pageTitle = computed(() => {
   const titles: Record<string, string> = {
     '/': '仪表盘',
     '/tasks': '任务管理',
-    '/workflows': '工作流设计',
     '/executors': '执行器集群',
-    '/logs': '任务日志'
+    '/logs': '任务日志',
+    '/profile': '个人设置',
+    '/admin/users': '用户管理',
+    '/admin/roles': '角色管理',
+    '/admin/domains': '领域管理'
   }
   return titles[route.path] || '仪表盘'
 })
 
-const handleLogout = () => {
-  authStore.logout()
-  router.push('/login')
+const getUserRoleDisplay = (role: string | undefined): string => {
+  const roleMap: Record<string, string> = {
+    'system_admin': '系统管理员',
+    'domain_admin': '领域管理员',
+    'user': '普通用户'
+  }
+  return roleMap[role || 'user'] || '普通用户'
+}
+
+const handleCommand = (command: string) => {
+  if (command === 'logout') {
+    authStore.logout()
+    router.push('/login')
+  } else if (command === 'profile') {
+    router.push('/profile')
+  }
 }
 </script>
 
@@ -301,67 +343,6 @@ const handleLogout = () => {
   letter-spacing: 0.05em;
 }
 
-.user-profile {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-2);
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-}
-
-.user-avatar {
-  width: 36px;
-  height: 36px;
-  border-radius: var(--radius-sm);
-  background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--font-display);
-  font-weight: 700;
-  color: var(--bg-deepest);
-  font-size: 0.9rem;
-  flex-shrink: 0;
-}
-
-.user-info {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-}
-
-.user-name {
-  font-family: var(--font-display);
-  font-weight: 600;
-  font-size: 0.85rem;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.user-role {
-  font-family: var(--font-mono);
-  font-size: 0.65rem;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-.logout-btn {
-  color: var(--text-muted);
-  width: 100%;
-  justify-content: flex-start;
-  padding: var(--space-2) var(--space-3);
-}
-
-.logout-btn:hover {
-  color: var(--accent-danger);
-  background: rgba(248, 113, 113, 0.1);
-}
-
 .content-wrapper {
   display: flex;
   flex-direction: column;
@@ -450,6 +431,15 @@ const handleLogout = () => {
 .user-menu {
   display: flex;
   align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  transition: background-color 0.2s ease;
+}
+
+.user-menu:hover {
+  background-color: var(--bg-tertiary);
 }
 
 .user-avatar-small {
@@ -466,10 +456,36 @@ const handleLogout = () => {
   font-size: 0.8rem;
   cursor: pointer;
   transition: transform 0.2s ease;
+  flex-shrink: 0;
 }
 
 .user-avatar-small:hover {
   transform: scale(1.05);
+}
+
+.user-info-header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: hidden;
+}
+
+.user-info-header .user-name {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.user-info-header .user-role {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 .main-content {

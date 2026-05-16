@@ -1,660 +1,698 @@
 <template>
   <div class="dashboard">
-    <!-- Header -->
-    <header class="dashboard-header">
-      <div class="header-left">
-        <h1 class="page-title">控制中心</h1>
-        <p class="page-subtitle">实时监控系统运行状态</p>
+    <!-- Stats Overview -->
+    <section class="stats-section">
+      <div class="stats-grid">
+        <div class="stat-item">
+          <div class="stat-icon stat-icon-primary">
+            <el-icon :size="24"><List /></el-icon>
+          </div>
+          <div class="stat-content">
+            <div class="stat-value">{{ stats.tasks.total }}</div>
+            <div class="stat-label">总任务</div>
+          </div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-icon stat-icon-success">
+            <el-icon :size="24"><CircleCheck /></el-icon>
+          </div>
+          <div class="stat-content">
+            <div class="stat-value">{{ stats.tasks.enabled }}</div>
+            <div class="stat-label">已启用</div>
+          </div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-icon stat-icon-info">
+            <el-icon :size="24"><Clock /></el-icon>
+          </div>
+          <div class="stat-content">
+            <div class="stat-value">{{ stats.tasks.cron }}</div>
+            <div class="stat-label">定时任务</div>
+          </div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-icon stat-icon-warning">
+            <el-icon :size="24"><Timer /></el-icon>
+          </div>
+          <div class="stat-content">
+            <div class="stat-value">{{ stats.tasks.running }}</div>
+            <div class="stat-label">运行中</div>
+          </div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-icon stat-icon-primary">
+            <el-icon :size="24"><Cpu /></el-icon>
+          </div>
+          <div class="stat-content">
+            <div class="stat-value">{{ stats.executors.total }}</div>
+            <div class="stat-label">执行器总数</div>
+          </div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-icon stat-icon-success">
+            <el-icon :size="24"><CircleCheck /></el-icon>
+          </div>
+          <div class="stat-content">
+            <div class="stat-value">{{ stats.executors.active }}</div>
+            <div class="stat-label">在线执行器</div>
+          </div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-icon stat-icon-info">
+            <el-icon :size="24"><Connection /></el-icon>
+          </div>
+          <div class="stat-content">
+            <div class="stat-value">{{ stats.workflows.total }}</div>
+            <div class="stat-label">工作流总数</div>
+          </div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-icon stat-icon-success">
+            <el-icon :size="24"><CircleCheck /></el-icon>
+          </div>
+          <div class="stat-content">
+            <div class="stat-value">{{ stats.workflows.enabled }}</div>
+            <div class="stat-label">已启用工作流</div>
+          </div>
+        </div>
       </div>
-      <div class="header-right">
-        <el-button 
-          :icon="Refresh" 
-          @click="refreshData" 
-          :loading="loading"
-          circle
-          size="large"
-        />
+    </section>
+
+    <!-- Execution Stats -->
+    <section class="execution-section">
+      <div class="execution-grid">
+        <div class="stat-item success">
+          <div class="stat-icon stat-icon-success">
+            <el-icon :size="24"><CircleCheck /></el-icon>
+          </div>
+          <div class="stat-content">
+            <div class="stat-value">{{ stats.tasks.success }}</div>
+            <div class="stat-label">成功执行</div>
+          </div>
+        </div>
+        <div class="stat-item danger">
+          <div class="stat-icon stat-icon-danger">
+            <el-icon :size="24"><CircleClose /></el-icon>
+          </div>
+          <div class="stat-content">
+            <div class="stat-value">{{ stats.tasks.failed }}</div>
+            <div class="stat-label">失败执行</div>
+          </div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-icon stat-icon-warning">
+            <el-icon :size="24"><Timer /></el-icon>
+          </div>
+          <div class="stat-content">
+            <div class="stat-value">{{ stats.tasks.avg_duration }}s</div>
+            <div class="stat-label">平均执行时长</div>
+          </div>
+        </div>
       </div>
-    </header>
+    </section>
 
     <!-- Scheduler Control -->
     <section class="scheduler-section">
-      <div class="scheduler-status">
-        <div class="status-indicator" :class="{ paused: stats.scheduler.paused }">
+      <div class="scheduler-info">
+        <div class="scheduler-status" :class="{ paused: schedulerStatus.paused }">
           <span class="status-dot"></span>
-          <span class="status-text">{{ stats.scheduler.paused ? '已暂停' : '运行中' }}</span>
+          <span class="status-text">{{ schedulerStatus.paused ? '调度器已暂停' : '调度器运行中' }}</span>
         </div>
-        <span class="uptime">已运行 {{ formatUptime(stats.scheduler.uptime) }}</span>
+        <span class="scheduler-hint">暂停调度将停止所有定时任务的自动执行</span>
       </div>
       <div class="scheduler-actions">
         <el-button 
           :icon="VideoPlay" 
+          type="success"
           @click="handleResumeScheduler"
-          :disabled="!stats.scheduler.paused"
+          :disabled="!schedulerStatus.paused"
           :loading="actionLoading"
         >
           恢复调度
         </el-button>
         <el-button 
           :icon="VideoPause" 
+          type="warning"
           @click="handlePauseScheduler"
-          :disabled="stats.scheduler.paused"
+          :disabled="schedulerStatus.paused"
           :loading="actionLoading"
         >
           暂停调度
         </el-button>
+        <el-button 
+          :icon="Refresh" 
+          @click="refreshData" 
+          :loading="loading"
+          class="refresh-btn"
+        >
+          刷新数据
+        </el-button>
       </div>
     </section>
 
-    <!-- Stats Overview -->
-    <section class="stats-section">
-      <div class="stats-grid">
-        <div class="stat-item">
-          <span class="stat-value">{{ stats.tasks.total }}</span>
-          <span class="stat-label">总任务</span>
+    <!-- Trend Chart -->
+    <section class="trend-section">
+      <div class="section-header">
+        <h2 class="section-title">执行趋势（最近7天）</h2>
+      </div>
+      <div class="trend-chart">
+        <div v-if="trends.length === 0" class="trend-empty">
+          <el-icon :size="48"><DataLine /></el-icon>
+          <p>暂无趋势数据</p>
         </div>
-        <div class="stat-item">
-          <span class="stat-value">{{ stats.tasks.enabled }}</span>
-          <span class="stat-label">已启用</span>
+        <div v-else class="trend-bars">
+          <div 
+            v-for="trend in trends" 
+            :key="trend.date" 
+            class="trend-bar-item"
+          >
+            <div class="bar-wrapper">
+              <div 
+                class="bar success" 
+                :style="{ height: getBarHeight(trend.success) + 'px' }"
+                :title="`成功: ${trend.success}`"
+              ></div>
+              <div 
+                class="bar failed" 
+                :style="{ height: getBarHeight(trend.failed) + 'px' }"
+                :title="`失败: ${trend.failed}`"
+              ></div>
+            </div>
+            <div class="bar-label">{{ formatDate(trend.date) }}</div>
+            <div class="bar-value">
+              <span class="success-text">{{ trend.success }}</span>
+              <span class="separator">/</span>
+              <span class="failed-text">{{ trend.failed }}</span>
+            </div>
+          </div>
         </div>
-        <div class="stat-item">
-          <span class="stat-value">{{ stats.tasks.cron }}</span>
-          <span class="stat-label">定时任务</span>
-        </div>
-        <div class="stat-item">
-          <span class="stat-value">{{ stats.tasks.running }}</span>
-          <span class="stat-label">运行中</span>
-        </div>
-        <div class="stat-item">
-          <span class="stat-value">{{ stats.tasks.success }}</span>
-          <span class="stat-label">执行成功</span>
-        </div>
-        <div class="stat-item">
-          <span class="stat-value">{{ stats.tasks.failed }}</span>
-          <span class="stat-label">执行失败</span>
-        </div>
-        <div class="stat-item">
-          <span class="stat-value">{{ stats.tasks.avg_duration }}s</span>
-          <span class="stat-label">平均耗时</span>
+        <div v-if="trends.length > 0" class="trend-legend">
+          <span class="legend-item">
+            <span class="legend-dot success"></span>
+            成功
+          </span>
+          <span class="legend-item">
+            <span class="legend-dot failed"></span>
+            失败
+          </span>
         </div>
       </div>
     </section>
-
-    <!-- Two Column Layout -->
-    <div class="content-grid">
-      <!-- Left Column: Execution Trends -->
-      <section class="trends-section">
-        <div class="section-header">
-          <h2 class="section-title">执行趋势</h2>
-          <span class="section-hint">最近 7 天</span>
-        </div>
-        <div class="trends-list" v-if="trends.length > 0">
-          <div v-for="trend in trends" :key="trend.date" class="trend-item">
-            <span class="trend-date">{{ formatDate(trend.date) }}</span>
-            <div class="trend-stats">
-              <div class="trend-stat">
-                <span class="trend-label">总数</span>
-                <span class="trend-value">{{ trend.total }}</span>
-              </div>
-              <div class="trend-stat success">
-                <span class="trend-label">成功</span>
-                <span class="trend-value">{{ trend.success }}</span>
-              </div>
-              <div class="trend-stat failed">
-                <span class="trend-label">失败</span>
-                <span class="trend-value">{{ trend.failed }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div class="empty-state" v-else>
-          <p>暂无执行数据</p>
-        </div>
-      </section>
-
-      <!-- Right Column: Quick Actions & Executors -->
-      <div class="right-column">
-        <!-- Quick Actions -->
-        <section class="actions-section">
-          <div class="section-header">
-            <h2 class="section-title">快捷操作</h2>
-          </div>
-          <div class="actions-grid">
-            <router-link to="/tasks" class="action-item">
-              <span class="action-label">管理任务</span>
-            </router-link>
-            <router-link to="/executors" class="action-item">
-              <span class="action-label">管理执行器</span>
-            </router-link>
-            <router-link to="/logs" class="action-item">
-              <span class="action-label">查看日志</span>
-            </router-link>
-          </div>
-        </section>
-
-        <!-- Executors -->
-        <section class="executors-section">
-          <div class="section-header">
-            <h2 class="section-title">执行器</h2>
-            <router-link to="/executors" class="view-all">查看全部 →</router-link>
-          </div>
-          <div class="executor-stats">
-            <div class="executor-item">
-              <span class="executor-value">{{ stats.executors.total }}</span>
-              <span class="executor-label">总数</span>
-            </div>
-            <div class="executor-item online">
-              <span class="executor-value">{{ stats.executors.online }}</span>
-              <span class="executor-label">在线</span>
-            </div>
-            <div class="executor-item offline">
-              <span class="executor-value">{{ stats.executors.offline }}</span>
-              <span class="executor-label">离线</span>
-            </div>
-          </div>
-        </section>
-      </div>
-    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { 
-  Refresh, VideoPlay, VideoPause
-} from '@element-plus/icons-vue'
+import { ref, onMounted, onUnmounted } from 'vue'
+import { ElMessage } from 'element-plus'
+import { VideoPlay, VideoPause, Refresh, List, CircleCheck, CircleClose, Clock, Timer, Cpu, Connection, DataLine } from '@element-plus/icons-vue'
 import { dashboardAPI } from '@/api'
-import type { DashboardStats, TrendData } from '@/types'
+
+interface DashboardStats {
+  tasks: {
+    total: number
+    enabled: number
+    cron: number
+    running: number
+    success: number
+    failed: number
+    avg_duration: number
+  }
+  workflows: {
+    total: number
+    enabled: number
+  }
+  executors: {
+    total: number
+    active: number
+  }
+}
+
+interface TrendData {
+  date: string
+  total: number
+  success: number
+  failed: number
+}
 
 const loading = ref(false)
-
-const stats = ref<DashboardStats>({
-  tasks: {
-    total: 0,
-    enabled: 0,
-    cron: 0,
-    running: 0,
-    success: 0,
-    failed: 0,
-    avg_duration: 0
-  },
-  workflows: {
-    total: 0,
-    enabled: 0
-  },
-  executors: {
-    total: 0,
-    online: 0,
-    offline: 0
-  },
-  scheduler: {
-    paused: false,
-    uptime: 0
-  }
-})
-
-const trends = ref<TrendData[]>([])
 const actionLoading = ref(false)
-
-const maxTrendValue = computed(() => {
-  if (trends.value.length === 0) return 1
-  let max = 0
-  for (const t of trends.value) {
-    max = Math.max(max, t.total, t.success, t.failed)
-  }
-  return max || 1
+const stats = ref<DashboardStats>({
+  tasks: { total: 0, enabled: 0, cron: 0, running: 0, success: 0, failed: 0, avg_duration: 0 },
+  workflows: { total: 0, enabled: 0 },
+  executors: { total: 0, active: 0 }
 })
+const schedulerStatus = ref({ paused: false })
+const trends = ref<TrendData[]>([])
 
-const formatUptime = (seconds: number) => {
-  if (!seconds) return '-';
-  
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  const secs = seconds % 60;
-  
-  if (hours > 0) {
-    return `${hours}小时${minutes}分钟`;
-  } else if (minutes > 0) {
-    return `${minutes}分钟${secs}秒`;
-  }
-  return `${secs}秒`;
-}
+let refreshInterval: number | null = null
 
-const formatDate = (dateStr: string) => {
-  if (!dateStr) return '-'
-  const date = new Date(dateStr)
-  return `${date.getMonth() + 1}月${date.getDate()}日`
-}
-
-const getBarWidth = (value: number, max: number) => {
-  if (max === 0) return 0
-  return Math.max((value / max) * 100, 2)
-}
-
-const loadData = async () => {
+const loadDashboardStats = async () => {
   try {
-    const [statsRes, trendsRes] = await Promise.all([
-      dashboardAPI.getStats(),
-      dashboardAPI.getTrends()
-    ])
-    
-    stats.value = statsRes.data;
-    trends.value = trendsRes.data.items || [];
-  } catch (err) {
-    console.error('Failed to load dashboard data:', err);
-    ElMessage.error('加载仪表盘数据失败');
+    const response = await dashboardAPI.getStats()
+    stats.value = response.data
+  } catch (error) {
+    console.error('Failed to load dashboard stats:', error)
   }
 }
 
-const refreshData = () => {
-  loadData();
+const loadSchedulerStatus = async () => {
+  try {
+    const response = await dashboardAPI.getSchedulerStatus()
+    schedulerStatus.value = response.data
+  } catch (error) {
+    console.error('Failed to load scheduler status:', error)
+  }
+}
+
+const loadTrends = async () => {
+  try {
+    const response = await dashboardAPI.getTrends()
+    trends.value = response.data.items || []
+  } catch (error) {
+    console.error('Failed to load trends:', error)
+  }
+}
+
+const refreshData = async () => {
+  loading.value = true
+  try {
+    await Promise.all([
+      loadDashboardStats(),
+      loadSchedulerStatus(),
+      loadTrends()
+    ])
+  } finally {
+    loading.value = false
+  }
 }
 
 const handlePauseScheduler = async () => {
+  actionLoading.value = true
   try {
-    await ElMessageBox.confirm(
-      '确定要暂停调度器吗？所有定时任务将停止调度，正在执行的任务会继续完成。',
-      '暂停调度器',
-      {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
-        type: 'warning',
-      }
-    );
-    
-    actionLoading.value = true;
-    await dashboardAPI.pauseScheduler();
-    ElMessage.success('调度器已暂停');
-    await loadData();
-  } catch (err: any) {
-    if (err !== 'cancel') {
-      console.error('Failed to pause scheduler:', err);
-      ElMessage.error('暂停调度器失败');
-    }
+    await dashboardAPI.pauseScheduler()
+    ElMessage.success('调度器已暂停')
+    await loadSchedulerStatus()
+  } catch (error) {
+    ElMessage.error('暂停调度器失败')
   } finally {
-    actionLoading.value = false;
+    actionLoading.value = false
   }
-};
+}
 
 const handleResumeScheduler = async () => {
+  actionLoading.value = true
   try {
-    actionLoading.value = true;
-    await dashboardAPI.resumeScheduler();
-    ElMessage.success('调度器已恢复');
-    await loadData();
-  } catch (err) {
-    console.error('Failed to resume scheduler:', err);
-    ElMessage.error('恢复调度器失败');
+    await dashboardAPI.resumeScheduler()
+    ElMessage.success('调度器已恢复')
+    await loadSchedulerStatus()
+  } catch (error) {
+    ElMessage.error('恢复调度器失败')
   } finally {
-    actionLoading.value = false;
+    actionLoading.value = false
   }
-};
+}
+
+const getBarHeight = (value: number): number => {
+  if (trends.value.length === 0) return 0
+  const maxValue = Math.max(...trends.value.map(t => Math.max(t.success, t.failed)))
+  if (maxValue === 0) return 0
+  return Math.max(10, (value / maxValue) * 100)
+}
+
+const formatDate = (date: string): string => {
+  if (!date) return ''
+  const d = new Date(date)
+  return `${d.getMonth() + 1}/${d.getDate()}`
+}
 
 onMounted(() => {
-  loadData();
-});
+  refreshData()
+  refreshInterval = window.setInterval(refreshData, 30000)
+})
+
+onUnmounted(() => {
+  if (refreshInterval) {
+    clearInterval(refreshInterval)
+  }
+})
 </script>
 
 <style scoped>
 .dashboard {
-  padding: 32px 48px;
-  max-width: 1400px;
-  margin: 0 auto;
-}
-
-/* Header */
-.dashboard-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 48px;
-}
-
-.header-left {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-5);
+  padding-bottom: var(--space-6);
 }
 
-.page-title {
-  font-size: 32px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin: 0;
-  letter-spacing: -0.5px;
+/* Stats Section */
+.stats-section {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  box-shadow: var(--shadow-sm);
 }
 
-.page-subtitle {
-  font-size: 14px;
-  color: var(--text-muted);
-  margin: 0;
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-4);
 }
 
-.header-right {
+@media (max-width: 1400px) {
+  .stats-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 1000px) {
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.stat-item {
   display: flex;
-  gap: 12px;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  transition: all var(--duration-normal) var(--ease-out);
 }
 
-/* Scheduler Control */
+.stat-item:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.stat-item.success {
+  background: rgba(52, 211, 153, 0.08);
+}
+
+.stat-item.danger {
+  background: rgba(248, 113, 113, 0.08);
+}
+
+.stat-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.stat-icon-primary {
+  background: rgba(59, 130, 246, 0.1);
+  color: var(--accent-primary);
+}
+
+.stat-icon-success {
+  background: rgba(52, 211, 153, 0.1);
+  color: var(--accent-success);
+}
+
+.stat-icon-warning {
+  background: rgba(251, 191, 36, 0.1);
+  color: var(--accent-warning);
+}
+
+.stat-icon-info {
+  background: rgba(6, 182, 212, 0.1);
+  color: var(--accent-secondary);
+}
+
+.stat-icon-danger {
+  background: rgba(248, 113, 113, 0.1);
+  color: var(--accent-danger);
+}
+
+.stat-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.stat-value {
+  font-family: var(--font-display);
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1;
+}
+
+.stat-label {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+/* Execution Section */
+.execution-section {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  box-shadow: var(--shadow-sm);
+}
+
+.execution-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-4);
+}
+
+@media (max-width: 800px) {
+  .execution-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Scheduler Section */
 .scheduler-section {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 20px 24px;
-  background: var(--bg-primary);
+  padding: var(--space-5);
+  background: var(--bg-card);
   border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  margin-bottom: 48px;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.scheduler-info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
 }
 
 .scheduler-status {
   display: flex;
   align-items: center;
-  gap: 24px;
-}
-
-.status-indicator {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
+  width: 12px;
+  height: 12px;
   background: var(--accent-success);
-  box-shadow: 0 0 8px var(--accent-success);
+  border-radius: 50%;
+  animation: pulse 2s ease-in-out infinite;
 }
 
-.status-dot.paused {
-  background: var(--accent-danger);
-  box-shadow: 0 0 8px var(--accent-danger);
+.scheduler-status.paused .status-dot {
+  background: var(--accent-warning);
+  animation: none;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.2); }
 }
 
 .status-text {
-  font-size: 14px;
-  font-weight: 500;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1.1rem;
   color: var(--text-primary);
 }
 
-.uptime {
-  font-size: 13px;
+.scheduler-hint {
+  font-size: 0.8rem;
   color: var(--text-muted);
 }
 
 .scheduler-actions {
   display: flex;
-  gap: 12px;
+  gap: var(--space-3);
+  flex-shrink: 0;
 }
 
-/* Stats Overview */
-.stats-section {
-  margin-bottom: 48px;
-}
-
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 1px;
-  background: var(--border-subtle);
-  border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.stat-item {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 24px 20px;
-  background: var(--bg-primary);
-  transition: background 0.15s ease;
-}
-
-.stat-item:hover {
+.refresh-btn {
   background: var(--bg-secondary);
-}
-
-.stat-value {
-  font-size: 28px;
-  font-weight: 600;
+  border: 1px solid var(--border-default);
   color: var(--text-primary);
-  letter-spacing: -0.5px;
 }
 
-.stat-label {
-  font-size: 13px;
-  color: var(--text-muted);
+.refresh-btn:hover {
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
 }
 
-/* Content Grid */
-.content-grid {
-  display: grid;
-  grid-template-columns: 1fr 360px;
-  gap: 48px;
-}
-
-.right-column {
-  display: flex;
-  flex-direction: column;
-  gap: 32px;
-}
-
-/* Section Styling */
-.trends-section,
-.workflows-section,
-.executors-section,
-.actions-section {
-  background: var(--bg-primary);
+/* Trend Section */
+.trend-section {
+  background: var(--bg-card);
   border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  padding: 24px;
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  box-shadow: var(--shadow-sm);
 }
 
 .section-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
+  margin-bottom: var(--space-4);
 }
 
 .section-title {
-  font-size: 14px;
+  font-family: var(--font-display);
+  font-size: 1.1rem;
   font-weight: 600;
-  color: var(--text-primary);
   margin: 0;
-}
-
-.section-hint {
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.view-all {
-  font-size: 13px;
-  color: var(--accent-primary);
-  text-decoration: none;
-  transition: opacity 0.15s ease;
-}
-
-.view-all:hover {
-  opacity: 0.7;
-}
-
-/* Trends */
-.trends-list {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.trend-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 16px;
-  background: var(--bg-secondary);
-  border-radius: 6px;
-}
-
-.trend-date {
-  font-size: 14px;
-  font-weight: 500;
   color: var(--text-primary);
 }
 
-.trend-stats {
-  display: flex;
-  gap: 32px;
+.trend-chart {
+  min-height: 200px;
 }
 
-.trend-stat {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 2px;
-}
-
-.trend-label {
-  font-size: 11px;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.trend-value {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.trend-stat.success .trend-value {
-  color: var(--accent-success);
-}
-
-.trend-stat.failed .trend-value {
-  color: var(--accent-danger);
-}
-
-/* Workflows & Executors */
-.workflow-stats,
-.executor-stats {
-  display: flex;
-  gap: 16px;
-}
-
-.workflow-item,
-.executor-item {
-  flex: 1;
+.trend-empty {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 16px;
-  background: var(--bg-secondary);
-  border-radius: 6px;
-}
-
-.workflow-value,
-.executor-value {
-  font-size: 24px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.workflow-value.success,
-.executor-value.online {
-  color: var(--accent-success);
-}
-
-.executor-value.offline {
-  color: var(--accent-danger);
-}
-
-.workflow-label,
-.executor-label {
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-/* Quick Actions */
-.actions-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-
-.action-item {
-  display: flex;
   align-items: center;
   justify-content: center;
-  padding: 16px;
-  background: var(--bg-secondary);
-  border-radius: 6px;
-  text-decoration: none;
-  transition: all 0.15s ease;
-}
-
-.action-item:hover {
-  background: var(--accent-primary);
-  color: white;
-}
-
-.action-label {
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text-primary);
-}
-
-.action-item:hover .action-label {
-  color: white;
-}
-
-/* Empty State */
-.empty-state {
-  padding: 48px 24px;
-  text-align: center;
-}
-
-.empty-state p {
-  font-size: 14px;
+  height: 200px;
   color: var(--text-muted);
-  margin: 0;
+  gap: var(--space-3);
 }
 
-/* Responsive */
-@media (max-width: 1200px) {
-  .content-grid {
-    grid-template-columns: 1fr;
-  }
-  
-  .stats-grid {
-    grid-template-columns: repeat(4, 1fr);
-  }
+.trend-bars {
+  display: flex;
+  justify-content: space-around;
+  align-items: flex-end;
+  height: 180px;
+  padding: var(--space-4) 0;
+  gap: var(--space-3);
+}
+
+.trend-bar-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+  max-width: 80px;
+}
+
+.bar-wrapper {
+  display: flex;
+  gap: 4px;
+  align-items: flex-end;
+  height: 100px;
+}
+
+.bar {
+  width: 24px;
+  border-radius: 4px 4px 0 0;
+  transition: height 0.3s ease;
+  min-height: 4px;
+}
+
+.bar.success {
+  background: linear-gradient(to top, var(--accent-success), rgba(52, 211, 153, 0.6));
+}
+
+.bar.failed {
+  background: linear-gradient(to top, var(--accent-danger), rgba(248, 113, 113, 0.6));
+}
+
+.bar-label {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.bar-value {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+}
+
+.success-text {
+  color: var(--accent-success);
+}
+
+.failed-text {
+  color: var(--accent-danger);
+}
+
+.separator {
+  color: var(--text-disabled);
+}
+
+.trend-legend {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-6);
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.legend-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+}
+
+.legend-dot.success {
+  background: var(--accent-success);
+}
+
+.legend-dot.failed {
+  background: var(--accent-danger);
 }
 
 @media (max-width: 768px) {
-  .dashboard {
-    padding: 24px;
-  }
-  
-  .stats-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-  
   .scheduler-section {
     flex-direction: column;
-    gap: 16px;
     align-items: flex-start;
   }
   
   .scheduler-actions {
     width: 100%;
-  }
-  
-  .scheduler-actions button {
-    flex: 1;
+    justify-content: flex-start;
   }
 }
 </style>

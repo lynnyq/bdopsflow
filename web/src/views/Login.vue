@@ -5,146 +5,181 @@
       <div class="bg-grid"></div>
       <div class="bg-glow bg-glow-1"></div>
       <div class="bg-glow bg-glow-2"></div>
+      <div class="bg-particles">
+        <div class="particle" v-for="i in 20" :key="i" :style="getParticleStyle(i)"></div>
+      </div>
     </div>
 
     <div class="login-container">
       <div class="login-decoration">
         <div class="brand-section">
           <div class="brand-logo">
-            <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-              <rect x="4" y="4" width="40" height="40" rx="8" stroke="currentColor" stroke-width="2"/>
-              <path d="M14 24L20 18L26 24L32 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-              <path d="M14 30L20 24L26 30L32 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.5"/>
+            <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
+              <rect x="4" y="4" width="56" height="56" rx="12" stroke="currentColor" stroke-width="2"/>
+              <path d="M16 32L24 24L32 32L40 24" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M16 40L24 32L32 40L40 32" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.5"/>
             </svg>
           </div>
           <h1 class="brand-title">BD<span class="accent">ops</span>Flow</h1>
-          <p class="brand-subtitle">分布式工作流编排平台</p>
+          <p class="brand-subtitle">企业级分布式工作流编排平台</p>
+        </div>
+
+        <div class="stats-preview">
+          <div class="stat-item">
+            <div class="stat-icon stat-icon-primary">
+              <el-icon :size="20"><Cpu /></el-icon>
+            </div>
+            <div class="stat-content">
+              <div class="stat-value">分布式</div>
+              <div class="stat-label">集群调度</div>
+            </div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-icon stat-icon-success">
+              <el-icon :size="20"><Connection /></el-icon>
+            </div>
+            <div class="stat-content">
+              <div class="stat-value">DAG</div>
+              <div class="stat-label">工作流引擎</div>
+            </div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-icon stat-icon-info">
+              <el-icon :size="20"><Monitor /></el-icon>
+            </div>
+            <div class="stat-content">
+              <div class="stat-value">实时</div>
+              <div class="stat-label">任务监控</div>
+            </div>
+          </div>
         </div>
 
         <div class="features-list">
           <div class="feature-item">
             <div class="feature-icon">
-              <el-icon><Cpu /></el-icon>
+              <el-icon><Timer /></el-icon>
             </div>
             <div class="feature-text">
-              <h4>分布式调度</h4>
-              <p>多节点集群调度管理</p>
+              <h4>高性能</h4>
+              <p>基于 Go 语言，高并发低延迟</p>
             </div>
           </div>
           <div class="feature-item">
             <div class="feature-icon">
-              <el-icon><Connection /></el-icon>
+              <el-icon><Expand /></el-icon>
             </div>
             <div class="feature-text">
-              <h4>DAG 工作流</h4>
-              <p>可视化工作流设计</p>
+              <h4>可扩展</h4>
+              <p>分布式架构，支持水平扩展</p>
             </div>
           </div>
           <div class="feature-item">
             <div class="feature-icon">
-              <el-icon><Monitor /></el-icon>
+              <el-icon><Lock /></el-icon>
             </div>
             <div class="feature-text">
-              <h4>实时监控</h4>
-              <p>任务执行状态追踪</p>
+              <h4>高可靠</h4>
+              <p>任务持久化，失败自动重试</p>
             </div>
           </div>
         </div>
 
         <div class="decoration-footer">
-          <div class="status-indicator">
+          <div class="system-status" :class="{ healthy: systemHealthy, unhealthy: !systemHealthy }">
             <span class="status-dot"></span>
-            <span class="status-text">系统运行正常</span>
+            <span class="status-text">{{ systemStatusText }}</span>
           </div>
         </div>
       </div>
 
-      <div class="login-card">
-        <div class="card-header">
-          <h2>欢迎回来</h2>
-          <p>登录访问您的工作区</p>
-        </div>
-
-        <el-form
-          ref="loginFormRef"
-          :model="loginForm"
-          :rules="loginRules"
-          class="login-form"
-          @keyup.enter="handleLogin"
-        >
-          <div class="form-group">
-            <label class="form-label">用户名</label>
-            <div class="input-wrapper">
-              <div class="input-icon">
-                <el-icon><User /></el-icon>
-              </div>
-              <el-input
-                v-model="loginForm.username"
-                placeholder="请输入用户名"
-                size="large"
-                class="modern-input"
-              />
-            </div>
+      <div class="login-card-wrapper">
+        <div class="login-card">
+          <div class="card-header">
+            <h2>欢迎回来</h2>
+            <p>登录访问您的工作空间</p>
           </div>
 
-          <div class="form-group">
-            <label class="form-label">密码</label>
-            <div class="input-wrapper">
-              <div class="input-icon">
-                <el-icon><Lock /></el-icon>
-              </div>
-              <el-input
-                v-model="loginForm.password"
-                type="password"
-                placeholder="请输入密码"
-                size="large"
-                show-password
-                class="modern-input"
-              />
-            </div>
-          </div>
-
-          <div class="form-options">
-            <el-checkbox v-model="rememberMe" label="记住我" />
-            <a href="#" class="forgot-link">忘记密码？</a>
-          </div>
-
-          <el-button
-            type="primary"
-            size="large"
-            :loading="isLoading"
-            @click="handleLogin"
-            class="login-btn"
+          <el-form
+            ref="loginFormRef"
+            :model="loginForm"
+            :rules="loginRules"
+            class="login-form"
+            @keyup.enter="handleLogin"
           >
-            <span v-if="!isLoading">
-              <el-icon class="btn-icon"><Key /></el-icon>
-              登录
-            </span>
-            <span v-else>正在验证...</span>
-          </el-button>
-        </el-form>
+            <div class="form-group">
+              <label class="form-label">用户名</label>
+              <div class="input-wrapper">
+                <div class="input-icon">
+                  <el-icon><User /></el-icon>
+                </div>
+                <el-input
+                  v-model="loginForm.username"
+                  placeholder="请输入用户名"
+                  size="large"
+                  class="modern-input"
+                  clearable
+                />
+              </div>
+            </div>
 
-        <div class="card-footer">
-          <div class="footer-text">
-            <span>首次使用 BDopsFlow？</span>
-            <a href="#" class="signup-link">创建账户</a>
+            <div class="form-group">
+              <label class="form-label">密码</label>
+              <div class="input-wrapper">
+                <div class="input-icon">
+                  <el-icon><Lock /></el-icon>
+                </div>
+                <el-input
+                  v-model="loginForm.password"
+                  type="password"
+                  placeholder="请输入密码"
+                  size="large"
+                  show-password
+                  class="modern-input"
+                />
+              </div>
+            </div>
+
+            <div class="form-options">
+              <el-checkbox v-model="rememberMe" label="记住我" />
+            </div>
+
+            <el-button
+              type="primary"
+              size="large"
+              :loading="isLoading"
+              @click="handleLogin"
+              class="login-btn"
+              :disabled="!systemHealthy"
+            >
+              <span v-if="!isLoading">
+                <el-icon class="btn-icon"><Key /></el-icon>
+                登录
+              </span>
+              <span v-else>正在验证...</span>
+            </el-button>
+          </el-form>
+
+          <div v-if="errorMessage" class="error-message">
+            <el-icon><CircleClose /></el-icon>
+            {{ errorMessage }}
           </div>
         </div>
       </div>
     </div>
 
     <div class="login-footer">
-      <p>BDopsFlow v1.0.0 — 企业级工作流编排平台</p>
+      <p>BDopsFlow v1.0.0 — 让工作流编排更简单</p>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { reactive, ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { User, Lock, Key, Cpu, Connection, Monitor } from '@element-plus/icons-vue'
+import { User, Lock, Key, Cpu, Connection, Monitor, CircleClose, Timer, Expand } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
+import axios from 'axios'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -152,33 +187,74 @@ const authStore = useAuthStore()
 const loginFormRef = ref()
 const isLoading = ref(false)
 const rememberMe = ref(false)
+const systemHealthy = ref(true)
+const systemStatusText = ref('系统运行正常')
+const errorMessage = ref('')
 
 const loginForm = reactive({
-  username: 'admin',
-  password: 'admin123'
+  username: '',
+  password: ''
 })
 
 const loginRules = {
-  username: [{ required: true, message: 'Username is required', trigger: 'blur' }],
-  password: [{ required: true, message: 'Password is required', trigger: 'blur' }]
+  username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
+  password: [{ required: true, message: '请输入密码', trigger: 'blur' }]
+}
+
+const checkSystemHealth = async () => {
+  try {
+    await axios.get('/health', { timeout: 5000 })
+    systemHealthy.value = true
+    systemStatusText.value = '系统运行正常'
+  } catch (error) {
+    systemHealthy.value = false
+    systemStatusText.value = '系统暂不可用'
+  }
 }
 
 const handleLogin = async () => {
+  errorMessage.value = ''
   await loginFormRef.value?.validate(async (valid: boolean) => {
     if (valid) {
       isLoading.value = true
       try {
         await authStore.login(loginForm.username, loginForm.password)
-        ElMessage.success('Welcome back!')
+        ElMessage.success('登录成功，欢迎回来！')
         router.push('/')
-      } catch (error) {
-        ElMessage.error('Authentication failed. Please check your credentials.')
+      } catch (error: any) {
+        errorMessage.value = error?.response?.data?.error || '用户名或密码错误'
       } finally {
         isLoading.value = false
       }
     }
   })
 }
+
+const getParticleStyle = (i: number) => {
+  const colors = ['rgba(59, 130, 246, 0.3)', 'rgba(6, 182, 212, 0.3)', 'rgba(167, 139, 250, 0.3)']
+  return {
+    left: `${Math.random() * 100}%`,
+    top: `${Math.random() * 100}%`,
+    width: `${Math.random() * 4 + 2}px`,
+    height: `${Math.random() * 4 + 2}px`,
+    background: colors[i % 3],
+    animationDelay: `${Math.random() * 5}s`,
+    animationDuration: `${Math.random() * 10 + 10}s`
+  }
+}
+
+let healthCheckInterval: number | null = null
+
+onMounted(() => {
+  checkSystemHealth()
+  healthCheckInterval = window.setInterval(checkSystemHealth, 30000)
+})
+
+onUnmounted(() => {
+  if (healthCheckInterval) {
+    clearInterval(healthCheckInterval)
+  }
+})
 </script>
 
 <style scoped>
@@ -239,12 +315,42 @@ const handleLogin = async () => {
   left: -150px;
 }
 
+.bg-particles {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.particle {
+  position: absolute;
+  border-radius: 50%;
+  animation: float-particle linear infinite;
+  opacity: 0.6;
+}
+
+@keyframes float-particle {
+  0% {
+    transform: translateY(100vh) rotate(0deg);
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.6;
+  }
+  90% {
+    opacity: 0.6;
+  }
+  100% {
+    transform: translateY(-100vh) rotate(720deg);
+    opacity: 0;
+  }
+}
+
 .login-container {
   display: grid;
-  grid-template-columns: 1.1fr 0.9fr;
+  grid-template-columns: 1.2fr 1fr;
   width: 100%;
-  max-width: 1000px;
-  min-height: 580px;
+  max-width: 1100px;
+  min-height: 680px;
   background: var(--bg-card);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-xl);
@@ -274,6 +380,7 @@ const handleLogin = async () => {
   justify-content: center;
   border-right: 1px solid var(--border-subtle);
   position: relative;
+  overflow: hidden;
 }
 
 .login-decoration::before {
@@ -289,7 +396,7 @@ const handleLogin = async () => {
 
 .brand-section {
   text-align: center;
-  margin-bottom: var(--space-10);
+  margin-bottom: var(--space-8);
   position: relative;
 }
 
@@ -322,16 +429,80 @@ const handleLogin = async () => {
   font-family: var(--font-mono);
   font-size: 0.8rem;
   color: var(--text-muted);
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  letter-spacing: 0.05em;
   margin: 0;
+}
+
+.stats-preview {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-3);
+  margin-bottom: var(--space-8);
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  transition: all 0.3s var(--ease-out);
+}
+
+.stat-item:hover {
+  transform: translateY(-2px);
+  border-color: var(--accent-primary);
+  box-shadow: var(--shadow-md);
+}
+
+.stat-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.stat-icon-primary {
+  background: rgba(59, 130, 246, 0.1);
+  color: var(--accent-primary);
+}
+
+.stat-icon-success {
+  background: rgba(52, 211, 153, 0.1);
+  color: var(--accent-success);
+}
+
+.stat-icon-info {
+  background: rgba(6, 182, 212, 0.1);
+  color: var(--accent-secondary);
+}
+
+.stat-content {
+  text-align: center;
+}
+
+.stat-value {
+  font-family: var(--font-display);
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.stat-label {
+  font-size: 0.7rem;
+  color: var(--text-muted);
 }
 
 .features-list {
   display: flex;
   flex-direction: column;
-  gap: var(--space-5);
-  margin-bottom: var(--space-10);
+  gap: var(--space-4);
+  margin-bottom: var(--space-8);
 }
 
 .feature-item {
@@ -380,22 +551,39 @@ const handleLogin = async () => {
   margin-top: auto;
 }
 
-.status-indicator {
+.system-status {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-full);
+  transition: all 0.3s ease;
+}
+
+.system-status.healthy {
   background: rgba(52, 211, 153, 0.1);
   border: 1px solid rgba(52, 211, 153, 0.2);
-  border-radius: var(--radius-full);
+}
+
+.system-status.unhealthy {
+  background: rgba(248, 113, 113, 0.1);
+  border: 1px solid rgba(248, 113, 113, 0.2);
 }
 
 .status-dot {
   width: 8px;
   height: 8px;
-  background: var(--accent-success);
   border-radius: 50%;
+  transition: all 0.3s ease;
+}
+
+.system-status.healthy .status-dot {
+  background: var(--accent-success);
   animation: pulse 2s ease-in-out infinite;
+}
+
+.system-status.unhealthy .status-dot {
+  background: var(--accent-danger);
 }
 
 @keyframes pulse {
@@ -406,16 +594,28 @@ const handleLogin = async () => {
 .status-text {
   font-family: var(--font-mono);
   font-size: 0.7rem;
-  color: var(--accent-success);
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  transition: all 0.3s ease;
 }
 
-.login-card {
+.system-status.healthy .status-text {
+  color: var(--accent-success);
+}
+
+.system-status.unhealthy .status-text {
+  color: var(--accent-danger);
+}
+
+.login-card-wrapper {
   padding: var(--space-10);
   display: flex;
   flex-direction: column;
   justify-content: center;
+}
+
+.login-card {
+  background: var(--bg-card);
 }
 
 .card-header {
@@ -515,17 +715,6 @@ const handleLogin = async () => {
   color: var(--text-secondary);
 }
 
-.forgot-link {
-  font-size: 0.85rem;
-  color: var(--accent-primary);
-  text-decoration: none;
-  transition: opacity 0.2s;
-}
-
-.forgot-link:hover {
-  opacity: 0.8;
-}
-
 .login-btn {
   width: 100%;
   height: 52px;
@@ -541,36 +730,50 @@ const handleLogin = async () => {
   margin-top: var(--space-2);
 }
 
-.login-btn:hover {
+.login-btn:hover:not(:disabled) {
   transform: translateY(-2px);
   box-shadow: 0 8px 24px rgba(34, 211, 238, 0.35);
+}
+
+.login-btn:disabled {
+  background: var(--bg-tertiary);
+  color: var(--text-disabled);
+  cursor: not-allowed;
 }
 
 .login-btn .btn-icon {
   margin-right: var(--space-2);
 }
 
-.card-footer {
-  margin-top: var(--space-8);
-  padding-top: var(--space-6);
-  border-top: 1px solid var(--border-subtle);
-  text-align: center;
+.error-message {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  background: rgba(248, 113, 113, 0.1);
+  border: 1px solid rgba(248, 113, 113, 0.2);
+  border-radius: var(--radius-md);
+  color: var(--accent-danger);
+  font-size: 0.85rem;
 }
 
-.footer-text {
-  font-size: 0.85rem;
+.login-tips {
+  margin-top: var(--space-6);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.tip-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 0.8rem;
   color: var(--text-muted);
 }
 
-.signup-link {
-  color: var(--accent-primary);
-  text-decoration: none;
-  font-weight: 500;
-  margin-left: var(--space-1);
-}
-
-.signup-link:hover {
-  text-decoration: underline;
+.tip-item .el-icon {
+  color: var(--accent-info);
 }
 
 .login-footer {
@@ -588,7 +791,7 @@ const handleLogin = async () => {
 @media (max-width: 900px) {
   .login-container {
     grid-template-columns: 1fr;
-    max-width: 450px;
+    max-width: 480px;
   }
 
   .login-decoration {
