@@ -143,6 +143,9 @@ sleep 3
 
 # 初始化数据库 schema
 curl -XPOST 'http://localhost:4001/db/load?pretty' --data-binary @deploy/schema.sql
+
+# 初始化权限管理系统 schema（可选，如果需要完整的权限和多租户功能）
+curl -XPOST 'http://localhost:4001/db/load?pretty' --data-binary @deploy/schema_permissions.sql
 ```
 
 ### 3. 编译并启动调度中心
