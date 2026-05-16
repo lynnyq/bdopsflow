@@ -87,9 +87,14 @@ func (s *Server) Heartbeat(ctx context.Context, req *pb.HeartbeatRequest) (*pb.H
 		}, nil
 	}
 	s.scheduler.UpdateExecutorHeartbeatWithRunningTasks(ctx, req.ExecutorId, req.CurrentLoad, req.RunningExecutionIds)
+	
+	// 获取目标容量
+	targetCapacity, _ := s.scheduler.GetExecutorTargetCapacity(ctx, req.ExecutorId)
+	
 	return &pb.HeartbeatResponse{
-		Success: true,
-		Message: "ok",
+		Success:        true,
+		Message:        "ok",
+		TargetCapacity: targetCapacity,
 	}, nil
 }
 

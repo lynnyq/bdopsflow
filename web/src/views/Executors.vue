@@ -94,7 +94,24 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="capacity" label="容量" width="90" align="center" />
+        <el-table-column prop="capacity" label="容量" width="140" align="center">
+          <template #default="{ row }">
+            <el-input-number
+              v-if="editingRow === row.id"
+              v-model="tempCapacity"
+              :min="1"
+              size="small"
+              controls-position="right"
+              @blur="handleSaveCapacity(row)"
+              @keyup.enter="handleSaveCapacity(row)"
+              ref="capacityInputRef"
+            />
+            <div v-else class="capacity-display" @click="handleEditCapacity(row)">
+              <span class="capacity-value">{{ row.capacity }}</span>
+              <el-icon class="edit-icon"><Edit /></el-icon>
+            </div>
+          </template>
+        </el-table-column>
         <el-table-column prop="current_load" label="当前负载" width="110" align="center" />
         <el-table-column label="最后心跳" width="180">
           <template #default="{ row }">
@@ -156,12 +173,15 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Refresh, Delete, Document, List, CircleCheck, CircleClose, DataLine, SwitchButton } from '@element-plus/icons-vue'
+import { Refresh, Delete, Document, List, CircleCheck, CircleClose, DataLine, SwitchButton, Edit } from '@element-plus/icons-vue'
 import { executorAPI } from '@/api'
 import type { Executor } from '@/types'
 
 const executors = ref<Executor[]>([])
 const loading = ref(false)
+const editingRow = ref<number | null>(null)
+const tempCapacity = ref<number>(1)
+const capacityInputRef = ref()
 
 const filters = ref({
   executor_id: '',
@@ -293,6 +313,36 @@ const handleDelete = async (row: Executor) => {
     if (error !== 'cancel') {
       ElMessage.error('删除失败')
     }
+  }
+}
+
+const handleEditCapacity = (row: Executor) => {
+  editingRow.value = row.id
+  tempCapacity.value = row.capacity || 1
+  // 等待 DOM 更新后聚焦输入框
+  setTimeout(() => {
+    capacityInputRef.value?.focus()
+  }, 50)
+}
+
+const handleSaveCapacity = async (row: Executor) => {
+  if (editingRow.value === null) return
+  
+  const newCapacity = tempCapacity.value
+  if (newCapacity === row.capacity) {
+    editingRow.value = null
+    return
+  }
+  
+  try {
+    await executorAPI.updateCapacity(row.executor_id, newCapacity)
+    row.capacity = newCapacity
+    ElMessage.success('容量更新成功')
+  } catch (error) {
+    console.error('Failed to update capacity:', error)
+    ElMessage.error('容量更新失败')
+  } finally {
+    editingRow.value = null
   }
 }
 
@@ -562,6 +612,38 @@ onMounted(() => {
   opacity: 0.3;
   cursor: not-allowed;
   transform: none;
+}
+
+/* Capacity Display */
+.capacity-display {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.capacity-display:hover {
+  background: var(--bg-secondary);
+}
+
+.capacity-display:hover .edit-icon {
+  opacity: 1;
+}
+
+.capacity-value {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.edit-icon {
+  opacity: 0;
+  font-size: 14px;
+  color: var(--accent-primary);
+  transition: opacity var(--duration-fast) var(--ease-out);
 }
 
 /* Responsive */

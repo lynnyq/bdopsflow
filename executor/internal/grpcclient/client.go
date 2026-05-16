@@ -18,6 +18,7 @@ type TaskRunnerStats interface {
 	TaskRunner
 	GetRunningTasks() int32
 	GetRunningExecutionIds() []string
+	UpdateCapacity(newCapacity int32) error
 }
 
 type Client struct {
@@ -106,6 +107,8 @@ func (c *Client) Subscribe(executorID, name, address string, capacity int32, run
 	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
 
+	currentCapacity := capacity
+
 	for {
 		select {
 		case <-c.stopCh:
@@ -122,7 +125,7 @@ func (c *Client) Subscribe(executorID, name, address string, capacity int32, run
 				ExecutorId: executorID,
 				Name:       name,
 				Address:    address,
-				Capacity:   capacity,
+				Capacity:   currentCapacity,
 			})
 			if err != nil {
 				slog.Warn("register failed, retrying", "error", err)
@@ -157,11 +160,24 @@ func (c *Client) Subscribe(executorID, name, address string, capacity int32, run
 								"current_load", currentLoad,
 								"running_executions", len(runningExecIds),
 							)
-							c.client.Heartbeat(context.Background(), &pb.HeartbeatRequest{
+							resp, err := c.client.Heartbeat(context.Background(), &pb.HeartbeatRequest{
 								ExecutorId:          executorID,
 								CurrentLoad:         currentLoad,
 								RunningExecutionIds: runningExecIds,
 							})
+							if err == nil && resp != nil && resp.TargetCapacity > 0 && resp.TargetCapacity != currentCapacity {
+								slog.Info("received capacity update from scheduler",
+									"old_capacity", currentCapacity,
+									"new_capacity", resp.TargetCapacity)
+								if c.taskRunner != nil {
+									if err := c.taskRunner.UpdateCapacity(resp.TargetCapacity); err == nil {
+										currentCapacity = resp.TargetCapacity
+										slog.Info("capacity updated successfully", "new_capacity", currentCapacity)
+									} else {
+										slog.Error("failed to update capacity", "error", err)
+									}
+								}
+							}
 						}
 					case <-c.stopCh:
 						return

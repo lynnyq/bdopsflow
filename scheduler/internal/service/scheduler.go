@@ -963,6 +963,53 @@ func (s *SchedulerService) SetExecutorStatus(ctx context.Context, executorID str
 	return nil
 }
 
+// UpdateExecutorCapacity 更新执行器的容量
+func (s *SchedulerService) UpdateExecutorCapacity(ctx context.Context, executorID string, capacity int64) error {
+	if capacity <= 0 {
+		return fmt.Errorf("capacity must be positive")
+	}
+	
+	// 首先更新数据库
+	query := `UPDATE executors SET capacity = ?, updated_at = ? WHERE executor_id = ?`
+	now := time.Now().Format("2006-01-02 15:04:05")
+	result, err := s.DB.WriteOneParameterized(rqlite.ParameterizedStatement{
+		Query:     query,
+		Arguments: []interface{}{capacity, now, executorID},
+	})
+	if err != nil {
+		return err
+	}
+	if result.Err != nil {
+		return result.Err
+	}
+	
+	// 将目标容量存储到 Redis，用于下次心跳
+	key := fmt.Sprintf("executor:target_capacity:%s", executorID)
+	if err := s.redis.Set(ctx, key, capacity, 0).Err(); err != nil {
+		slog.Warn("failed to store target capacity in redis", "error", err)
+	}
+	
+	slog.Info("updated executor capacity",
+		"executor_id", executorID,
+		"new_capacity", capacity)
+	return nil
+}
+
+// GetExecutorTargetCapacity 获取执行器的目标容量
+func (s *SchedulerService) GetExecutorTargetCapacity(ctx context.Context, executorID string) (int32, error) {
+	key := fmt.Sprintf("executor:target_capacity:%s", executorID)
+	val, err := s.redis.Get(ctx, key).Int64()
+	if err != nil {
+		// 如果 Redis 中没有，从数据库获取
+		exec, err := s.GetExecutorByID(ctx, executorID)
+		if err != nil {
+			return 0, err
+		}
+		return int32(exec.Capacity), nil
+	}
+	return int32(val), nil
+}
+
 func (s *SchedulerService) UpdateExecutorHeartbeat(ctx context.Context, executorID string, currentLoad int32) error {
 	return s.UpdateExecutorHeartbeatWithRunningTasks(ctx, executorID, currentLoad, nil)
 }

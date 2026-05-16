@@ -176,3 +176,38 @@ func (h *ExecutorHandler) Offline(c *gin.Context) {
 	slog.Info("ExecutorHandler.Offline: executor set offline", "executor_id", executorID)
 	c.JSON(http.StatusOK, gin.H{"message": "offline"})
 }
+
+// UpdateCapacity 更新执行器容量
+func (h *ExecutorHandler) UpdateCapacity(c *gin.Context) {
+	executorID := c.Param("id")
+	if executorID == "" {
+		slog.Warn("ExecutorHandler.UpdateCapacity: executor_id is required")
+		c.JSON(http.StatusBadRequest, gin.H{"error": "executor_id is required"})
+		return
+	}
+
+	var req struct {
+		Capacity int64 `json:"capacity" binding:"required,min=1"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		slog.Warn("ExecutorHandler.UpdateCapacity: invalid request", "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request: capacity must be a positive integer"})
+		return
+	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("ExecutorHandler.UpdateCapacity: panic recovered", "panic", r)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		}
+	}()
+
+	if err := h.svc.UpdateExecutorCapacity(c.Request.Context(), executorID, req.Capacity); err != nil {
+		slog.Error("ExecutorHandler.UpdateCapacity: failed to update executor capacity", "executor_id", executorID, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	slog.Info("ExecutorHandler.UpdateCapacity: executor capacity updated", "executor_id", executorID, "capacity", req.Capacity)
+	c.JSON(http.StatusOK, gin.H{"message": "capacity updated", "capacity": req.Capacity})
+}

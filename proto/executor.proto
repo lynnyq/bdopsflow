@@ -33,6 +33,7 @@ message HeartbeatRequest {
 message HeartbeatResponse {
   bool success = 1;
   string message = 2;
+  int32 target_capacity = 3;
 }
 
 message SubscribeTaskRequest {

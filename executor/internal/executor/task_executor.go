@@ -31,6 +31,10 @@ func NewTaskExecutor(executorID string, taskPool *pool.Pool) *TaskExecutor {
 	}
 }
 
+func (e *TaskExecutor) UpdateCapacity(newCapacity int32) error {
+	return e.taskPool.UpdateCapacity(newCapacity)
+}
+
 func (e *TaskExecutor) GetRunningExecutionIds() []string {
 	var ids []string
 	e.runningTasks.Range(func(key, value interface{}) bool {
