@@ -50,6 +50,10 @@ type SchedulerService struct {
 	cronScheduler interface {
 		RegisterTask(taskID int64, cronExpr string)
 		UnregisterTask(taskID int64)
+		Pause()
+		Resume()
+		IsPaused() bool
+		GetUptime() time.Duration
 	}
 	webhookSvc *webhook.Service
 	stopCleanupCh chan struct{}
@@ -277,6 +281,10 @@ func (s *SchedulerService) StopCleanupRoutine() {
 func (s *SchedulerService) SetCronScheduler(cs interface {
 	RegisterTask(taskID int64, cronExpr string)
 	UnregisterTask(taskID int64)
+	Pause()
+	Resume()
+	IsPaused() bool
+	GetUptime() time.Duration
 }) {
 	s.cronScheduler = cs
 }
@@ -2709,4 +2717,206 @@ func (s *SchedulerService) GetExecutionStats(ctx context.Context, filter map[str
 	}
 
 	return stats, nil
+}
+
+// DashboardStats 仪表盘统计数据
+type DashboardStats struct {
+	Tasks struct {
+		Total         int64 `json:"total"`
+		Enabled       int64 `json:"enabled"`
+		Cron          int64 `json:"cron"`
+		Running       int64 `json:"running"`
+		Success       int64 `json:"success"`
+		Failed        int64 `json:"failed"`
+		AvgDuration   int64 `json:"avg_duration"` // 平均执行时长（秒）
+	} `json:"tasks"`
+	Workflows struct {
+		Total   int64 `json:"total"`
+		Enabled int64 `json:"enabled"`
+	} `json:"workflows"`
+	Executors struct {
+		Total   int64 `json:"total"`
+		Online  int64 `json:"online"`
+		Offline int64 `json:"offline"`
+	} `json:"executors"`
+	Scheduler struct {
+		Paused bool   `json:"paused"`
+		Uptime int64  `json:"uptime"` // 运行时长（秒）
+	} `json:"scheduler"`
+}
+
+// TrendData 趋势数据
+type TrendData struct {
+	Date    string `json:"date"`
+	Total   int64  `json:"total"`
+	Success int64  `json:"success"`
+	Failed  int64  `json:"failed"`
+}
+
+// GetDashboardStats 获取仪表盘统计数据
+func (s *SchedulerService) GetDashboardStats(ctx context.Context) (*DashboardStats, error) {
+	stats := &DashboardStats{}
+	
+	// 任务统计
+	taskQuery := `
+		SELECT 
+			COUNT(*) as total,
+			SUM(CASE WHEN is_enabled = 1 THEN 1 ELSE 0 END) as enabled,
+			SUM(CASE WHEN cron_expression IS NOT NULL AND cron_expression != '' THEN 1 ELSE 0 END) as cron
+		FROM tasks
+	`
+	qr, err := s.DB.QueryOne(taskQuery)
+	if err != nil {
+		return nil, err
+	}
+	if qr.Err != nil {
+		return nil, qr.Err
+	}
+	if qr.Next() {
+		row, _ := qr.Slice()
+		stats.Tasks.Total = rowInt64(row[0])
+		stats.Tasks.Enabled = rowInt64(row[1])
+		stats.Tasks.Cron = rowInt64(row[2])
+	}
+	
+	// 运行中的任务
+	runningQuery := `SELECT COUNT(*) FROM task_executions WHERE status = 'running'`
+	qr, err = s.DB.QueryOne(runningQuery)
+	if err == nil && qr.Err == nil && qr.Next() {
+		row, _ := qr.Slice()
+		stats.Tasks.Running = rowInt64(row[0])
+	}
+	
+	// 最近执行的任务统计
+	recentExecQuery := `
+		SELECT 
+			SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success,
+			SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
+			AVG(CASE WHEN end_time IS NOT NULL AND start_time IS NOT NULL 
+				THEN julianday(end_time) - julianday(start_time) ELSE 0 END) * 86400 as avg_duration
+		FROM task_executions
+		WHERE created_at > datetime('now', '-7 days')
+	`
+	qr, err = s.DB.QueryOne(recentExecQuery)
+	if err == nil && qr.Err == nil && qr.Next() {
+		row, _ := qr.Slice()
+		stats.Tasks.Success = rowInt64(row[0])
+		stats.Tasks.Failed = rowInt64(row[1])
+		stats.Tasks.AvgDuration = int64(rowFloat64(row[2]))
+	}
+	
+	// 工作流统计
+	wfQuery := `
+		SELECT 
+			COUNT(*) as total,
+			SUM(CASE WHEN is_enabled = 1 THEN 1 ELSE 0 END) as enabled
+		FROM workflows
+	`
+	qr, err = s.DB.QueryOne(wfQuery)
+	if err == nil && qr.Err == nil && qr.Next() {
+		row, _ := qr.Slice()
+		stats.Workflows.Total = rowInt64(row[0])
+		stats.Workflows.Enabled = rowInt64(row[1])
+	}
+	
+	// 执行器统计
+	execQuery := `
+		SELECT 
+			COUNT(*) as total,
+			SUM(CASE WHEN status = 'online' THEN 1 ELSE 0 END) as online,
+			SUM(CASE WHEN status = 'offline' THEN 1 ELSE 0 END) as offline
+		FROM executors
+	`
+	qr, err = s.DB.QueryOne(execQuery)
+	if err == nil && qr.Err == nil && qr.Next() {
+		row, _ := qr.Slice()
+		stats.Executors.Total = rowInt64(row[0])
+		stats.Executors.Online = rowInt64(row[1])
+		stats.Executors.Offline = rowInt64(row[2])
+	}
+	
+	// 调度器状态
+	if s.cronScheduler != nil {
+		stats.Scheduler.Paused = s.cronScheduler.IsPaused()
+		stats.Scheduler.Uptime = int64(s.cronScheduler.GetUptime().Seconds())
+	}
+	
+	return stats, nil
+}
+
+// GetTrendData 获取最近7天的趋势数据
+func (s *SchedulerService) GetTrendData(ctx context.Context) ([]*TrendData, error) {
+	var trends []*TrendData
+	
+	query := `
+		SELECT 
+			date(created_at) as exec_date,
+			COUNT(*) as total,
+			SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success,
+			SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
+		FROM task_executions
+		WHERE created_at > datetime('now', '-7 days')
+		GROUP BY date(created_at)
+		ORDER BY exec_date DESC
+	`
+	
+	qr, err := s.DB.QueryOne(query)
+	if err != nil {
+		return nil, err
+	}
+	if qr.Err != nil {
+		return nil, qr.Err
+	}
+	
+	for qr.Next() {
+		row, _ := qr.Slice()
+		trend := &TrendData{
+			Date:    rowString(row[0]),
+			Total:   rowInt64(row[1]),
+			Success: rowInt64(row[2]),
+			Failed:  rowInt64(row[3]),
+		}
+		trends = append(trends, trend)
+	}
+	
+	return trends, nil
+}
+
+// PauseScheduler 暂停调度器
+func (s *SchedulerService) PauseScheduler() {
+	if s.cronScheduler != nil {
+		s.cronScheduler.Pause()
+	}
+}
+
+// ResumeScheduler 恢复调度器
+func (s *SchedulerService) ResumeScheduler() {
+	if s.cronScheduler != nil {
+		s.cronScheduler.Resume()
+	}
+}
+
+// IsSchedulerPaused 获取调度器暂停状态
+func (s *SchedulerService) IsSchedulerPaused() bool {
+	if s.cronScheduler != nil {
+		return s.cronScheduler.IsPaused()
+	}
+	return false
+}
+
+func rowFloat64(v interface{}) float64 {
+	if v == nil {
+		return 0
+	}
+	switch val := v.(type) {
+	case float64:
+		return val
+	case int64:
+		return float64(val)
+	case string:
+		var n float64
+		fmt.Sscanf(val, "%f", &n)
+		return n
+	}
+	return 0
 }
