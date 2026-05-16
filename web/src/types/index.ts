@@ -165,3 +165,35 @@ export interface TaskLog {
   log_time: string
 }
 
+export interface DashboardStats {
+  tasks: {
+    total: number
+    enabled: number
+    cron: number
+    running: number
+    success: number
+    failed: number
+    avg_duration: number
+  }
+  workflows: {
+    total: number
+    enabled: number
+  }
+  executors: {
+    total: number
+    online: number
+    offline: number
+  }
+  scheduler: {
+    paused: boolean
+    uptime: number
+  }
+}
+
+export interface TrendData {
+  date: string
+  total: number
+  success: number
+  failed: number
+}
+

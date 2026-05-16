@@ -1,5 +1,5 @@
 import api from '@/utils/api'
-import type { Task, Workflow, TaskExecution, TaskExecutionListResponse, Executor, LoginRequest, LoginResponse, WorkflowExecution, TaskLog } from '@/types'
+import type { Task, Workflow, TaskExecution, TaskExecutionListResponse, Executor, LoginRequest, LoginResponse, WorkflowExecution, TaskLog, DashboardStats, TrendData } from '@/types'
 
 interface TaskListResponse {
   items: Task[]
@@ -75,4 +75,12 @@ export const logAPI = {
   }) => api.get<{ [key: string]: number }>('/logs/stats', { params }),
 	delete: (id: number) => api.delete(`/logs/${id}`),
 	batchDelete: (ids: number[]) => api.post('/logs/batch-delete', { ids }),
+}
+
+export const dashboardAPI = {
+  getStats: () => api.get<DashboardStats>('/dashboard/stats'),
+  getTrends: () => api.get<{ items: TrendData[] }>('/dashboard/trends'),
+  getSchedulerStatus: () => api.get<{ paused: boolean }>('/dashboard/scheduler/status'),
+  pauseScheduler: () => api.post('/dashboard/scheduler/pause'),
+  resumeScheduler: () => api.post('/dashboard/scheduler/resume'),
 }
