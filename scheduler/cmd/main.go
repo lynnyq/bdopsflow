@@ -147,6 +147,16 @@ func main() {
 		}
 
 		protected.GET("/logs/stream", taskHandler.StreamLogs)
+
+		dashboardHandler := handler.NewDashboardHandler(schedulerService)
+		dashboard := protected.Group("/dashboard")
+		{
+			dashboard.GET("/stats", dashboardHandler.GetStats)
+			dashboard.GET("/trends", dashboardHandler.GetTrends)
+			dashboard.GET("/scheduler/status", dashboardHandler.GetSchedulerStatus)
+			dashboard.POST("/scheduler/pause", middleware.RBACMiddleware("admin"), dashboardHandler.PauseScheduler)
+			dashboard.POST("/scheduler/resume", middleware.RBACMiddleware("admin"), dashboardHandler.ResumeScheduler)
+		}
 	}
 
 	httpSrv := &http.Server{

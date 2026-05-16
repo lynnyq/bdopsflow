@@ -20,6 +20,8 @@ type CronScheduler struct {
 	redis        *redis.Client
 	taskEntries  map[int64]cron.EntryID // 任务ID到cron entry的映射
 	mu           sync.RWMutex
+	paused       bool                    // 全局暂停标志
+	startTime    time.Time               // 启动时间
 }
 
 func NewCronScheduler(svc *service.SchedulerService, redis *redis.Client) *CronScheduler {
@@ -28,6 +30,7 @@ func NewCronScheduler(svc *service.SchedulerService, redis *redis.Client) *CronS
 		svc:         svc,
 		redis:       redis,
 		taskEntries: make(map[int64]cron.EntryID),
+		startTime:   time.Now(),
 	}
 }
 
@@ -35,10 +38,62 @@ func (cs *CronScheduler) Start() error {
 	cs.cron.Start()
 	slog.Info("cron scheduler started", "mode", "6-field (with seconds)", "distributed_lock", "enabled")
 	
+	// 从 Redis 加载暂停状态
+	if cs.redis != nil {
+		ctx := context.Background()
+		paused, err := cs.redis.Get(ctx, "scheduler:paused").Bool()
+		if err == nil && paused {
+			cs.paused = true
+			slog.Info("cron scheduler resumed in paused state from redis")
+		}
+	}
+	
 	// 启动后立即加载和注册所有任务
 	go cs.loadAndRegisterTasks()
 	
 	return nil
+}
+
+// Pause 暂停调度器
+func (cs *CronScheduler) Pause() {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	
+	cs.paused = true
+	slog.Info("cron scheduler paused")
+	
+	// 持久化到 Redis
+	if cs.redis != nil {
+		ctx := context.Background()
+		cs.redis.Set(ctx, "scheduler:paused", "1", 0)
+	}
+}
+
+// Resume 恢复调度器
+func (cs *CronScheduler) Resume() {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	
+	cs.paused = false
+	slog.Info("cron scheduler resumed")
+	
+	// 持久化到 Redis
+	if cs.redis != nil {
+		ctx := context.Background()
+		cs.redis.Set(ctx, "scheduler:paused", "0", 0)
+	}
+}
+
+// IsPaused 获取暂停状态
+func (cs *CronScheduler) IsPaused() bool {
+	cs.mu.RLock()
+	defer cs.mu.RUnlock()
+	return cs.paused
+}
+
+// GetUptime 获取运行时长
+func (cs *CronScheduler) GetUptime() time.Duration {
+	return time.Since(cs.startTime)
 }
 
 func (cs *CronScheduler) Stop() {
@@ -129,6 +184,12 @@ func (cs *CronScheduler) UnregisterTask(taskID int64) {
 func (cs *CronScheduler) executeTask(taskID int64) {
 	if cs.svc == nil {
 		slog.Debug("Scheduler service is nil, skipping task execution", "task_id", taskID)
+		return
+	}
+	
+	// 检查是否暂停
+	if cs.IsPaused() {
+		slog.Debug("scheduler is paused, skipping task execution", "task_id", taskID)
 		return
 	}
 

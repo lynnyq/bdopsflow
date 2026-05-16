@@ -62,3 +62,48 @@ func TestCronScheduler_CronExpressionFormats(t *testing.T) {
 		})
 	}
 }
+
+func TestCronScheduler_PauseAndResume(t *testing.T) {
+	scheduler := NewCronScheduler(nil, nil)
+	
+	err := scheduler.Start()
+	if err != nil {
+		t.Fatalf("Failed to start scheduler: %v", err)
+	}
+	defer scheduler.Stop()
+
+	// 初始状态应该不是暂停
+	if scheduler.IsPaused() {
+		t.Error("Expected scheduler not to be paused initially")
+	}
+
+	// 测试暂停
+	scheduler.Pause()
+	if !scheduler.IsPaused() {
+		t.Error("Expected scheduler to be paused after Pause()")
+	}
+
+	// 测试恢复
+	scheduler.Resume()
+	if scheduler.IsPaused() {
+		t.Error("Expected scheduler not to be paused after Resume()")
+	}
+}
+
+func TestCronScheduler_GetUptime(t *testing.T) {
+	scheduler := NewCronScheduler(nil, nil)
+	
+	err := scheduler.Start()
+	if err != nil {
+		t.Fatalf("Failed to start scheduler: %v", err)
+	}
+	defer scheduler.Stop()
+
+	// 等待一小段时间，让 uptime 有值
+	time.Sleep(100 * time.Millisecond)
+
+	uptime := scheduler.GetUptime()
+	if uptime <= 0 {
+		t.Error("Expected uptime to be greater than 0")
+	}
+}
