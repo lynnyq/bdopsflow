@@ -1416,7 +1416,11 @@ func (s *SchedulerService) RetryTask(ctx context.Context, taskID int64, retryTim
 		Query:     updateExecutorQuery,
 		Arguments: []interface{}{executor.ExecutorID, executionID},
 	}
-	s.DB.WriteOneParameterized(updateExecutorStmt)
+	_, dbErr := s.DB.WriteOneParameterized(updateExecutorStmt)
+	if dbErr != nil {
+		slog.Warn("failed to update executor_id in task_executions", "error", dbErr, "execution_id", executionID)
+		// 继续执行，不影响任务调度
+	}
 
 	if err := s.dispatcher(executor.ExecutorID, grpcTask); err != nil {
 		s.UpdateExecutionResult(ctx, executionID, "failed", "", fmt.Sprintf("dispatch failed: %v", err))
@@ -2350,15 +2354,23 @@ func (s *SchedulerService) runWorkflowAsync(ctx context.Context, executionID str
 		}
 
 		nodeStates[nodeID] = "running"
-		nodeStatesJSON, _ := json.Marshal(nodeStates)
-		s.UpdateWorkflowExecutionNodeStates(ctx, executionID, string(nodeStatesJSON))
+		nodeStatesJSON, err := json.Marshal(nodeStates)
+		if err != nil {
+			slog.Error("failed to marshal node states", "error", err, "node_id", nodeID)
+		} else {
+			s.UpdateWorkflowExecutionNodeStates(ctx, executionID, string(nodeStatesJSON))
+		}
 		s.AddTaskLog(ctx, executionID, 0, nodeID, "info", fmt.Sprintf("Node %s started", node.Name))
 
 		time.Sleep(1 * time.Second)
 
 		nodeStates[nodeID] = "success"
-		nodeStatesJSON, _ = json.Marshal(nodeStates)
-		s.UpdateWorkflowExecutionNodeStates(ctx, executionID, string(nodeStatesJSON))
+		nodeStatesJSON, err = json.Marshal(nodeStates)
+		if err != nil {
+			slog.Error("failed to marshal node states", "error", err, "node_id", nodeID)
+		} else {
+			s.UpdateWorkflowExecutionNodeStates(ctx, executionID, string(nodeStatesJSON))
+		}
 		s.AddTaskLog(ctx, executionID, 0, nodeID, "info", fmt.Sprintf("Node %s completed", node.Name))
 	}
 
@@ -2576,10 +2588,31 @@ func rowInt64(v interface{}) int64 {
 	switch val := v.(type) {
 	case int64:
 		return val
+	case int:
+		return int64(val)
 	case float64:
 		return int64(val)
 	case string:
 		var n int64
+		fmt.Sscanf(val, "%d", &n)
+		return n
+	}
+	return 0
+}
+
+func rowInt(v interface{}) int {
+	if v == nil {
+		return 0
+	}
+	switch val := v.(type) {
+	case int:
+		return val
+	case int64:
+		return int(val)
+	case float64:
+		return int(val)
+	case string:
+		var n int
 		fmt.Sscanf(val, "%d", &n)
 		return n
 	}

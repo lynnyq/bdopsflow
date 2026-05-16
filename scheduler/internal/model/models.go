@@ -7,14 +7,17 @@ import (
 )
 
 type User struct {
-	ID        int64      `db:"id" json:"id"`
-	Username  string     `db:"username" json:"username"`
-	Password  string     `db:"password" json:"-"`
-	Email     string     `db:"email" json:"email"`
-	DomainID  int64      `db:"domain_id" json:"domain_id"`
-	Role      string     `db:"role" json:"role"`
-	CreatedAt time.Time  `db:"created_at" json:"created_at"`
-	UpdatedAt time.Time  `db:"updated_at" json:"updated_at"`
+	ID            int64      `db:"id" json:"id"`
+	Username      string     `db:"username" json:"username"`
+	Password      string     `db:"password" json:"-"`
+	Email         string     `db:"email" json:"email"`
+	DomainID      int64      `db:"domain_id" json:"domain_id"`
+	Role          string     `db:"role" json:"role"`
+	IsActive      bool       `db:"is_active" json:"is_active"`
+	LastLoginAt   *time.Time `db:"last_login_at" json:"last_login_at,omitempty"`
+	CreatedBy     *int64     `db:"created_by" json:"created_by,omitempty"`
+	CreatedAt     time.Time  `db:"created_at" json:"created_at"`
+	UpdatedAt     time.Time  `db:"updated_at" json:"updated_at"`
 }
 
 type Domain struct {
@@ -22,6 +25,7 @@ type Domain struct {
 	Name        string    `db:"name" json:"name"`
 	Description string    `db:"description" json:"description"`
 	CreatedAt   time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt   time.Time `db:"updated_at" json:"updated_at"`
 }
 
 type Workflow struct {
@@ -96,6 +100,7 @@ type Executor struct {
 	LastHeartbeat  rqlite.NullTime `db:"last_heartbeat" json:"last_heartbeat"`
 	Capacity       int64          `db:"capacity" json:"capacity"`
 	CurrentLoad    int64          `db:"current_load" json:"current_load"`
+	IsGlobal       bool           `db:"is_global" json:"is_global"`   // 是否全局执行器
 	CreatedAt      time.Time      `db:"created_at" json:"created_at"`
 	UpdatedAt      time.Time      `db:"updated_at" json:"updated_at"`
 }

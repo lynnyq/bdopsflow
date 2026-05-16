@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/lynnyq/bdopsflow/scheduler/internal/service"
 )
 
 var jwtSecret = []byte("bdopsflow-secret-key")
@@ -109,6 +110,52 @@ func RBACMiddleware(allowedRoles ...string) gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusForbidden, gin.H{"error": "Insufficient permissions"})
+		c.Abort()
+	}
+}
+
+func RequireSystemAdmin(permissionService *service.PermissionService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID, exists := c.Get("user_id")
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+			c.Abort()
+			return
+		}
+
+		isAdmin, err := permissionService.IsSystemAdmin(c.Request.Context(), userID.(int64))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check permissions"})
+			c.Abort()
+			return
+		}
+
+		if !isAdmin {
+			c.JSON(http.StatusForbidden, gin.H{"error": "System admin access required"})
+			c.Abort()
+			return
+		}
+
+		c.Next()
+	}
+}
+
+func RequireAdminOrDomainAdmin() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		role, exists := c.Get("role")
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+			c.Abort()
+			return
+		}
+
+		userRole := role.(string)
+		if userRole == "system_admin" || userRole == "domain_admin" {
+			c.Next()
+			return
+		}
+
+		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		c.Abort()
 	}
 }

@@ -63,7 +63,12 @@ func main() {
 
 	schedulerService := service.NewSchedulerService(*db, redisClient)
 
-	// 启动定时清理卡住任务的例程
+	permissionService := service.NewPermissionService(*db, redisClient)
+	userAdminService := service.NewUserAdminService(*db, permissionService)
+	roleAdminService := service.NewRoleAdminService(*db, permissionService)
+	domainAdminService := service.NewDomainAdminService(*db)
+	executorDomainService := service.NewExecutorDomainService(*db)
+
 	schedulerService.StartCleanupRoutine()
 
 	webhookSvc := webhook.NewService()
@@ -91,6 +96,7 @@ func main() {
 	})
 
 	authHandler := handler.NewAuthHandler(db)
+	userAdminHandler := handler.NewUserAdminHandler(userAdminService)
 	router.POST("/api/auth/login", authHandler.Login)
 	router.POST("/api/auth/register", authHandler.Register)
 
@@ -98,6 +104,8 @@ func main() {
 	protected.Use(middleware.JWTAuthMiddleware())
 	{
 		protected.GET("/auth/current", authHandler.GetCurrentUser)
+		protected.PUT("/auth/profile", userAdminHandler.UpdateCurrentUser)
+		protected.POST("/auth/change-password", userAdminHandler.ChangePassword)
 
 		taskHandler := handler.NewTaskHandler(schedulerService)
 		tasks := protected.Group("/tasks")
@@ -156,6 +164,43 @@ func main() {
 			dashboard.GET("/scheduler/status", dashboardHandler.GetSchedulerStatus)
 			dashboard.POST("/scheduler/pause", middleware.RBACMiddleware("admin"), dashboardHandler.PauseScheduler)
 			dashboard.POST("/scheduler/resume", middleware.RBACMiddleware("admin"), dashboardHandler.ResumeScheduler)
+		}
+
+		admin := protected.Group("/admin")
+		{
+			permissionHandler := handler.NewPermissionHandler(permissionService)
+			admin.GET("/permissions", middleware.RequireSystemAdmin(permissionService), permissionHandler.GetAllPermissions)
+
+			admin.GET("/users", middleware.RequireSystemAdmin(permissionService), userAdminHandler.ListUsers)
+			admin.GET("/users/:id", middleware.RequireSystemAdmin(permissionService), userAdminHandler.GetUser)
+			admin.POST("/users", middleware.RequireSystemAdmin(permissionService), userAdminHandler.CreateUser)
+			admin.PUT("/users/:id", middleware.RequireAdminOrDomainAdmin(), userAdminHandler.UpdateUser)
+			admin.DELETE("/users/:id", middleware.RequireSystemAdmin(permissionService), userAdminHandler.DeleteUser)
+			admin.POST("/users/:id/roles", middleware.RequireSystemAdmin(permissionService), userAdminHandler.AssignUserRoles)
+			admin.GET("/users/:id/roles", middleware.RequireSystemAdmin(permissionService), userAdminHandler.GetUserRoles)
+			admin.POST("/users/:id/domains", middleware.RequireSystemAdmin(permissionService), userAdminHandler.AssignUserDomains)
+			admin.POST("/users/:id/reset-password", middleware.RequireAdminOrDomainAdmin(), userAdminHandler.ResetUserPassword)
+
+			roleAdminHandler := handler.NewRoleAdminHandler(roleAdminService)
+			admin.GET("/roles", middleware.RequireSystemAdmin(permissionService), roleAdminHandler.ListRoles)
+			admin.GET("/roles/:id", middleware.RequireSystemAdmin(permissionService), roleAdminHandler.GetRole)
+			admin.POST("/roles", middleware.RequireSystemAdmin(permissionService), roleAdminHandler.CreateRole)
+			admin.PUT("/roles/:id", middleware.RequireSystemAdmin(permissionService), roleAdminHandler.UpdateRole)
+			admin.DELETE("/roles/:id", middleware.RequireSystemAdmin(permissionService), roleAdminHandler.DeleteRole)
+			admin.GET("/roles/:id/permissions", middleware.RequireSystemAdmin(permissionService), roleAdminHandler.GetRolePermissions)
+			admin.POST("/roles/:id/permissions", middleware.RequireSystemAdmin(permissionService), roleAdminHandler.AssignPermissions)
+
+			domainAdminHandler := handler.NewDomainAdminHandler(domainAdminService)
+			admin.GET("/domains", middleware.RequireSystemAdmin(permissionService), domainAdminHandler.ListDomains)
+			admin.GET("/domains/:id", middleware.RequireSystemAdmin(permissionService), domainAdminHandler.GetDomain)
+			admin.POST("/domains", middleware.RequireSystemAdmin(permissionService), domainAdminHandler.CreateDomain)
+			admin.PUT("/domains/:id", middleware.RequireSystemAdmin(permissionService), domainAdminHandler.UpdateDomain)
+			admin.DELETE("/domains/:id", middleware.RequireSystemAdmin(permissionService), domainAdminHandler.DeleteDomain)
+
+			executorDomainHandler := handler.NewExecutorDomainHandler(executorDomainService)
+			admin.GET("/executors/:id/domains", middleware.RequireSystemAdmin(permissionService), executorDomainHandler.GetExecutorDomains)
+			admin.POST("/executors/:id/domains", middleware.RequireSystemAdmin(permissionService), executorDomainHandler.AssignDomains)
+			admin.DELETE("/executors/:id/domains/:domainId", middleware.RequireSystemAdmin(permissionService), executorDomainHandler.RemoveDomain)
 		}
 	}
 
