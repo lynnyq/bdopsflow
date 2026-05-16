@@ -112,23 +112,23 @@
         </div>
       </section>
 
-      <!-- Right Column: Workflows & Executors -->
+      <!-- Right Column: Quick Actions & Executors -->
       <div class="right-column">
-        <!-- Workflows -->
-        <section class="workflows-section">
+        <!-- Quick Actions -->
+        <section class="actions-section">
           <div class="section-header">
-            <h2 class="section-title">工作流</h2>
-            <router-link to="/workflows" class="view-all">查看全部 →</router-link>
+            <h2 class="section-title">快捷操作</h2>
           </div>
-          <div class="workflow-stats">
-            <div class="workflow-item">
-              <span class="workflow-value">{{ stats.workflows.total }}</span>
-              <span class="workflow-label">总数</span>
-            </div>
-            <div class="workflow-item">
-              <span class="workflow-value success">{{ stats.workflows.enabled }}</span>
-              <span class="workflow-label">已启用</span>
-            </div>
+          <div class="actions-grid">
+            <router-link to="/tasks" class="action-item">
+              <span class="action-label">管理任务</span>
+            </router-link>
+            <router-link to="/executors" class="action-item">
+              <span class="action-label">管理执行器</span>
+            </router-link>
+            <router-link to="/logs" class="action-item">
+              <span class="action-label">查看日志</span>
+            </router-link>
           </div>
         </section>
 
@@ -151,27 +151,6 @@
               <span class="executor-value">{{ stats.executors.offline }}</span>
               <span class="executor-label">离线</span>
             </div>
-          </div>
-        </section>
-
-        <!-- Quick Actions -->
-        <section class="actions-section">
-          <div class="section-header">
-            <h2 class="section-title">快捷操作</h2>
-          </div>
-          <div class="actions-grid">
-            <router-link to="/tasks" class="action-item">
-              <span class="action-label">管理任务</span>
-            </router-link>
-            <router-link to="/workflows" class="action-item">
-              <span class="action-label">管理工作流</span>
-            </router-link>
-            <router-link to="/executors" class="action-item">
-              <span class="action-label">管理执行器</span>
-            </router-link>
-            <router-link to="/logs" class="action-item">
-              <span class="action-label">查看日志</span>
-            </router-link>
           </div>
         </section>
       </div>
