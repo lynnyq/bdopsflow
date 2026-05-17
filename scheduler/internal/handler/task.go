@@ -178,10 +178,12 @@ func (h *TaskHandler) Create(c *gin.Context) {
 		domainID = 1
 	}
 
-	// 处理 AssignedExecutorID，如果为空字符串则设置为 NULL
-	assignedExecutorID := req.AssignedExecutorID
-	if assignedExecutorID == 0 {
-		assignedExecutorID = 0
+	// 处理 AssignedExecutorID，如果为 0 或未指定则设置为 NULL
+	var assignedExecutorID interface{}
+	if req.AssignedExecutorID > 0 {
+		assignedExecutorID = req.AssignedExecutorID
+	} else {
+		assignedExecutorID = nil
 	}
 
 	var query string

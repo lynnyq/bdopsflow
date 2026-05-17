@@ -514,12 +514,20 @@ func (s *SchedulerService) UpdateTask(ctx context.Context, id int64, task *model
 		isEnabled = 1
 	}
 
+	// 处理 AssignedExecutorID，0 改为 NULL
+	var assignedExecutorID interface{}
+	if task.AssignedExecutorID > 0 {
+		assignedExecutorID = task.AssignedExecutorID
+	} else {
+		assignedExecutorID = nil
+	}
+
 	stmt := rqlite.ParameterizedStatement{
 		Query: query,
 		Arguments: []interface{}{
 			task.Name, task.Type, task.Config, task.CronExpression,
 			int64(task.TimeoutSeconds), int64(task.RetryCount), int64(task.RetryInterval),
-			isEnabled, task.WebhookConfig, task.AssignedExecutorID, time.Now().Format("2006-01-02 15:04:05"), id,
+			isEnabled, task.WebhookConfig, assignedExecutorID, time.Now().Format("2006-01-02 15:04:05"), id,
 		},
 	}
 
