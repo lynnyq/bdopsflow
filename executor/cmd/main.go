@@ -17,7 +17,7 @@ import (
 
 func main() {
 	configFile := flag.String("config", "", "path to config file (default: config.yaml in current directory)")
-	hostname := flag.String("hostname", "", "hostname or IP:port for executor registration")
+	hostname := flag.String("hostname", "", "override hostname or IP for executor registration (default: system hostname)")
 	flag.Parse()
 
 	logger.Init()

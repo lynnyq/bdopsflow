@@ -1,7 +1,6 @@
 # Executor 执行器配置
 app:
   executor_name: "executor-1"
-  hostname: "localhost"
   capacity: 10
 
 # Scheduler gRPC 地址
