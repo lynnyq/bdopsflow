@@ -1706,10 +1706,17 @@ type TaskExecutionWithNames struct {
 }
 
 // GetAllExecutions 获取所有执行记录，支持筛选和分页
-func (s *SchedulerService) GetAllExecutions(ctx context.Context, filter map[string]string, page int, pageSize int) ([]*TaskExecutionWithNames, int, error) {
+func (s *SchedulerService) GetAllExecutions(ctx context.Context, domainID int64, role string, filter map[string]string, page int, pageSize int) ([]*TaskExecutionWithNames, int, error) {
 	// 构建 WHERE 条件
 	whereClause := " WHERE 1=1"
 	var args []interface{}
+	
+	// 应用领域隔离
+	isSystemAdmin := role == "system_admin" || role == "admin"
+	if !isSystemAdmin {
+		whereClause += " AND t.domain_id = ?"
+		args = append(args, domainID)
+	}
 
 	// 应用筛选条件
 	if filter["id"] != "" {
@@ -2015,6 +2022,167 @@ func (s *SchedulerService) BatchDeleteExecutions(ctx context.Context, ids []int6
 		Query:     deleteExecQuery,
 		Arguments: args,
 	}
+	_, err = s.DB.WriteOneParameterized(deleteExecStmt)
+	return err
+}
+
+// DeleteExecutionWithDomainCheck 删除指定执行记录，先验证领域权限
+func (s *SchedulerService) DeleteExecutionWithDomainCheck(ctx context.Context, id int64, domainID int64, role string) error {
+	isSystemAdmin := role == "system_admin" || role == "admin"
+	
+	// 先验证领域权限
+	checkQuery := `
+		SELECT te.execution_id 
+		FROM bdopsflow_task_executions te
+		LEFT JOIN bdopsflow_tasks t ON te.task_id = t.id
+		WHERE te.id = ?
+	`
+	checkArgs := []interface{}{id}
+	
+	if !isSystemAdmin {
+		checkQuery += " AND t.domain_id = ?"
+		checkArgs = append(checkArgs, domainID)
+	}
+	
+	checkStmt := rqlite.ParameterizedStatement{
+		Query:     checkQuery,
+		Arguments: checkArgs,
+	}
+	
+	qr, err := s.DB.QueryOneParameterized(checkStmt)
+	if err != nil {
+		return err
+	}
+	if qr.Err != nil {
+		return qr.Err
+	}
+	
+	var executionID string
+	if qr.Next() {
+		row, err := qr.Slice()
+		if err == nil {
+			executionID = rowString(row[0])
+		}
+	} else {
+		return fmt.Errorf("execution not found or permission denied")
+	}
+	
+	// 删除相关日志
+	if executionID != "" {
+		deleteLogsQuery := "DELETE FROM bdopsflow_task_logs WHERE execution_id = ?"
+		deleteLogsStmt := rqlite.ParameterizedStatement{
+			Query:     deleteLogsQuery,
+			Arguments: []interface{}{executionID},
+		}
+		_, _ = s.DB.WriteOneParameterized(deleteLogsStmt)
+	}
+	
+	// 删除执行记录
+	deleteExecQuery := "DELETE FROM bdopsflow_task_executions WHERE id = ?"
+	deleteExecStmt := rqlite.ParameterizedStatement{
+		Query:     deleteExecQuery,
+		Arguments: []interface{}{id},
+	}
+	_, err = s.DB.WriteOneParameterized(deleteExecStmt)
+	return err
+}
+
+// BatchDeleteExecutionsWithDomainCheck 批量删除执行记录，先验证领域权限
+func (s *SchedulerService) BatchDeleteExecutionsWithDomainCheck(ctx context.Context, ids []int64, domainID int64, role string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	
+	isSystemAdmin := role == "system_admin" || role == "admin"
+	
+	// 构建查询参数占位符
+	placeholders := make([]string, len(ids))
+	args := make([]interface{}, len(ids))
+	for i, id := range ids {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+	
+	// 先验证领域权限并获取 execution_ids
+	checkQuery := `
+		SELECT te.execution_id 
+		FROM bdopsflow_task_executions te
+		LEFT JOIN bdopsflow_tasks t ON te.task_id = t.id
+		WHERE te.id IN (` + strings.Join(placeholders, ",") + `)
+	`
+	
+	if !isSystemAdmin {
+		checkQuery += " AND t.domain_id = ?"
+		args = append(args, domainID)
+	}
+	
+	checkStmt := rqlite.ParameterizedStatement{
+		Query:     checkQuery,
+		Arguments: args,
+	}
+	
+	qr, err := s.DB.QueryOneParameterized(checkStmt)
+	if err != nil {
+		return err
+	}
+	if qr.Err != nil {
+		return qr.Err
+	}
+	
+	var executionIDs []string
+	for qr.Next() {
+		row, err := qr.Slice()
+		if err != nil {
+			continue
+		}
+		eid := rowString(row[0])
+		executionIDs = append(executionIDs, eid)
+	}
+	
+	// 删除相关日志
+	if len(executionIDs) > 0 {
+		logPlaceholders := make([]string, len(executionIDs))
+		logArgs := make([]interface{}, len(executionIDs))
+		for i, eid := range executionIDs {
+			logPlaceholders[i] = "?"
+			logArgs[i] = eid
+		}
+		
+		deleteLogsQuery := "DELETE FROM bdopsflow_task_logs WHERE execution_id IN (" + strings.Join(logPlaceholders, ",") + ")"
+		deleteLogsStmt := rqlite.ParameterizedStatement{
+			Query:     deleteLogsQuery,
+			Arguments: logArgs,
+		}
+		_, _ = s.DB.WriteOneParameterized(deleteLogsStmt)
+	}
+	
+	// 删除执行记录
+	deleteArgs := make([]interface{}, len(ids))
+	for i, id := range ids {
+		deleteArgs[i] = id
+	}
+	
+	deleteExecQuery := "DELETE FROM bdopsflow_task_executions WHERE id IN (" + strings.Join(placeholders, ",") + ")"
+	deleteExecStmt := rqlite.ParameterizedStatement{
+		Query:     deleteExecQuery,
+		Arguments: deleteArgs,
+	}
+	
+	if !isSystemAdmin {
+		// 再次应用领域权限
+		deleteExecQuery = `
+			DELETE FROM bdopsflow_task_executions 
+			WHERE id IN (` + strings.Join(placeholders, ",") + `)
+			AND task_id IN (SELECT id FROM bdopsflow_tasks WHERE domain_id = ?)
+		`
+		deleteArgs = append(deleteArgs, domainID)
+	}
+	
+	deleteExecStmt = rqlite.ParameterizedStatement{
+		Query:     deleteExecQuery,
+		Arguments: deleteArgs,
+	}
+	
 	_, err = s.DB.WriteOneParameterized(deleteExecStmt)
 	return err
 }
@@ -2778,10 +2946,17 @@ func rowBool(v interface{}) bool {
 }
 
 // GetExecutionStats 获取执行记录统计信息
-func (s *SchedulerService) GetExecutionStats(ctx context.Context, filter map[string]string) (map[string]int, error) {
+func (s *SchedulerService) GetExecutionStats(ctx context.Context, domainID int64, role string, filter map[string]string) (map[string]int, error) {
 	// 构建 WHERE 条件
 	whereClause := " WHERE 1=1"
 	var args []interface{}
+	
+	// 应用领域隔离
+	isSystemAdmin := role == "system_admin" || role == "admin"
+	if !isSystemAdmin {
+		whereClause += " AND t.domain_id = ?"
+		args = append(args, domainID)
+	}
 
 	// 应用筛选条件
 	if filter["id"] != "" {
