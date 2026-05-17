@@ -27,7 +27,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
 		return
 	}
 
@@ -38,17 +38,17 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 	qr, err := h.db.QueryOneParameterized(stmt)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "服务器错误，请稍后重试"})
 		return
 	}
 
 	if qr.Err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": qr.Err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "服务器错误，请稍后重试"})
 		return
 	}
 
 	if !qr.Next() {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误"})
 		return
 	}
 
@@ -57,12 +57,12 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	var domainID rqlite.NullInt64
 	err = qr.Scan(&userID, &username, &hashedPassword, &role, &email, &domainID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "服务器错误，请稍后重试"})
 		return
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(req.Password)); err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误"})
 		return
 	}
 
@@ -77,7 +77,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	tokenString, err := middleware.GenerateToken(userID, username, role, dID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "服务器错误，请稍后重试"})
 		return
 	}
 
@@ -102,7 +102,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
 		return
 	}
 
@@ -113,7 +113,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "服务器错误，请稍后重试"})
 		return
 	}
 
@@ -124,12 +124,12 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	}
 	result, err := h.db.WriteOneParameterized(stmt)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "服务器错误，请稍后重试"})
 		return
 	}
 
 	if result.Err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": result.Err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "服务器错误，请稍后重试"})
 		return
 	}
 
@@ -145,7 +145,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 	userID, exists := c.Get("user_id")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "未授权，请重新登录"})
 		return
 	}
 
@@ -156,17 +156,17 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 	}
 	qr, err := h.db.QueryOneParameterized(stmt)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "服务器错误，请稍后重试"})
 		return
 	}
 
 	if qr.Err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": qr.Err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "服务器错误，请稍后重试"})
 		return
 	}
 
 	if !qr.Next() {
-		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "用户不存在"})
 		return
 	}
 
@@ -174,7 +174,7 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 	var domainID rqlite.NullInt64
 	err = qr.Scan(&username, &role, &email, &domainID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "服务器错误，请稍后重试"})
 		return
 	}
 

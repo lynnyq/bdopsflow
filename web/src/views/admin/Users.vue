@@ -163,6 +163,7 @@ import { userAdminAPI, roleAdminAPI, domainAdminAPI, type User, type Role, type 
 import { adminAPI } from '@/api'
 import { passwordUtils, validatePassword } from '@/utils/password'
 import { useAuthStore } from '@/stores/auth'
+import { handleError, handleSuccess, formatValue, formatNumber } from '@/utils/error'
 
 const authStore = useAuthStore()
 
@@ -427,14 +428,14 @@ const handleConfirmResetPassword = async () => {
   })
 }
 
-const getRoleTagType = (role: string) => {
+const getRoleTagType = (role: string): 'primary' | 'success' | 'info' | 'warning' | 'danger' => {
   switch (role) {
     case 'system_admin':
       return 'danger'
     case 'domain_admin':
       return 'warning'
     default:
-      return ''
+      return 'info'
   }
 }
 

@@ -86,6 +86,7 @@ import { ElMessage, FormInstance, FormRules } from 'element-plus'
 import { authAPI } from '@/api'
 import { passwordUtils, validatePassword } from '@/utils/password'
 import { useAuthStore } from '@/stores/auth'
+import { handleError, handleSuccess, formatValue } from '@/utils/error'
 
 const authStore = useAuthStore()
 

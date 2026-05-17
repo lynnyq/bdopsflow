@@ -911,8 +911,8 @@ func (s *SchedulerService) RegisterExecutor(ctx context.Context, executorID, nam
 	}
 
 	query := `
-		INSERT INTO bdopsflow_executors (executor_id, name, address, status, capacity, current_load, last_heartbeat, created_at, updated_at)
-		VALUES (?, ?, ?, 'online', ?, 0, ?, ?, ?)
+		INSERT INTO bdopsflow_executors (executor_id, name, address, status, capacity, current_load, is_global, last_heartbeat, created_at, updated_at)
+		VALUES (?, ?, ?, 'online', ?, 0, 1, ?, ?, ?)
 		ON CONFLICT(executor_id) DO UPDATE SET
 			name = excluded.name, address = excluded.address, status = 'online', capacity = excluded.capacity,
 			last_heartbeat = excluded.last_heartbeat, updated_at = excluded.updated_at
@@ -1214,7 +1214,7 @@ func (s *SchedulerService) forceFailTask(ctx context.Context, executionID string
 // GetExecutorByID 根据 executor_id 获取执行器信息
 func (s *SchedulerService) GetExecutorByID(ctx context.Context, executorID string) (*model.Executor, error) {
 	query := `
-		SELECT id, executor_id, name, address, status, last_heartbeat, capacity, current_load, created_at, updated_at
+		SELECT id, executor_id, name, address, status, last_heartbeat, capacity, current_load, is_global, created_at, updated_at
 		FROM bdopsflow_executors WHERE executor_id = ?
 	`
 

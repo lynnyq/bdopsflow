@@ -318,6 +318,7 @@ import { Refresh, Delete, Document, View, List, CircleCheck, CircleClose, Loadin
 import { logAPI, taskAPI, executorAPI } from '@/api'
 import TaskLogViewer from '@/components/TaskLogViewer.vue'
 import type { TaskExecutionListResponse, Task, Executor } from '@/types'
+import { handleError, handleSuccess, formatValue, formatNumber } from '@/utils/error'
 
 const route = useRoute()
 const executions = ref<TaskExecutionListResponse[]>([])

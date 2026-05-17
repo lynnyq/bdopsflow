@@ -112,7 +112,7 @@ func (s *UserAdminService) CreateUser(ctx context.Context, username, email, pass
 	}
 
 	query := `
-		INSERT INTO bdopsflow_users (username, email, password_hash, is_active, created_by, created_at, updated_at)
+		INSERT INTO bdopsflow_users (username, email, password, is_active, created_by, created_at, updated_at)
 		VALUES (?, ?, ?, 1, ?, ?, ?)
 	`
 
@@ -312,7 +312,7 @@ func (s *UserAdminService) AssignUserDomains(ctx context.Context, userID int64, 
 
 // GetUserPasswordHash 获取用户的密码哈希
 func (s *UserAdminService) GetUserPasswordHash(ctx context.Context, userID int64) (string, error) {
-	query := `SELECT password_hash FROM bdopsflow_users WHERE id = ?`
+	query := `SELECT password FROM bdopsflow_users WHERE id = ?`
 
 	stmt := rqlite.ParameterizedStatement{
 		Query:     query,
@@ -395,7 +395,7 @@ func (s *UserAdminService) ChangePassword(ctx context.Context, userID int64, old
 	}
 
 	// 更新密码
-	query := `UPDATE bdopsflow_users SET password_hash = ?, updated_at = ? WHERE id = ?`
+	query := `UPDATE bdopsflow_users SET password = ?, updated_at = ? WHERE id = ?`
 	now := time.Now()
 	stmt := rqlite.ParameterizedStatement{
 		Query:     query,
@@ -429,7 +429,7 @@ func (s *UserAdminService) ResetUserPassword(ctx context.Context, targetUserID i
 	}
 
 	// 更新密码
-	query := `UPDATE bdopsflow_users SET password_hash = ?, updated_at = ? WHERE id = ?`
+	query := `UPDATE bdopsflow_users SET password = ?, updated_at = ? WHERE id = ?`
 	now := time.Now()
 	stmt := rqlite.ParameterizedStatement{
 		Query:     query,

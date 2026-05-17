@@ -180,6 +180,7 @@ import { ElMessage } from 'element-plus'
 import { User, Lock, Key, Cpu, Connection, Monitor, CircleClose, Timer, Expand } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
 import axios from 'axios'
+import { translateErrorMessage } from '@/utils/error'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -222,7 +223,41 @@ const handleLogin = async () => {
         ElMessage.success('登录成功，欢迎回来！')
         router.push('/')
       } catch (error: any) {
-        errorMessage.value = error?.response?.data?.error || '用户名或密码错误'
+      // 详细错误信息处理 - 确保全部是中文
+      let errorMsg = '登录失败'
+      
+      // 从响应中获取错误信息
+      if (error?.response?.data?.error) {
+        errorMsg = error.response.data.error
+      } else if (error?.response?.data?.message) {
+        errorMsg = error.response.data.message
+      } else if (error?.message) {
+        errorMsg = error.message
+      }
+      
+      // 使用统一的翻译函数转换为中文
+      errorMsg = translateErrorMessage(errorMsg)
+      
+      // 如果翻译后还是英文或未知错误，设置为通用的中文提示
+      if (!/[\u4e00-\u9fa5]/.test(errorMsg)) {
+        if (error?.response?.status === 401) {
+          errorMsg = '用户名或密码错误'
+        } else if (error?.response?.status === 400) {
+          errorMsg = '请求参数错误'
+        } else if (error?.response?.status >= 500) {
+          errorMsg = '服务器错误，请稍后重试'
+        } else {
+          errorMsg = '登录失败，请稍后重试'
+        }
+      }
+      
+      errorMessage.value = errorMsg
+      ElMessage.error(errorMsg)
+        
+        // 如果是 401 错误，不触发重定向，保持在登录页
+        if (error?.response?.status === 401) {
+          console.warn('登录失败:', errorMsg)
+        }
       } finally {
         isLoading.value = false
       }

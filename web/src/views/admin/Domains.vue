@@ -115,6 +115,7 @@ import { ref, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Edit, Delete, Document, Search, Refresh } from '@element-plus/icons-vue'
 import { domainAdminAPI, type Domain } from '@/api/admin'
+import { handleError, handleSuccess, formatValue, formatNumber } from '@/utils/error'
 
 const domains = ref<Domain[]>([])
 const loading = ref(false)

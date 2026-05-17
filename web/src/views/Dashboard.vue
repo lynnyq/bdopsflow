@@ -8,7 +8,7 @@
             <el-icon :size="24"><List /></el-icon>
           </div>
           <div class="stat-content">
-            <div class="stat-value">{{ stats.tasks.total }}</div>
+            <div class="stat-value">{{ stats?.tasks?.total ?? 0 }}</div>
             <div class="stat-label">总任务</div>
           </div>
         </div>
@@ -17,7 +17,7 @@
             <el-icon :size="24"><CircleCheck /></el-icon>
           </div>
           <div class="stat-content">
-            <div class="stat-value">{{ stats.tasks.enabled }}</div>
+            <div class="stat-value">{{ stats?.tasks?.enabled ?? 0 }}</div>
             <div class="stat-label">已启用</div>
           </div>
         </div>
@@ -26,7 +26,7 @@
             <el-icon :size="24"><Clock /></el-icon>
           </div>
           <div class="stat-content">
-            <div class="stat-value">{{ stats.tasks.cron }}</div>
+            <div class="stat-value">{{ stats?.tasks?.cron ?? 0 }}</div>
             <div class="stat-label">定时任务</div>
           </div>
         </div>
@@ -35,7 +35,7 @@
             <el-icon :size="24"><Timer /></el-icon>
           </div>
           <div class="stat-content">
-            <div class="stat-value">{{ stats.tasks.running }}</div>
+            <div class="stat-value">{{ stats?.tasks?.running ?? 0 }}</div>
             <div class="stat-label">运行中</div>
           </div>
         </div>
@@ -44,7 +44,7 @@
             <el-icon :size="24"><Cpu /></el-icon>
           </div>
           <div class="stat-content">
-            <div class="stat-value">{{ stats.executors.total }}</div>
+            <div class="stat-value">{{ stats?.executors?.total ?? 0 }}</div>
             <div class="stat-label">执行器总数</div>
           </div>
         </div>
@@ -53,7 +53,7 @@
             <el-icon :size="24"><CircleCheck /></el-icon>
           </div>
           <div class="stat-content">
-            <div class="stat-value">{{ stats.executors.active }}</div>
+            <div class="stat-value">{{ stats?.executors?.active ?? 0 }}</div>
             <div class="stat-label">在线执行器</div>
           </div>
         </div>
@@ -62,7 +62,7 @@
             <el-icon :size="24"><Connection /></el-icon>
           </div>
           <div class="stat-content">
-            <div class="stat-value">{{ stats.workflows.total }}</div>
+            <div class="stat-value">{{ stats?.workflows?.total ?? 0 }}</div>
             <div class="stat-label">工作流总数</div>
           </div>
         </div>
@@ -71,7 +71,7 @@
             <el-icon :size="24"><CircleCheck /></el-icon>
           </div>
           <div class="stat-content">
-            <div class="stat-value">{{ stats.workflows.enabled }}</div>
+            <div class="stat-value">{{ stats?.workflows?.enabled ?? 0 }}</div>
             <div class="stat-label">已启用工作流</div>
           </div>
         </div>
@@ -86,7 +86,7 @@
             <el-icon :size="24"><CircleCheck /></el-icon>
           </div>
           <div class="stat-content">
-            <div class="stat-value">{{ stats.tasks.success }}</div>
+            <div class="stat-value">{{ stats?.tasks?.success ?? 0 }}</div>
             <div class="stat-label">成功执行</div>
           </div>
         </div>
@@ -95,7 +95,7 @@
             <el-icon :size="24"><CircleClose /></el-icon>
           </div>
           <div class="stat-content">
-            <div class="stat-value">{{ stats.tasks.failed }}</div>
+            <div class="stat-value">{{ stats?.tasks?.failed ?? 0 }}</div>
             <div class="stat-label">失败执行</div>
           </div>
         </div>
@@ -104,7 +104,7 @@
             <el-icon :size="24"><Timer /></el-icon>
           </div>
           <div class="stat-content">
-            <div class="stat-value">{{ stats.tasks.avg_duration }}s</div>
+            <div class="stat-value">{{ stats?.tasks?.avg_duration ?? 0 }}s</div>
             <div class="stat-label">平均执行时长</div>
           </div>
         </div>
@@ -206,6 +206,7 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { VideoPlay, VideoPause, Refresh, List, CircleCheck, CircleClose, Clock, Timer, Cpu, Connection, DataLine } from '@element-plus/icons-vue'
 import { dashboardAPI } from '@/api'
+import { handleError, handleSuccess, formatValue, formatNumber } from '@/utils/error'
 
 interface DashboardStats {
   tasks: {
@@ -249,7 +250,28 @@ let refreshInterval: number | null = null
 const loadDashboardStats = async () => {
   try {
     const response = await dashboardAPI.getStats()
-    stats.value = response.data
+    const data = response.data || {}
+    
+    // 安全地合并数据，保持默认结构
+    stats.value = {
+      tasks: {
+        total: data.tasks?.total ?? 0,
+        enabled: data.tasks?.enabled ?? 0,
+        cron: data.tasks?.cron ?? 0,
+        running: data.tasks?.running ?? 0,
+        success: data.tasks?.success ?? 0,
+        failed: data.tasks?.failed ?? 0,
+        avg_duration: data.tasks?.avg_duration ?? 0
+      },
+      workflows: {
+        total: data.workflows?.total ?? 0,
+        enabled: data.workflows?.enabled ?? 0
+      },
+      executors: {
+        total: data.executors?.total ?? 0,
+        active: data.executors?.active ?? 0
+      }
+    }
   } catch (error) {
     console.error('Failed to load dashboard stats:', error)
   }
@@ -258,7 +280,9 @@ const loadDashboardStats = async () => {
 const loadSchedulerStatus = async () => {
   try {
     const response = await dashboardAPI.getSchedulerStatus()
-    schedulerStatus.value = response.data
+    schedulerStatus.value = {
+      paused: response.data?.paused ?? false
+    }
   } catch (error) {
     console.error('Failed to load scheduler status:', error)
   }
@@ -267,7 +291,8 @@ const loadSchedulerStatus = async () => {
 const loadTrends = async () => {
   try {
     const response = await dashboardAPI.getTrends()
-    trends.value = response.data.items || []
+    const data = response.data || {}
+    trends.value = data.items || []
   } catch (error) {
     console.error('Failed to load trends:', error)
   }
@@ -313,10 +338,13 @@ const handleResumeScheduler = async () => {
 }
 
 const getBarHeight = (value: number): number => {
-  if (trends.value.length === 0) return 0
-  const maxValue = Math.max(...trends.value.map(t => Math.max(t.success, t.failed)))
+  if (!trends.value || trends.value.length === 0) return 0
+  const validTrends = trends.value.filter(t => t && typeof t.success === 'number' && typeof t.failed === 'number')
+  if (validTrends.length === 0) return 0
+  const maxValue = Math.max(...validTrends.map(t => Math.max(t.success, t.failed)))
   if (maxValue === 0) return 0
-  return Math.max(10, (value / maxValue) * 100)
+  const safeValue = typeof value === 'number' ? value : 0
+  return Math.max(10, (safeValue / maxValue) * 100)
 }
 
 const formatDate = (date: string): string => {
