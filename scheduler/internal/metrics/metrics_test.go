@@ -168,13 +168,13 @@ func TestMetricsCollector_GetSnapshot(t *testing.T) {
 }
 
 func TestMetricsCollector_MetricsConstants(t *testing.T) {
-	if MetricTasksCreated != "bdopsflow:tasks:created" {
+	if MetricTasksCreated != "bdopsflow:bdopsflow_tasks:created" {
 		t.Errorf("Unexpected MetricTasksCreated value")
 	}
-	if MetricTasksCompleted != "bdopsflow:tasks:completed" {
+	if MetricTasksCompleted != "bdopsflow:bdopsflow_tasks:completed" {
 		t.Errorf("Unexpected MetricTasksCompleted value")
 	}
-	if MetricExecutorsOnline != "bdopsflow:executors:online" {
+	if MetricExecutorsOnline != "bdopsflow:bdopsflow_executors:online" {
 		t.Errorf("Unexpected MetricExecutorsOnline value")
 	}
 }
@@ -223,7 +223,7 @@ func TestMetricsCollector_SetExecutorsOnline(t *testing.T) {
 	collector.SetExecutorsOnline(5)
 
 	if collector.gauges[MetricExecutorsOnline].Get() != 5 {
-		t.Errorf("Expected 5 online executors, got %f", collector.gauges[MetricExecutorsOnline].Get())
+		t.Errorf("Expected 5 online bdopsflow_executors, got %f", collector.gauges[MetricExecutorsOnline].Get())
 	}
 }
 

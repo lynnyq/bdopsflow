@@ -224,12 +224,12 @@ func (m *MetricsCollector) StartBackgroundCollection(ctx context.Context) {
 }
 
 const (
-	MetricTasksCreated       = "bdopsflow:tasks:created"
-	MetricTasksCompleted    = "bdopsflow:tasks:completed"
-	MetricTasksFailed       = "bdopsflow:tasks:failed"
-	MetricTasksRunning      = "bdopsflow:tasks:running"
-	MetricExecutorsOnline   = "bdopsflow:executors:online"
-	MetricExecutorsOffline  = "bdopsflow:executors:offline"
+	MetricTasksCreated       = "bdopsflow:bdopsflow_tasks:created"
+	MetricTasksCompleted    = "bdopsflow:bdopsflow_tasks:completed"
+	MetricTasksFailed       = "bdopsflow:bdopsflow_tasks:failed"
+	MetricTasksRunning      = "bdopsflow:bdopsflow_tasks:running"
+	MetricExecutorsOnline   = "bdopsflow:bdopsflow_executors:online"
+	MetricExecutorsOffline  = "bdopsflow:bdopsflow_executors:offline"
 	MetricTaskDuration      = "bdopsflow:task:duration_seconds"
 	MetricWorkflowCreated   = "bdopsflow:workflow:created"
 	MetricWorkflowRunning   = "bdopsflow:workflow:running"

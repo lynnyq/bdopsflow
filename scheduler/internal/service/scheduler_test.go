@@ -168,3 +168,63 @@ func TestHandleQueryError(t *testing.T) {
 		t.Error("expected no error")
 	}
 }
+
+func TestCalculateNextExecutionTime(t *testing.T) {
+	tests := []struct {
+		name        string
+		cronExpr    string
+		isEnabled   bool
+		expectEmpty bool
+	}{
+		{
+			name:        "valid 6-field cron enabled",
+			cronExpr:    "0 0 12 * * *",
+			isEnabled:   true,
+			expectEmpty: false,
+		},
+		{
+			name:        "valid 5-field cron enabled",
+			cronExpr:    "0 12 * * *",
+			isEnabled:   true,
+			expectEmpty: false,
+		},
+		{
+			name:        "disabled task",
+			cronExpr:    "0 0 12 * * *",
+			isEnabled:   false,
+			expectEmpty: true,
+		},
+		{
+			name:        "empty cron expression",
+			cronExpr:    "",
+			isEnabled:   true,
+			expectEmpty: true,
+		},
+		{
+			name:        "invalid cron expression",
+			cronExpr:    "invalid cron",
+			isEnabled:   true,
+			expectEmpty: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := CalculateNextExecutionTime(tt.cronExpr, tt.isEnabled)
+
+			if tt.expectEmpty && result != "" {
+				t.Errorf("expected empty string, got %q", result)
+			}
+			if !tt.expectEmpty && result == "" {
+				t.Error("expected non-empty result, got empty string")
+			}
+
+			if !tt.expectEmpty {
+				_, err := time.Parse(time.RFC3339, result)
+				if err != nil {
+					t.Errorf("expected RFC3339 format, got %q: %v", result, err)
+				}
+			}
+		})
+	}
+}

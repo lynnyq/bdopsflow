@@ -27,7 +27,7 @@ func (h *PermissionHandler) GetAllPermissions(c *gin.Context) {
 
 	slog.Debug("PermissionHandler.GetAllPermissions: handling request")
 
-	permissions := model.GetAllPermissionGroups()
+	bdopsflow_permissions := model.GetAllPermissionGroups()
 
-	c.JSON(http.StatusOK, gin.H{"items": permissions})
+	c.JSON(http.StatusOK, gin.H{"items": bdopsflow_permissions})
 }

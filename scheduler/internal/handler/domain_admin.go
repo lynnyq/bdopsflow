@@ -31,14 +31,14 @@ func (h *DomainAdminHandler) ListDomains(c *gin.Context) {
 
 	slog.Debug("DomainAdminHandler.ListDomains: handling request")
 
-	domains, err := h.svc.ListDomains(ctx)
+	bdopsflow_domains, err := h.svc.ListDomains(ctx)
 	if err != nil {
-		slog.Error("DomainAdminHandler.ListDomains: failed to list domains", "error", err)
+		slog.Error("DomainAdminHandler.ListDomains: failed to list bdopsflow_domains", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"items": domains})
+	c.JSON(http.StatusOK, gin.H{"items": bdopsflow_domains})
 }
 
 // GetDomain 获取领域详情

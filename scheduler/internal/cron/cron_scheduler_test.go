@@ -1,109 +1,248 @@
 package cron
 
 import (
+	"context"
 	"testing"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 )
 
-func TestCronScheduler_New(t *testing.T) {
-	// 测试创建新调度器
-	scheduler := NewCronScheduler(nil, nil)
-	if scheduler == nil {
-		t.Fatal("Expected scheduler to be created, got nil")
+func TestNewCronScheduler(t *testing.T) {
+	client := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
+	defer client.Close()
+
+	cs := NewCronScheduler(nil, client)
+
+	if cs == nil {
+		t.Error("NewCronScheduler should return a non-nil scheduler")
+	}
+
+	if cs.cron == nil {
+		t.Error("Cron scheduler should not be nil")
+	}
+
+	if cs.taskEntries == nil {
+		t.Error("taskEntries should be initialized")
+	}
+
+	if len(cs.taskEntries) != 0 {
+		t.Error("taskEntries should be empty initially")
 	}
 }
 
-func TestCronScheduler_RegisterAndUnregister(t *testing.T) {
-	scheduler := NewCronScheduler(nil, nil)
-	
-	err := scheduler.Start()
-	if err != nil {
-		t.Fatalf("Failed to start scheduler: %v", err)
-	}
-	defer scheduler.Stop()
+func TestCronScheduler_PauseResume(t *testing.T) {
+	client := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 15})
+	defer func() {
+		ctx := context.Background()
+		client.FlushDB(ctx)
+		client.Close()
+	}()
 
-	taskID := int64(1)
-	
-	// 测试注册任务
-	scheduler.RegisterTask(taskID, "@every 1s")
-	
-	// 测试取消注册任务
-	scheduler.UnregisterTask(taskID)
-}
+	cs := NewCronScheduler(nil, client)
 
-func TestCronScheduler_CronExpressionFormats(t *testing.T) {
-	scheduler := NewCronScheduler(nil, nil)
-	
-	err := scheduler.Start()
-	if err != nil {
-		t.Fatalf("Failed to start scheduler: %v", err)
-	}
-	defer scheduler.Stop()
-
-	testCases := []struct {
-		name     string
-		cronExpr string
-	}{
-		{
-			name:     "simple @every",
-			cronExpr: "@every 10s",
-		},
-		{
-			name:     "6-field with seconds",
-			cronExpr: "0/30 * * * * *",
-		},
+	if cs.IsPaused() {
+		t.Error("Scheduler should not be paused initially")
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			taskID := time.Now().UnixNano()
-			// 应该能成功注册
-			scheduler.RegisterTask(taskID, tc.cronExpr)
-		})
-	}
-}
+	cs.Pause()
 
-func TestCronScheduler_PauseAndResume(t *testing.T) {
-	scheduler := NewCronScheduler(nil, nil)
-	
-	err := scheduler.Start()
-	if err != nil {
-		t.Fatalf("Failed to start scheduler: %v", err)
-	}
-	defer scheduler.Stop()
-
-	// 初始状态应该不是暂停
-	if scheduler.IsPaused() {
-		t.Error("Expected scheduler not to be paused initially")
+	if !cs.IsPaused() {
+		t.Error("Scheduler should be paused after calling Pause()")
 	}
 
-	// 测试暂停
-	scheduler.Pause()
-	if !scheduler.IsPaused() {
-		t.Error("Expected scheduler to be paused after Pause()")
-	}
+	cs.Resume()
 
-	// 测试恢复
-	scheduler.Resume()
-	if scheduler.IsPaused() {
-		t.Error("Expected scheduler not to be paused after Resume()")
+	if cs.IsPaused() {
+		t.Error("Scheduler should not be paused after calling Resume()")
 	}
 }
 
 func TestCronScheduler_GetUptime(t *testing.T) {
-	scheduler := NewCronScheduler(nil, nil)
-	
-	err := scheduler.Start()
+	cs := NewCronScheduler(nil, nil)
+
+	time.Sleep(100 * time.Millisecond)
+
+	uptime := cs.GetUptime()
+
+	if uptime < 100*time.Millisecond {
+		t.Errorf("Expected uptime >= 100ms, got %v", uptime)
+	}
+}
+
+func TestCronScheduler_RegisterUnregisterTask(t *testing.T) {
+	cs := NewCronScheduler(nil, nil)
+
+	err := cs.Start()
 	if err != nil {
 		t.Fatalf("Failed to start scheduler: %v", err)
 	}
-	defer scheduler.Stop()
+	defer cs.Stop()
 
-	// 等待一小段时间，让 uptime 有值
-	time.Sleep(100 * time.Millisecond)
+	taskID := int64(1)
+	cronExpr := "0 * * * * *"
 
-	uptime := scheduler.GetUptime()
-	if uptime <= 0 {
-		t.Error("Expected uptime to be greater than 0")
+	cs.RegisterTask(taskID, cronExpr)
+
+	cs.mu.RLock()
+	_, exists := cs.taskEntries[taskID]
+	cs.mu.RUnlock()
+
+	if !exists {
+		t.Error("Task should be registered")
+	}
+
+	cs.UnregisterTask(taskID)
+
+	cs.mu.RLock()
+	_, exists = cs.taskEntries[taskID]
+	cs.mu.RUnlock()
+
+	if exists {
+		t.Error("Task should be unregistered")
+	}
+}
+
+func TestCronScheduler_RegisterTask_InvalidCron(t *testing.T) {
+	cs := NewCronScheduler(nil, nil)
+
+	err := cs.Start()
+	if err != nil {
+		t.Fatalf("Failed to start scheduler: %v", err)
+	}
+	defer cs.Stop()
+
+	taskID := int64(2)
+	invalidCron := "invalid cron expression"
+
+	cs.RegisterTask(taskID, invalidCron)
+
+	cs.mu.RLock()
+	_, exists := cs.taskEntries[taskID]
+	cs.mu.RUnlock()
+
+	if exists {
+		t.Error("Invalid cron expression should not register task")
+	}
+}
+
+func TestCronScheduler_RegisterTask_5Field(t *testing.T) {
+	cs := NewCronScheduler(nil, nil)
+
+	err := cs.Start()
+	if err != nil {
+		t.Fatalf("Failed to start scheduler: %v", err)
+	}
+	defer cs.Stop()
+
+	taskID := int64(3)
+	
+	standard5Field := "0 * * * *"
+
+	cs.RegisterTask(taskID, standard5Field)
+
+	cs.mu.RLock()
+	_, exists := cs.taskEntries[taskID]
+	cs.mu.RUnlock()
+
+	if !exists {
+		t.Error("5-field cron expression should be registered")
+	}
+}
+
+func TestCronScheduler_RegisterTask_Duplicate(t *testing.T) {
+	cs := NewCronScheduler(nil, nil)
+
+	err := cs.Start()
+	if err != nil {
+		t.Fatalf("Failed to start scheduler: %v", err)
+	}
+	defer cs.Stop()
+
+	taskID := int64(4)
+	cronExpr1 := "0 * * * * *"
+	cronExpr2 := "30 * * * * *"
+
+	cs.RegisterTask(taskID, cronExpr1)
+	
+	cs.RegisterTask(taskID, cronExpr2)
+
+	cs.mu.RLock()
+	entryID, exists := cs.taskEntries[taskID]
+	cs.mu.RUnlock()
+
+	if !exists {
+		t.Error("Task should still be registered after re-registration")
+	}
+
+	if entryID == 0 {
+		t.Error("EntryID should not be zero")
+	}
+}
+
+func TestCronScheduler_UnregisterNonExistent(t *testing.T) {
+	cs := NewCronScheduler(nil, nil)
+
+	cs.UnregisterTask(int64(999))
+
+	t.Log("Unregistering non-existent task should not panic")
+}
+
+func TestAcquireReleaseLock_NilRedis(t *testing.T) {
+	cs := NewCronScheduler(nil, nil)
+
+	ctx := context.Background()
+	taskID := int64(1)
+	lockTTL := 30 * time.Second
+
+	acquired, err := cs.acquireTaskLock(ctx, taskID, lockTTL)
+	if err != nil {
+		t.Errorf("acquireTaskLock with nil redis should not return error: %v", err)
+	}
+	if !acquired {
+		t.Error("acquireTaskLock with nil redis should return true")
+	}
+
+	cs.releaseTaskLock(ctx, taskID)
+}
+
+func TestAcquireReleaseLock_WithRedis(t *testing.T) {
+	client := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 15})
+	defer func() {
+		ctx := context.Background()
+		client.FlushDB(ctx)
+		client.Close()
+	}()
+
+	cs := NewCronScheduler(nil, client)
+
+	ctx := context.Background()
+	taskID := int64(1)
+	lockTTL := 30 * time.Second
+
+	acquired, err := cs.acquireTaskLock(ctx, taskID, lockTTL)
+	if err != nil {
+		t.Skip("Redis not available, skipping test")
+	}
+	if !acquired {
+		t.Error("Should acquire lock on first attempt")
+	}
+
+	acquired, err = cs.acquireTaskLock(ctx, taskID, lockTTL)
+	if err != nil {
+		t.Errorf("Second acquire should not return error: %v", err)
+	}
+	if acquired {
+		t.Error("Should not acquire lock on second attempt")
+	}
+
+	cs.releaseTaskLock(ctx, taskID)
+
+	acquired, err = cs.acquireTaskLock(ctx, taskID, lockTTL)
+	if err != nil {
+		t.Errorf("Should be able to acquire after release: %v", err)
+	}
+	if !acquired {
+		t.Error("Should acquire lock after release")
 	}
 }

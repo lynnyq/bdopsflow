@@ -22,10 +22,10 @@ func NewDomainAdminService(db rqlite.Connection) *DomainAdminService {
 func (s *DomainAdminService) ListDomains(ctx context.Context) ([]*model.DomainWithStats, error) {
 	query := `
 		SELECT d.id, d.name, d.description, d.created_at,
-			(SELECT COUNT(*) FROM users WHERE domain_id = d.id) as user_count,
-			(SELECT COUNT(*) FROM domain_executors WHERE domain_id = d.id) as executor_count,
-			(SELECT COUNT(*) FROM tasks WHERE domain_id = d.id) as task_count
-		FROM domains d
+			(SELECT COUNT(*) FROM bdopsflow_users WHERE domain_id = d.id) as user_count,
+			(SELECT COUNT(*) FROM bdopsflow_domain_executors WHERE domain_id = d.id) as executor_count,
+			(SELECT COUNT(*) FROM bdopsflow_tasks WHERE domain_id = d.id) as task_count
+		FROM bdopsflow_domains d
 		ORDER BY d.id ASC
 	`
 
@@ -37,7 +37,7 @@ func (s *DomainAdminService) ListDomains(ctx context.Context) ([]*model.DomainWi
 		return nil, qr.Err
 	}
 
-	var domains []*model.DomainWithStats
+	var bdopsflow_domains []*model.DomainWithStats
 	for qr.Next() {
 		row, err := qr.Slice()
 		if err != nil {
@@ -55,20 +55,20 @@ func (s *DomainAdminService) ListDomains(ctx context.Context) ([]*model.DomainWi
 			TaskCount:     rowInt64(row[6]),
 		}
 
-		domains = append(domains, domain)
+		bdopsflow_domains = append(bdopsflow_domains, domain)
 	}
 
-	return domains, nil
+	return bdopsflow_domains, nil
 }
 
 // GetDomain 获取领域详情
 func (s *DomainAdminService) GetDomain(ctx context.Context, domainID int64) (*model.DomainWithStats, error) {
 	query := `
 		SELECT d.id, d.name, d.description, d.created_at,
-			(SELECT COUNT(*) FROM users WHERE domain_id = d.id) as user_count,
-			(SELECT COUNT(*) FROM domain_executors WHERE domain_id = d.id) as executor_count,
-			(SELECT COUNT(*) FROM tasks WHERE domain_id = d.id) as task_count
-		FROM domains d
+			(SELECT COUNT(*) FROM bdopsflow_users WHERE domain_id = d.id) as user_count,
+			(SELECT COUNT(*) FROM bdopsflow_domain_executors WHERE domain_id = d.id) as executor_count,
+			(SELECT COUNT(*) FROM bdopsflow_tasks WHERE domain_id = d.id) as task_count
+		FROM bdopsflow_domains d
 		WHERE d.id = ?
 	`
 
@@ -110,7 +110,7 @@ func (s *DomainAdminService) GetDomain(ctx context.Context, domainID int64) (*mo
 // CreateDomain 创建领域
 func (s *DomainAdminService) CreateDomain(ctx context.Context, name, description string) (*model.Domain, error) {
 	query := `
-		INSERT INTO domains (name, description, created_at)
+		INSERT INTO bdopsflow_domains (name, description, created_at)
 		VALUES (?, ?, ?)
 	`
 
@@ -134,7 +134,7 @@ func (s *DomainAdminService) CreateDomain(ctx context.Context, name, description
 // UpdateDomain 更新领域
 func (s *DomainAdminService) UpdateDomain(ctx context.Context, domainID int64, name, description string) (*model.Domain, error) {
 	query := `
-		UPDATE domains
+		UPDATE bdopsflow_domains
 		SET name = ?, description = ?
 		WHERE id = ?
 	`
@@ -167,7 +167,7 @@ func (s *DomainAdminService) DeleteDomain(ctx context.Context, domainID int64) e
 	}
 
 	// 删除领域
-	query := `DELETE FROM domains WHERE id = ?`
+	query := `DELETE FROM bdopsflow_domains WHERE id = ?`
 	stmt := rqlite.ParameterizedStatement{
 		Query:     query,
 		Arguments: []interface{}{domainID},
@@ -178,7 +178,7 @@ func (s *DomainAdminService) DeleteDomain(ctx context.Context, domainID int64) e
 
 // GetDomainByID 根据ID获取领域
 func (s *DomainAdminService) GetDomainByID(ctx context.Context, domainID int64) (*model.Domain, error) {
-	query := `SELECT id, name, description, created_at FROM domains WHERE id = ?`
+	query := `SELECT id, name, description, created_at FROM bdopsflow_domains WHERE id = ?`
 
 	stmt := rqlite.ParameterizedStatement{
 		Query:     query,

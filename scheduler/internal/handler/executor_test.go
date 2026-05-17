@@ -13,9 +13,9 @@ func TestExecutorHandler_List(t *testing.T) {
 	r := gin.New()
 
 	handler := &ExecutorHandler{}
-	r.GET("/api/executors", handler.List)
+	r.GET("/api/bdopsflow_executors", handler.List)
 
-	req, _ := http.NewRequest("GET", "/api/executors", nil)
+	req, _ := http.NewRequest("GET", "/api/bdopsflow_executors", nil)
 	w := httptest.NewRecorder()
 
 	defer func() {
@@ -37,9 +37,9 @@ func TestExecutorHandler_Get_InvalidID(t *testing.T) {
 	r := gin.New()
 
 	handler := &ExecutorHandler{}
-	r.GET("/api/executors/:id", handler.Get)
+	r.GET("/api/bdopsflow_executors/:id", handler.Get)
 
-	req, _ := http.NewRequest("GET", "/api/executors/invalid", nil)
+	req, _ := http.NewRequest("GET", "/api/bdopsflow_executors/invalid", nil)
 	w := httptest.NewRecorder()
 
 	r.ServeHTTP(w, req)
@@ -54,9 +54,9 @@ func TestExecutorHandler_Get_NegativeID(t *testing.T) {
 	r := gin.New()
 
 	handler := &ExecutorHandler{}
-	r.GET("/api/executors/:id", handler.Get)
+	r.GET("/api/bdopsflow_executors/:id", handler.Get)
 
-	req, _ := http.NewRequest("GET", "/api/executors/-1", nil)
+	req, _ := http.NewRequest("GET", "/api/bdopsflow_executors/-1", nil)
 	w := httptest.NewRecorder()
 
 	r.ServeHTTP(w, req)
@@ -71,9 +71,9 @@ func TestExecutorHandler_Delete_MissingID(t *testing.T) {
 	r := gin.New()
 
 	handler := &ExecutorHandler{}
-	r.DELETE("/api/executors/:id", handler.Delete)
+	r.DELETE("/api/bdopsflow_executors/:id", handler.Delete)
 
-	req, _ := http.NewRequest("DELETE", "/api/executors/", nil)
+	req, _ := http.NewRequest("DELETE", "/api/bdopsflow_executors/", nil)
 	w := httptest.NewRecorder()
 
 	r.ServeHTTP(w, req)
@@ -88,9 +88,9 @@ func TestExecutorHandler_Online_MissingID(t *testing.T) {
 	r := gin.New()
 
 	handler := &ExecutorHandler{}
-	r.POST("/api/executors/:id/online", handler.Online)
+	r.POST("/api/bdopsflow_executors/:id/online", handler.Online)
 
-	req, _ := http.NewRequest("POST", "/api/executors/", nil)
+	req, _ := http.NewRequest("POST", "/api/bdopsflow_executors/", nil)
 	w := httptest.NewRecorder()
 
 	r.ServeHTTP(w, req)
@@ -105,9 +105,9 @@ func TestExecutorHandler_Offline_MissingID(t *testing.T) {
 	r := gin.New()
 
 	handler := &ExecutorHandler{}
-	r.POST("/api/executors/:id/offline", handler.Offline)
+	r.POST("/api/bdopsflow_executors/:id/offline", handler.Offline)
 
-	req, _ := http.NewRequest("POST", "/api/executors/", nil)
+	req, _ := http.NewRequest("POST", "/api/bdopsflow_executors/", nil)
 	w := httptest.NewRecorder()
 
 	r.ServeHTTP(w, req)
@@ -122,9 +122,9 @@ func TestExecutorHandler_Online_WithID(t *testing.T) {
 	r := gin.New()
 
 	handler := &ExecutorHandler{}
-	r.POST("/api/executors/:id/online", handler.Online)
+	r.POST("/api/bdopsflow_executors/:id/online", handler.Online)
 
-	req, _ := http.NewRequest("POST", "/api/executors/executor-1/online", nil)
+	req, _ := http.NewRequest("POST", "/api/bdopsflow_executors/executor-1/online", nil)
 	w := httptest.NewRecorder()
 
 	defer func() {
@@ -146,9 +146,9 @@ func TestExecutorHandler_Offline_WithID(t *testing.T) {
 	r := gin.New()
 
 	handler := &ExecutorHandler{}
-	r.POST("/api/executors/:id/offline", handler.Offline)
+	r.POST("/api/bdopsflow_executors/:id/offline", handler.Offline)
 
-	req, _ := http.NewRequest("POST", "/api/executors/executor-1/offline", nil)
+	req, _ := http.NewRequest("POST", "/api/bdopsflow_executors/executor-1/offline", nil)
 	w := httptest.NewRecorder()
 
 	defer func() {

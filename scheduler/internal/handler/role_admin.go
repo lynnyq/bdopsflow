@@ -32,14 +32,14 @@ func (h *RoleAdminHandler) ListRoles(c *gin.Context) {
 
 	slog.Debug("RoleAdminHandler.ListRoles: handling request")
 
-	roles, err := h.svc.ListRoles(ctx)
+	bdopsflow_roles, err := h.svc.ListRoles(ctx)
 	if err != nil {
-		slog.Error("RoleAdminHandler.ListRoles: failed to list roles", "error", err)
+		slog.Error("RoleAdminHandler.ListRoles: failed to list bdopsflow_roles", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"items": roles})
+	c.JSON(http.StatusOK, gin.H{"items": bdopsflow_roles})
 }
 
 // GetRole 获取角色详情
@@ -74,14 +74,14 @@ func (h *RoleAdminHandler) GetRole(c *gin.Context) {
 	}
 
 	// 获取角色权限
-	permissions, err := h.svc.GetRolePermissions(ctx, id)
+	bdopsflow_permissions, err := h.svc.GetRolePermissions(ctx, id)
 	if err != nil {
-		slog.Error("RoleAdminHandler.GetRole: failed to get role permissions", "role_id", id, "error", err)
+		slog.Error("RoleAdminHandler.GetRole: failed to get role bdopsflow_permissions", "role_id", id, "error", err)
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"role":        role,
-		"permissions": permissions,
+		"bdopsflow_permissions": bdopsflow_permissions,
 	})
 }
 
@@ -218,14 +218,14 @@ func (h *RoleAdminHandler) GetRolePermissions(c *gin.Context) {
 
 	slog.Debug("RoleAdminHandler.GetRolePermissions: handling request", "role_id", id)
 
-	permissions, err := h.svc.GetRolePermissions(ctx, id)
+	bdopsflow_permissions, err := h.svc.GetRolePermissions(ctx, id)
 	if err != nil {
-		slog.Error("RoleAdminHandler.GetRolePermissions: failed to get role permissions", "role_id", id, "error", err)
+		slog.Error("RoleAdminHandler.GetRolePermissions: failed to get role bdopsflow_permissions", "role_id", id, "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"items": permissions})
+	c.JSON(http.StatusOK, gin.H{"items": bdopsflow_permissions})
 }
 
 // AssignPermissions 分配权限给角色
@@ -264,12 +264,12 @@ func (h *RoleAdminHandler) AssignPermissions(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 			return
 		}
-		slog.Error("RoleAdminHandler.AssignPermissions: failed to assign permissions", "role_id", id, "error", err)
+		slog.Error("RoleAdminHandler.AssignPermissions: failed to assign bdopsflow_permissions", "role_id", id, "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "permissions assigned successfully"})
+	c.JSON(http.StatusOK, gin.H{"message": "bdopsflow_permissions assigned successfully"})
 }
 
 // GetAllPermissions 获取所有权限
@@ -278,9 +278,9 @@ func (h *RoleAdminHandler) GetAllPermissions(c *gin.Context) {
 
 	slog.Debug("RoleAdminHandler.GetAllPermissions: handling request")
 
-	permissions, err := h.svc.GetAllPermissions(ctx)
+	bdopsflow_permissions, err := h.svc.GetAllPermissions(ctx)
 	if err != nil {
-		slog.Error("RoleAdminHandler.GetAllPermissions: failed to get all permissions", "error", err)
+		slog.Error("RoleAdminHandler.GetAllPermissions: failed to get all bdopsflow_permissions", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -289,7 +289,7 @@ func (h *RoleAdminHandler) GetAllPermissions(c *gin.Context) {
 	groups := model.GetAllPermissionGroups()
 
 	c.JSON(http.StatusOK, gin.H{
-		"items":  permissions,
+		"items":  bdopsflow_permissions,
 		"groups": groups,
 	})
 }

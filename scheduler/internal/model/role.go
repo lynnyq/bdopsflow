@@ -14,7 +14,7 @@ type Role struct {
 	UpdatedAt   time.Time  `json:"updated_at"`
 
 	// 关联数据
-	Permissions []*Permission `json:"permissions,omitempty"` // 角色拥有的权限
+	Permissions []*Permission `json:"bdopsflow_permissions,omitempty"` // 角色拥有的权限
 }
 
 // IsGlobal 检查是否为全局角色

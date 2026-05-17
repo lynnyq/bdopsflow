@@ -15,9 +15,9 @@ func TestWorkflowHandler_Get_InvalidID(t *testing.T) {
 	r := gin.New()
 
 	handler := &WorkflowHandler{}
-	r.GET("/api/workflows/:id", handler.Get)
+	r.GET("/api/bdopsflow_workflows/:id", handler.Get)
 
-	req, _ := http.NewRequest("GET", "/api/workflows/invalid", nil)
+	req, _ := http.NewRequest("GET", "/api/bdopsflow_workflows/invalid", nil)
 	w := httptest.NewRecorder()
 
 	r.ServeHTTP(w, req)
@@ -32,9 +32,9 @@ func TestWorkflowHandler_Get_NegativeID(t *testing.T) {
 	r := gin.New()
 
 	handler := &WorkflowHandler{}
-	r.GET("/api/workflows/:id", handler.Get)
+	r.GET("/api/bdopsflow_workflows/:id", handler.Get)
 
-	req, _ := http.NewRequest("GET", "/api/workflows/-1", nil)
+	req, _ := http.NewRequest("GET", "/api/bdopsflow_workflows/-1", nil)
 	w := httptest.NewRecorder()
 
 	r.ServeHTTP(w, req)
@@ -49,14 +49,14 @@ func TestWorkflowHandler_Create_MissingName(t *testing.T) {
 	r := gin.New()
 
 	handler := &WorkflowHandler{}
-	r.POST("/api/workflows", handler.Create)
+	r.POST("/api/bdopsflow_workflows", handler.Create)
 
 	body := map[string]interface{}{
 		"description": "test",
 	}
 
 	jsonBody, _ := json.Marshal(body)
-	req, _ := http.NewRequest("POST", "/api/workflows", bytes.NewBuffer(jsonBody))
+	req, _ := http.NewRequest("POST", "/api/bdopsflow_workflows", bytes.NewBuffer(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
@@ -72,7 +72,7 @@ func TestWorkflowHandler_Create_EmptyName(t *testing.T) {
 	r := gin.New()
 
 	handler := &WorkflowHandler{}
-	r.POST("/api/workflows", handler.Create)
+	r.POST("/api/bdopsflow_workflows", handler.Create)
 
 	body := map[string]interface{}{
 		"name":        "   ",
@@ -80,7 +80,7 @@ func TestWorkflowHandler_Create_EmptyName(t *testing.T) {
 	}
 
 	jsonBody, _ := json.Marshal(body)
-	req, _ := http.NewRequest("POST", "/api/workflows", bytes.NewBuffer(jsonBody))
+	req, _ := http.NewRequest("POST", "/api/bdopsflow_workflows", bytes.NewBuffer(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
@@ -96,9 +96,9 @@ func TestWorkflowHandler_TriggerWorkflow_InvalidID(t *testing.T) {
 	r := gin.New()
 
 	handler := &WorkflowHandler{}
-	r.POST("/api/workflows/:id/trigger", handler.TriggerWorkflow)
+	r.POST("/api/bdopsflow_workflows/:id/trigger", handler.TriggerWorkflow)
 
-	req, _ := http.NewRequest("POST", "/api/workflows/invalid/trigger", nil)
+	req, _ := http.NewRequest("POST", "/api/bdopsflow_workflows/invalid/trigger", nil)
 	w := httptest.NewRecorder()
 
 	r.ServeHTTP(w, req)
@@ -113,9 +113,9 @@ func TestWorkflowHandler_TriggerWorkflow_NegativeID(t *testing.T) {
 	r := gin.New()
 
 	handler := &WorkflowHandler{}
-	r.POST("/api/workflows/:id/trigger", handler.TriggerWorkflow)
+	r.POST("/api/bdopsflow_workflows/:id/trigger", handler.TriggerWorkflow)
 
-	req, _ := http.NewRequest("POST", "/api/workflows/-1/trigger", nil)
+	req, _ := http.NewRequest("POST", "/api/bdopsflow_workflows/-1/trigger", nil)
 	w := httptest.NewRecorder()
 
 	r.ServeHTTP(w, req)
@@ -130,9 +130,9 @@ func TestWorkflowHandler_Delete_InvalidID(t *testing.T) {
 	r := gin.New()
 
 	handler := &WorkflowHandler{}
-	r.DELETE("/api/workflows/:id", handler.Delete)
+	r.DELETE("/api/bdopsflow_workflows/:id", handler.Delete)
 
-	req, _ := http.NewRequest("DELETE", "/api/workflows/invalid", nil)
+	req, _ := http.NewRequest("DELETE", "/api/bdopsflow_workflows/invalid", nil)
 	w := httptest.NewRecorder()
 
 	r.ServeHTTP(w, req)
@@ -147,9 +147,9 @@ func TestWorkflowHandler_Delete_NegativeID(t *testing.T) {
 	r := gin.New()
 
 	handler := &WorkflowHandler{}
-	r.DELETE("/api/workflows/:id", handler.Delete)
+	r.DELETE("/api/bdopsflow_workflows/:id", handler.Delete)
 
-	req, _ := http.NewRequest("DELETE", "/api/workflows/-1", nil)
+	req, _ := http.NewRequest("DELETE", "/api/bdopsflow_workflows/-1", nil)
 	w := httptest.NewRecorder()
 
 	r.ServeHTTP(w, req)
@@ -164,13 +164,13 @@ func TestWorkflowHandler_Update_InvalidID(t *testing.T) {
 	r := gin.New()
 
 	handler := &WorkflowHandler{}
-	r.PUT("/api/workflows/:id", handler.Update)
+	r.PUT("/api/bdopsflow_workflows/:id", handler.Update)
 
 	body := map[string]interface{}{
 		"name": "updated",
 	}
 	jsonBody, _ := json.Marshal(body)
-	req, _ := http.NewRequest("PUT", "/api/workflows/invalid", bytes.NewBuffer(jsonBody))
+	req, _ := http.NewRequest("PUT", "/api/bdopsflow_workflows/invalid", bytes.NewBuffer(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 

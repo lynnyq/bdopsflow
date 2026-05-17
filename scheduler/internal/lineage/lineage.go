@@ -21,7 +21,7 @@ type TaskNode struct {
 }
 
 type LineageGraph struct {
-	Tasks     []*TaskNode `json:"tasks"`
+	Tasks     []*TaskNode `json:"bdopsflow_tasks"`
 	Relations []Relation  `json:"relations"`
 }
 
@@ -95,7 +95,7 @@ func (s *Service) buildLineage(ctx context.Context, taskID int64, graph *Lineage
 func (s *Service) getTask(ctx context.Context, taskID int64) (*TaskNode, error) {
 	query := `
 		SELECT id, name, type, status
-		FROM tasks
+		FROM bdopsflow_tasks
 		WHERE id = ?
 	`
 
@@ -111,7 +111,7 @@ func (s *Service) getTask(ctx context.Context, taskID int64) (*TaskNode, error) 
 func (s *Service) getParentTasks(ctx context.Context, taskID int64) ([]int64, error) {
 	query := `
 		SELECT parent_task_id
-		FROM task_dependencies
+		FROM bdopsflow_task_dependencies
 		WHERE task_id = ?
 	`
 
@@ -136,7 +136,7 @@ func (s *Service) getParentTasks(ctx context.Context, taskID int64) ([]int64, er
 func (s *Service) getChildTasks(ctx context.Context, taskID int64) ([]int64, error) {
 	query := `
 		SELECT task_id
-		FROM task_dependencies
+		FROM bdopsflow_task_dependencies
 		WHERE parent_task_id = ?
 	`
 
@@ -161,7 +161,7 @@ func (s *Service) getChildTasks(ctx context.Context, taskID int64) ([]int64, err
 func (s *Service) GetWorkflowLineage(ctx context.Context, workflowID int64) (*LineageGraph, error) {
 	query := `
 		SELECT id, name, type, status
-		FROM tasks
+		FROM bdopsflow_tasks
 		WHERE workflow_id = ?
 	`
 
@@ -203,7 +203,7 @@ func (s *Service) GetWorkflowLineage(ctx context.Context, workflowID int64) (*Li
 
 func (s *Service) AddDependency(ctx context.Context, taskID, parentTaskID int64) error {
 	query := `
-		INSERT INTO task_dependencies (task_id, parent_task_id, created_at)
+		INSERT INTO bdopsflow_task_dependencies (task_id, parent_task_id, created_at)
 		VALUES (?, ?, datetime('now'))
 	`
 
@@ -217,7 +217,7 @@ func (s *Service) AddDependency(ctx context.Context, taskID, parentTaskID int64)
 
 func (s *Service) RemoveDependency(ctx context.Context, taskID, parentTaskID int64) error {
 	query := `
-		DELETE FROM task_dependencies
+		DELETE FROM bdopsflow_task_dependencies
 		WHERE task_id = ? AND parent_task_id = ?
 	`
 

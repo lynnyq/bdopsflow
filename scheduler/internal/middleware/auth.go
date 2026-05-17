@@ -109,7 +109,7 @@ func RBACMiddleware(allowedRoles ...string) gin.HandlerFunc {
 			}
 		}
 
-		c.JSON(http.StatusForbidden, gin.H{"error": "Insufficient permissions"})
+		c.JSON(http.StatusForbidden, gin.H{"error": "Insufficient bdopsflow_permissions"})
 		c.Abort()
 	}
 }
@@ -125,7 +125,7 @@ func RequireSystemAdmin(permissionService *service.PermissionService) gin.Handle
 
 		isAdmin, err := permissionService.IsSystemAdmin(c.Request.Context(), userID.(int64))
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check permissions"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check bdopsflow_permissions"})
 			c.Abort()
 			return
 		}

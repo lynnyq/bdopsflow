@@ -32,14 +32,14 @@ func (h *UserAdminHandler) ListUsers(c *gin.Context) {
 
 	slog.Debug("UserAdminHandler.ListUsers: handling request")
 
-	users, err := h.svc.ListUsers(ctx)
+	bdopsflow_users, err := h.svc.ListUsers(ctx)
 	if err != nil {
-		slog.Error("UserAdminHandler.ListUsers: failed to list users", "error", err)
+		slog.Error("UserAdminHandler.ListUsers: failed to list bdopsflow_users", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"items": users})
+	c.JSON(http.StatusOK, gin.H{"items": bdopsflow_users})
 }
 
 // GetUser 获取用户详情
@@ -74,14 +74,14 @@ func (h *UserAdminHandler) GetUser(c *gin.Context) {
 	}
 
 	// 获取用户角色
-	roles, err := h.svc.GetUserRoles(ctx, id)
+	bdopsflow_roles, err := h.svc.GetUserRoles(ctx, id)
 	if err != nil {
-		slog.Error("UserAdminHandler.GetUser: failed to get user roles", "user_id", id, "error", err)
+		slog.Error("UserAdminHandler.GetUser: failed to get user bdopsflow_roles", "user_id", id, "error", err)
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"user":  user,
-		"roles": roles,
+		"bdopsflow_roles": bdopsflow_roles,
 	})
 }
 
@@ -238,14 +238,14 @@ func (h *UserAdminHandler) GetUserRoles(c *gin.Context) {
 
 	slog.Debug("UserAdminHandler.GetUserRoles: handling request", "user_id", id)
 
-	roles, err := h.svc.GetUserRoles(ctx, id)
+	bdopsflow_roles, err := h.svc.GetUserRoles(ctx, id)
 	if err != nil {
-		slog.Error("UserAdminHandler.GetUserRoles: failed to get user roles", "user_id", id, "error", err)
+		slog.Error("UserAdminHandler.GetUserRoles: failed to get user bdopsflow_roles", "user_id", id, "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"items": roles})
+	c.JSON(http.StatusOK, gin.H{"items": bdopsflow_roles})
 }
 
 // AssignUserRoles 分配用户角色
@@ -276,12 +276,12 @@ func (h *UserAdminHandler) AssignUserRoles(c *gin.Context) {
 
 	err = h.svc.AssignUserRoles(ctx, id, req.RoleIDs, req.DomainIDs)
 	if err != nil {
-		slog.Error("UserAdminHandler.AssignUserRoles: failed to assign roles", "user_id", id, "error", err)
+		slog.Error("UserAdminHandler.AssignUserRoles: failed to assign bdopsflow_roles", "user_id", id, "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "roles assigned successfully"})
+	c.JSON(http.StatusOK, gin.H{"message": "bdopsflow_roles assigned successfully"})
 }
 
 // AssignUserDomains 分配用户领域
@@ -315,12 +315,12 @@ func (h *UserAdminHandler) AssignUserDomains(c *gin.Context) {
 
 	err = h.svc.AssignUserDomains(ctx, id, req.DomainIDs)
 	if err != nil {
-		slog.Error("UserAdminHandler.AssignUserDomains: failed to assign domains", "user_id", id, "error", err)
+		slog.Error("UserAdminHandler.AssignUserDomains: failed to assign bdopsflow_domains", "user_id", id, "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "domains assigned successfully"})
+	c.JSON(http.StatusOK, gin.H{"message": "bdopsflow_domains assigned successfully"})
 }
 
 // GetCurrentUser 获取当前用户信息
@@ -487,7 +487,7 @@ func (h *UserAdminHandler) ResetUserPassword(c *gin.Context) {
 	if err != nil {
 		if err == service.ErrPermissionDenied {
 			slog.Warn("UserAdminHandler.ResetUserPassword: permission denied", "current_user_id", currID, "target_user_id", targetUserID)
-			c.JSON(http.StatusForbidden, gin.H{"error": "permission denied: you can only manage users in your domain"})
+			c.JSON(http.StatusForbidden, gin.H{"error": "permission denied: you can only manage bdopsflow_users in your domain"})
 			return
 		}
 		if err == service.ErrUserNotFound {

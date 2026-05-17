@@ -58,14 +58,14 @@ func (h *TaskHandler) List(c *gin.Context) {
 
 	slog.Debug("TaskHandler.List: handling request")
 
-	tasks, err := h.svc.ListTasks(ctx)
+	bdopsflow_tasks, err := h.svc.ListTasks(ctx)
 	if err != nil {
-		slog.Error("TaskHandler.List: failed to list tasks", "error", err)
+		slog.Error("TaskHandler.List: failed to list bdopsflow_tasks", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"items": tasks})
+	c.JSON(http.StatusOK, gin.H{"items": bdopsflow_tasks})
 }
 
 func (h *TaskHandler) Get(c *gin.Context) {
@@ -186,7 +186,7 @@ func (h *TaskHandler) Create(c *gin.Context) {
 
 	if req.WorkflowID != nil && *req.WorkflowID > 0 {
 		query = `
-			INSERT INTO tasks (workflow_id, name, type, config, cron_expression, timeout_seconds,
+			INSERT INTO bdopsflow_tasks (workflow_id, name, type, config, cron_expression, timeout_seconds,
 			                  retry_count, retry_interval, is_enabled, status, domain_id, webhook_config,
 			                  assigned_executor_id, created_by, created_at, updated_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, 1, ?, ?)
@@ -198,7 +198,7 @@ func (h *TaskHandler) Create(c *gin.Context) {
 		}
 	} else {
 		query = `
-			INSERT INTO tasks (name, type, config, cron_expression, timeout_seconds,
+			INSERT INTO bdopsflow_tasks (name, type, config, cron_expression, timeout_seconds,
 			                  retry_count, retry_interval, is_enabled, status, domain_id, webhook_config,
 			                  assigned_executor_id, created_by, created_at, updated_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, 1, ?, ?)

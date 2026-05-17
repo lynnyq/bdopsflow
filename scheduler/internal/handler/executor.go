@@ -69,15 +69,15 @@ func (h *ExecutorHandler) List(c *gin.Context) {
 
 	slog.Debug("ExecutorHandler.List: handling request")
 
-	executors, err := h.svc.ListExecutors(ctx)
+	bdopsflow_executors, err := h.svc.ListExecutors(ctx)
 	if err != nil {
-		slog.Error("ExecutorHandler.List: failed to list executors", "error", err)
+		slog.Error("ExecutorHandler.List: failed to list bdopsflow_executors", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
 	var dtos []*ExecutorDTO
-	for _, exec := range executors {
+	for _, exec := range bdopsflow_executors {
 		dtos = append(dtos, executorToDTO(exec))
 	}
 

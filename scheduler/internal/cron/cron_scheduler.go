@@ -108,20 +108,20 @@ func (cs *CronScheduler) loadAndRegisterTasks() {
 	}
 
 	ctx := context.Background()
-	tasks, err := cs.svc.ScanPendingTasks(ctx)
+	bdopsflow_tasks, err := cs.svc.ScanPendingTasks(ctx)
 	if err != nil {
-		slog.Error("load tasks failed", "error", err)
+		slog.Error("load bdopsflow_tasks failed", "error", err)
 		return
 	}
 
-	if len(tasks) == 0 {
-		slog.Debug("no tasks found to load")
+	if len(bdopsflow_tasks) == 0 {
+		slog.Debug("no bdopsflow_tasks found to load")
 		return
 	}
 
-	slog.Info("loading tasks from database", "count", len(tasks))
+	slog.Info("loading bdopsflow_tasks from database", "count", len(bdopsflow_tasks))
 
-	for _, task := range tasks {
+	for _, task := range bdopsflow_tasks {
 		if task.CronExpression != "" && task.IsEnabled {
 			cs.RegisterTask(task.ID, task.CronExpression)
 		}

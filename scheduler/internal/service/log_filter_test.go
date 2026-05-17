@@ -2,16 +2,17 @@ package service
 
 import (
 	"context"
+	"strconv"
 	"testing"
 	"time"
 )
 
 func TestTimeFilterParsing(t *testing.T) {
 	tests := []struct {
-		name           string
-		inputTime      string
-		expectedTime   string
-		expectError    bool
+		name         string
+		inputTime    string
+		expectedTime string
+		expectError  bool
 	}{
 		{
 			name:         "标准格式时间解析",
@@ -70,10 +71,8 @@ func TestTimeFilterParsing(t *testing.T) {
 }
 
 func TestTimeZoneConversion(t *testing.T) {
-	// 模拟前端发送的北京时间
 	localTimeStr := "2024-01-01 08:00:00"
 	
-	// 解析时间字符串
 	parsed, err := time.Parse(DateTimeFormat, localTimeStr)
 	if err != nil {
 		t.Fatalf("failed to parse time: %v", err)
@@ -83,52 +82,37 @@ func TestTimeZoneConversion(t *testing.T) {
 	t.Logf("1. 前端发送时间: %s", localTimeStr)
 	t.Logf("2. time.Parse() 解析结果: %v", parsed)
 	t.Logf("3. 解析后的时区: %s", parsed.Location())
-	t.Logf("4. 调用 .UTC() 后: %v", parsed.UTC())
-	t.Logf("5. UTC 格式化: %s", parsed.UTC().Format(DateTimeFormat))
+	t.Logf("4. 调用 .Local() 后: %v", parsed.Local())
+	t.Logf("5. 本地格式化: %s", parsed.Local().Format(DateTimeFormat))
 	
-	// 问题：time.Parse() 不识别时区，默认当作 UTC
-	// 所以 "2024-01-01 08:00:00" 被当作 UTC 08:00:00
-	// 但数据库实际存储的是北京时间转换的 UTC 时间
+	t.Logf("\n=== 使用本地时间处理 ===")
+	t.Logf("使用 time.ParseInLocation 直接解析为本地时间")
 	
-	// 正确做法：需要指定原始时区
-	t.Logf("\n=== 解决方案 ===")
-	t.Logf("需要将前端时间（假设为北京时间 UTC+8）转换为 UTC")
+	parsedLocal, err := time.ParseInLocation(DateTimeFormat, localTimeStr, time.Local)
+	if err != nil {
+		t.Fatalf("failed to parse time in local location: %v", err)
+	}
 	
-	// 方案1：使用 LoadLocation 指定时区
-	loc, _ := time.LoadLocation("Asia/Shanghai")
-	parsedWithTimezone, _ := time.ParseInLocation(DateTimeFormat, localTimeStr, loc)
-	t.Logf("方案1 - 使用 ParseInLocation(Asia/Shanghai):")
-	t.Logf("  解析后: %v", parsedWithTimezone)
-	t.Logf("  转换为UTC: %v", parsedWithTimezone.UTC())
-	t.Logf("  UTC格式化: %s", parsedWithTimezone.UTC().Format(DateTimeFormat))
-	
-	// 方案2：手动添加时区偏移
-	t.Logf("\n方案2 - 手动添加8小时偏移:")
-	manualOffset := parsed.Add(-8 * time.Hour)
-	t.Logf("  原始 + (-8小时): %s", manualOffset.Format(DateTimeFormat))
-	
-	// 验证：数据库中存储的时间应该是 UTC
-	// 北京时间 2024-01-01 08:00:00 -> UTC 2024-01-01 00:00:00
-	expectedUTC := "2024-01-01 00:00:00"
-	actualUTC := parsedWithTimezone.UTC().Format(DateTimeFormat)
+	expectedLocal := "2024-01-01 08:00:00"
+	actualLocal := parsedLocal.Format(DateTimeFormat)
 	
 	t.Logf("\n=== 验证 ===")
-	t.Logf("期望的 UTC 时间: %s", expectedUTC)
-	t.Logf("实际转换的 UTC 时间: %s", actualUTC)
+	t.Logf("期望的本地时间: %s", expectedLocal)
+	t.Logf("实际的本地时间: %s", actualLocal)
 	
-	if actualUTC != expectedUTC {
-		t.Errorf("时区转换失败！期望 %s，实际 %s", expectedUTC, actualUTC)
+	if actualLocal != expectedLocal {
+		t.Errorf("本地时间解析失败！期望 %s，实际 %s", expectedLocal, actualLocal)
 	}
 }
 
 func TestDurationFilterParsing(t *testing.T) {
 	tests := []struct {
-		name          string
-		inputMin      string
-		inputMax      string
-		expectedMin   int64
-		expectedMax   int64
-		expectError   bool
+		name        string
+		inputMin    string
+		inputMax    string
+		expectedMin int64
+		expectedMax int64
+		expectError bool
 	}{
 		{
 			name:        "正常整数秒",
@@ -160,17 +144,30 @@ func TestDurationFilterParsing(t *testing.T) {
 			expectedMin: 0,
 			expectError: true,
 		},
+		{
+			name:        "负数",
+			inputMin:    "-5",
+			inputMax:    "10",
+			expectedMin: -5,
+			expectedMax: 10,
+			expectError: false,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.inputMin != "" {
 				duration, err := parseFloatToInt64(tt.inputMin)
-				if tt.expectError && err == nil {
-					t.Errorf("expected error for input %q", tt.inputMin)
-				}
-				if !tt.expectError && err == nil && duration != tt.expectedMin {
-					t.Errorf("expected %d, got %d", tt.expectedMin, duration)
+				if tt.expectError {
+					if err == nil {
+						t.Errorf("expected error for input %q, but got none", tt.inputMin)
+					}
+				} else {
+					if err != nil {
+						t.Errorf("unexpected error: %v", err)
+					} else if duration != tt.expectedMin {
+						t.Errorf("expected %d, got %d", tt.expectedMin, duration)
+					}
 				}
 			}
 
@@ -188,84 +185,21 @@ func TestDurationFilterParsing(t *testing.T) {
 }
 
 func parseFloatToInt64(s string) (int64, error) {
-	var result int64
-	_, err := parseFloatParam(s, &result)
-	return result, err
-}
-
-func parseFloatParam(s string, result *int64) (bool, error) {
-	if s == "" {
-		return false, nil
-	}
-	
-	var f float64
-	_, err := parseFloat(s, &f)
+	f, err := strconv.ParseFloat(s, 64)
 	if err != nil {
-		return false, err
+		return 0, err
 	}
-	*result = int64(f)
-	return true, nil
-}
-
-func parseFloat(s string, result *float64) (bool, error) {
-	if s == "" {
-		return false, nil
-	}
-	
-	var f float64
-	_, err := parseFloatValue(s, &f)
-	if err != nil {
-		return false, err
-	}
-	*result = f
-	return true, nil
-}
-
-func parseFloatValue(s string, result *float64) (bool, error) {
-	if s == "" {
-		return false, nil
-	}
-	
-	var f float64 = 0
-	var decimalDivisor float64 = 1
-	var afterDecimal bool = false
-	
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c == '-' && i == 0 {
-			continue
-		}
-		if c == '.' {
-			afterDecimal = true
-			continue
-		}
-		if c >= '0' && c <= '9' {
-			digit := float64(c - '0')
-			if afterDecimal {
-				decimalDivisor *= 10
-				f += digit / decimalDivisor
-			} else {
-				f = f*10 + digit
-			}
-		}
-	}
-	
-	if s[0] == '-' {
-		f = -f
-	}
-	
-	*result = f
-	return true, nil
+	return int64(f), nil
 }
 
 func TestBuildWhereClause(t *testing.T) {
 	filter := map[string]string{
-		"id":             "123",
-		"execution_id":   "exec-456",
-		"task_name":      "test-task",
-		"status":         "success",
-		"start_time_from": "2024-01-01 00:00:00",
-		"start_time_to":   "2024-12-31 23:59:59",
+		"id":               "123",
+		"execution_id":     "exec-456",
+		"task_name":        "test-task",
+		"status":           "success",
+		"start_time_from":  "2024-01-01 00:00:00",
+		"start_time_to":    "2024-12-31 23:59:59",
 	}
 
 	whereClause, args := buildWhereClauseFromFilter(filter)
@@ -285,20 +219,20 @@ func TestBuildWhereClause(t *testing.T) {
 func TestBuildWhereClause_TimeConversion(t *testing.T) {
 	localTime := "2024-01-01 08:00:00"
 	
-	parsed, err := time.Parse(DateTimeFormat, localTime)
+	parsed, err := time.ParseInLocation(DateTimeFormat, localTime, time.Local)
 	if err != nil {
 		t.Fatalf("failed to parse time: %v", err)
 	}
 	
-	utcTime := parsed.UTC()
-	utcFormatted := utcTime.Format(DateTimeFormat)
+	localFormatted := parsed.Format(DateTimeFormat)
 	
 	t.Logf("Local time: %s", localTime)
-	t.Logf("UTC time: %s", utcFormatted)
+	t.Logf("Parsed local time: %s", localFormatted)
+	t.Logf("Time location: %s", parsed.Location())
 	
-	expectedUTC := "2024-01-01 00:00:00"
-	if utcFormatted != expectedUTC {
-		t.Errorf("expected UTC time %s, got %s", expectedUTC, utcFormatted)
+	expectedLocal := "2024-01-01 08:00:00"
+	if localFormatted != expectedLocal {
+		t.Errorf("expected local time %s, got %s", expectedLocal, localFormatted)
 	}
 }
 
@@ -323,31 +257,27 @@ func buildWhereClauseFromFilter(filter map[string]string) (string, []interface{}
 		args = append(args, filter["status"])
 	}
 	if filter["start_time_from"] != "" {
-		if t, err := time.Parse(DateTimeFormat, filter["start_time_from"]); err == nil {
-			utcTime := t.UTC()
+		if t, err := time.ParseInLocation(DateTimeFormat, filter["start_time_from"], time.Local); err == nil {
 			whereClause += " AND te.start_time >= ?"
-			args = append(args, utcTime.Format(DateTimeFormat))
+			args = append(args, t.Format(DateTimeFormat))
 		}
 	}
 	if filter["start_time_to"] != "" {
-		if t, err := time.Parse(DateTimeFormat, filter["start_time_to"]); err == nil {
-			utcTime := t.UTC()
+		if t, err := time.ParseInLocation(DateTimeFormat, filter["start_time_to"], time.Local); err == nil {
 			whereClause += " AND te.start_time <= ?"
-			args = append(args, utcTime.Format(DateTimeFormat))
+			args = append(args, t.Format(DateTimeFormat))
 		}
 	}
 	if filter["end_time_from"] != "" {
-		if t, err := time.Parse(DateTimeFormat, filter["end_time_from"]); err == nil {
-			utcTime := t.UTC()
+		if t, err := time.ParseInLocation(DateTimeFormat, filter["end_time_from"], time.Local); err == nil {
 			whereClause += " AND te.end_time >= ?"
-			args = append(args, utcTime.Format(DateTimeFormat))
+			args = append(args, t.Format(DateTimeFormat))
 		}
 	}
 	if filter["end_time_to"] != "" {
-		if t, err := time.Parse(DateTimeFormat, filter["end_time_to"]); err == nil {
-			utcTime := t.UTC()
+		if t, err := time.ParseInLocation(DateTimeFormat, filter["end_time_to"], time.Local); err == nil {
 			whereClause += " AND te.end_time <= ?"
-			args = append(args, utcTime.Format(DateTimeFormat))
+			args = append(args, t.Format(DateTimeFormat))
 		}
 	}
 

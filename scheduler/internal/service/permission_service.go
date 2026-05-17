@@ -36,13 +36,13 @@ func (s *PermissionService) HasPermission(ctx context.Context, userID int64, res
 	}
 
 	// 2. 获取用户角色
-	roles, err := s.GetUserRoles(ctx, userID)
+	bdopsflow_roles, err := s.GetUserRoles(ctx, userID)
 	if err != nil {
 		return false, err
 	}
 
 	// 3. 检查是否有该资源权限
-	for _, role := range roles {
+	for _, role := range bdopsflow_roles {
 		hasPerm, err := s.checkRolePermission(ctx, role.ID, resource, action)
 		if err != nil {
 			return false, err
@@ -61,8 +61,8 @@ func (s *PermissionService) HasPermission(ctx context.Context, userID int64, res
 // IsSystemAdmin 检查用户是否为系统管理员
 func (s *PermissionService) IsSystemAdmin(ctx context.Context, userID int64) (bool, error) {
 	query := `
-		SELECT COUNT(*) FROM user_roles ur
-		JOIN roles r ON ur.role_id = r.id
+		SELECT COUNT(*) FROM bdopsflow_user_roles ur
+		JOIN bdopsflow_roles r ON ur.role_id = r.id
 		WHERE ur.user_id = ? AND r.code = 'system_admin'
 	`
 
@@ -94,8 +94,8 @@ func (s *PermissionService) IsSystemAdmin(ctx context.Context, userID int64) (bo
 func (s *PermissionService) GetUserRoles(ctx context.Context, userID int64) ([]*model.Role, error) {
 	query := `
 		SELECT r.id, r.name, r.code, r.description, r.is_system, r.domain_id
-		FROM user_roles ur
-		JOIN roles r ON ur.role_id = r.id
+		FROM bdopsflow_user_roles ur
+		JOIN bdopsflow_roles r ON ur.role_id = r.id
 		WHERE ur.user_id = ?
 	`
 
@@ -111,7 +111,7 @@ func (s *PermissionService) GetUserRoles(ctx context.Context, userID int64) ([]*
 		return nil, qr.Err
 	}
 
-	var roles []*model.Role
+	var bdopsflow_roles []*model.Role
 	for qr.Next() {
 		row, err := qr.Slice()
 		if err != nil {
@@ -131,20 +131,20 @@ func (s *PermissionService) GetUserRoles(ctx context.Context, userID int64) ([]*
 			role.DomainID = &domainID
 		}
 
-		roles = append(roles, role)
+		bdopsflow_roles = append(bdopsflow_roles, role)
 	}
 
-	return roles, nil
+	return bdopsflow_roles, nil
 }
 
 // GetUserPermissions 获取用户的所有权限
 func (s *PermissionService) GetUserPermissions(ctx context.Context, userID int64) ([]*model.Permission, error) {
 	query := `
 		SELECT DISTINCT p.id, p.resource, p.action, p.description
-		FROM user_roles ur
-		JOIN roles r ON ur.role_id = r.id
-		JOIN role_permissions rp ON r.id = rp.role_id
-		JOIN permissions p ON rp.permission_id = p.id
+		FROM bdopsflow_user_roles ur
+		JOIN bdopsflow_roles r ON ur.role_id = r.id
+		JOIN bdopsflow_role_permissions rp ON r.id = rp.role_id
+		JOIN bdopsflow_permissions p ON rp.permission_id = p.id
 		WHERE ur.user_id = ?
 	`
 
@@ -160,7 +160,7 @@ func (s *PermissionService) GetUserPermissions(ctx context.Context, userID int64
 		return nil, qr.Err
 	}
 
-	var permissions []*model.Permission
+	var bdopsflow_permissions []*model.Permission
 	for qr.Next() {
 		row, err := qr.Slice()
 		if err != nil {
@@ -173,10 +173,10 @@ func (s *PermissionService) GetUserPermissions(ctx context.Context, userID int64
 			Action:      rowString(row[2]),
 			Description: rowString(row[3]),
 		}
-		permissions = append(permissions, perm)
+		bdopsflow_permissions = append(bdopsflow_permissions, perm)
 	}
 
-	return permissions, nil
+	return bdopsflow_permissions, nil
 }
 
 // GetUserDomains 获取用户可访问的所有领域
@@ -188,7 +188,7 @@ func (s *PermissionService) GetUserDomains(ctx context.Context, userID int64) ([
 	}
 	if isAdmin {
 		// 系统管理员可访问所有领域
-		query := `SELECT id, name, description FROM domains`
+		query := `SELECT id, name, description FROM bdopsflow_domains`
 		qr, err := s.db.QueryOne(query)
 		if err != nil {
 			return nil, err
@@ -197,7 +197,7 @@ func (s *PermissionService) GetUserDomains(ctx context.Context, userID int64) ([
 			return nil, qr.Err
 		}
 
-		var domains []*model.Domain
+		var bdopsflow_domains []*model.Domain
 		for qr.Next() {
 			row, err := qr.Slice()
 			if err != nil {
@@ -209,17 +209,17 @@ func (s *PermissionService) GetUserDomains(ctx context.Context, userID int64) ([
 				Name:        rowString(row[1]),
 				Description: rowString(row[2]),
 			}
-			domains = append(domains, domain)
+			bdopsflow_domains = append(bdopsflow_domains, domain)
 		}
 
-		return domains, nil
+		return bdopsflow_domains, nil
 	}
 
 	// 普通用户只访问关联的领域
 	query := `
 		SELECT DISTINCT d.id, d.name, d.description
-		FROM user_roles ur
-		JOIN domains d ON ur.domain_id = d.id
+		FROM bdopsflow_user_roles ur
+		JOIN bdopsflow_domains d ON ur.domain_id = d.id
 		WHERE ur.user_id = ? AND ur.domain_id IS NOT NULL
 	`
 
@@ -235,7 +235,7 @@ func (s *PermissionService) GetUserDomains(ctx context.Context, userID int64) ([
 		return nil, qr.Err
 	}
 
-	var domains []*model.Domain
+	var bdopsflow_domains []*model.Domain
 	for qr.Next() {
 		row, err := qr.Slice()
 		if err != nil {
@@ -247,17 +247,17 @@ func (s *PermissionService) GetUserDomains(ctx context.Context, userID int64) ([
 			Name:        rowString(row[1]),
 			Description: rowString(row[2]),
 		}
-		domains = append(domains, domain)
+		bdopsflow_domains = append(bdopsflow_domains, domain)
 	}
 
-	return domains, nil
+	return bdopsflow_domains, nil
 }
 
 // checkRolePermission 检查角色是否有指定权限
 func (s *PermissionService) checkRolePermission(ctx context.Context, roleID int64, resource, action string) (bool, error) {
 	query := `
-		SELECT COUNT(*) FROM role_permissions rp
-		JOIN permissions p ON rp.permission_id = p.id
+		SELECT COUNT(*) FROM bdopsflow_role_permissions rp
+		JOIN bdopsflow_permissions p ON rp.permission_id = p.id
 		WHERE rp.role_id = ? 
 		AND (
 			(p.resource = ? AND p.action = ?)
@@ -319,7 +319,7 @@ func (s *PermissionService) InvalidateUserPermissionCache(ctx context.Context, u
 func (s *PermissionService) GetAllRoles(ctx context.Context) ([]*model.Role, error) {
 	query := `
 		SELECT id, name, code, description, is_system, domain_id
-		FROM roles
+		FROM bdopsflow_roles
 		ORDER BY is_system DESC, id ASC
 	`
 
@@ -331,7 +331,7 @@ func (s *PermissionService) GetAllRoles(ctx context.Context) ([]*model.Role, err
 		return nil, qr.Err
 	}
 
-	var roles []*model.Role
+	var bdopsflow_roles []*model.Role
 	for qr.Next() {
 		row, err := qr.Slice()
 		if err != nil {
@@ -351,17 +351,17 @@ func (s *PermissionService) GetAllRoles(ctx context.Context) ([]*model.Role, err
 			role.DomainID = &domainID
 		}
 
-		roles = append(roles, role)
+		bdopsflow_roles = append(bdopsflow_roles, role)
 	}
 
-	return roles, nil
+	return bdopsflow_roles, nil
 }
 
 // GetRoleByID 根据ID获取角色
 func (s *PermissionService) GetRoleByID(ctx context.Context, roleID int64) (*model.Role, error) {
 	query := `
 		SELECT id, name, code, description, is_system, domain_id
-		FROM roles
+		FROM bdopsflow_roles
 		WHERE id = ?
 	`
 
@@ -406,7 +406,7 @@ func (s *PermissionService) GetRoleByID(ctx context.Context, roleID int64) (*mod
 func (s *PermissionService) GetRoleByCode(ctx context.Context, code string) (*model.Role, error) {
 	query := `
 		SELECT id, name, code, description, is_system, domain_id
-		FROM roles
+		FROM bdopsflow_roles
 		WHERE code = ?
 	`
 
@@ -451,7 +451,7 @@ func (s *PermissionService) GetRoleByCode(ctx context.Context, code string) (*mo
 func (s *PermissionService) GetAllPermissions(ctx context.Context) ([]*model.Permission, error) {
 	query := `
 		SELECT id, resource, action, description
-		FROM permissions
+		FROM bdopsflow_permissions
 		ORDER BY resource, action
 	`
 
@@ -463,7 +463,7 @@ func (s *PermissionService) GetAllPermissions(ctx context.Context) ([]*model.Per
 		return nil, qr.Err
 	}
 
-	var permissions []*model.Permission
+	var bdopsflow_permissions []*model.Permission
 	for qr.Next() {
 		row, err := qr.Slice()
 		if err != nil {
@@ -476,18 +476,18 @@ func (s *PermissionService) GetAllPermissions(ctx context.Context) ([]*model.Per
 			Action:      rowString(row[2]),
 			Description: rowString(row[3]),
 		}
-		permissions = append(permissions, perm)
+		bdopsflow_permissions = append(bdopsflow_permissions, perm)
 	}
 
-	return permissions, nil
+	return bdopsflow_permissions, nil
 }
 
 // GetRolePermissions 获取角色的权限
 func (s *PermissionService) GetRolePermissions(ctx context.Context, roleID int64) ([]*model.Permission, error) {
 	query := `
 		SELECT p.id, p.resource, p.action, p.description
-		FROM role_permissions rp
-		JOIN permissions p ON rp.permission_id = p.id
+		FROM bdopsflow_role_permissions rp
+		JOIN bdopsflow_permissions p ON rp.permission_id = p.id
 		WHERE rp.role_id = ?
 		ORDER BY p.resource, p.action
 	`
@@ -504,7 +504,7 @@ func (s *PermissionService) GetRolePermissions(ctx context.Context, roleID int64
 		return nil, qr.Err
 	}
 
-	var permissions []*model.Permission
+	var bdopsflow_permissions []*model.Permission
 	for qr.Next() {
 		row, err := qr.Slice()
 		if err != nil {
@@ -517,16 +517,16 @@ func (s *PermissionService) GetRolePermissions(ctx context.Context, roleID int64
 			Action:      rowString(row[2]),
 			Description: rowString(row[3]),
 		}
-		permissions = append(permissions, perm)
+		bdopsflow_permissions = append(bdopsflow_permissions, perm)
 	}
 
-	return permissions, nil
+	return bdopsflow_permissions, nil
 }
 
 // AssignPermissionsToRole 为角色分配权限
 func (s *PermissionService) AssignPermissionsToRole(ctx context.Context, roleID int64, permissionIDs []int64) error {
 	// 删除旧权限
-	deleteQuery := `DELETE FROM role_permissions WHERE role_id = ?`
+	deleteQuery := `DELETE FROM bdopsflow_role_permissions WHERE role_id = ?`
 	deleteStmt := rqlite.ParameterizedStatement{
 		Query:     deleteQuery,
 		Arguments: []interface{}{roleID},
@@ -542,7 +542,7 @@ func (s *PermissionService) AssignPermissionsToRole(ctx context.Context, roleID 
 		now := time.Now()
 
 		for _, permID := range permissionIDs {
-			insertQuery := `INSERT INTO role_permissions (role_id, permission_id, created_at) VALUES (?, ?, ?)`
+			insertQuery := `INSERT INTO bdopsflow_role_permissions (role_id, permission_id, created_at) VALUES (?, ?, ?)`
 			stmt := rqlite.ParameterizedStatement{
 				Query:     insertQuery,
 				Arguments: []interface{}{roleID, permID, now},

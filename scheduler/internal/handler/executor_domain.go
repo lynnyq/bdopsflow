@@ -38,14 +38,14 @@ func (h *ExecutorDomainHandler) GetExecutorDomains(c *gin.Context) {
 
 	slog.Debug("ExecutorDomainHandler.GetExecutorDomains: handling request", "executor_id", id)
 
-	domains, err := h.svc.GetExecutorDomains(ctx, id)
+	bdopsflow_domains, err := h.svc.GetExecutorDomains(ctx, id)
 	if err != nil {
-		slog.Error("ExecutorDomainHandler.GetExecutorDomains: failed to get executor domains", "executor_id", id, "error", err)
+		slog.Error("ExecutorDomainHandler.GetExecutorDomains: failed to get executor bdopsflow_domains", "executor_id", id, "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"items": domains})
+	c.JSON(http.StatusOK, gin.H{"items": bdopsflow_domains})
 }
 
 // AssignDomains 分配执行器到领域
@@ -92,12 +92,12 @@ func (h *ExecutorDomainHandler) AssignDomains(c *gin.Context) {
 
 	err = h.svc.AssignExecutorToDomains(ctx, id, req.DomainIDs, assignedBy)
 	if err != nil {
-		slog.Error("ExecutorDomainHandler.AssignDomains: failed to assign domains", "executor_id", id, "error", err)
+		slog.Error("ExecutorDomainHandler.AssignDomains: failed to assign bdopsflow_domains", "executor_id", id, "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "domains assigned successfully"})
+	c.JSON(http.StatusOK, gin.H{"message": "bdopsflow_domains assigned successfully"})
 }
 
 // RemoveDomain 从领域移除执行器

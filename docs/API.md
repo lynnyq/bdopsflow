@@ -1,39 +1,17 @@
 # BDopsFlow API 接口文档
 
-本文档详细描述了 BDopsFlow 调度平台的所有 HTTP API 接口，包括请求参数、响应格式和使用示例。
+本文档详细描述了 BDopsFlow 调度平台的所有 HTTP API 接口，包含完整的字段类型说明、请求示例、正常响应、错误返回和特殊说明。
 
 ## 目录
 
+- [通用说明](#通用说明)
 - [认证接口](#认证接口)
-  - [用户登录](#用户登录)
-  - [用户注册](#用户注册)
-  - [获取当前用户](#获取当前用户)
 - [任务接口](#任务接口)
-  - [获取任务列表](#获取任务列表)
-  - [创建任务](#创建任务)
-  - [获取任务详情](#获取任务详情)
-  - [更新任务](#更新任务)
-  - [删除任务](#删除任务)
-  - [手动触发任务](#手动触发任务)
-  - [获取任务执行历史](#获取任务执行历史)
-  - [获取执行日志](#获取执行日志)
 - [工作流接口](#工作流接口)
-  - [获取工作流列表](#获取工作流列表)
-  - [创建工作流](#创建工作流)
-  - [获取工作流详情](#获取工作流详情)
-  - [更新工作流](#更新工作流)
-  - [删除工作流](#删除工作流)
-  - [触发工作流](#触发工作流)
-  - [获取工作流执行历史](#获取工作流执行历史)
 - [执行器接口](#执行器接口)
-  - [获取执行器列表](#获取执行器列表)
-  - [获取执行器详情](#获取执行器详情)
-  - [删除执行器](#删除执行器)
 - [日志接口](#日志接口)
-  - [获取执行日志列表](#获取执行日志列表)
-  - [获取执行统计](#获取执行统计)
-  - [删除执行记录](#删除执行记录)
-  - [批量删除执行记录](#批量删除执行记录)
+- [仪表盘接口](#仪表盘接口)
+- [管理员接口](#管理员接口)
 - [数据模型](#数据模型)
 
 ---
@@ -80,6 +58,7 @@ Authorization: Bearer <token>
 |--------|------|
 | 200 | 请求成功 |
 | 201 | 创建成功 |
+| 204 | 删除成功 |
 | 400 | 请求参数错误 |
 | 401 | 未授权（未登录或 Token 无效） |
 | 403 | 权限不足 |
@@ -114,7 +93,7 @@ curl -X POST http://localhost:8080/api/auth/login \
   }'
 ```
 
-**响应示例**：
+**正常响应**：
 
 ```json
 {
@@ -122,23 +101,22 @@ curl -X POST http://localhost:8080/api/auth/login \
   "user": {
     "id": 1,
     "username": "admin",
-    "role": "admin",
+    "role": "system_admin",
     "email": "admin@example.com",
-    "domain_id": 1
+    "domain_id": 0
   }
 }
 ```
 
-**响应字段说明**：
+**错误返回**：
 
-| 字段名 | 类型 | 说明 |
-|--------|------|------|
-| token | string | JWT Token，用于后续请求认证 |
-| user.id | int64 | 用户 ID |
-| user.username | string | 用户名 |
-| user.role | string | 用户角色：admin（管理员）、operator（操作员）、viewer（查看者） |
-| user.email | string | 邮箱地址 |
-| user.domain_id | int64 | 所属领域 ID |
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 400 | 解析错误 | 请求体格式不正确 |
+| 401 | invalid credentials | 用户名或密码错误 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：无
 
 ---
 
@@ -154,7 +132,7 @@ curl -X POST http://localhost:8080/api/auth/login \
 |--------|------|------|------|
 | username | string | 是 | 用户名（唯一） |
 | password | string | 是 | 密码 |
-| role | string | 否 | 用户角色，默认为 operator |
+| role | string | 否 | 用户角色 |
 | email | string | 否 | 邮箱地址 |
 
 **请求示例**：
@@ -163,23 +141,31 @@ curl -X POST http://localhost:8080/api/auth/login \
 curl -X POST http://localhost:8080/api/auth/register \
   -H "Content-Type: application/json" \
   -d '{
-    "username": "operator1",
+    "username": "user1",
     "password": "password123",
-    "role": "operator",
-    "email": "operator1@example.com"
+    "email": "user1@example.com"
   }'
 ```
 
-**响应示例**：
+**正常响应**：
 
 ```json
 {
   "id": 2,
-  "username": "operator1",
+  "username": "user1",
   "role": "operator",
-  "email": "operator1@example.com"
+  "email": "user1@example.com"
 }
 ```
+
+**错误返回**：
+
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 400 | 解析错误 | 请求体格式不正确 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：无
 
 ---
 
@@ -196,17 +182,110 @@ curl -X GET http://localhost:8080/api/auth/current \
   -H "Authorization: Bearer <token>"
 ```
 
-**响应示例**：
+**正常响应**：
 
 ```json
 {
   "id": 1,
   "username": "admin",
-  "role": "admin",
+  "role": "system_admin",
   "email": "admin@example.com",
-  "domain_id": 1
+  "domain_id": 0
 }
 ```
+
+**错误返回**：
+
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 401 | unauthorized | 未授权或Token无效 |
+| 404 | user not found | 用户不存在 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：无
+
+---
+
+### 更新当前用户信息
+
+**接口地址**：`PUT /api/auth/profile`
+
+**权限要求**：已登录用户
+
+**请求参数**：
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| email | string | 是 | 邮箱地址 |
+
+**请求示例**：
+
+```bash
+curl -X PUT http://localhost:8080/api/auth/profile \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "newemail@example.com"
+  }'
+```
+
+**正常响应**：返回更新后的用户信息
+
+**错误返回**：
+
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 400 | 解析错误 | 请求体格式不正确 |
+| 401 | unauthorized | 未授权或Token无效 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：无
+
+---
+
+### 修改当前用户密码
+
+**接口地址**：`POST /api/auth/change-password`
+
+**权限要求**：已登录用户
+
+**请求参数**：
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| old_password | string | 是 | 旧密码 |
+| new_password | string | 是 | 新密码 |
+
+**请求示例**：
+
+```bash
+curl -X POST http://localhost:8080/api/auth/change-password \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "old_password": "oldpass123",
+    "new_password": "newpass456"
+  }'
+```
+
+**正常响应**：
+
+```json
+{
+  "message": "password changed successfully"
+}
+```
+
+**错误返回**：
+
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 400 | wrong old password | 旧密码错误 |
+| 400 | password too short | 新密码太短 |
+| 401 | unauthorized | 未授权或Token无效 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：无
 
 ---
 
@@ -214,20 +293,18 @@ curl -X GET http://localhost:8080/api/auth/current \
 
 ### 获取任务列表
 
-**接口地址**：`GET /api/tasks`
+**接口地址**：`GET /api/bdopsflow_tasks`
 
 **权限要求**：已登录用户
-
-**请求参数**：无
 
 **请求示例**：
 
 ```bash
-curl -X GET http://localhost:8080/api/tasks \
+curl -X GET http://localhost:8080/api/bdopsflow_tasks \
   -H "Authorization: Bearer <token>"
 ```
 
-**响应示例**：
+**正常响应**：
 
 ```json
 {
@@ -248,46 +325,31 @@ curl -X GET http://localhost:8080/api/tasks \
       "webhook_config": "",
       "assigned_executor_id": "",
       "created_by": 1,
-      "created_at": "2026-05-15T10:00:00Z",
-      "updated_at": "2026-05-15T10:00:00Z",
-      "next_execution_time": "2026-05-15T10:05:00Z",
+      "created_at": "2026-05-15 10:00:00",
+      "updated_at": "2026-05-15 10:00:00",
+      "next_execution_time": "2026-05-15 10:05:00",
       "last_execution_status": "success"
     }
   ]
 }
 ```
 
-**响应字段说明**：
+**错误返回**：
 
-| 字段名 | 类型 | 说明 |
-|--------|------|------|
-| id | int64 | 任务 ID |
-| workflow_id | int64/null | 所属工作流 ID，null 表示独立任务 |
-| name | string | 任务名称 |
-| type | string | 任务类型：http、shell |
-| config | string | 任务配置（JSON 字符串） |
-| cron_expression | string | Cron 表达式 |
-| timeout_seconds | int32 | 超时时间（秒） |
-| retry_count | int32 | 最大重试次数 |
-| retry_interval | int32 | 重试间隔（秒） |
-| is_enabled | bool | 是否启用 |
-| status | string | 任务状态：pending、running、success、failed |
-| domain_id | int64 | 所属领域 ID |
-| webhook_config | string | Webhook 配置（JSON 字符串） |
-| assigned_executor_id | string | 指定执行器 ID，空表示自动选择 |
-| created_by | int64 | 创建者用户 ID |
-| created_at | string | 创建时间（RFC3339 格式） |
-| updated_at | string | 更新时间（RFC3339 格式） |
-| next_execution_time | string | 下次执行时间 |
-| last_execution_status | string | 最后一次执行状态 |
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 401 | unauthorized | 未授权或Token无效 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：无
 
 ---
 
 ### 创建任务
 
-**接口地址**：`POST /api/tasks`
+**接口地址**：`POST /api/bdopsflow_tasks`
 
-**权限要求**：admin 或 operator
+**权限要求**：system_admin 或 domain_admin 或 operator
 
 **请求参数**：
 
@@ -299,6 +361,8 @@ curl -X GET http://localhost:8080/api/tasks \
 | workflow_id | int64 | 否 | 所属工作流 ID |
 | cron_expression | string | 否 | Cron 表达式 |
 | timeout_seconds | int32 | 否 | 超时时间（秒），默认 300 |
+| retry_max | int32 | 否 | 最大重试次数（兼容性字段），默认 3 |
+| retry_delay_seconds | int32 | 否 | 重试间隔（秒，兼容性字段），默认 5 |
 | retry_count | int32 | 否 | 最大重试次数，默认 3 |
 | retry_interval | int32 | 否 | 重试间隔（秒），默认 5 |
 | is_enabled | bool | 否 | 是否启用，默认 false |
@@ -332,7 +396,7 @@ curl -X GET http://localhost:8080/api/tasks \
 **请求示例**：
 
 ```bash
-curl -X POST http://localhost:8080/api/tasks \
+curl -X POST http://localhost:8080/api/bdopsflow_tasks \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -352,7 +416,7 @@ curl -X POST http://localhost:8080/api/tasks \
   }'
 ```
 
-**响应示例**：
+**正常响应**：返回创建的任务对象
 
 ```json
 {
@@ -370,16 +434,32 @@ curl -X POST http://localhost:8080/api/tasks \
   "webhook_config": "",
   "assigned_executor_id": "",
   "created_by": 1,
-  "created_at": "2026-05-15T10:00:00Z",
-  "updated_at": "2026-05-15T10:00:00Z"
+  "created_at": "2026-05-15 10:00:00",
+  "updated_at": "2026-05-15 10:00:00"
 }
 ```
+
+**错误返回**：
+
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 400 | name is required | 任务名称为空 |
+| 400 | type is required | 任务类型为空 |
+| 400 | 解析错误 | 请求体格式不正确 |
+| 401 | unauthorized | 未授权或Token无效 |
+| 403 | Forbidden | 权限不足 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：
+- `config` 字段支持对象或字符串格式
+- 同时支持 `retry_max/retry_delay_seconds` 和 `retry_count/retry_interval` 两种字段组合，后者优先
+- `assigned_executor_id` 为空时系统会自动选择执行器
 
 ---
 
 ### 获取任务详情
 
-**接口地址**：`GET /api/tasks/:id`
+**接口地址**：`GET /api/bdopsflow_tasks/:id`
 
 **权限要求**：已登录用户
 
@@ -392,19 +472,31 @@ curl -X POST http://localhost:8080/api/tasks \
 **请求示例**：
 
 ```bash
-curl -X GET http://localhost:8080/api/tasks/1 \
+curl -X GET http://localhost:8080/api/bdopsflow_tasks/1 \
   -H "Authorization: Bearer <token>"
 ```
 
-**响应示例**：同创建任务响应
+**正常响应**：同创建任务响应
+
+**错误返回**：
+
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 400 | invalid id | ID参数无效 |
+| 400 | id must be positive | ID必须为正数 |
+| 401 | unauthorized | 未授权或Token无效 |
+| 404 | task not found | 任务不存在 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：无
 
 ---
 
 ### 更新任务
 
-**接口地址**：`PUT /api/tasks/:id`
+**接口地址**：`PUT /api/bdopsflow_tasks/:id`
 
-**权限要求**：admin 或 operator
+**权限要求**：system_admin 或 domain_admin 或 operator
 
 **路径参数**：
 
@@ -421,8 +513,10 @@ curl -X GET http://localhost:8080/api/tasks/1 \
 | config | object/string | 否 | 任务配置 |
 | cron_expression | string | 否 | Cron 表达式 |
 | timeout_seconds | int32 | 否 | 超时时间 |
+| retry_max | int32 | 否 | 最大重试次数（兼容性字段） |
+| retry_delay_seconds | int32 | 否 | 重试间隔（秒，兼容性字段） |
 | retry_count | int32 | 否 | 最大重试次数 |
-| retry_interval | int32 | 否 | 重试间隔 |
+| retry_interval | int32 | 否 | 重试间隔（秒） |
 | is_enabled | bool | 否 | 是否启用 |
 | domain_id | int64 | 否 | 所属领域 ID |
 | webhook_config | string | 否 | Webhook 配置 |
@@ -431,7 +525,7 @@ curl -X GET http://localhost:8080/api/tasks/1 \
 **请求示例**：
 
 ```bash
-curl -X PUT http://localhost:8080/api/tasks/1 \
+curl -X PUT http://localhost:8080/api/bdopsflow_tasks/1 \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -440,15 +534,32 @@ curl -X PUT http://localhost:8080/api/tasks/1 \
   }'
 ```
 
-**响应示例**：返回更新后的任务对象
+**正常响应**：返回更新后的任务对象
+
+**错误返回**：
+
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 400 | invalid id | ID参数无效 |
+| 400 | id must be positive | ID必须为正数 |
+| 400 | 解析错误 | 请求体格式不正确 |
+| 401 | unauthorized | 未授权或Token无效 |
+| 403 | Forbidden | 权限不足 |
+| 404 | task not found | 任务不存在 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：
+- `config` 字段支持对象或字符串格式
+- 同时支持 `retry_max/retry_delay_seconds` 和 `retry_count/retry_interval` 两种字段组合，后者优先
+- `assigned_executor_id` 可以设置为空字符串来清除指定执行器
 
 ---
 
 ### 删除任务
 
-**接口地址**：`DELETE /api/tasks/:id`
+**接口地址**：`DELETE /api/bdopsflow_tasks/:id`
 
-**权限要求**：admin
+**权限要求**：system_admin
 
 **路径参数**：
 
@@ -459,11 +570,11 @@ curl -X PUT http://localhost:8080/api/tasks/1 \
 **请求示例**：
 
 ```bash
-curl -X DELETE http://localhost:8080/api/tasks/1 \
+curl -X DELETE http://localhost:8080/api/bdopsflow_tasks/1 \
   -H "Authorization: Bearer <token>"
 ```
 
-**响应示例**：
+**正常响应**：
 
 ```json
 {
@@ -471,13 +582,25 @@ curl -X DELETE http://localhost:8080/api/tasks/1 \
 }
 ```
 
+**错误返回**：
+
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 400 | invalid id | ID参数无效 |
+| 400 | id must be positive | ID必须为正数 |
+| 401 | unauthorized | 未授权或Token无效 |
+| 403 | Forbidden | 权限不足 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：无
+
 ---
 
 ### 手动触发任务
 
-**接口地址**：`POST /api/tasks/:id/trigger`
+**接口地址**：`POST /api/bdopsflow_tasks/:id/trigger`
 
-**权限要求**：admin 或 operator
+**权限要求**：system_admin 或 domain_admin 或 operator
 
 **路径参数**：
 
@@ -488,11 +611,11 @@ curl -X DELETE http://localhost:8080/api/tasks/1 \
 **请求示例**：
 
 ```bash
-curl -X POST http://localhost:8080/api/tasks/1/trigger \
+curl -X POST http://localhost:8080/api/bdopsflow_tasks/1/trigger \
   -H "Authorization: Bearer <token>"
 ```
 
-**响应示例**：
+**正常响应**：
 
 ```json
 {
@@ -501,18 +624,23 @@ curl -X POST http://localhost:8080/api/tasks/1/trigger \
 }
 ```
 
-**响应字段说明**：
+**错误返回**：
 
-| 字段名 | 类型 | 说明 |
-|--------|------|------|
-| message | string | 操作结果 |
-| execution_id | string | 执行 ID，可用于查询执行状态和日志 |
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 400 | invalid id | ID参数无效 |
+| 400 | id must be positive | ID必须为正数 |
+| 401 | unauthorized | 未授权或Token无效 |
+| 403 | Forbidden | 权限不足 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：无
 
 ---
 
 ### 获取任务执行历史
 
-**接口地址**：`GET /api/tasks/:id/executions`
+**接口地址**：`GET /api/bdopsflow_tasks/:id/executions`
 
 **权限要求**：已登录用户
 
@@ -525,11 +653,11 @@ curl -X POST http://localhost:8080/api/tasks/1/trigger \
 **请求示例**：
 
 ```bash
-curl -X GET http://localhost:8080/api/tasks/1/executions \
+curl -X GET http://localhost:8080/api/bdopsflow_tasks/1/executions \
   -H "Authorization: Bearer <token>"
 ```
 
-**响应示例**：
+**正常响应**：
 
 ```json
 [
@@ -538,38 +666,36 @@ curl -X GET http://localhost:8080/api/tasks/1/executions \
     "task_id": 1,
     "execution_id": "exec-20260515-abc123",
     "executor_id": "executor-1",
+    "executor_name": "executor-1",
+    "task_name": "健康检查任务",
+    "task_type": "http",
     "status": "success",
-    "start_time": "2026-05-15T10:00:00Z",
-    "end_time": "2026-05-15T10:00:05Z",
+    "start_time": "2026-05-15 10:00:00",
+    "end_time": "2026-05-15 10:00:05",
     "output": "{\"status\":\"ok\"}",
     "error": "",
     "retry_times": 0,
-    "created_at": "2026-05-15T10:00:00Z"
+    "created_at": "2026-05-15 10:00:00"
   }
 ]
 ```
 
-**响应字段说明**：
+**错误返回**：
 
-| 字段名 | 类型 | 说明 |
-|--------|------|------|
-| id | int64 | 执行记录 ID |
-| task_id | int64 | 任务 ID |
-| execution_id | string | 执行 ID |
-| executor_id | string | 执行器 ID |
-| status | string | 执行状态：pending、running、success、failed |
-| start_time | string | 开始时间 |
-| end_time | string | 结束时间 |
-| output | string | 执行输出 |
-| error | string | 错误信息 |
-| retry_times | int32 | 已重试次数 |
-| created_at | string | 创建时间 |
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 400 | invalid id | ID参数无效 |
+| 400 | id must be positive | ID必须为正数 |
+| 401 | unauthorized | 未授权或Token无效 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：无
 
 ---
 
 ### 获取执行日志
 
-**接口地址**：`GET /api/tasks/executions/:executionId/logs`
+**接口地址**：`GET /api/bdopsflow_tasks/executions/:executionId/logs`
 
 **权限要求**：已登录用户
 
@@ -582,11 +708,11 @@ curl -X GET http://localhost:8080/api/tasks/1/executions \
 **请求示例**：
 
 ```bash
-curl -X GET http://localhost:8080/api/tasks/executions/exec-20260515-abc123/logs \
+curl -X GET http://localhost:8080/api/bdopsflow_tasks/executions/exec-20260515-abc123/logs \
   -H "Authorization: Bearer <token>"
 ```
 
-**响应示例**：
+**正常响应**：
 
 ```json
 [
@@ -598,10 +724,64 @@ curl -X GET http://localhost:8080/api/tasks/executions/exec-20260515-abc123/logs
     "node_id": "node-1",
     "log_level": "info",
     "message": "Task started",
-    "log_time": "2026-05-15T10:00:00Z"
+    "log_time": "2026-05-15 10:00:00"
   }
 ]
 ```
+
+**错误返回**：
+
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 400 | executionId required | executionId参数为空 |
+| 401 | unauthorized | 未授权或Token无效 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：无
+
+---
+
+### 日志流（SSE）
+
+**接口地址**：`GET /api/logs/stream?execution_id=<execution_id>`
+
+**权限要求**：已登录用户
+
+**查询参数**：
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| execution_id | string | 是 | 执行 ID |
+
+**请求示例**：
+
+```bash
+curl -X GET "http://localhost:8080/api/logs/stream?execution_id=exec-20260515-abc123" \
+  -H "Authorization: Bearer <token>" \
+  -H "Accept: text/event-stream"
+```
+
+**正常响应**：Server-Sent Events 流式响应
+
+```
+data: {"id":1,"execution_id":"exec-20260515-abc123","task_id":1,"node_id":"node-1","log_level":"info","message":"Task started","log_time":"2026-05-15 10:00:00"}
+
+data: {"type":"execution_update","status":"running","output":"","error":"","start_time":"2026-05-15 10:00:00","end_time":null}
+
+: heartbeat
+```
+
+**错误返回**：
+
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 400 | execution_id required | execution_id参数为空 |
+| 401 | unauthorized | 未授权或Token无效 |
+
+**特殊说明**：
+- 使用 Server-Sent Events (SSE) 协议
+- 包含两种类型的数据：日志信息和执行状态更新
+- 包含心跳保活消息
 
 ---
 
@@ -609,18 +789,18 @@ curl -X GET http://localhost:8080/api/tasks/executions/exec-20260515-abc123/logs
 
 ### 获取工作流列表
 
-**接口地址**：`GET /api/workflows`
+**接口地址**：`GET /api/bdopsflow_workflows`
 
 **权限要求**：已登录用户
 
 **请求示例**：
 
 ```bash
-curl -X GET http://localhost:8080/api/workflows \
+curl -X GET http://localhost:8080/api/bdopsflow_workflows \
   -H "Authorization: Bearer <token>"
 ```
 
-**响应示例**：
+**正常响应**：
 
 ```json
 [
@@ -629,38 +809,32 @@ curl -X GET http://localhost:8080/api/workflows \
     "name": "数据处理工作流",
     "description": "ETL数据处理流程",
     "domain_id": 1,
-    "dag_config": "{\"nodes\":[...],\"edges\":[...]}",
+    "dag_config": "{\"nodes\":[],\"edges\":[]}",
     "cron_expression": "0 2 * * *",
     "is_enabled": true,
     "created_by": 1,
-    "created_at": "2026-05-15T10:00:00Z",
-    "updated_at": "2026-05-15T10:00:00Z"
+    "created_at": "2026-05-15 10:00:00",
+    "updated_at": "2026-05-15 10:00:00"
   }
 ]
 ```
 
-**响应字段说明**：
+**错误返回**：
 
-| 字段名 | 类型 | 说明 |
-|--------|------|------|
-| id | int64 | 工作流 ID |
-| name | string | 工作流名称 |
-| description | string | 描述 |
-| domain_id | int64 | 所属领域 ID |
-| dag_config | string | DAG 配置（JSON 字符串） |
-| cron_expression | string | Cron 表达式 |
-| is_enabled | bool | 是否启用 |
-| created_by | int64 | 创建者用户 ID |
-| created_at | string | 创建时间 |
-| updated_at | string | 更新时间 |
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 401 | unauthorized | 未授权或Token无效 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：无
 
 ---
 
 ### 创建工作流
 
-**接口地址**：`POST /api/workflows`
+**接口地址**：`POST /api/bdopsflow_workflows`
 
-**权限要求**：admin 或 operator
+**权限要求**：system_admin 或 domain_admin 或 operator
 
 **请求参数**：
 
@@ -675,7 +849,7 @@ curl -X GET http://localhost:8080/api/workflows \
 **请求示例**：
 
 ```bash
-curl -X POST http://localhost:8080/api/workflows \
+curl -X POST http://localhost:8080/api/bdopsflow_workflows \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -686,13 +860,40 @@ curl -X POST http://localhost:8080/api/workflows \
   }'
 ```
 
-**响应示例**：返回创建的工作流对象
+**正常响应**：返回创建的工作流对象
+
+```json
+{
+  "id": 1,
+  "name": "数据处理工作流",
+  "description": "每日ETL处理",
+  "domain_id": 1,
+  "dag_config": "{\"nodes\":[{\"id\":\"task1\",\"type\":\"http\"}],\"edges\":[]}",
+  "cron_expression": "0 2 * * *",
+  "is_enabled": true,
+  "created_by": 1,
+  "created_at": "2026-05-15 10:00:00",
+  "updated_at": "2026-05-15 10:00:00"
+}
+```
+
+**错误返回**：
+
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 400 | name is required | 工作流名称为空 |
+| 400 | 解析错误 | 请求体格式不正确 |
+| 401 | unauthorized | 未授权或Token无效 |
+| 403 | Forbidden | 权限不足 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：无
 
 ---
 
 ### 获取工作流详情
 
-**接口地址**：`GET /api/workflows/:id`
+**接口地址**：`GET /api/bdopsflow_workflows/:id`
 
 **权限要求**：已登录用户
 
@@ -705,73 +906,243 @@ curl -X POST http://localhost:8080/api/workflows \
 **请求示例**：
 
 ```bash
-curl -X GET http://localhost:8080/api/workflows/1 \
+curl -X GET http://localhost:8080/api/bdopsflow_workflows/1 \
   -H "Authorization: Bearer <token>"
 ```
+
+**正常响应**：同创建工作流响应
+
+**错误返回**：
+
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 400 | invalid id | ID参数无效 |
+| 400 | id must be positive | ID必须为正数 |
+| 401 | unauthorized | 未授权或Token无效 |
+| 404 | workflow not found | 工作流不存在 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：无
 
 ---
 
 ### 更新工作流
 
-**接口地址**：`PUT /api/workflows/:id`
+**接口地址**：`PUT /api/bdopsflow_workflows/:id`
 
-**权限要求**：admin 或 operator
+**权限要求**：system_admin 或 domain_admin 或 operator
 
-**请求参数**：所有字段均为可选
+**路径参数**：
 
 | 参数名 | 类型 | 必填 | 说明 |
 |--------|------|------|------|
-| name | string | 否 | 工作流名称 |
-| description | string | 否 | 描述 |
-| domain_id | int64 | 否 | 所属领域 ID |
-| dag_config | string | 否 | DAG 配置 |
-| cron_expression | string | 否 | Cron 表达式 |
-| is_enabled | bool | 否 | 是否启用 |
+| id | int64 | 是 | 工作流 ID |
+
+**请求参数**：所有字段均为可选
+
+**请求示例**：
+
+```bash
+curl -X PUT http://localhost:8080/api/bdopsflow_workflows/1 \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "更新后的工作流名",
+    "description": "更新后的描述"
+  }'
+```
+
+**正常响应**：返回更新后的工作流对象
+
+**错误返回**：
+
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 400 | invalid id | ID参数无效 |
+| 400 | id must be positive | ID必须为正数 |
+| 400 | 解析错误 | 请求体格式不正确 |
+| 401 | unauthorized | 未授权或Token无效 |
+| 403 | Forbidden | 权限不足 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：无
 
 ---
 
 ### 删除工作流
 
-**接口地址**：`DELETE /api/workflows/:id`
+**接口地址**：`DELETE /api/bdopsflow_workflows/:id`
 
-**权限要求**：admin
+**权限要求**：system_admin
+
+**路径参数**：
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| id | int64 | 是 | 工作流 ID |
+
+**请求示例**：
+
+```bash
+curl -X DELETE http://localhost:8080/api/bdopsflow_workflows/1 \
+  -H "Authorization: Bearer <token>"
+```
+
+**正常响应**：
+
+```json
+{
+  "message": "deleted"
+}
+```
+
+**错误返回**：
+
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 400 | invalid id | ID参数无效 |
+| 400 | id must be positive | ID必须为正数 |
+| 401 | unauthorized | 未授权或Token无效 |
+| 403 | Forbidden | 权限不足 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：无
 
 ---
 
 ### 触发工作流
 
-**接口地址**：`POST /api/workflows/:id/trigger`
+**接口地址**：`POST /api/bdopsflow_workflows/:id/trigger`
 
-**权限要求**：admin 或 operator
+**权限要求**：system_admin 或 domain_admin 或 operator
+
+**路径参数**：
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| id | int64 | 是 | 工作流 ID |
 
 **请求示例**：
 
 ```bash
-curl -X POST http://localhost:8080/api/workflows/1/trigger \
+curl -X POST http://localhost:8080/api/bdopsflow_workflows/1/trigger \
   -H "Authorization: Bearer <token>"
 ```
 
-**响应示例**：
+**正常响应**：返回工作流执行对象
 
-```json
-{
-  "id": 1,
-  "workflow_id": 1,
-  "execution_id": "wf-exec-20260515-xyz789",
-  "status": "running",
-  "start_time": "2026-05-15T10:00:00Z",
-  "node_states": "{}",
-  "created_at": "2026-05-15T10:00:00Z"
-}
-```
+**错误返回**：
+
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 400 | invalid id | ID参数无效 |
+| 400 | id must be positive | ID必须为正数 |
+| 401 | unauthorized | 未授权或Token无效 |
+| 403 | Forbidden | 权限不足 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：无
 
 ---
 
 ### 获取工作流执行历史
 
-**接口地址**：`GET /api/workflows/:id/executions`
+**接口地址**：`GET /api/bdopsflow_workflows/:id/executions`
 
 **权限要求**：已登录用户
+
+**路径参数**：
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| id | int64 | 是 | 工作流 ID |
+
+**请求示例**：
+
+```bash
+curl -X GET http://localhost:8080/api/bdopsflow_workflows/1/executions \
+  -H "Authorization: Bearer <token>"
+```
+
+**正常响应**：工作流执行列表
+
+**错误返回**：
+
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 400 | invalid id | ID参数无效 |
+| 400 | id must be positive | ID必须为正数 |
+| 401 | unauthorized | 未授权或Token无效 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：无
+
+---
+
+### 获取工作流执行详情
+
+**接口地址**：`GET /api/bdopsflow_workflows/executions/:executionId`
+
+**权限要求**：已登录用户
+
+**路径参数**：
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| executionId | string | 是 | 执行 ID |
+
+**请求示例**：
+
+```bash
+curl -X GET http://localhost:8080/api/bdopsflow_workflows/executions/wf-exec-20260515-abc123 \
+  -H "Authorization: Bearer <token>"
+```
+
+**正常响应**：工作流执行对象
+
+**错误返回**：
+
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 400 | executionId required | executionId参数为空 |
+| 401 | unauthorized | 未授权或Token无效 |
+| 404 | workflow execution not found | 工作流执行不存在 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：无
+
+---
+
+### 获取工作流执行日志
+
+**接口地址**：`GET /api/bdopsflow_workflows/executions/:executionId/logs`
+
+**权限要求**：已登录用户
+
+**路径参数**：
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| executionId | string | 是 | 执行 ID |
+
+**请求示例**：
+
+```bash
+curl -X GET http://localhost:8080/api/bdopsflow_workflows/executions/wf-exec-20260515-abc123/logs \
+  -H "Authorization: Bearer <token>"
+```
+
+**正常响应**：同任务执行日志响应
+
+**错误返回**：
+
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 400 | executionId required | executionId参数为空 |
+| 401 | unauthorized | 未授权或Token无效 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：无
 
 ---
 
@@ -779,18 +1150,18 @@ curl -X POST http://localhost:8080/api/workflows/1/trigger \
 
 ### 获取执行器列表
 
-**接口地址**：`GET /api/executors`
+**接口地址**：`GET /api/bdopsflow_executors`
 
 **权限要求**：已登录用户
 
 **请求示例**：
 
 ```bash
-curl -X GET http://localhost:8080/api/executors \
+curl -X GET http://localhost:8080/api/bdopsflow_executors \
   -H "Authorization: Bearer <token>"
 ```
 
-**响应示例**：
+**正常响应**：
 
 ```json
 [
@@ -809,51 +1180,225 @@ curl -X GET http://localhost:8080/api/executors \
 ]
 ```
 
-**响应字段说明**：
+**错误返回**：
 
-| 字段名 | 类型 | 说明 |
-|--------|------|------|
-| id | int64 | 执行器记录 ID |
-| executor_id | string | 执行器唯一标识 |
-| name | string | 执行器名称 |
-| address | string | 执行器地址（IP:端口） |
-| status | string | 状态：online、offline |
-| last_heartbeat | string | 最后心跳时间 |
-| capacity | int64 | 最大并发任务数 |
-| current_load | int64 | 当前运行任务数 |
-| created_at | string | 注册时间 |
-| updated_at | string | 更新时间 |
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 401 | unauthorized | 未授权或Token无效 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：无
 
 ---
 
 ### 获取执行器详情
 
-**接口地址**：`GET /api/executors/:id`
+**接口地址**：`GET /api/bdopsflow_executors/:id`
 
 **权限要求**：已登录用户
+
+**路径参数**：
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| id | int64 | 是 | 执行器 ID |
+
+**请求示例**：
+
+```bash
+curl -X GET http://localhost:8080/api/bdopsflow_executors/1 \
+  -H "Authorization: Bearer <token>"
+```
+
+**正常响应**：
+
+```json
+{
+  "message": "ok"
+}
+```
+
+**错误返回**：
+
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 400 | invalid id | ID参数无效 |
+| 400 | id must be positive | ID必须为正数 |
+| 401 | unauthorized | 未授权或Token无效 |
+
+**特殊说明**：无
+
+---
+
+### 标记执行器在线
+
+**接口地址**：`POST /api/bdopsflow_executors/:id/online`
+
+**权限要求**：system_admin
+
+**路径参数**：
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| id | string | 是 | 执行器 ID |
+
+**请求示例**：
+
+```bash
+curl -X POST http://localhost:8080/api/bdopsflow_executors/executor-1/online \
+  -H "Authorization: Bearer <token>"
+```
+
+**正常响应**：
+
+```json
+{
+  "message": "online"
+}
+```
+
+**错误返回**：
+
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 400 | executor_id is required | executor_id参数为空 |
+| 401 | unauthorized | 未授权或Token无效 |
+| 403 | Forbidden | 权限不足 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：无
+
+---
+
+### 标记执行器离线
+
+**接口地址**：`POST /api/bdopsflow_executors/:id/offline`
+
+**权限要求**：system_admin
+
+**路径参数**：
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| id | string | 是 | 执行器 ID |
+
+**请求示例**：
+
+```bash
+curl -X POST http://localhost:8080/api/bdopsflow_executors/executor-1/offline \
+  -H "Authorization: Bearer <token>"
+```
+
+**正常响应**：
+
+```json
+{
+  "message": "offline"
+}
+```
+
+**错误返回**：
+
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 400 | executor_id is required | executor_id参数为空 |
+| 401 | unauthorized | 未授权或Token无效 |
+| 403 | Forbidden | 权限不足 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：无
+
+---
+
+### 更新执行器容量
+
+**接口地址**：`PUT /api/bdopsflow_executors/:id/capacity`
+
+**权限要求**：system_admin
+
+**路径参数**：
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| id | string | 是 | 执行器 ID |
+
+**请求参数**：
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| capacity | int64 | 是 | 最大并发任务数（必须大于等于1） |
+
+**请求示例**：
+
+```bash
+curl -X PUT http://localhost:8080/api/bdopsflow_executors/executor-1/capacity \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "capacity": 20
+  }'
+```
+
+**正常响应**：
+
+```json
+{
+  "message": "capacity updated",
+  "capacity": 20
+}
+```
+
+**错误返回**：
+
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 400 | executor_id is required | executor_id参数为空 |
+| 400 | invalid request: capacity must be a positive integer | capacity必须是正整数 |
+| 401 | unauthorized | 未授权或Token无效 |
+| 403 | Forbidden | 权限不足 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：无
 
 ---
 
 ### 删除执行器
 
-**接口地址**：`DELETE /api/executors/:id`
+**接口地址**：`DELETE /api/bdopsflow_executors/:id`
 
-**权限要求**：admin
+**权限要求**：system_admin
+
+**路径参数**：
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| id | string | 是 | 执行器 ID |
 
 **请求示例**：
 
 ```bash
-curl -X DELETE http://localhost:8080/api/executors/1 \
+curl -X DELETE http://localhost:8080/api/bdopsflow_executors/executor-1 \
   -H "Authorization: Bearer <token>"
 ```
 
-**响应示例**：
+**正常响应**：
 
 ```json
 {
   "message": "deleted"
 }
 ```
+
+**错误返回**：
+
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 400 | executor_id is required | executor_id参数为空 |
+| 401 | unauthorized | 未授权或Token无效 |
+| 403 | Forbidden | 权限不足 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：无
 
 ---
 
@@ -890,7 +1435,7 @@ curl -X GET "http://localhost:8080/api/logs?page=1&page_size=20&status=failed" \
   -H "Authorization: Bearer <token>"
 ```
 
-**响应示例**：
+**正常响应**：
 
 ```json
 {
@@ -904,12 +1449,12 @@ curl -X GET "http://localhost:8080/api/logs?page=1&page_size=20&status=failed" \
       "task_name": "健康检查任务",
       "task_type": "http",
       "status": "success",
-      "start_time": "2026-05-15T10:00:00Z",
-      "end_time": "2026-05-15T10:00:05Z",
+      "start_time": "2026-05-15 10:00:00",
+      "end_time": "2026-05-15 10:00:05",
       "output": "{\"status\":\"ok\"}",
       "error": "",
       "retry_times": 0,
-      "created_at": "2026-05-15T10:00:00Z"
+      "created_at": "2026-05-15 10:00:00"
     }
   ],
   "total": 100,
@@ -917,6 +1462,17 @@ curl -X GET "http://localhost:8080/api/logs?page=1&page_size=20&status=failed" \
   "page_size": 20
 }
 ```
+
+**错误返回**：
+
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 401 | unauthorized | 未授权或Token无效 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：
+- `page` 和 `page_size` 超出范围时会自动修正为有效值
+- 所有筛选参数都是可选的，可以组合使用
 
 ---
 
@@ -935,7 +1491,7 @@ curl -X GET "http://localhost:8080/api/logs/stats" \
   -H "Authorization: Bearer <token>"
 ```
 
-**响应示例**：
+**正常响应**：
 
 ```json
 {
@@ -949,6 +1505,15 @@ curl -X GET "http://localhost:8080/api/logs/stats" \
 }
 ```
 
+**错误返回**：
+
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 401 | unauthorized | 未授权或Token无效 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：无
+
 ---
 
 ### 删除执行记录
@@ -956,6 +1521,38 @@ curl -X GET "http://localhost:8080/api/logs/stats" \
 **接口地址**：`DELETE /api/logs/:id`
 
 **权限要求**：已登录用户
+
+**路径参数**：
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| id | int64 | 是 | 执行记录 ID |
+
+**请求示例**：
+
+```bash
+curl -X DELETE http://localhost:8080/api/logs/1 \
+  -H "Authorization: Bearer <token>"
+```
+
+**正常响应**：
+
+```json
+{
+  "message": "deleted successfully"
+}
+```
+
+**错误返回**：
+
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 400 | invalid id | ID参数无效 |
+| 400 | id must be positive | ID必须为正数 |
+| 401 | unauthorized | 未授权或Token无效 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：无
 
 ---
 
@@ -982,7 +1579,7 @@ curl -X POST http://localhost:8080/api/logs/batch-delete \
   }'
 ```
 
-**响应示例**：
+**正常响应**：
 
 ```json
 {
@@ -990,129 +1587,680 @@ curl -X POST http://localhost:8080/api/logs/batch-delete \
 }
 ```
 
----
+**错误返回**：
 
-## 数据模型
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 400 | no ids provided | ids数组为空 |
+| 400 | 解析错误 | 请求体格式不正确 |
+| 401 | unauthorized | 未授权或Token无效 |
+| 500 | 内部错误 | 服务器内部错误 |
 
-### Task（任务）
-
-| 字段名 | 类型 | 说明 |
-|--------|------|------|
-| id | int64 | 任务 ID |
-| workflow_id | int64/null | 所属工作流 ID |
-| name | string | 任务名称 |
-| type | string | 任务类型：http、shell |
-| config | string | 任务配置（JSON） |
-| cron_expression | string | Cron 表达式 |
-| timeout_seconds | int32 | 超时时间（秒） |
-| retry_count | int32 | 最大重试次数 |
-| retry_interval | int32 | 重试间隔（秒） |
-| is_enabled | bool | 是否启用 |
-| status | string | 任务状态 |
-| domain_id | int64 | 所属领域 ID |
-| webhook_config | string | Webhook 配置 |
-| assigned_executor_id | string | 指定执行器 ID |
-| created_by | int64 | 创建者 ID |
-| created_at | time | 创建时间 |
-| updated_at | time | 更新时间 |
-
-### TaskExecution（任务执行记录）
-
-| 字段名 | 类型 | 说明 |
-|--------|------|------|
-| id | int64 | 执行记录 ID |
-| task_id | int64 | 任务 ID |
-| execution_id | string | 执行 ID |
-| executor_id | string | 执行器 ID |
-| status | string | 执行状态：pending、running、success、failed |
-| start_time | time | 开始时间 |
-| end_time | time | 结束时间 |
-| output | string | 执行输出 |
-| error | string | 错误信息 |
-| retry_times | int32 | 已重试次数 |
-| created_at | time | 创建时间 |
-
-### Executor（执行器）
-
-| 字段名 | 类型 | 说明 |
-|--------|------|------|
-| id | int64 | 执行器记录 ID |
-| executor_id | string | 执行器唯一标识 |
-| name | string | 执行器名称 |
-| address | string | 执行器地址 |
-| status | string | 状态：online、offline |
-| last_heartbeat | time | 最后心跳时间 |
-| capacity | int64 | 最大并发任务数 |
-| current_load | int64 | 当前运行任务数 |
-| created_at | time | 注册时间 |
-| updated_at | time | 更新时间 |
-
-### Workflow（工作流）
-
-| 字段名 | 类型 | 说明 |
-|--------|------|------|
-| id | int64 | 工作流 ID |
-| name | string | 工作流名称 |
-| description | string | 描述 |
-| domain_id | int64 | 所属领域 ID |
-| dag_config | string | DAG 配置（JSON） |
-| cron_expression | string | Cron 表达式 |
-| is_enabled | bool | 是否启用 |
-| created_by | int64 | 创建者 ID |
-| created_at | time | 创建时间 |
-| updated_at | time | 更新时间 |
-
-### User（用户）
-
-| 字段名 | 类型 | 说明 |
-|--------|------|------|
-| id | int64 | 用户 ID |
-| username | string | 用户名 |
-| password | string | 密码（加密存储） |
-| email | string | 邮箱 |
-| domain_id | int64 | 所属领域 ID |
-| role | string | 角色：admin、operator、viewer |
-| created_at | time | 创建时间 |
-| updated_at | time | 更新时间 |
+**特殊说明**：无
 
 ---
 
-## Cron 表达式说明
+## 仪表盘接口
 
-系统支持标准 5 位 Cron 表达式：
+### 获取统计数据
 
-```
-┌───────────── 分钟 (0 - 59)
-│ ┌───────────── 小时 (0 - 23)
-│ │ ┌───────────── 日期 (1 - 31)
-│ │ │ ┌───────────── 月份 (1 - 12)
-│ │ │ │ ┌───────────── 星期 (0 - 6，0 = 周日)
-│ │ │ │ │
-* * * * *
+**接口地址**：`GET /api/dashboard/stats`
+
+**权限要求**：已登录用户
+
+**请求示例**：
+
+```bash
+curl -X GET http://localhost:8080/api/dashboard/stats \
+  -H "Authorization: Bearer <token>"
 ```
 
-**常用示例**：
+**正常响应**：仪表盘统计数据
 
-| 表达式 | 说明 |
-|--------|------|
-| `*/5 * * * *` | 每 5 分钟执行一次 |
-| `0 * * * *` | 每小时整点执行 |
-| `0 2 * * *` | 每天凌晨 2 点执行 |
-| `0 0 * * 1` | 每周一凌晨执行 |
-| `0 0 1 * *` | 每月 1 号凌晨执行 |
+**错误返回**：
+
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 401 | unauthorized | 未授权或Token无效 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：无
 
 ---
 
-## 错误码说明
+### 获取趋势数据
 
-| 错误信息 | 说明 |
-|----------|------|
-| invalid id | ID 参数无效 |
-| id must be positive | ID 必须为正数 |
-| name is required | 名称不能为空 |
-| type is required | 类型不能为空 |
-| invalid credentials | 用户名或密码错误 |
-| unauthorized | 未授权 |
-| task not found | 任务不存在 |
-| workflow not found | 工作流不存在 |
-| executor not found | 执行器不存在 |
+**接口地址**：`GET /api/dashboard/trends`
+
+**权限要求**：已登录用户
+
+**请求示例**：
+
+```bash
+curl -X GET http://localhost:8080/api/dashboard/trends \
+  -H "Authorization: Bearer <token>"
+```
+
+**正常响应**：
+
+```json
+{
+  "items": [
+    ...
+  ]
+}
+```
+
+**错误返回**：
+
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 401 | unauthorized | 未授权或Token无效 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：无
+
+---
+
+### 获取调度器状态
+
+**接口地址**：`GET /api/dashboard/scheduler/status`
+
+**权限要求**：已登录用户
+
+**请求示例**：
+
+```bash
+curl -X GET http://localhost:8080/api/dashboard/scheduler/status \
+  -H "Authorization: Bearer <token>"
+```
+
+**正常响应**：
+
+```json
+{
+  "paused": false
+}
+```
+
+**错误返回**：
+
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 401 | unauthorized | 未授权或Token无效 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：无
+
+---
+
+### 暂停调度器
+
+**接口地址**：`POST /api/dashboard/scheduler/pause`
+
+**权限要求**：system_admin
+
+**请求示例**：
+
+```bash
+curl -X POST http://localhost:8080/api/dashboard/scheduler/pause \
+  -H "Authorization: Bearer <token>"
+```
+
+**正常响应**：
+
+```json
+{
+  "message": "scheduler paused"
+}
+```
+
+**错误返回**：
+
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 401 | unauthorized | 未授权或Token无效 |
+| 403 | Forbidden | 权限不足 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：无
+
+---
+
+### 恢复调度器
+
+**接口地址**：`POST /api/dashboard/scheduler/resume`
+
+**权限要求**：system_admin
+
+**请求示例**：
+
+```bash
+curl -X POST http://localhost:8080/api/dashboard/scheduler/resume \
+  -H "Authorization: Bearer <token>"
+```
+
+**正常响应**：
+
+```json
+{
+  "message": "scheduler resumed"
+}
+```
+
+**错误返回**：
+
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 401 | unauthorized | 未授权或Token无效 |
+| 403 | Forbidden | 权限不足 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：无
+
+---
+
+## 管理员接口
+
+### 权限管理
+
+#### 获取所有权限
+
+**接口地址**：`GET /api/admin/bdopsflow_permissions`
+
+**权限要求**：system_admin
+
+**请求示例**：
+
+```bash
+curl -X GET http://localhost:8080/api/admin/bdopsflow_permissions \
+  -H "Authorization: Bearer <token>"
+```
+
+**正常响应**：
+
+```json
+{
+  "items": [...],
+  "groups": [...]
+}
+```
+
+**错误返回**：
+
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 401 | unauthorized | 未授权或Token无效 |
+| 403 | Forbidden | 权限不足 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：无
+
+---
+
+### 用户管理
+
+#### 获取用户列表
+
+**接口地址**：`GET /api/admin/bdopsflow_users`
+
+**权限要求**：system_admin
+
+**请求示例**：
+
+```bash
+curl -X GET http://localhost:8080/api/admin/bdopsflow_users \
+  -H "Authorization: Bearer <token>"
+```
+
+**正常响应**：
+
+```json
+{
+  "items": [
+    {
+      "id": 1,
+      "username": "admin",
+      "email": "admin@example.com",
+      ...
+    }
+  ]
+}
+```
+
+**错误返回**：
+
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 401 | unauthorized | 未授权或Token无效 |
+| 403 | Forbidden | 权限不足 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：无
+
+---
+
+#### 获取用户详情
+
+**接口地址**：`GET /api/admin/bdopsflow_users/:id`
+
+**权限要求**：system_admin
+
+**路径参数**：
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| id | int64 | 是 | 用户 ID |
+
+**请求示例**：
+
+```bash
+curl -X GET http://localhost:8080/api/admin/bdopsflow_users/1 \
+  -H "Authorization: Bearer <token>"
+```
+
+**正常响应**：
+
+```json
+{
+  "user": {...},
+  "bdopsflow_roles": [...]
+}
+```
+
+**错误返回**：
+
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 400 | invalid id | ID参数无效 |
+| 400 | id must be positive | ID必须为正数 |
+| 401 | unauthorized | 未授权或Token无效 |
+| 403 | Forbidden | 权限不足 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：无
+
+---
+
+#### 创建用户
+
+**接口地址**：`POST /api/admin/bdopsflow_users`
+
+**权限要求**：system_admin
+
+**请求参数**：
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| username | string | 是 | 用户名（最少3个字符，最大50个字符，字母数字） |
+| email | string | 是 | 邮箱地址 |
+| password | string | 是 | 密码（最少6个字符） |
+
+**请求示例**：
+
+```bash
+curl -X POST http://localhost:8080/api/admin/bdopsflow_users \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "newuser",
+    "email": "newuser@example.com",
+    "password": "password123"
+  }'
+```
+
+**正常响应**：返回创建的用户对象
+
+**错误返回**：
+
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 400 | 参数验证错误 | 用户名或密码不满足要求 |
+| 401 | unauthorized | 未授权或Token无效 |
+| 403 | Forbidden | 权限不足 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：无
+
+---
+
+#### 更新用户
+
+**接口地址**：`PUT /api/admin/bdopsflow_users/:id`
+
+**权限要求**：system_admin 或 domain_admin
+
+**路径参数**：
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| id | int64 | 是 | 用户 ID |
+
+**请求参数**：
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| username | string | 是 | 用户名 |
+| email | string | 是 | 邮箱地址 |
+| role | string | 是 | 角色：system_admin, domain_admin, user |
+| is_active | bool | 否 | 是否激活 |
+
+**请求示例**：
+
+```bash
+curl -X PUT http://localhost:8080/api/admin/bdopsflow_users/1 \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "updateduser",
+    "email": "updated@example.com",
+    "role": "domain_admin",
+    "is_active": true
+  }'
+```
+
+**正常响应**：返回更新后的用户对象
+
+**错误返回**：
+
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 400 | invalid id | ID参数无效 |
+| 400 | id must be positive | ID必须为正数 |
+| 401 | unauthorized | 未授权或Token无效 |
+| 403 | Forbidden | 权限不足 |
+| 404 | user not found | 用户不存在 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：无
+
+---
+
+#### 删除用户
+
+**接口地址**：`DELETE /api/admin/bdopsflow_users/:id`
+
+**权限要求**：system_admin
+
+**路径参数**：
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| id | int64 | 是 | 用户 ID |
+
+**请求示例**：
+
+```bash
+curl -X DELETE http://localhost:8080/api/admin/bdopsflow_users/1 \
+  -H "Authorization: Bearer <token>"
+```
+
+**正常响应**：
+
+```json
+{}
+```
+
+**错误返回**：
+
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 400 | invalid id | ID参数无效 |
+| 400 | id must be positive | ID必须为正数 |
+| 401 | unauthorized | 未授权或Token无效 |
+| 403 | Forbidden | 权限不足 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：无
+
+---
+
+#### 分配用户角色
+
+**接口地址**：`POST /api/admin/bdopsflow_users/:id/bdopsflow_roles`
+
+**权限要求**：system_admin
+
+**路径参数**：
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| id | int64 | 是 | 用户 ID |
+
+**请求参数**：
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| role_ids | int64[] | 是 | 角色 ID 数组 |
+| domain_ids | int64[] | 否 | 领域 ID 数组 |
+
+**请求示例**：
+
+```bash
+curl -X POST http://localhost:8080/api/admin/bdopsflow_users/1/bdopsflow_roles \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "role_ids": [2, 3],
+    "domain_ids": [1]
+  }'
+```
+
+**正常响应**：
+
+```json
+{
+  "message": "bdopsflow_roles assigned successfully"
+}
+```
+
+**错误返回**：
+
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 400 | invalid id | ID参数无效 |
+| 400 | id must be positive | ID必须为正数 |
+| 401 | unauthorized | 未授权或Token无效 |
+| 403 | Forbidden | 权限不足 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：无
+
+---
+
+#### 获取用户角色
+
+**接口地址**：`GET /api/admin/bdopsflow_users/:id/bdopsflow_roles`
+
+**权限要求**：system_admin
+
+**路径参数**：
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| id | int64 | 是 | 用户 ID |
+
+**请求示例**：
+
+```bash
+curl -X GET http://localhost:8080/api/admin/bdopsflow_users/1/bdopsflow_roles \
+  -H "Authorization: Bearer <token>"
+```
+
+**正常响应**：
+
+```json
+{
+  "items": [...]
+}
+```
+
+**错误返回**：
+
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 400 | invalid id | ID参数无效 |
+| 400 | id must be positive | ID必须为正数 |
+| 401 | unauthorized | 未授权或Token无效 |
+| 403 | Forbidden | 权限不足 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：无
+
+---
+
+#### 分配用户领域
+
+**接口地址**：`POST /api/admin/bdopsflow_users/:id/bdopsflow_domains`
+
+**权限要求**：system_admin
+
+**路径参数**：
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| id | int64 | 是 | 用户 ID |
+
+**请求参数**：
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| domain_ids | int64[] | 是 | 领域 ID 数组 |
+
+**请求示例**：
+
+```bash
+curl -X POST http://localhost:8080/api/admin/bdopsflow_users/1/bdopsflow_domains \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "domain_ids": [1, 2]
+  }'
+```
+
+**正常响应**：
+
+```json
+{
+  "message": "bdopsflow_domains assigned successfully"
+}
+```
+
+**错误返回**：
+
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 400 | invalid id | ID参数无效 |
+| 400 | id must be positive | ID必须为正数 |
+| 401 | unauthorized | 未授权或Token无效 |
+| 403 | Forbidden | 权限不足 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：无
+
+---
+
+#### 重置用户密码
+
+**接口地址**：`POST /api/admin/bdopsflow_users/:id/reset-password`
+
+**权限要求**：system_admin 或 domain_admin
+
+**路径参数**：
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| id | int64 | 是 | 用户 ID |
+
+**请求参数**：
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| new_password | string | 是 | 新密码 |
+
+**请求示例**：
+
+```bash
+curl -X POST http://localhost:8080/api/admin/bdopsflow_users/1/reset-password \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "new_password": "newpass123"
+  }'
+```
+
+**正常响应**：
+
+```json
+{
+  "message": "password reset successfully"
+}
+```
+
+**错误返回**：
+
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 400 | invalid id | ID参数无效 |
+| 400 | id must be positive | ID必须为正数 |
+| 401 | unauthorized | 未授权或Token无效 |
+| 403 | Forbidden | 权限不足 |
+| 404 | user not found | 用户不存在 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：无
+
+---
+
+### 角色管理
+
+#### 获取角色列表
+
+**接口地址**：`GET /api/admin/bdopsflow_roles`
+
+**权限要求**：system_admin
+
+**请求示例**：
+
+```bash
+curl -X GET http://localhost:8080/api/admin/bdopsflow_roles \
+  -H "Authorization: Bearer <token>"
+```
+
+**正常响应**：
+
+```json
+{
+  "items": [
+    {
+      "id": 1,
+      "name": "系统管理员",
+      "code": "system_admin",
+      ...
+    }
+  ]
+}
+```
+
+**错误返回**：
+
+| 状态码 | 错误信息 | 说明 |
+|--------|----------|------|
+| 401 | unauthorized | 未授权或Token无效 |
+| 403 | Forbidden | 权限不足 |
+| 500 | 内部错误 | 服务器内部错误 |
+
+**特殊说明**：无
+
+---
+
+#### 获取角色详情
+
+**接口地址**：`GET /api/admin/bdopsflow_roles/:id`
+
+**权限要求**：system_admin
+
+**路径参数**：
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------

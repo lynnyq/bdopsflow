@@ -15,7 +15,7 @@ func setupTestDB(t *testing.T) *sql.DB {
 	}
 
 	schema := `
-	CREATE TABLE tasks (
+	CREATE TABLE bdopsflow_tasks (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		name TEXT NOT NULL,
 		type TEXT NOT NULL,
@@ -23,7 +23,7 @@ func setupTestDB(t *testing.T) *sql.DB {
 		workflow_id INTEGER
 	);
 
-	CREATE TABLE task_dependencies (
+	CREATE TABLE bdopsflow_task_dependencies (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		task_id INTEGER NOT NULL,
 		parent_task_id INTEGER NOT NULL,
@@ -55,18 +55,18 @@ func TestService_GetTaskLineage(t *testing.T) {
 	defer db.Close()
 
 	_, err := db.Exec(`
-		INSERT INTO tasks (id, name, type) VALUES 
+		INSERT INTO bdopsflow_tasks (id, name, type) VALUES 
 			(1, 'Task A', 'http'),
 			(2, 'Task B', 'http'),
 			(3, 'Task C', 'http'),
 			(4, 'Task D', 'http')
 	`)
 	if err != nil {
-		t.Fatalf("failed to insert tasks: %v", err)
+		t.Fatalf("failed to insert bdopsflow_tasks: %v", err)
 	}
 
 	_, err = db.Exec(`
-		INSERT INTO task_dependencies (task_id, parent_task_id) VALUES
+		INSERT INTO bdopsflow_task_dependencies (task_id, parent_task_id) VALUES
 			(2, 1),
 			(3, 2),
 			(4, 2)
@@ -84,7 +84,7 @@ func TestService_GetTaskLineage(t *testing.T) {
 	}
 
 	if len(graph.Tasks) != 5 {
-		t.Errorf("expected 5 tasks in lineage, got %d", len(graph.Tasks))
+		t.Errorf("expected 5 bdopsflow_tasks in lineage, got %d", len(graph.Tasks))
 	}
 
 	if len(graph.Relations) != 3 {
@@ -97,18 +97,18 @@ func TestService_GetWorkflowLineage(t *testing.T) {
 	defer db.Close()
 
 	_, err := db.Exec(`
-		INSERT INTO tasks (id, name, type, workflow_id) VALUES 
+		INSERT INTO bdopsflow_tasks (id, name, type, workflow_id) VALUES 
 			(1, 'Task A', 'http', 1),
 			(2, 'Task B', 'http', 1),
 			(3, 'Task C', 'http', 1),
 			(4, 'Task D', 'http', 2)
 	`)
 	if err != nil {
-		t.Fatalf("failed to insert tasks: %v", err)
+		t.Fatalf("failed to insert bdopsflow_tasks: %v", err)
 	}
 
 	_, err = db.Exec(`
-		INSERT INTO task_dependencies (task_id, parent_task_id) VALUES
+		INSERT INTO bdopsflow_task_dependencies (task_id, parent_task_id) VALUES
 			(2, 1),
 			(3, 2)
 	`)
@@ -125,7 +125,7 @@ func TestService_GetWorkflowLineage(t *testing.T) {
 	}
 
 	if len(graph.Tasks) != 3 {
-		t.Errorf("expected 3 tasks in workflow lineage, got %d", len(graph.Tasks))
+		t.Errorf("expected 3 bdopsflow_tasks in workflow lineage, got %d", len(graph.Tasks))
 	}
 }
 
@@ -134,10 +134,10 @@ func TestService_AddDependency(t *testing.T) {
 	defer db.Close()
 
 	_, err := db.Exec(`
-		INSERT INTO tasks (id, name, type) VALUES (1, 'Task A', 'http'), (2, 'Task B', 'http')
+		INSERT INTO bdopsflow_tasks (id, name, type) VALUES (1, 'Task A', 'http'), (2, 'Task B', 'http')
 	`)
 	if err != nil {
-		t.Fatalf("failed to insert tasks: %v", err)
+		t.Fatalf("failed to insert bdopsflow_tasks: %v", err)
 	}
 
 	service := NewService(db)
@@ -150,7 +150,7 @@ func TestService_AddDependency(t *testing.T) {
 
 	parents, err := service.getParentTasks(ctx, 2)
 	if err != nil {
-		t.Errorf("failed to get parent tasks: %v", err)
+		t.Errorf("failed to get parent bdopsflow_tasks: %v", err)
 	}
 
 	if len(parents) != 1 || parents[0] != 1 {
@@ -163,13 +163,13 @@ func TestService_RemoveDependency(t *testing.T) {
 	defer db.Close()
 
 	_, err := db.Exec(`
-		INSERT INTO tasks (id, name, type) VALUES (1, 'Task A', 'http'), (2, 'Task B', 'http')
+		INSERT INTO bdopsflow_tasks (id, name, type) VALUES (1, 'Task A', 'http'), (2, 'Task B', 'http')
 	`)
 	if err != nil {
-		t.Fatalf("failed to insert tasks: %v", err)
+		t.Fatalf("failed to insert bdopsflow_tasks: %v", err)
 	}
 
-	_, err = db.Exec(`INSERT INTO task_dependencies (task_id, parent_task_id) VALUES (2, 1)`)
+	_, err = db.Exec(`INSERT INTO bdopsflow_task_dependencies (task_id, parent_task_id) VALUES (2, 1)`)
 	if err != nil {
 		t.Fatalf("failed to insert dependency: %v", err)
 	}
@@ -184,11 +184,11 @@ func TestService_RemoveDependency(t *testing.T) {
 
 	parents, err := service.getParentTasks(ctx, 2)
 	if err != nil {
-		t.Errorf("failed to get parent tasks: %v", err)
+		t.Errorf("failed to get parent bdopsflow_tasks: %v", err)
 	}
 
 	if len(parents) != 0 {
-		t.Errorf("expected no parent tasks, got %v", parents)
+		t.Errorf("expected no parent bdopsflow_tasks, got %v", parents)
 	}
 }
 
@@ -197,18 +197,18 @@ func TestService_GetTaskImpact(t *testing.T) {
 	defer db.Close()
 
 	_, err := db.Exec(`
-		INSERT INTO tasks (id, name, type) VALUES 
+		INSERT INTO bdopsflow_tasks (id, name, type) VALUES 
 			(1, 'Task A', 'http'),
 			(2, 'Task B', 'http'),
 			(3, 'Task C', 'http'),
 			(4, 'Task D', 'http')
 	`)
 	if err != nil {
-		t.Fatalf("failed to insert tasks: %v", err)
+		t.Fatalf("failed to insert bdopsflow_tasks: %v", err)
 	}
 
 	_, err = db.Exec(`
-		INSERT INTO task_dependencies (task_id, parent_task_id) VALUES
+		INSERT INTO bdopsflow_task_dependencies (task_id, parent_task_id) VALUES
 			(2, 1),
 			(3, 2),
 			(4, 2)
@@ -226,7 +226,7 @@ func TestService_GetTaskImpact(t *testing.T) {
 	}
 
 	if len(impacted) != 3 {
-		t.Errorf("expected 3 impacted tasks, got %d", len(impacted))
+		t.Errorf("expected 3 impacted bdopsflow_tasks, got %d", len(impacted))
 	}
 }
 
@@ -260,13 +260,13 @@ func TestService_getParentTasks(t *testing.T) {
 	defer db.Close()
 
 	_, err := db.Exec(`
-		INSERT INTO tasks (id, name, type) VALUES (1, 'Task A', 'http'), (2, 'Task B', 'http')
+		INSERT INTO bdopsflow_tasks (id, name, type) VALUES (1, 'Task A', 'http'), (2, 'Task B', 'http')
 	`)
 	if err != nil {
-		t.Fatalf("failed to insert tasks: %v", err)
+		t.Fatalf("failed to insert bdopsflow_tasks: %v", err)
 	}
 
-	_, err = db.Exec(`INSERT INTO task_dependencies (task_id, parent_task_id) VALUES (2, 1)`)
+	_, err = db.Exec(`INSERT INTO bdopsflow_task_dependencies (task_id, parent_task_id) VALUES (2, 1)`)
 	if err != nil {
 		t.Fatalf("failed to insert dependency: %v", err)
 	}
@@ -276,7 +276,7 @@ func TestService_getParentTasks(t *testing.T) {
 
 	parents, err := service.getParentTasks(ctx, 2)
 	if err != nil {
-		t.Errorf("failed to get parent tasks: %v", err)
+		t.Errorf("failed to get parent bdopsflow_tasks: %v", err)
 	}
 
 	if len(parents) != 1 {
@@ -289,13 +289,13 @@ func TestService_getChildTasks(t *testing.T) {
 	defer db.Close()
 
 	_, err := db.Exec(`
-		INSERT INTO tasks (id, name, type) VALUES (1, 'Task A', 'http'), (2, 'Task B', 'http')
+		INSERT INTO bdopsflow_tasks (id, name, type) VALUES (1, 'Task A', 'http'), (2, 'Task B', 'http')
 	`)
 	if err != nil {
-		t.Fatalf("failed to insert tasks: %v", err)
+		t.Fatalf("failed to insert bdopsflow_tasks: %v", err)
 	}
 
-	_, err = db.Exec(`INSERT INTO task_dependencies (task_id, parent_task_id) VALUES (2, 1)`)
+	_, err = db.Exec(`INSERT INTO bdopsflow_task_dependencies (task_id, parent_task_id) VALUES (2, 1)`)
 	if err != nil {
 		t.Fatalf("failed to insert dependency: %v", err)
 	}
@@ -305,7 +305,7 @@ func TestService_getChildTasks(t *testing.T) {
 
 	children, err := service.getChildTasks(ctx, 1)
 	if err != nil {
-		t.Errorf("failed to get child tasks: %v", err)
+		t.Errorf("failed to get child bdopsflow_tasks: %v", err)
 	}
 
 	if len(children) != 1 {

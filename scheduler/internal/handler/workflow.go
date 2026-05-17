@@ -31,14 +31,14 @@ func (h *WorkflowHandler) List(c *gin.Context) {
 
 	slog.Debug("WorkflowHandler.List: handling request")
 
-	workflows, err := h.svc.ListWorkflows(ctx)
+	bdopsflow_workflows, err := h.svc.ListWorkflows(ctx)
 	if err != nil {
-		slog.Error("WorkflowHandler.List: failed to list workflows", "error", err)
+		slog.Error("WorkflowHandler.List: failed to list bdopsflow_workflows", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, workflows)
+	c.JSON(http.StatusOK, bdopsflow_workflows)
 }
 
 func (h *WorkflowHandler) Get(c *gin.Context) {
@@ -95,7 +95,7 @@ func (h *WorkflowHandler) Create(c *gin.Context) {
 	now := time.Now()
 	ctx := c.Request.Context()
 	wf, err := h.svc.CreateWorkflow(ctx,
-		`INSERT INTO workflows (name, description, domain_id, dag_config, cron_expression, is_enabled, created_by, created_at, updated_at)
+		`INSERT INTO bdopsflow_workflows (name, description, domain_id, dag_config, cron_expression, is_enabled, created_by, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, 1, 1, ?, ?)`,
 		safeString(req.Name), safeString(req.Description), req.DomainID,
 		safeString(req.DAGConfig), safeString(req.CronExpression), now, now,

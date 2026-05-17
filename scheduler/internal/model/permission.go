@@ -20,7 +20,7 @@ func (p *Permission) GetCode() string {
 type PermissionGroup struct {
 	Resource     string       `json:"resource"`
 	ResourceName string       `json:"resource_name"`
-	Permissions  []Permission `json:"permissions"`
+	Permissions  []Permission `json:"bdopsflow_permissions"`
 }
 
 // GetAllPermissionGroups 获取所有权限分组

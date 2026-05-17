@@ -55,7 +55,7 @@ type UpdateRoleRequest struct {
 
 // AssignRolePermissionsRequest 分配角色权限请求
 type AssignRolePermissionsRequest struct {
-	Permissions []string `json:"permissions" binding:"required,min=1"`
+	Permissions []string `json:"bdopsflow_permissions" binding:"required,min=1"`
 }
 
 // AssignUserRolesRequest 分配用户角色请求

@@ -22,8 +22,8 @@ func NewExecutorDomainService(db rqlite.Connection) *ExecutorDomainService {
 func (s *ExecutorDomainService) GetExecutorDomains(ctx context.Context, executorID int64) ([]*model.Domain, error) {
 	query := `
 		SELECT d.id, d.name, d.description
-		FROM domain_executors de
-		JOIN domains d ON de.domain_id = d.id
+		FROM bdopsflow_domain_executors de
+		JOIN bdopsflow_domains d ON de.domain_id = d.id
 		WHERE de.executor_id = ?
 	`
 
@@ -39,7 +39,7 @@ func (s *ExecutorDomainService) GetExecutorDomains(ctx context.Context, executor
 		return nil, qr.Err
 	}
 
-	var domains []*model.Domain
+	var bdopsflow_domains []*model.Domain
 	for qr.Next() {
 		row, err := qr.Slice()
 		if err != nil {
@@ -51,16 +51,16 @@ func (s *ExecutorDomainService) GetExecutorDomains(ctx context.Context, executor
 			Name:        rowString(row[1]),
 			Description: rowString(row[2]),
 		}
-		domains = append(domains, domain)
+		bdopsflow_domains = append(bdopsflow_domains, domain)
 	}
 
-	return domains, nil
+	return bdopsflow_domains, nil
 }
 
 // AssignExecutorToDomains 分配执行器到多个领域
 func (s *ExecutorDomainService) AssignExecutorToDomains(ctx context.Context, executorID int64, domainIDs []int64, assignedBy int64) error {
 	// 先删除旧的关联
-	deleteQuery := `DELETE FROM domain_executors WHERE executor_id = ?`
+	deleteQuery := `DELETE FROM bdopsflow_domain_executors WHERE executor_id = ?`
 	deleteStmt := rqlite.ParameterizedStatement{
 		Query:     deleteQuery,
 		Arguments: []interface{}{executorID},
@@ -76,7 +76,7 @@ func (s *ExecutorDomainService) AssignExecutorToDomains(ctx context.Context, exe
 		now := time.Now()
 
 		for _, domainID := range domainIDs {
-			query := `INSERT INTO domain_executors (domain_id, executor_id, assigned_by, created_at) VALUES (?, ?, ?, ?)`
+			query := `INSERT INTO bdopsflow_domain_executors (domain_id, executor_id, assigned_by, created_at) VALUES (?, ?, ?, ?)`
 			stmt := rqlite.ParameterizedStatement{
 				Query:     query,
 				Arguments: []interface{}{domainID, executorID, assignedBy, now},
@@ -92,7 +92,7 @@ func (s *ExecutorDomainService) AssignExecutorToDomains(ctx context.Context, exe
 
 	// 如果分配到了领域，将执行器标记为非全局
 	if len(domainIDs) > 0 {
-		updateQuery := `UPDATE executors SET is_global = 0 WHERE id = ?`
+		updateQuery := `UPDATE bdopsflow_executors SET is_global = 0 WHERE id = ?`
 		updateStmt := rqlite.ParameterizedStatement{
 			Query:     updateQuery,
 			Arguments: []interface{}{executorID},
@@ -108,7 +108,7 @@ func (s *ExecutorDomainService) AssignExecutorToDomains(ctx context.Context, exe
 
 // RemoveExecutorFromDomain 从指定领域移除执行器
 func (s *ExecutorDomainService) RemoveExecutorFromDomain(ctx context.Context, executorID int64, domainID int64) error {
-	query := `DELETE FROM domain_executors WHERE executor_id = ? AND domain_id = ?`
+	query := `DELETE FROM bdopsflow_domain_executors WHERE executor_id = ? AND domain_id = ?`
 	stmt := rqlite.ParameterizedStatement{
 		Query:     query,
 		Arguments: []interface{}{executorID, domainID},
@@ -119,7 +119,7 @@ func (s *ExecutorDomainService) RemoveExecutorFromDomain(ctx context.Context, ex
 
 // IsExecutorInDomain 检查执行器是否在指定领域
 func (s *ExecutorDomainService) IsExecutorInDomain(ctx context.Context, executorID int64, domainID int64) (bool, error) {
-	query := `SELECT COUNT(*) FROM domain_executors WHERE executor_id = ? AND domain_id = ?`
+	query := `SELECT COUNT(*) FROM bdopsflow_domain_executors WHERE executor_id = ? AND domain_id = ?`
 	stmt := rqlite.ParameterizedStatement{
 		Query:     query,
 		Arguments: []interface{}{executorID, domainID},
@@ -148,8 +148,8 @@ func (s *ExecutorDomainService) IsExecutorInDomain(ctx context.Context, executor
 func (s *ExecutorDomainService) GetDomainExecutors(ctx context.Context, domainID int64) ([]*model.Executor, error) {
 	query := `
 		SELECT e.id, e.executor_id, e.name, e.address, e.status, e.last_heartbeat, e.capacity, e.current_load, e.created_at, e.updated_at
-		FROM executors e
-		JOIN domain_executors de ON e.id = de.executor_id
+		FROM bdopsflow_executors e
+		JOIN bdopsflow_domain_executors de ON e.id = de.executor_id
 		WHERE de.domain_id = ?
 		ORDER BY e.name ASC
 	`
@@ -166,7 +166,7 @@ func (s *ExecutorDomainService) GetDomainExecutors(ctx context.Context, domainID
 		return nil, qr.Err
 	}
 
-	var executors []*model.Executor
+	var bdopsflow_executors []*model.Executor
 	for qr.Next() {
 		row, err := qr.Slice()
 		if err != nil {
@@ -182,17 +182,17 @@ func (s *ExecutorDomainService) GetDomainExecutors(ctx context.Context, domainID
 			Capacity:    rowInt64(row[6]),
 			CurrentLoad: rowInt64(row[7]),
 		}
-		executors = append(executors, executor)
+		bdopsflow_executors = append(bdopsflow_executors, executor)
 	}
 
-	return executors, nil
+	return bdopsflow_executors, nil
 }
 
 // GetExecutorsWithDomains 获取所有执行器及其所属领域
 func (s *ExecutorDomainService) GetExecutorsWithDomains(ctx context.Context) ([]*model.ExecutorWithDomains, error) {
 	query := `
 		SELECT e.id, e.executor_id, e.name, e.address, e.status, e.is_global
-		FROM executors e
+		FROM bdopsflow_executors e
 		ORDER BY e.name ASC
 	`
 
@@ -204,7 +204,7 @@ func (s *ExecutorDomainService) GetExecutorsWithDomains(ctx context.Context) ([]
 		return nil, qr.Err
 	}
 
-	var executors []*model.ExecutorWithDomains
+	var bdopsflow_executors []*model.ExecutorWithDomains
 	for qr.Next() {
 		row, err := qr.Slice()
 		if err != nil {
@@ -223,13 +223,13 @@ func (s *ExecutorDomainService) GetExecutorsWithDomains(ctx context.Context) ([]
 		}
 
 		// 获取执行器所属的领域
-		domains, err := s.GetExecutorDomains(ctx, executor.ID)
+		bdopsflow_domains, err := s.GetExecutorDomains(ctx, executor.ID)
 		if err == nil {
-			executor.Domains = domains
+			executor.Domains = bdopsflow_domains
 		}
 
-		executors = append(executors, executor)
+		bdopsflow_executors = append(bdopsflow_executors, executor)
 	}
 
-	return executors, nil
+	return bdopsflow_executors, nil
 }

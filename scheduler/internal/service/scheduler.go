@@ -96,7 +96,7 @@ func (s *SchedulerService) cleanupDeadTasks() {
 
 	query := `
 		SELECT id, task_id, execution_id, start_time, created_at
-		FROM task_executions
+		FROM bdopsflow_task_executions
 		WHERE status = 'running'
 		AND (start_time IS NOT NULL AND start_time != '')
 		AND created_at < datetime('now', '-5 minutes')
@@ -104,7 +104,7 @@ func (s *SchedulerService) cleanupDeadTasks() {
 
 	qr, err := s.DB.QueryOne(query)
 	if err != nil {
-		slog.Error("cleanup: query stuck tasks failed", "error", err)
+		slog.Error("cleanup: query stuck bdopsflow_tasks failed", "error", err)
 		return
 	}
 	if qr.Err != nil {
@@ -142,7 +142,7 @@ func (s *SchedulerService) cleanupDeadTasks() {
 		return
 	}
 
-	slog.Warn("found stuck tasks", "count", len(stuckExecutions))
+	slog.Warn("found stuck bdopsflow_tasks", "count", len(stuckExecutions))
 
 	for _, exec := range stuckExecutions {
 		lockKey := fmt.Sprintf("task:lock:%s", exec.ExecutionID)
@@ -200,22 +200,22 @@ func (s *SchedulerService) cleanupOfflineExecutors() {
 	ctx := context.Background()
 
 	result, err := s.DB.WriteOne(`
-		UPDATE executors 
+		UPDATE bdopsflow_executors 
 		SET status = 'offline', updated_at = datetime('now')
 		WHERE status = 'online' 
 		AND last_heartbeat < datetime('now', '-60 seconds')
 	`)
 	if err != nil {
-		slog.Error("cleanup: update offline executors failed", "error", err)
+		slog.Error("cleanup: update offline bdopsflow_executors failed", "error", err)
 		return
 	}
 	if result.Err != nil {
-		slog.Error("cleanup: update offline executors returned error", "error", result.Err)
+		slog.Error("cleanup: update offline bdopsflow_executors returned error", "error", result.Err)
 		return
 	}
 
 	if result.RowsAffected > 0 {
-		slog.Warn("marked executors as offline", "count", result.RowsAffected)
+		slog.Warn("marked bdopsflow_executors as offline", "count", result.RowsAffected)
 		s.cleanupTasksFromOfflineExecutors(ctx)
 	}
 }
@@ -223,19 +223,19 @@ func (s *SchedulerService) cleanupOfflineExecutors() {
 func (s *SchedulerService) cleanupTasksFromOfflineExecutors(ctx context.Context) {
 	query := `
 		SELECT te.id, te.task_id, te.execution_id, te.start_time
-		FROM task_executions te
-		JOIN executors e ON te.executor_id = e.executor_id
+		FROM bdopsflow_task_executions te
+		JOIN bdopsflow_executors e ON te.executor_id = e.executor_id
 		WHERE te.status = 'running' 
 		  AND (e.status = 'offline' OR e.last_heartbeat < datetime('now', '-30 seconds'))
 	`
 
 	qr, err := s.DB.QueryOne(query)
 	if err != nil {
-		slog.Error("cleanup: query tasks from offline executors failed", "error", err)
+		slog.Error("cleanup: query bdopsflow_tasks from offline bdopsflow_executors failed", "error", err)
 		return
 	}
 	if qr.Err != nil {
-		slog.Error("cleanup: query tasks from offline executors returned error", "error", qr.Err)
+		slog.Error("cleanup: query bdopsflow_tasks from offline bdopsflow_executors returned error", "error", qr.Err)
 		return
 	}
 
@@ -387,7 +387,7 @@ func (s *SchedulerService) CreateTask(ctx context.Context, query string, args ..
 }
 
 func (s *SchedulerService) getLastExecutionStatus(ctx context.Context, taskID int64) string {
-	query := `SELECT status FROM task_executions WHERE task_id = ? ORDER BY created_at DESC LIMIT 1`
+	query := `SELECT status FROM bdopsflow_task_executions WHERE task_id = ? ORDER BY created_at DESC LIMIT 1`
 	stmt := rqlite.ParameterizedStatement{
 		Query:     query,
 		Arguments: []interface{}{taskID},
@@ -411,7 +411,7 @@ func (s *SchedulerService) GetTaskByID(ctx context.Context, id int64) (*model.Ta
 		SELECT id, workflow_id, name, type, config, cron_expression, timeout_seconds,
 		       retry_count, retry_interval, is_enabled, status, domain_id, webhook_config,
 		       assigned_executor_id, created_by, created_at, updated_at
-		FROM tasks WHERE id = ?
+		FROM bdopsflow_tasks WHERE id = ?
 	`
 
 	stmt := rqlite.ParameterizedStatement{
@@ -448,7 +448,7 @@ func (s *SchedulerService) ListTasks(ctx context.Context) ([]*model.Task, error)
 		SELECT id, workflow_id, name, type, config, cron_expression, timeout_seconds,
 		       retry_count, retry_interval, is_enabled, status, domain_id, webhook_config,
 		       assigned_executor_id, created_by, created_at, updated_at
-		FROM tasks ORDER BY created_at DESC
+		FROM bdopsflow_tasks ORDER BY created_at DESC
 	`
 
 	qr, err := s.DB.QueryOne(query)
@@ -460,7 +460,7 @@ func (s *SchedulerService) ListTasks(ctx context.Context) ([]*model.Task, error)
 		return nil, qr.Err
 	}
 
-	var tasks []*model.Task
+	var bdopsflow_tasks []*model.Task
 	for qr.Next() {
 		task := &model.Task{}
 		if err := scanTaskResult(&qr, task); err != nil {
@@ -468,15 +468,15 @@ func (s *SchedulerService) ListTasks(ctx context.Context) ([]*model.Task, error)
 		}
 		task.NextExecutionTime = CalculateNextExecutionTime(task.CronExpression, task.IsEnabled)
 		task.LastExecutionStatus = s.getLastExecutionStatus(ctx, task.ID)
-		tasks = append(tasks, task)
+		bdopsflow_tasks = append(bdopsflow_tasks, task)
 	}
 
-	return tasks, nil
+	return bdopsflow_tasks, nil
 }
 
 func (s *SchedulerService) UpdateTask(ctx context.Context, id int64, task *model.Task) error {
 	query := `
-		UPDATE tasks SET name = ?, type = ?, config = ?, cron_expression = ?,
+		UPDATE bdopsflow_tasks SET name = ?, type = ?, config = ?, cron_expression = ?,
 		               timeout_seconds = ?, retry_count = ?, retry_interval = ?,
 		               is_enabled = ?, webhook_config = ?, assigned_executor_id = ?, updated_at = ?
 		WHERE id = ?
@@ -527,7 +527,7 @@ func (s *SchedulerService) UpdateTask(ctx context.Context, id int64, task *model
 }
 
 func (s *SchedulerService) DeleteTask(ctx context.Context, id int64) error {
-	query := `DELETE FROM tasks WHERE id = ?`
+	query := `DELETE FROM bdopsflow_tasks WHERE id = ?`
 
 	stmt := rqlite.ParameterizedStatement{
 		Query:     query,
@@ -553,7 +553,7 @@ func (s *SchedulerService) DeleteTask(ctx context.Context, id int64) error {
 func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (string, error) {
 	// 检查任务是否已经在运行（数据库级别）
 	checkRunningQuery := `
-		SELECT execution_id FROM task_executions 
+		SELECT execution_id FROM bdopsflow_task_executions 
 		WHERE task_id = ? AND status = 'running'
 		ORDER BY created_at DESC
 		LIMIT 1
@@ -573,7 +573,7 @@ func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (strin
 		skippedReason := fmt.Sprintf("skipped: previous execution (id: %s) is still running", runningExecID)
 		
 		insertQuery := `
-			INSERT INTO task_executions (task_id, execution_id, executor_id, status, output, error, start_time, retry_times, created_at)
+			INSERT INTO bdopsflow_task_executions (task_id, execution_id, executor_id, status, output, error, start_time, retry_times, created_at)
 			VALUES (?, ?, '', 'skipped', '', ?, ?, 0, ?)
 		`
 		insertStmt := rqlite.ParameterizedStatement{
@@ -630,7 +630,7 @@ func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (strin
 
 	now := time.Now().Format("2006-01-02 15:04:05")
 	insertQuery := `
-		INSERT INTO task_executions (task_id, execution_id, executor_id, status, start_time, retry_times, created_at)
+		INSERT INTO bdopsflow_task_executions (task_id, execution_id, executor_id, status, start_time, retry_times, created_at)
 		VALUES (?, ?, '', 'running', ?, 0, ?)
 	`
 
@@ -745,15 +745,15 @@ func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (strin
 		return executionID, fmt.Errorf("dispatcher not configured")
 	}
 
-	// 在分派任务前，先更新 task_executions 表设置 executor_id
-	updateExecutorQuery := `UPDATE task_executions SET executor_id = ? WHERE execution_id = ?`
+	// 在分派任务前，先更新 bdopsflow_task_executions 表设置 executor_id
+	updateExecutorQuery := `UPDATE bdopsflow_task_executions SET executor_id = ? WHERE execution_id = ?`
 	updateExecutorStmt := rqlite.ParameterizedStatement{
 		Query:     updateExecutorQuery,
 		Arguments: []interface{}{executor.ExecutorID, executionID},
 	}
 	_, err = s.DB.WriteOneParameterized(updateExecutorStmt)
 	if err != nil {
-		slog.Warn("failed to update executor_id in task_executions", "error", err, "execution_id", executionID)
+		slog.Warn("failed to update executor_id in bdopsflow_task_executions", "error", err, "execution_id", executionID)
 		// 继续执行，不影响任务调度
 	}
 
@@ -783,7 +783,7 @@ func (s *SchedulerService) UpdateTaskStatusByID(ctx context.Context, taskID int6
 	task, err := s.GetTaskByID(ctx, taskID)
 	if err == nil && task.CronExpression != "" {
 		// 对于定时任务，只更新updated_at，不改变status
-		query := `UPDATE tasks SET updated_at = ? WHERE id = ?`
+		query := `UPDATE bdopsflow_tasks SET updated_at = ? WHERE id = ?`
 		stmt := rqlite.ParameterizedStatement{
 			Query:     query,
 			Arguments: []interface{}{time.Now().Format("2006-01-02 15:04:05"), taskID},
@@ -796,7 +796,7 @@ func (s *SchedulerService) UpdateTaskStatusByID(ctx context.Context, taskID int6
 	}
 	
 	// 对于非定时任务，正常更新状态
-	query := `UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?`
+	query := `UPDATE bdopsflow_tasks SET status = ?, updated_at = ? WHERE id = ?`
 	stmt := rqlite.ParameterizedStatement{
 		Query:     query,
 		Arguments: []interface{}{status, time.Now().Format("2006-01-02 15:04:05"), taskID},
@@ -819,7 +819,7 @@ func (s *SchedulerService) ScanPendingTasks(ctx context.Context) ([]*model.Task,
 		SELECT id, workflow_id, name, type, config, cron_expression, timeout_seconds,
 		       retry_count, retry_interval, is_enabled, status, domain_id, webhook_config,
 		       assigned_executor_id, created_by, created_at, updated_at
-		FROM tasks
+		FROM bdopsflow_tasks
 		WHERE is_enabled = 1 AND cron_expression != ''
 	`
 
@@ -832,22 +832,22 @@ func (s *SchedulerService) ScanPendingTasks(ctx context.Context) ([]*model.Task,
 		return nil, qr.Err
 	}
 
-	var tasks []*model.Task
+	var bdopsflow_tasks []*model.Task
 	for qr.Next() {
 		task := &model.Task{}
 		if err := scanTaskResult(&qr, task); err != nil {
 			return nil, err
 		}
-		tasks = append(tasks, task)
+		bdopsflow_tasks = append(bdopsflow_tasks, task)
 	}
 
-	return tasks, nil
+	return bdopsflow_tasks, nil
 }
 
 func (s *SchedulerService) SelectAvailableExecutor(ctx context.Context) (*model.Executor, error) {
 	query := `
 		SELECT id, executor_id, name, address, status, last_heartbeat, capacity, current_load, created_at, updated_at
-		FROM executors
+		FROM bdopsflow_executors
 		WHERE status = 'online' AND current_load < capacity
 		  AND last_heartbeat > datetime('now', '-30 seconds')
 		ORDER BY current_load ASC, RANDOM()
@@ -877,7 +877,7 @@ func (s *SchedulerService) SelectAvailableExecutor(ctx context.Context) (*model.
 
 func (s *SchedulerService) RegisterExecutor(ctx context.Context, executorID, name, address string, capacity int32) error {
 	existsQuery := `
-		SELECT id, address, status, last_heartbeat FROM executors 
+		SELECT id, address, status, last_heartbeat FROM bdopsflow_executors 
 		WHERE executor_id = ?
 	`
 	stmt := rqlite.ParameterizedStatement{
@@ -911,7 +911,7 @@ func (s *SchedulerService) RegisterExecutor(ctx context.Context, executorID, nam
 	}
 
 	query := `
-		INSERT INTO executors (executor_id, name, address, status, capacity, current_load, last_heartbeat, created_at, updated_at)
+		INSERT INTO bdopsflow_executors (executor_id, name, address, status, capacity, current_load, last_heartbeat, created_at, updated_at)
 		VALUES (?, ?, ?, 'online', ?, 0, ?, ?, ?)
 		ON CONFLICT(executor_id) DO UPDATE SET
 			name = excluded.name, address = excluded.address, status = 'online', capacity = excluded.capacity,
@@ -937,7 +937,7 @@ func (s *SchedulerService) RegisterExecutor(ctx context.Context, executorID, nam
 }
 
 func (s *SchedulerService) DeleteExecutor(ctx context.Context, executorID string) error {
-	query := `DELETE FROM executors WHERE executor_id = ?`
+	query := `DELETE FROM bdopsflow_executors WHERE executor_id = ?`
 	result, err := s.DB.WriteOneParameterized(rqlite.ParameterizedStatement{
 		Query:     query,
 		Arguments: []interface{}{executorID},
@@ -954,7 +954,7 @@ func (s *SchedulerService) DeleteExecutor(ctx context.Context, executorID string
 }
 
 func (s *SchedulerService) SetExecutorStatus(ctx context.Context, executorID string, status string) error {
-	query := `UPDATE executors SET status = ?, updated_at = ? WHERE executor_id = ?`
+	query := `UPDATE bdopsflow_executors SET status = ?, updated_at = ? WHERE executor_id = ?`
 	now := time.Now().Format("2006-01-02 15:04:05")
 	result, err := s.DB.WriteOneParameterized(rqlite.ParameterizedStatement{
 		Query:     query,
@@ -978,7 +978,7 @@ func (s *SchedulerService) UpdateExecutorCapacity(ctx context.Context, executorI
 	}
 	
 	// 首先更新数据库
-	query := `UPDATE executors SET capacity = ?, updated_at = ? WHERE executor_id = ?`
+	query := `UPDATE bdopsflow_executors SET capacity = ?, updated_at = ? WHERE executor_id = ?`
 	now := time.Now().Format("2006-01-02 15:04:05")
 	result, err := s.DB.WriteOneParameterized(rqlite.ParameterizedStatement{
 		Query:     query,
@@ -1024,7 +1024,7 @@ func (s *SchedulerService) UpdateExecutorHeartbeat(ctx context.Context, executor
 
 func (s *SchedulerService) UpdateExecutorHeartbeatWithRunningTasks(ctx context.Context, executorID string, currentLoad int32, runningExecutionIds []string) error {
 	query := `
-		UPDATE executors SET current_load = ?, last_heartbeat = ?, updated_at = ?
+		UPDATE bdopsflow_executors SET current_load = ?, last_heartbeat = ?, updated_at = ?
 		WHERE executor_id = ? AND status = 'online'
 	`
 
@@ -1081,13 +1081,13 @@ func (s *SchedulerService) cleanupStaleTaskLocks() {
 
 	query := `
 		SELECT execution_id, task_id
-		FROM task_executions
+		FROM bdopsflow_task_executions
 		WHERE status = 'running'
 	`
 
 	qr, err := s.DB.QueryOne(query)
 	if err != nil {
-		slog.Error("cleanup: query running tasks failed", "error", err)
+		slog.Error("cleanup: query running bdopsflow_tasks failed", "error", err)
 		return
 	}
 	if qr.Err != nil {
@@ -1215,7 +1215,7 @@ func (s *SchedulerService) forceFailTask(ctx context.Context, executionID string
 func (s *SchedulerService) GetExecutorByID(ctx context.Context, executorID string) (*model.Executor, error) {
 	query := `
 		SELECT id, executor_id, name, address, status, last_heartbeat, capacity, current_load, created_at, updated_at
-		FROM executors WHERE executor_id = ?
+		FROM bdopsflow_executors WHERE executor_id = ?
 	`
 
 	stmt := rqlite.ParameterizedStatement{
@@ -1351,7 +1351,7 @@ func (s *SchedulerService) RetryTask(ctx context.Context, taskID int64, retryTim
 
 	now := time.Now().Format("2006-01-02 15:04:05")
 	insertQuery := `
-		INSERT INTO task_executions (task_id, execution_id, executor_id, status, start_time, retry_times, created_at)
+		INSERT INTO bdopsflow_task_executions (task_id, execution_id, executor_id, status, start_time, retry_times, created_at)
 		VALUES (?, ?, '', 'running', ?, ?, ?)
 	`
 	stmt := rqlite.ParameterizedStatement{
@@ -1411,14 +1411,14 @@ func (s *SchedulerService) RetryTask(ctx context.Context, taskID int64, retryTim
 		return executionID, fmt.Errorf("dispatcher not configured")
 	}
 
-	updateExecutorQuery := `UPDATE task_executions SET executor_id = ? WHERE execution_id = ?`
+	updateExecutorQuery := `UPDATE bdopsflow_task_executions SET executor_id = ? WHERE execution_id = ?`
 	updateExecutorStmt := rqlite.ParameterizedStatement{
 		Query:     updateExecutorQuery,
 		Arguments: []interface{}{executor.ExecutorID, executionID},
 	}
 	_, dbErr := s.DB.WriteOneParameterized(updateExecutorStmt)
 	if dbErr != nil {
-		slog.Warn("failed to update executor_id in task_executions", "error", dbErr, "execution_id", executionID)
+		slog.Warn("failed to update executor_id in bdopsflow_task_executions", "error", dbErr, "execution_id", executionID)
 		// 继续执行，不影响任务调度
 	}
 
@@ -1446,7 +1446,7 @@ func (s *SchedulerService) RetryTask(ctx context.Context, taskID int64, retryTim
 func (s *SchedulerService) ListExecutors(ctx context.Context) ([]*model.Executor, error) {
 	query := `
 		SELECT id, executor_id, name, address, status, last_heartbeat, capacity, current_load, created_at, updated_at
-		FROM executors ORDER BY created_at DESC
+		FROM bdopsflow_executors ORDER BY created_at DESC
 	`
 
 	qr, err := s.DB.QueryOne(query)
@@ -1458,22 +1458,22 @@ func (s *SchedulerService) ListExecutors(ctx context.Context) ([]*model.Executor
 		return nil, qr.Err
 	}
 
-	var executors []*model.Executor
+	var bdopsflow_executors []*model.Executor
 	for qr.Next() {
 		exec := &model.Executor{}
 		if err := scanExecutorResult(&qr, exec); err != nil {
 			return nil, err
 		}
-		executors = append(executors, exec)
+		bdopsflow_executors = append(bdopsflow_executors, exec)
 	}
 
-	return executors, nil
+	return bdopsflow_executors, nil
 }
 
 func (s *SchedulerService) UpdateExecutionResult(ctx context.Context, executionID, status, output, errorMsg string) error {
 	now := time.Now().Format("2006-01-02 15:04:05")
 	query := `
-		UPDATE task_executions
+		UPDATE bdopsflow_task_executions
 		SET status = ?, output = ?, error = ?,
 		    end_time = CASE WHEN ? IN ('success', 'failed', 'timeout') THEN ? ELSE end_time END,
 		    start_time = CASE WHEN start_time IS NULL OR start_time = '' THEN ? ELSE start_time END
@@ -1496,7 +1496,7 @@ func (s *SchedulerService) UpdateExecutionResult(ctx context.Context, executionI
 
 	// 任务完成后，尝试清理锁
 	// 先获取 task_id
-	getTaskIDQuery := `SELECT task_id FROM task_executions WHERE execution_id = ?`
+	getTaskIDQuery := `SELECT task_id FROM bdopsflow_task_executions WHERE execution_id = ?`
 	getTaskIDStmt := rqlite.ParameterizedStatement{
 		Query:     getTaskIDQuery,
 		Arguments: []interface{}{executionID},
@@ -1523,7 +1523,7 @@ func (s *SchedulerService) GetTaskExecutions(ctx context.Context, taskID int64) 
 	query := `
 		SELECT id, task_id, execution_id, executor_id, status, start_time, end_time,
 		       output, error, retry_times, created_at
-		FROM task_executions
+		FROM bdopsflow_task_executions
 		WHERE task_id = ?
 		ORDER BY created_at DESC
 	`
@@ -1561,7 +1561,7 @@ func (s *SchedulerService) GetTaskInfoByID(ctx context.Context, taskID int64) (*
 func (s *SchedulerService) GetExecutorInfoByID(ctx context.Context, executorID string) (*model.Executor, error) {
 	query := `
 		SELECT id, executor_id, name, address, status, last_heartbeat, capacity, current_load, created_at, updated_at
-		FROM executors WHERE executor_id = ?
+		FROM bdopsflow_executors WHERE executor_id = ?
 	`
 
 	stmt := rqlite.ParameterizedStatement{
@@ -1661,9 +1661,9 @@ func (s *SchedulerService) GetAllExecutions(ctx context.Context, filter map[stri
 
 	// 统一使用 JOIN，简化逻辑
 	joinClause := `
-		FROM task_executions te
-		LEFT JOIN tasks t ON te.task_id = t.id
-		LEFT JOIN executors e ON te.executor_id = e.executor_id
+		FROM bdopsflow_task_executions te
+		LEFT JOIN bdopsflow_tasks t ON te.task_id = t.id
+		LEFT JOIN bdopsflow_executors e ON te.executor_id = e.executor_id
 	`
 
 	// 1. 先获取总数
@@ -1798,7 +1798,7 @@ func (s *SchedulerService) GetAllExecutions(ctx context.Context, filter map[stri
 // DeleteExecution 删除指定执行记录及其相关日志
 func (s *SchedulerService) DeleteExecution(ctx context.Context, id int64) error {
 	// 先获取执行记录，以便获取 execution_id 来删除日志
-	query := "SELECT execution_id FROM task_executions WHERE id = ?"
+	query := "SELECT execution_id FROM bdopsflow_task_executions WHERE id = ?"
 	stmt := rqlite.ParameterizedStatement{
 		Query:     query,
 		Arguments: []interface{}{id},
@@ -1822,7 +1822,7 @@ func (s *SchedulerService) DeleteExecution(ctx context.Context, id int64) error 
 	}
 
 	// 删除相关日志
-	deleteLogsQuery := "DELETE FROM task_logs WHERE execution_id = ?"
+	deleteLogsQuery := "DELETE FROM bdopsflow_task_logs WHERE execution_id = ?"
 	deleteLogsStmt := rqlite.ParameterizedStatement{
 		Query:     deleteLogsQuery,
 		Arguments: []interface{}{executionID},
@@ -1833,7 +1833,7 @@ func (s *SchedulerService) DeleteExecution(ctx context.Context, id int64) error 
 	}
 
 	// 删除执行记录
-	deleteExecQuery := "DELETE FROM task_executions WHERE id = ?"
+	deleteExecQuery := "DELETE FROM bdopsflow_task_executions WHERE id = ?"
 	deleteExecStmt := rqlite.ParameterizedStatement{
 		Query:     deleteExecQuery,
 		Arguments: []interface{}{id},
@@ -1857,7 +1857,7 @@ func (s *SchedulerService) BatchDeleteExecutions(ctx context.Context, ids []int6
 	}
 
 	// 先获取所有 execution_ids
-	query := "SELECT execution_id FROM task_executions WHERE id IN (" + strings.Join(placeholders, ",") + ")"
+	query := "SELECT execution_id FROM bdopsflow_task_executions WHERE id IN (" + strings.Join(placeholders, ",") + ")"
 	stmt := rqlite.ParameterizedStatement{
 		Query:     query,
 		Arguments: args,
@@ -1889,7 +1889,7 @@ func (s *SchedulerService) BatchDeleteExecutions(ctx context.Context, ids []int6
 			logArgs[i] = eid
 		}
 
-		deleteLogsQuery := "DELETE FROM task_logs WHERE execution_id IN (" + strings.Join(logPlaceholders, ",") + ")"
+		deleteLogsQuery := "DELETE FROM bdopsflow_task_logs WHERE execution_id IN (" + strings.Join(logPlaceholders, ",") + ")"
 		deleteLogsStmt := rqlite.ParameterizedStatement{
 			Query:     deleteLogsQuery,
 			Arguments: logArgs,
@@ -1901,7 +1901,7 @@ func (s *SchedulerService) BatchDeleteExecutions(ctx context.Context, ids []int6
 	}
 
 	// 删除执行记录
-	deleteExecQuery := "DELETE FROM task_executions WHERE id IN (" + strings.Join(placeholders, ",") + ")"
+	deleteExecQuery := "DELETE FROM bdopsflow_task_executions WHERE id IN (" + strings.Join(placeholders, ",") + ")"
 	deleteExecStmt := rqlite.ParameterizedStatement{
 		Query:     deleteExecQuery,
 		Arguments: args,
@@ -1913,7 +1913,7 @@ func (s *SchedulerService) BatchDeleteExecutions(ctx context.Context, ids []int6
 func (s *SchedulerService) GetTaskLogs(ctx context.Context, executionID string) ([]*model.TaskLog, error) {
 	query := `
 		SELECT id, execution_id, task_id, executor_id, node_id, log_level, message, log_time
-		FROM task_logs WHERE execution_id = ?
+		FROM bdopsflow_task_logs WHERE execution_id = ?
 		ORDER BY log_time ASC
 	`
 
@@ -1944,7 +1944,7 @@ func (s *SchedulerService) GetTaskLogs(ctx context.Context, executionID string) 
 func (s *SchedulerService) AddTaskLog(ctx context.Context, executionID string, taskID int64, nodeID string, logLevel string, message string) error {
 	// 首先获取执行记录中的 executor_id
 	var executorID string
-	execQuery := `SELECT executor_id FROM task_executions WHERE execution_id = ? LIMIT 1`
+	execQuery := `SELECT executor_id FROM bdopsflow_task_executions WHERE execution_id = ? LIMIT 1`
 	execStmt := rqlite.ParameterizedStatement{
 		Query:     execQuery,
 		Arguments: []interface{}{executionID},
@@ -1957,7 +1957,7 @@ func (s *SchedulerService) AddTaskLog(ctx context.Context, executionID string, t
 
 	// 尝试插入带 executor_id 的新表结构
 	query := `
-		INSERT INTO task_logs (execution_id, task_id, executor_id, node_id, log_level, message, log_time)
+		INSERT INTO bdopsflow_task_logs (execution_id, task_id, executor_id, node_id, log_level, message, log_time)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
 	`
 
@@ -1970,9 +1970,9 @@ func (s *SchedulerService) AddTaskLog(ctx context.Context, executionID string, t
 	
 	// 如果失败，回退到旧表结构
 	if err != nil || result.Err != nil {
-		slog.Debug("Falling back to old insert format for task_logs")
+		slog.Debug("Falling back to old insert format for bdopsflow_task_logs")
 		fallbackQuery := `
-			INSERT INTO task_logs (execution_id, task_id, node_id, log_level, message, log_time)
+			INSERT INTO bdopsflow_task_logs (execution_id, task_id, node_id, log_level, message, log_time)
 			VALUES (?, ?, ?, ?, ?, ?)
 		`
 		fallbackStmt := rqlite.ParameterizedStatement{
@@ -1991,7 +1991,7 @@ func (s *SchedulerService) AddTaskLog(ctx context.Context, executionID string, t
 	// 如果是 stdout 或 stderr 日志，也更新对应的 execution 字段
 	if logLevel == "stdout" || logLevel == "stderr" {
 		updateQuery := `
-			UPDATE task_executions 
+			UPDATE bdopsflow_task_executions 
 			SET `
 		if logLevel == "stdout" {
 			updateQuery += `output = COALESCE(output, '') || ?`
@@ -2021,7 +2021,7 @@ func (s *SchedulerService) GetWorkflow(ctx context.Context, id int64) (*model.Wo
 	query := `
 		SELECT id, name, description, domain_id, dag_config, cron_expression,
 		       is_enabled, created_by, created_at, updated_at
-		FROM workflows WHERE id = ?
+		FROM bdopsflow_workflows WHERE id = ?
 	`
 
 	stmt := rqlite.ParameterizedStatement{
@@ -2052,7 +2052,7 @@ func (s *SchedulerService) ListWorkflows(ctx context.Context) ([]*model.Workflow
 	query := `
 		SELECT id, name, description, domain_id, dag_config, cron_expression,
 		       is_enabled, created_by, created_at, updated_at
-		FROM workflows ORDER BY created_at DESC
+		FROM bdopsflow_workflows ORDER BY created_at DESC
 	`
 
 	qr, err := s.DB.QueryOne(query)
@@ -2063,16 +2063,16 @@ func (s *SchedulerService) ListWorkflows(ctx context.Context) ([]*model.Workflow
 		return nil, qr.Err
 	}
 
-	var workflows []*model.Workflow
+	var bdopsflow_workflows []*model.Workflow
 	for qr.Next() {
 		wf := &model.Workflow{}
 		if err := scanWorkflowResult(&qr, wf); err != nil {
 			return nil, err
 		}
-		workflows = append(workflows, wf)
+		bdopsflow_workflows = append(bdopsflow_workflows, wf)
 	}
 
-	return workflows, nil
+	return bdopsflow_workflows, nil
 }
 
 func (s *SchedulerService) CreateWorkflow(ctx context.Context, query string, args ...interface{}) (*model.Workflow, error) {
@@ -2094,7 +2094,7 @@ func (s *SchedulerService) CreateWorkflow(ctx context.Context, query string, arg
 
 func (s *SchedulerService) UpdateWorkflow(ctx context.Context, id int64, wf *model.Workflow) error {
 	query := `
-		UPDATE workflows SET name = ?, description = ?, dag_config = ?, cron_expression = ?,
+		UPDATE bdopsflow_workflows SET name = ?, description = ?, dag_config = ?, cron_expression = ?,
 		                    is_enabled = ?, updated_at = ?
 		WHERE id = ?
 	`
@@ -2119,7 +2119,7 @@ func (s *SchedulerService) UpdateWorkflow(ctx context.Context, id int64, wf *mod
 }
 
 func (s *SchedulerService) DeleteWorkflow(ctx context.Context, id int64) error {
-	query := `DELETE FROM workflows WHERE id = ?`
+	query := `DELETE FROM bdopsflow_workflows WHERE id = ?`
 	stmt := rqlite.ParameterizedStatement{
 		Query:     query,
 		Arguments: []interface{}{id},
@@ -2139,7 +2139,7 @@ func (s *SchedulerService) CreateWorkflowExecution(ctx context.Context, workflow
 	nodeStates := "{}"
 
 	query := `
-		INSERT INTO workflow_executions (workflow_id, execution_id, status, node_states, created_at)
+		INSERT INTO bdopsflow_workflow_executions (workflow_id, execution_id, status, node_states, created_at)
 		VALUES (?, ?, 'pending', ?, ?)
 	`
 
@@ -2163,7 +2163,7 @@ func (s *SchedulerService) CreateWorkflowExecution(ctx context.Context, workflow
 func (s *SchedulerService) GetWorkflowExecution(ctx context.Context, id int64) (*model.WorkflowExecution, error) {
 	query := `
 		SELECT id, workflow_id, execution_id, status, start_time, end_time, node_states, created_at
-		FROM workflow_executions WHERE id = ?
+		FROM bdopsflow_workflow_executions WHERE id = ?
 	`
 
 	stmt := rqlite.ParameterizedStatement{
@@ -2193,7 +2193,7 @@ func (s *SchedulerService) GetWorkflowExecution(ctx context.Context, id int64) (
 func (s *SchedulerService) GetWorkflowExecutionByExecutionID(ctx context.Context, executionID string) (*model.WorkflowExecution, error) {
 	query := `
 		SELECT id, workflow_id, execution_id, status, start_time, end_time, node_states, created_at
-		FROM workflow_executions WHERE execution_id = ?
+		FROM bdopsflow_workflow_executions WHERE execution_id = ?
 	`
 
 	stmt := rqlite.ParameterizedStatement{
@@ -2223,7 +2223,7 @@ func (s *SchedulerService) GetWorkflowExecutionByExecutionID(ctx context.Context
 func (s *SchedulerService) ListWorkflowExecutions(ctx context.Context, workflowID int64) ([]*model.WorkflowExecution, error) {
 	query := `
 		SELECT id, workflow_id, execution_id, status, start_time, end_time, node_states, created_at
-		FROM workflow_executions WHERE workflow_id = ?
+		FROM bdopsflow_workflow_executions WHERE workflow_id = ?
 		ORDER BY created_at DESC
 	`
 
@@ -2253,7 +2253,7 @@ func (s *SchedulerService) ListWorkflowExecutions(ctx context.Context, workflowI
 
 func (s *SchedulerService) UpdateWorkflowExecutionStatus(ctx context.Context, executionID string, status string) error {
 	query := `
-		UPDATE workflow_executions
+		UPDATE bdopsflow_workflow_executions
 		SET status = ?, 
 		    start_time = CASE WHEN start_time IS NULL OR start_time = '' THEN ? ELSE start_time END,
 		    end_time = CASE WHEN ? IN ('success', 'failed') THEN ? ELSE end_time END
@@ -2277,7 +2277,7 @@ func (s *SchedulerService) UpdateWorkflowExecutionStatus(ctx context.Context, ex
 }
 
 func (s *SchedulerService) UpdateWorkflowExecutionNodeStates(ctx context.Context, executionID string, nodeStates string) error {
-	query := `UPDATE workflow_executions SET node_states = ? WHERE execution_id = ?`
+	query := `UPDATE bdopsflow_workflow_executions SET node_states = ? WHERE execution_id = ?`
 
 	stmt := rqlite.ParameterizedStatement{
 		Query:     query,
@@ -2706,9 +2706,9 @@ func (s *SchedulerService) GetExecutionStats(ctx context.Context, filter map[str
 
 	// 统一使用 JOIN
 	joinClause := `
-		FROM task_executions te
-		LEFT JOIN tasks t ON te.task_id = t.id
-		LEFT JOIN executors e ON te.executor_id = e.executor_id
+		FROM bdopsflow_task_executions te
+		LEFT JOIN bdopsflow_tasks t ON te.task_id = t.id
+		LEFT JOIN bdopsflow_executors e ON te.executor_id = e.executor_id
 	`
 
 	// 统计各个状态的数量
@@ -2762,16 +2762,16 @@ type DashboardStats struct {
 		Success       int64 `json:"success"`
 		Failed        int64 `json:"failed"`
 		AvgDuration   int64 `json:"avg_duration"` // 平均执行时长（秒）
-	} `json:"tasks"`
+	} `json:"bdopsflow_tasks"`
 	Workflows struct {
 		Total   int64 `json:"total"`
 		Enabled int64 `json:"enabled"`
-	} `json:"workflows"`
+	} `json:"bdopsflow_workflows"`
 	Executors struct {
 		Total   int64 `json:"total"`
 		Online  int64 `json:"online"`
 		Offline int64 `json:"offline"`
-	} `json:"executors"`
+	} `json:"bdopsflow_executors"`
 	Scheduler struct {
 		Paused bool   `json:"paused"`
 		Uptime int64  `json:"uptime"` // 运行时长（秒）
@@ -2796,7 +2796,7 @@ func (s *SchedulerService) GetDashboardStats(ctx context.Context) (*DashboardSta
 			COUNT(*) as total,
 			SUM(CASE WHEN is_enabled = 1 THEN 1 ELSE 0 END) as enabled,
 			SUM(CASE WHEN cron_expression IS NOT NULL AND cron_expression != '' THEN 1 ELSE 0 END) as cron
-		FROM tasks
+		FROM bdopsflow_tasks
 	`
 	qr, err := s.DB.QueryOne(taskQuery)
 	if err != nil {
@@ -2813,7 +2813,7 @@ func (s *SchedulerService) GetDashboardStats(ctx context.Context) (*DashboardSta
 	}
 	
 	// 运行中的任务
-	runningQuery := `SELECT COUNT(*) FROM task_executions WHERE status = 'running'`
+	runningQuery := `SELECT COUNT(*) FROM bdopsflow_task_executions WHERE status = 'running'`
 	qr, err = s.DB.QueryOne(runningQuery)
 	if err == nil && qr.Err == nil && qr.Next() {
 		row, _ := qr.Slice()
@@ -2827,7 +2827,7 @@ func (s *SchedulerService) GetDashboardStats(ctx context.Context) (*DashboardSta
 			SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
 			AVG(CASE WHEN end_time IS NOT NULL AND start_time IS NOT NULL 
 				THEN julianday(end_time) - julianday(start_time) ELSE 0 END) * 86400 as avg_duration
-		FROM task_executions
+		FROM bdopsflow_task_executions
 		WHERE created_at > datetime('now', '-7 days')
 	`
 	qr, err = s.DB.QueryOne(recentExecQuery)
@@ -2843,7 +2843,7 @@ func (s *SchedulerService) GetDashboardStats(ctx context.Context) (*DashboardSta
 		SELECT 
 			COUNT(*) as total,
 			SUM(CASE WHEN is_enabled = 1 THEN 1 ELSE 0 END) as enabled
-		FROM workflows
+		FROM bdopsflow_workflows
 	`
 	qr, err = s.DB.QueryOne(wfQuery)
 	if err == nil && qr.Err == nil && qr.Next() {
@@ -2858,7 +2858,7 @@ func (s *SchedulerService) GetDashboardStats(ctx context.Context) (*DashboardSta
 			COUNT(*) as total,
 			SUM(CASE WHEN status = 'online' THEN 1 ELSE 0 END) as online,
 			SUM(CASE WHEN status = 'offline' THEN 1 ELSE 0 END) as offline
-		FROM executors
+		FROM bdopsflow_executors
 	`
 	qr, err = s.DB.QueryOne(execQuery)
 	if err == nil && qr.Err == nil && qr.Next() {
@@ -2887,7 +2887,7 @@ func (s *SchedulerService) GetTrendData(ctx context.Context) ([]*TrendData, erro
 			COUNT(*) as total,
 			SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success,
 			SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
-		FROM task_executions
+		FROM bdopsflow_task_executions
 		WHERE created_at > datetime('now', '-7 days')
 		GROUP BY date(created_at)
 		ORDER BY exec_date DESC

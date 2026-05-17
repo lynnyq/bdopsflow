@@ -35,7 +35,7 @@ func (s *RoleAdminService) GetRole(ctx context.Context, roleID int64) (*model.Ro
 // CreateRole 创建角色
 func (s *RoleAdminService) CreateRole(ctx context.Context, name, code, description string, domainID *int64) (*model.Role, error) {
 	query := `
-		INSERT INTO roles (name, code, description, is_system, domain_id, created_at, updated_at)
+		INSERT INTO bdopsflow_roles (name, code, description, is_system, domain_id, created_at, updated_at)
 		VALUES (?, ?, ?, 0, ?, ?, ?)
 	`
 
@@ -78,7 +78,7 @@ func (s *RoleAdminService) UpdateRole(ctx context.Context, roleID int64, name, d
 	}
 
 	query := `
-		UPDATE roles
+		UPDATE bdopsflow_roles
 		SET name = ?, description = ?, updated_at = ?
 		WHERE id = ? AND is_system = 0
 	`
@@ -111,7 +111,7 @@ func (s *RoleAdminService) DeleteRole(ctx context.Context, roleID int64) error {
 	}
 
 	// 删除角色权限关联
-	deletePermQuery := `DELETE FROM role_permissions WHERE role_id = ?`
+	deletePermQuery := `DELETE FROM bdopsflow_role_permissions WHERE role_id = ?`
 	deletePermStmt := rqlite.ParameterizedStatement{
 		Query:     deletePermQuery,
 		Arguments: []interface{}{roleID},
@@ -122,7 +122,7 @@ func (s *RoleAdminService) DeleteRole(ctx context.Context, roleID int64) error {
 	}
 
 	// 删除用户角色关联
-	deleteUserQuery := `DELETE FROM user_roles WHERE role_id = ?`
+	deleteUserQuery := `DELETE FROM bdopsflow_user_roles WHERE role_id = ?`
 	deleteUserStmt := rqlite.ParameterizedStatement{
 		Query:     deleteUserQuery,
 		Arguments: []interface{}{roleID},
@@ -133,7 +133,7 @@ func (s *RoleAdminService) DeleteRole(ctx context.Context, roleID int64) error {
 	}
 
 	// 删除角色
-	deleteRoleQuery := `DELETE FROM roles WHERE id = ? AND is_system = 0`
+	deleteRoleQuery := `DELETE FROM bdopsflow_roles WHERE id = ? AND is_system = 0`
 	deleteRoleStmt := rqlite.ParameterizedStatement{
 		Query:     deleteRoleQuery,
 		Arguments: []interface{}{roleID},

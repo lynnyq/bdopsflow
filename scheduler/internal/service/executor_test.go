@@ -53,7 +53,7 @@ func TestExecutorCapacity(t *testing.T) {
 
 func TestSelectAvailableExecutorQuery(t *testing.T) {
 	query := `SELECT id, executor_id, name, address, status, last_heartbeat, capacity, current_load, created_at, updated_at
-		FROM executors
+		FROM bdopsflow_executors
 		WHERE status = 'online' AND current_load < capacity
 		  AND last_heartbeat > datetime('now', '-30 seconds')
 		ORDER BY current_load ASC, RANDOM()
@@ -73,7 +73,7 @@ func TestSelectAvailableExecutorQuery(t *testing.T) {
 }
 
 func TestRegisterExecutorQuery(t *testing.T) {
-	query := `INSERT INTO executors (executor_id, name, address, status, capacity, current_load, last_heartbeat, created_at, updated_at)
+	query := `INSERT INTO bdopsflow_executors (executor_id, name, address, status, capacity, current_load, last_heartbeat, created_at, updated_at)
 		VALUES (?, ?, ?, 'online', ?, 0, ?, ?, ?)
 		ON CONFLICT(executor_id) DO UPDATE SET
 			name = excluded.name, address = excluded.address, status = 'online', capacity = excluded.capacity,
@@ -90,7 +90,7 @@ func TestRegisterExecutorQuery(t *testing.T) {
 
 func TestRegisterExecutorDuplicateCheck(t *testing.T) {
 	existsQuery := `
-		SELECT id, address FROM executors 
+		SELECT id, address FROM bdopsflow_executors 
 		WHERE executor_id = ? AND status = 'online' 
 		AND last_heartbeat > datetime('now', '-30 seconds')
 	`
@@ -113,9 +113,9 @@ func TestRegisterExecutorDuplicateCheck(t *testing.T) {
 }
 
 func TestDeleteExecutorQuery(t *testing.T) {
-	query := `DELETE FROM executors WHERE executor_id = ?`
+	query := `DELETE FROM bdopsflow_executors WHERE executor_id = ?`
 
-	if !strings.Contains(query, "DELETE FROM executors") {
+	if !strings.Contains(query, "DELETE FROM bdopsflow_executors") {
 		t.Error("expected query to be DELETE statement")
 	}
 
@@ -125,9 +125,9 @@ func TestDeleteExecutorQuery(t *testing.T) {
 }
 
 func TestSetExecutorStatusQuery(t *testing.T) {
-	query := `UPDATE executors SET status = ?, updated_at = ? WHERE executor_id = ?`
+	query := `UPDATE bdopsflow_executors SET status = ?, updated_at = ? WHERE executor_id = ?`
 
-	if !strings.Contains(query, "UPDATE executors") {
+	if !strings.Contains(query, "UPDATE bdopsflow_executors") {
 		t.Error("expected query to be UPDATE statement")
 	}
 

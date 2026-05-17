@@ -19,7 +19,7 @@ type Server struct {
 	grpcServer *grpc.Server
 	scheduler *service.SchedulerService
 	mu        sync.RWMutex
-	executors map[string]*executorConn
+	bdopsflow_executors map[string]*executorConn
 	lis       net.Listener
 }
 
@@ -33,7 +33,7 @@ func NewServer(port string, scheduler *service.SchedulerService) *Server {
 	s := &Server{
 		port:      port,
 		scheduler: scheduler,
-		executors: make(map[string]*executorConn),
+		bdopsflow_executors: make(map[string]*executorConn),
 	}
 
 	scheduler.SetTaskDispatcher(s.dispatchTask)
@@ -43,7 +43,7 @@ func NewServer(port string, scheduler *service.SchedulerService) *Server {
 
 func (s *Server) dispatchTask(executorID string, task *pb.Task) error {
 	s.mu.RLock()
-	conn, ok := s.executors[executorID]
+	conn, ok := s.bdopsflow_executors[executorID]
 	s.mu.RUnlock()
 
 	if !ok {
@@ -102,7 +102,7 @@ func (s *Server) SubscribeTask(req *pb.SubscribeTaskRequest, stream pb.ExecutorS
 	executorID := req.ExecutorId
 
 	s.mu.Lock()
-	s.executors[executorID] = &executorConn{
+	s.bdopsflow_executors[executorID] = &executorConn{
 		stream: stream,
 	}
 	s.mu.Unlock()
@@ -112,7 +112,7 @@ func (s *Server) SubscribeTask(req *pb.SubscribeTaskRequest, stream pb.ExecutorS
 	<-stream.Context().Done()
 
 	s.mu.Lock()
-	delete(s.executors, executorID)
+	delete(s.bdopsflow_executors, executorID)
 	s.mu.Unlock()
 
 	slog.Info("executor disconnected", "executor_id", executorID)

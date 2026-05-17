@@ -31,7 +31,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	query := "SELECT id, username, password, role, email, domain_id FROM users WHERE username = ?"
+	query := "SELECT id, username, password, role, email, domain_id FROM bdopsflow_users WHERE username = ?"
 	stmt := rqlite.ParameterizedStatement{
 		Query:     query,
 		Arguments: []interface{}{req.Username},
@@ -117,7 +117,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
-	query := "INSERT INTO users (username, password, role, email, created_at) VALUES (?, ?, ?, ?, ?)"
+	query := "INSERT INTO bdopsflow_users (username, password, role, email, created_at) VALUES (?, ?, ?, ?, ?)"
 	stmt := rqlite.ParameterizedStatement{
 		Query:     query,
 		Arguments: []interface{}{req.Username, string(hashedPassword), role, req.Email, time.Now()},
@@ -149,7 +149,7 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 		return
 	}
 
-	query := "SELECT username, role, email, domain_id FROM users WHERE id = ?"
+	query := "SELECT username, role, email, domain_id FROM bdopsflow_users WHERE id = ?"
 	stmt := rqlite.ParameterizedStatement{
 		Query:     query,
 		Arguments: []interface{}{userID},

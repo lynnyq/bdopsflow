@@ -89,13 +89,13 @@ func (m *mockTaskService) GetTaskLogs(ctx context.Context, executionID string) (
 func setupTestRouter(handler *TaskHandler) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.POST("/api/tasks", handler.Create)
-	r.GET("/api/tasks", handler.List)
-	r.GET("/api/tasks/:id", handler.Get)
-	r.PUT("/api/tasks/:id", handler.Update)
-	r.DELETE("/api/tasks/:id", handler.Delete)
-	r.POST("/api/tasks/:id/trigger", handler.Trigger)
-	r.GET("/api/tasks/:id/executions", handler.Executions)
+	r.POST("/api/bdopsflow_tasks", handler.Create)
+	r.GET("/api/bdopsflow_tasks", handler.List)
+	r.GET("/api/bdopsflow_tasks/:id", handler.Get)
+	r.PUT("/api/bdopsflow_tasks/:id", handler.Update)
+	r.DELETE("/api/bdopsflow_tasks/:id", handler.Delete)
+	r.POST("/api/bdopsflow_tasks/:id/trigger", handler.Trigger)
+	r.GET("/api/bdopsflow_tasks/:id/executions", handler.Executions)
 	return r
 }
 
@@ -116,7 +116,7 @@ func TestCreateTask_WithoutWorkflowID(t *testing.T) {
 	}
 
 	jsonBody, _ := json.Marshal(body)
-	req, _ := http.NewRequest("POST", "/api/tasks", bytes.NewBuffer(jsonBody))
+	req, _ := http.NewRequest("POST", "/api/bdopsflow_tasks", bytes.NewBuffer(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
@@ -153,7 +153,7 @@ func TestCreateTask_WithWorkflowID(t *testing.T) {
 	}
 
 	jsonBody, _ := json.Marshal(body)
-	req, _ := http.NewRequest("POST", "/api/tasks", bytes.NewBuffer(jsonBody))
+	req, _ := http.NewRequest("POST", "/api/bdopsflow_tasks", bytes.NewBuffer(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
@@ -202,7 +202,7 @@ func TestCreateTask_ServiceError(t *testing.T) {
 	}
 
 	jsonBody, _ := json.Marshal(body)
-	req, _ := http.NewRequest("POST", "/api/tasks", bytes.NewBuffer(jsonBody))
+	req, _ := http.NewRequest("POST", "/api/bdopsflow_tasks", bytes.NewBuffer(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
@@ -224,7 +224,7 @@ func TestCreateTask_InvalidJSON(t *testing.T) {
 	handler := newTaskHandlerWithSvc(mock)
 	router := setupTestRouter(handler)
 
-	req, _ := http.NewRequest("POST", "/api/tasks", bytes.NewBuffer([]byte("not json")))
+	req, _ := http.NewRequest("POST", "/api/bdopsflow_tasks", bytes.NewBuffer([]byte("not json")))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
@@ -247,7 +247,7 @@ func TestCreateTask_DefaultValues(t *testing.T) {
 	}
 
 	jsonBody, _ := json.Marshal(body)
-	req, _ := http.NewRequest("POST", "/api/tasks", bytes.NewBuffer(jsonBody))
+	req, _ := http.NewRequest("POST", "/api/bdopsflow_tasks", bytes.NewBuffer(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
@@ -296,7 +296,7 @@ func TestListTasks(t *testing.T) {
 	handler := newTaskHandlerWithSvc(mock)
 	router := setupTestRouter(handler)
 
-	req, _ := http.NewRequest("GET", "/api/tasks", nil)
+	req, _ := http.NewRequest("GET", "/api/bdopsflow_tasks", nil)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
@@ -310,7 +310,7 @@ func TestListTasks(t *testing.T) {
 	}
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	if len(resp.Items) != 2 {
-		t.Errorf("expected 2 tasks, got %d", len(resp.Items))
+		t.Errorf("expected 2 bdopsflow_tasks, got %d", len(resp.Items))
 	}
 }
 
@@ -323,7 +323,7 @@ func TestGetTask_NotFound(t *testing.T) {
 	handler := newTaskHandlerWithSvc(mock)
 	router := setupTestRouter(handler)
 
-	req, _ := http.NewRequest("GET", "/api/tasks/999", nil)
+	req, _ := http.NewRequest("GET", "/api/bdopsflow_tasks/999", nil)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
@@ -338,7 +338,7 @@ func TestDeleteTask(t *testing.T) {
 	handler := newTaskHandlerWithSvc(mock)
 	router := setupTestRouter(handler)
 
-	req, _ := http.NewRequest("DELETE", "/api/tasks/1", nil)
+	req, _ := http.NewRequest("DELETE", "/api/bdopsflow_tasks/1", nil)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
@@ -353,7 +353,7 @@ func TestTriggerTask(t *testing.T) {
 	handler := newTaskHandlerWithSvc(mock)
 	router := setupTestRouter(handler)
 
-	req, _ := http.NewRequest("POST", "/api/tasks/1/trigger", nil)
+	req, _ := http.NewRequest("POST", "/api/bdopsflow_tasks/1/trigger", nil)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
@@ -385,7 +385,7 @@ func TestTaskHandler_Update(t *testing.T) {
 	}
 
 	jsonBody, _ := json.Marshal(body)
-	req, _ := http.NewRequest("PUT", "/api/tasks/1", bytes.NewBuffer(jsonBody))
+	req, _ := http.NewRequest("PUT", "/api/bdopsflow_tasks/1", bytes.NewBuffer(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
@@ -401,7 +401,7 @@ func TestTaskHandler_Update_InvalidID(t *testing.T) {
 	handler := newTaskHandlerWithSvc(mock)
 	router := setupTestRouter(handler)
 
-	req, _ := http.NewRequest("PUT", "/api/tasks/invalid", nil)
+	req, _ := http.NewRequest("PUT", "/api/bdopsflow_tasks/invalid", nil)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
@@ -423,7 +423,7 @@ func TestTaskHandler_Executions(t *testing.T) {
 	handler := newTaskHandlerWithSvc(mock)
 	router := setupTestRouter(handler)
 
-	req, _ := http.NewRequest("GET", "/api/tasks/1/executions", nil)
+	req, _ := http.NewRequest("GET", "/api/bdopsflow_tasks/1/executions", nil)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
@@ -438,7 +438,7 @@ func TestTaskHandler_Executions_InvalidID(t *testing.T) {
 	handler := newTaskHandlerWithSvc(mock)
 	router := setupTestRouter(handler)
 
-	req, _ := http.NewRequest("GET", "/api/tasks/invalid/executions", nil)
+	req, _ := http.NewRequest("GET", "/api/bdopsflow_tasks/invalid/executions", nil)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
@@ -453,7 +453,7 @@ func TestTaskHandler_Delete_InvalidID(t *testing.T) {
 	handler := newTaskHandlerWithSvc(mock)
 	router := setupTestRouter(handler)
 
-	req, _ := http.NewRequest("DELETE", "/api/tasks/invalid", nil)
+	req, _ := http.NewRequest("DELETE", "/api/bdopsflow_tasks/invalid", nil)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
@@ -468,7 +468,7 @@ func TestTaskHandler_Delete_NegativeID(t *testing.T) {
 	handler := newTaskHandlerWithSvc(mock)
 	router := setupTestRouter(handler)
 
-	req, _ := http.NewRequest("DELETE", "/api/tasks/-1", nil)
+	req, _ := http.NewRequest("DELETE", "/api/bdopsflow_tasks/-1", nil)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
@@ -483,7 +483,7 @@ func TestTaskHandler_Trigger_InvalidID(t *testing.T) {
 	handler := newTaskHandlerWithSvc(mock)
 	router := setupTestRouter(handler)
 
-	req, _ := http.NewRequest("POST", "/api/tasks/invalid/trigger", nil)
+	req, _ := http.NewRequest("POST", "/api/bdopsflow_tasks/invalid/trigger", nil)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
@@ -498,7 +498,7 @@ func TestTaskHandler_Get_InvalidID(t *testing.T) {
 	handler := newTaskHandlerWithSvc(mock)
 	router := setupTestRouter(handler)
 
-	req, _ := http.NewRequest("GET", "/api/tasks/invalid", nil)
+	req, _ := http.NewRequest("GET", "/api/bdopsflow_tasks/invalid", nil)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
@@ -513,7 +513,7 @@ func TestTaskHandler_Get_NegativeID(t *testing.T) {
 	handler := newTaskHandlerWithSvc(mock)
 	router := setupTestRouter(handler)
 
-	req, _ := http.NewRequest("GET", "/api/tasks/-1", nil)
+	req, _ := http.NewRequest("GET", "/api/bdopsflow_tasks/-1", nil)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
@@ -534,7 +534,7 @@ func TestTaskHandler_Create_MissingName(t *testing.T) {
 	}
 
 	jsonBody, _ := json.Marshal(body)
-	req, _ := http.NewRequest("POST", "/api/tasks", bytes.NewBuffer(jsonBody))
+	req, _ := http.NewRequest("POST", "/api/bdopsflow_tasks", bytes.NewBuffer(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
@@ -556,7 +556,7 @@ func TestTaskHandler_Create_MissingType(t *testing.T) {
 	}
 
 	jsonBody, _ := json.Marshal(body)
-	req, _ := http.NewRequest("POST", "/api/tasks", bytes.NewBuffer(jsonBody))
+	req, _ := http.NewRequest("POST", "/api/bdopsflow_tasks", bytes.NewBuffer(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 

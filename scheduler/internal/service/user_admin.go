@@ -28,7 +28,7 @@ func NewUserAdminService(db rqlite.Connection, permSvc *PermissionService) *User
 func (s *UserAdminService) ListUsers(ctx context.Context) ([]*model.User, error) {
 	query := `
 		SELECT id, username, email, domain_id, role, is_active
-		FROM users
+		FROM bdopsflow_users
 		ORDER BY id DESC
 	`
 
@@ -40,7 +40,7 @@ func (s *UserAdminService) ListUsers(ctx context.Context) ([]*model.User, error)
 		return nil, qr.Err
 	}
 
-	var users []*model.User
+	var bdopsflow_users []*model.User
 	for qr.Next() {
 		row, err := qr.Slice()
 		if err != nil {
@@ -56,17 +56,17 @@ func (s *UserAdminService) ListUsers(ctx context.Context) ([]*model.User, error)
 			IsActive: rowBool(row[5]),
 		}
 
-		users = append(users, user)
+		bdopsflow_users = append(bdopsflow_users, user)
 	}
 
-	return users, nil
+	return bdopsflow_users, nil
 }
 
 // GetUserByID 根据ID获取用户
 func (s *UserAdminService) GetUserByID(ctx context.Context, userID int64) (*model.User, error) {
 	query := `
 		SELECT id, username, email, domain_id, role, is_active
-		FROM users
+		FROM bdopsflow_users
 		WHERE id = ?
 	`
 
@@ -112,7 +112,7 @@ func (s *UserAdminService) CreateUser(ctx context.Context, username, email, pass
 	}
 
 	query := `
-		INSERT INTO users (username, email, password_hash, is_active, created_by, created_at, updated_at)
+		INSERT INTO bdopsflow_users (username, email, password_hash, is_active, created_by, created_at, updated_at)
 		VALUES (?, ?, ?, 1, ?, ?, ?)
 	`
 
@@ -136,7 +136,7 @@ func (s *UserAdminService) CreateUser(ctx context.Context, username, email, pass
 // UpdateUser 更新用户
 func (s *UserAdminService) UpdateUser(ctx context.Context, userID int64, username, email, role string, isActive bool) (*model.User, error) {
 	query := `
-		UPDATE users
+		UPDATE bdopsflow_users
 		SET username = ?, email = ?, role = ?, is_active = ?, updated_at = ?
 		WHERE id = ?
 	`
@@ -160,7 +160,7 @@ func (s *UserAdminService) UpdateUser(ctx context.Context, userID int64, usernam
 // DeleteUser 删除用户
 func (s *UserAdminService) DeleteUser(ctx context.Context, userID int64) error {
 	// 先删除用户角色映射
-	deleteUserRolesQuery := `DELETE FROM user_roles WHERE user_id = ?`
+	deleteUserRolesQuery := `DELETE FROM bdopsflow_user_roles WHERE user_id = ?`
 	deleteUserRolesStmt := rqlite.ParameterizedStatement{
 		Query:     deleteUserRolesQuery,
 		Arguments: []interface{}{userID},
@@ -171,7 +171,7 @@ func (s *UserAdminService) DeleteUser(ctx context.Context, userID int64) error {
 	}
 
 	// 再删除用户
-	query := `DELETE FROM users WHERE id = ?`
+	query := `DELETE FROM bdopsflow_users WHERE id = ?`
 	stmt := rqlite.ParameterizedStatement{
 		Query:     query,
 		Arguments: []interface{}{userID},
@@ -190,7 +190,7 @@ func (s *UserAdminService) DeleteUser(ctx context.Context, userID int64) error {
 // AssignUserRoles 分配用户角色
 func (s *UserAdminService) AssignUserRoles(ctx context.Context, userID int64, roleIDs []int64, domainIDs []int64) error {
 	// 删除旧的角色映射
-	deleteQuery := `DELETE FROM user_roles WHERE user_id = ?`
+	deleteQuery := `DELETE FROM bdopsflow_user_roles WHERE user_id = ?`
 	deleteStmt := rqlite.ParameterizedStatement{
 		Query:     deleteQuery,
 		Arguments: []interface{}{userID},
@@ -213,7 +213,7 @@ func (s *UserAdminService) AssignUserRoles(ctx context.Context, userID int64, ro
 				domainID = nil
 			}
 
-			query := `INSERT INTO user_roles (user_id, role_id, domain_id, created_at) VALUES (?, ?, ?, ?)`
+			query := `INSERT INTO bdopsflow_user_roles (user_id, role_id, domain_id, created_at) VALUES (?, ?, ?, ?)`
 			stmt := rqlite.ParameterizedStatement{
 				Query:     query,
 				Arguments: []interface{}{userID, roleID, domainID, now},
@@ -237,9 +237,9 @@ func (s *UserAdminService) AssignUserRoles(ctx context.Context, userID int64, ro
 func (s *UserAdminService) GetUserRoles(ctx context.Context, userID int64) ([]*model.UserRoleDetail, error) {
 	query := `
 		SELECT ur.role_id, r.name, r.code, ur.domain_id, d.name
-		FROM user_roles ur
-		LEFT JOIN roles r ON ur.role_id = r.id
-		LEFT JOIN domains d ON ur.domain_id = d.id
+		FROM bdopsflow_user_roles ur
+		LEFT JOIN bdopsflow_roles r ON ur.role_id = r.id
+		LEFT JOIN bdopsflow_domains d ON ur.domain_id = d.id
 		WHERE ur.user_id = ?
 	`
 
@@ -255,7 +255,7 @@ func (s *UserAdminService) GetUserRoles(ctx context.Context, userID int64) ([]*m
 		return nil, qr.Err
 	}
 
-	var roles []*model.UserRoleDetail
+	var bdopsflow_roles []*model.UserRoleDetail
 	for qr.Next() {
 		row, err := qr.Slice()
 		if err != nil {
@@ -278,15 +278,15 @@ func (s *UserAdminService) GetUserRoles(ctx context.Context, userID int64) ([]*m
 			role.DomainName = domainName
 		}
 
-		roles = append(roles, role)
+		bdopsflow_roles = append(bdopsflow_roles, role)
 	}
 
-	return roles, nil
+	return bdopsflow_roles, nil
 }
 
 // AssignUserDomains 分配用户领域（用于兼容性）
 func (s *UserAdminService) AssignUserDomains(ctx context.Context, userID int64, domainIDs []int64) error {
-	query := `UPDATE users SET domain_id = ? WHERE id = ?`
+	query := `UPDATE bdopsflow_users SET domain_id = ? WHERE id = ?`
 
 	var primaryDomainID interface{}
 	if len(domainIDs) > 0 && domainIDs[0] != 0 {
@@ -312,7 +312,7 @@ func (s *UserAdminService) AssignUserDomains(ctx context.Context, userID int64, 
 
 // GetUserPasswordHash 获取用户的密码哈希
 func (s *UserAdminService) GetUserPasswordHash(ctx context.Context, userID int64) (string, error) {
-	query := `SELECT password_hash FROM users WHERE id = ?`
+	query := `SELECT password_hash FROM bdopsflow_users WHERE id = ?`
 
 	stmt := rqlite.ParameterizedStatement{
 		Query:     query,
@@ -341,7 +341,7 @@ func (s *UserAdminService) GetUserPasswordHash(ctx context.Context, userID int64
 // UpdateCurrentUser 更新当前用户信息（只能修改邮箱）
 func (s *UserAdminService) UpdateCurrentUser(ctx context.Context, userID int64, email string) (*model.User, error) {
 	query := `
-		UPDATE users
+		UPDATE bdopsflow_users
 		SET email = ?, updated_at = ?
 		WHERE id = ?
 	`
@@ -395,7 +395,7 @@ func (s *UserAdminService) ChangePassword(ctx context.Context, userID int64, old
 	}
 
 	// 更新密码
-	query := `UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?`
+	query := `UPDATE bdopsflow_users SET password_hash = ?, updated_at = ? WHERE id = ?`
 	now := time.Now()
 	stmt := rqlite.ParameterizedStatement{
 		Query:     query,
@@ -429,7 +429,7 @@ func (s *UserAdminService) ResetUserPassword(ctx context.Context, targetUserID i
 	}
 
 	// 更新密码
-	query := `UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?`
+	query := `UPDATE bdopsflow_users SET password_hash = ?, updated_at = ? WHERE id = ?`
 	now := time.Now()
 	stmt := rqlite.ParameterizedStatement{
 		Query:     query,
@@ -465,7 +465,7 @@ func (s *UserAdminService) GetUserDomainID(ctx context.Context, userID int64) (i
 
 // IsUserInDomain 检查用户是否属于指定领域
 func (s *UserAdminService) IsUserInDomain(ctx context.Context, userID, domainID int64) (bool, error) {
-	query := `SELECT COUNT(*) FROM users WHERE id = ? AND domain_id = ?`
+	query := `SELECT COUNT(*) FROM bdopsflow_users WHERE id = ? AND domain_id = ?`
 	stmt := rqlite.ParameterizedStatement{
 		Query:     query,
 		Arguments: []interface{}{userID, domainID},
