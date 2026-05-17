@@ -253,6 +253,97 @@ func (c *Config) GetStringMap(key string) map[string]interface{} {
 	return nil
 }
 
+func (c *Config) GetStringSlice(key string, defaultVal []string) []string {
+	val := c.getValue(key)
+	if val == nil {
+		return defaultVal
+	}
+
+	// 尝试将 []interface{} 转换为 []string
+	if slice, ok := val.([]interface{}); ok {
+		result := make([]string, 0, len(slice))
+		for _, item := range slice {
+			switch v := item.(type) {
+			case string:
+				result = append(result, v)
+			case int:
+				result = append(result, strconv.Itoa(v))
+			case int64:
+				result = append(result, strconv.FormatInt(v, 10))
+			case float64:
+				result = append(result, strconv.FormatFloat(v, 'f', -1, 64))
+			default:
+				result = append(result, fmt.Sprintf("%v", v))
+			}
+		}
+		return result
+	}
+
+	// 尝试将逗号分隔的字符串转换为 []string
+	if str, ok := val.(string); ok {
+		if str == "" {
+			return defaultVal
+		}
+		// 分割并去除每个元素的空格
+		parts := splitCommaSeparated(str)
+		return parts
+	}
+
+	return defaultVal
+}
+
+func splitCommaSeparated(s string) []string {
+	var result []string
+	var current string
+	var inQuotes bool
+	var quoteChar rune
+
+	for _, ch := range s {
+		switch {
+		case (ch == '"' || ch == '\'') && !inQuotes:
+			inQuotes = true
+			quoteChar = ch
+		case ch == quoteChar && inQuotes:
+			inQuotes = false
+		case ch == ',' && !inQuotes:
+			if current != "" {
+				// 去除首尾空格
+				trimmed := trimSpace(current)
+				if trimmed != "" {
+					result = append(result, trimmed)
+				}
+			}
+			current = ""
+		default:
+			current += string(ch)
+		}
+	}
+
+	// 添加最后一个元素
+	if current != "" {
+		trimmed := trimSpace(current)
+		if trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+
+	return result
+}
+
+func trimSpace(s string) string {
+	start := 0
+	for start < len(s) && (s[start] == ' ' || s[start] == '\t' || s[start] == '\n' || s[start] == '\r') {
+		start++
+	}
+
+	end := len(s)
+	for end > start && (s[end-1] == ' ' || s[end-1] == '\t' || s[end-1] == '\n' || s[end-1] == '\r') {
+		end--
+	}
+
+	return s[start:end]
+}
+
 func (c *Config) getValue(key string) interface{} {
 	if val, ok := c.values[key]; ok {
 		return val

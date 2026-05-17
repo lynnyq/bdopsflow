@@ -1,0 +1,46 @@
+# Scheduler 服务配置 - 生产环境
+app:
+  http_port: "8080"
+  grpc_port: "50051"
+
+# 数据库配置 - 生产环境（3 节点集群）
+database:
+  # rqlite 多节点地址列表（生产环境建议 3 节点）
+  rqlite_addrs:
+    - "http://rqlite-node1:4001"
+    - "http://rqlite-node2:4001"
+    - "http://rqlite-node3:4001"
+  # rqlite 用户名（需要 rqlite 服务端配置认证）
+  rqlite_user: "admin"
+  # rqlite 密码（需要 rqlite 服务端配置认证）
+  rqlite_password: "your-rqlite-password"
+  # 是否使用 TLS 连接 rqlite（使用 https）
+  rqlite_tls: false
+
+# Redis 配置 - 生产环境（哨兵模式）
+# 模式：single（单实例）或 sentinel（哨兵模式）
+redis:
+  mode: "sentinel"
+  
+  # 哨兵模式配置
+  master_name: "mymaster"
+  # 哨兵节点地址列表
+  sentinel_addrs:
+    - "redis-sentinel1:26379"
+    - "redis-sentinel2:26379"
+    - "redis-sentinel3:26379"
+  # 哨兵密码（如需要）
+  sentinel_password: ""
+  # Redis 数据节点密码
+  password: "your-redis-password"
+  db: 0
+
+# JWT 配置
+jwt:
+  secret: "your-secure-secret-key-change-in-production"
+  expiry_hours: 24
+
+# 日志配置
+log:
+  level: "info"
+  format: "json"

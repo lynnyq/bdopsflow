@@ -417,3 +417,90 @@ func TestConfigFile(t *testing.T) {
 		t.Errorf("ConfigFile() = %q, expected /etc/config.yaml", result)
 	}
 }
+
+func TestGetStringSlice(t *testing.T) {
+	cfg := &Config{
+		values: map[string]interface{}{
+			"slice_key": []interface{}{"a", "b", "c"},
+			"mixed_slice": []interface{}{1, "2", 3.14},
+			"string_comma_separated": "http://node1:4001,http://node2:4001,http://node3:4001",
+			"string_with_spaces": "  a  ,  b  ,  c  ",
+		},
+	}
+
+	tests := []struct {
+		name       string
+		key        string
+		defaultVal []string
+		expected   []string
+	}{
+		{"slice", "slice_key", []string{"default"}, []string{"a", "b", "c"}},
+		{"mixed slice", "mixed_slice", []string{"default"}, []string{"1", "2", "3.14"}},
+		{"comma separated string", "string_comma_separated", []string{"default"}, []string{"http://node1:4001", "http://node2:4001", "http://node3:4001"}},
+		{"string with spaces", "string_with_spaces", []string{"default"}, []string{"a", "b", "c"}},
+		{"missing key", "missing", []string{"default"}, []string{"default"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := cfg.GetStringSlice(tt.key, tt.defaultVal)
+			if len(result) != len(tt.expected) {
+				t.Errorf("GetStringSlice(%q) = %v, expected %v", tt.key, result, tt.expected)
+				return
+			}
+			for i := range result {
+				if result[i] != tt.expected[i] {
+					t.Errorf("GetStringSlice(%q)[%d] = %q, expected %q", tt.key, i, result[i], tt.expected[i])
+				}
+			}
+		})
+	}
+}
+
+func TestSplitCommaSeparated(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected []string
+	}{
+		{"a,b,c", []string{"a", "b", "c"}},
+		{"a, b, c", []string{"a", "b", "c"}},
+		{"", []string{}},
+		{"single", []string{"single"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			result := splitCommaSeparated(tt.input)
+			if len(result) != len(tt.expected) {
+				t.Errorf("splitCommaSeparated(%q) = %v, expected %v", tt.input, result, tt.expected)
+				return
+			}
+			for i := range result {
+				if result[i] != tt.expected[i] {
+					t.Errorf("splitCommaSeparated(%q)[%d] = %q, expected %q", tt.input, i, result[i], tt.expected[i])
+				}
+			}
+		})
+	}
+}
+
+func TestTrimSpace(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"  hello  ", "hello"},
+		{"\thello\n", "hello"},
+		{"hello", "hello"},
+		{"", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			result := trimSpace(tt.input)
+			if result != tt.expected {
+				t.Errorf("trimSpace(%q) = %q, expected %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}

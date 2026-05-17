@@ -689,10 +689,17 @@ Executor                          Scheduler                        Redis
 |--------|----------|--------|------|
 | app.http_port | APP_HTTP_PORT | 8080 | HTTP API 端口 |
 | app.grpc_port | APP_GRPC_PORT | 50051 | gRPC 端口 |
-| database.rqlite_dsn | DATABASE_RQLITE_DSN | http://localhost:4001 | rqlite 地址 |
-| redis.addr | REDIS_ADDR | localhost:6379 | Redis 地址 |
+| database.rqlite_addrs | DATABASE_RQLITE_ADDRS | ["http://localhost:4001"] | rqlite 多节点地址列表（逗号分隔） |
+| database.rqlite_user | DATABASE_RQLITE_USER | (空) | rqlite 用户名 |
+| database.rqlite_password | DATABASE_RQLITE_PASSWORD | (空) | rqlite 密码 |
+| database.rqlite_tls | DATABASE_RQLITE_TLS | false | 是否使用 TLS 连接 rqlite |
+| redis.mode | REDIS_MODE | single | Redis 模式：single 或 sentinel |
+| redis.addr | REDIS_ADDR | localhost:6379 | Redis 单实例地址 |
 | redis.password | REDIS_PASSWORD | (空) | Redis 密码 |
 | redis.db | REDIS_DB | 0 | Redis 数据库 |
+| redis.master_name | REDIS_MASTER_NAME | mymaster | Redis Sentinel 主节点名称 |
+| redis.sentinel_addrs | REDIS_SENTINEL_ADDRS | (空) | Redis Sentinel 节点地址列表（逗号分隔） |
+| redis.sentinel_password | REDIS_SENTINEL_PASSWORD | (空) | Redis Sentinel 密码 |
 | jwt.secret | JWT_SECRET | (必填) | JWT 密钥 |
 | jwt.expiry_hours | JWT_EXPIRY_HOURS | 24 | Token 过期时间 |
 | log.level | LOG_LEVEL | info | 日志级别 |

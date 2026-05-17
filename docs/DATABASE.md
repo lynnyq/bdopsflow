@@ -25,15 +25,28 @@
 
 ### 连接配置
 
+#### 开发环境（单节点）
+
 ```yaml
 database:
-  rqlite_dsn: "http://localhost:4001"
+  rqlite_addrs:
+    - "http://localhost:4001"
+  rqlite_user: ""
+  rqlite_password: ""
+  rqlite_tls: false
 ```
 
-### 连接字符串格式
+#### 生产环境（多节点集群）
 
-```
-http://user:password@host:port?timeout=10s
+```yaml
+database:
+  rqlite_addrs:
+    - "http://rqlite1:4001"
+    - "http://rqlite2:4001"
+    - "http://rqlite3:4001"
+  rqlite_user: "admin"
+  rqlite_password: "your-rqlite-password"
+  rqlite_tls: false
 ```
 
 ### 部署模式
@@ -48,31 +61,65 @@ http://user:password@host:port?timeout=10s
 ```bash
 docker run -d --name bdopsflow-rqlite \
   -p 4001:4001 \
+  -p 4002:4002 \
   rqlite/rqlite:latest
 ```
 
-### 集群部署
+### 集群部署（3 节点）
 
 ```bash
-# 节点 1
+# 节点 1（引导节点）
 docker run -d --name rqlite1 \
   -p 4001:4001 \
+  -p 4002:4002 \
+  -v ./auth.json:/auth.json \
   rqlite/rqlite:latest \
-  rqld -raft -raft-addr=172.17.0.2:4002
+  -node-id 1 \
+  -http-addr 0.0.0.0:4001 \
+  -raft-addr 0.0.0.0:4002 \
+  -data-dir /data \
+  -auth /auth.json \
+  -bootstrap-expect 3
 
 # 节点 2
 docker run -d --name rqlite2 \
-  -p 4002:4001 \
+  -p 4011:4001 \
+  -p 4012:4002 \
+  -v ./auth.json:/auth.json \
   rqlite/rqlite:latest \
-  rqld -raft -raft-addr=172.17.0.3:4002 \
-  -join=http://172.17.0.2:4001
+  -node-id 2 \
+  -http-addr 0.0.0.0:4001 \
+  -raft-addr 0.0.0.0:4002 \
+  -data-dir /data \
+  -auth /auth.json \
+  -join http://admin:your-rqlite-password@rqlite1:4001 \
+  -bootstrap-expect 3
 
 # 节点 3
 docker run -d --name rqlite3 \
-  -p 4003:4001 \
+  -p 4021:4001 \
+  -p 4022:4002 \
+  -v ./auth.json:/auth.json \
   rqlite/rqlite:latest \
-  rqld -raft -raft-addr=172.17.0.4:4002 \
-  -join=http://172.17.0.2:4001
+  -node-id 3 \
+  -http-addr 0.0.0.0:4001 \
+  -raft-addr 0.0.0.0:4002 \
+  -data-dir /data \
+  -auth /auth.json \
+  -join http://admin:your-rqlite-password@rqlite1:4001 \
+  -bootstrap-expect 3
+```
+
+### 认证配置文件 auth.json
+
+```json
+[
+  {
+    "username": "admin",
+    "password": "your-rqlite-password",
+    "perms": ["all"]
+  }
+]
 ```
 
 ---

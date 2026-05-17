@@ -278,21 +278,62 @@ docker-compose up -d
 
 ### 调度中心配置 (scheduler/config.yaml)
 
+#### 开发环境（单节点）
 ```yaml
 app:
   http_port: "8080"
   grpc_port: "50051"
 
 database:
-  rqlite_dsn: "http://localhost:4001"
+  rqlite_addrs:
+    - "http://localhost:4001"
+  rqlite_user: ""
+  rqlite_password: ""
+  rqlite_tls: false
 
 redis:
+  mode: "single"
   addr: "localhost:6379"
   password: ""
   db: 0
 
 jwt:
   secret: "your-secret-key-change-in-production"
+  expiry_hours: 24
+
+log:
+  level: "info"
+  format: "json"
+```
+
+#### 生产环境（集群模式）
+```yaml
+app:
+  http_port: "8080"
+  grpc_port: "50051"
+
+database:
+  rqlite_addrs:
+    - "http://rqlite1:4001"
+    - "http://rqlite2:4001"
+    - "http://rqlite3:4001"
+  rqlite_user: "admin"
+  rqlite_password: "your-rqlite-password"
+  rqlite_tls: false
+
+redis:
+  mode: "sentinel"
+  master_name: "mymaster"
+  sentinel_addrs:
+    - "sentinel1:26379"
+    - "sentinel2:26379"
+    - "sentinel3:26379"
+  sentinel_password: ""
+  password: "your-redis-password"
+  db: 0
+
+jwt:
+  secret: "your-secure-secret-key-change-in-production"
   expiry_hours: 24
 
 log:

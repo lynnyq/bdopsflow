@@ -3,15 +3,37 @@ app:
   http_port: "8080"
   grpc_port: "50051"
 
-# 数据库配置
+# 数据库配置 - 开发环境（单节点）
 database:
-  rqlite_dsn: "http://localhost:4001"
+  # rqlite 多节点地址列表（生产环境建议 3 节点，开发环境单节点）
+  rqlite_addrs:
+    - "http://localhost:4001"
+  # rqlite 用户名（需要 rqlite 服务端配置认证）
+  rqlite_user: ""
+  # rqlite 密码（需要 rqlite 服务端配置认证）
+  rqlite_password: ""
+  # 是否使用 TLS 连接 rqlite（使用 https）
+  rqlite_tls: false
 
-# Redis 配置
+# Redis 配置 - 开发环境（单节点）
+# 模式：single（单实例）或 sentinel（哨兵模式）
 redis:
+  mode: "single"
+  
+  # 单实例模式配置
   addr: "localhost:6379"
   password: ""
   db: 0
+  
+  # 哨兵模式配置（mode=sentinel 时使用）
+  master_name: "mymaster"
+  # 哨兵节点地址列表
+  sentinel_addrs:
+    - "sentinel1:26379"
+    - "sentinel2:26379"
+    - "sentinel3:26379"
+  # 哨兵密码（如需要）
+  sentinel_password: ""
 
 # JWT 配置
 jwt:

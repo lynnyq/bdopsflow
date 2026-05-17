@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"sync"
@@ -26,6 +27,100 @@ import (
 	"github.com/lynnyq/bdopsflow/scheduler/internal/webhook"
 )
 
+// RQLiteClient rqlite 多节点客户端
+type RQLiteClient struct {
+	addrs    []string
+	user     string
+	password string
+	useTLS   bool
+	mu       sync.RWMutex
+	current  *rqlite.Connection
+	index    int
+}
+
+// NewRQLiteClient 创建 rqlite 客户端
+func NewRQLiteClient(addrs []string, user, password string, useTLS bool) *RQLiteClient {
+	return &RQLiteClient{
+		addrs:    addrs,
+		user:     user,
+		password: password,
+		useTLS:   useTLS,
+		index:    0,
+	}
+}
+
+// Connect 连接到 rqlite 节点
+func (c *RQLiteClient) Connect(ctx context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for i := 0; i < len(c.addrs); i++ {
+		addr := c.addrs[(c.index+i)%len(c.addrs)]
+		connURL := c.buildURL(addr)
+
+		slog.Info("attempting to connect to rqlite", "addr", addr, "index", i)
+		conn, err := rqlite.Open(connURL)
+		if err != nil {
+			slog.Warn("failed to connect to rqlite node", "addr", addr, "error", err)
+			continue
+		}
+
+		// 测试连接 - 执行一个简单查询
+		stmt := rqlite.ParameterizedStatement{
+			Query: "SELECT 1",
+		}
+		qr, err := conn.QueryOneParameterized(stmt)
+		if err != nil || qr.Err != nil {
+			slog.Warn("rqlite node test query failed", "addr", addr, "error", err)
+			conn.Close()
+			continue
+		}
+
+		c.current = conn
+		c.index = (c.index + i) % len(c.addrs)
+		slog.Info("successfully connected to rqlite", "addr", addr)
+		return nil
+	}
+
+	return fmt.Errorf("failed to connect to any rqlite node")
+}
+
+// Connection 获取当前连接
+func (c *RQLiteClient) Connection() *rqlite.Connection {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.current
+}
+
+// Close 关闭连接
+func (c *RQLiteClient) Close() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.current != nil {
+		c.current.Close()
+	}
+}
+
+func (c *RQLiteClient) buildURL(addr string) string {
+	u, err := url.Parse(addr)
+	if err != nil {
+		slog.Warn("failed to parse rqlite address, using as is", "addr", addr)
+		return addr
+	}
+
+	// 设置 TLS
+	if c.useTLS {
+		u.Scheme = "https"
+	}
+
+	// 设置认证
+	if c.user != "" && c.password != "" {
+		u.User = url.UserPassword(c.user, c.password)
+	}
+
+	return u.String()
+}
+
 func main() {
 	configFile := flag.String("config", "", "path to config file (default: config.yaml in current directory)")
 	flag.Parse()
@@ -38,13 +133,34 @@ func main() {
 		"http_port", cfg.HTTPPort,
 		"grpc_port", cfg.GRPCPort,
 		"config_file", cfg.ConfigFile,
+		"redis_mode", cfg.RedisMode,
+		"rqlite_addrs", cfg.RQLiteAddrs,
+		"rqlite_tls", cfg.RQLiteTLS,
+		"rqlite_has_auth", cfg.RQLiteUser != "" && cfg.RQLitePass != "",
 	)
 
-	redisClient := redis.NewClient(&redis.Options{
-		Addr:     cfg.RedisAddr,
-		Password: cfg.RedisPassword,
-		DB:       cfg.RedisDB,
-	})
+	// 创建 Redis 客户端
+	var redisClient *redis.Client
+	if cfg.RedisMode == "sentinel" {
+		slog.Info("using Redis Sentinel mode",
+			"master_name", cfg.RedisMaster,
+			"sentinel_addrs", cfg.RedisSentinelAddrs,
+		)
+		redisClient = redis.NewFailoverClient(&redis.FailoverOptions{
+			MasterName:       cfg.RedisMaster,
+			SentinelAddrs:    cfg.RedisSentinelAddrs,
+			SentinelPassword: cfg.RedisSentinelPassword,
+			Password:         cfg.RedisPassword,
+			DB:               cfg.RedisDB,
+		})
+	} else {
+		slog.Info("using Redis single mode", "addr", cfg.RedisAddr)
+		redisClient = redis.NewClient(&redis.Options{
+			Addr:     cfg.RedisAddr,
+			Password: cfg.RedisPassword,
+			DB:       cfg.RedisDB,
+		})
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -54,12 +170,15 @@ func main() {
 	}
 	slog.Info("connected to Redis")
 
-	db, err := rqlite.Open(cfg.RQLiteDSN)
-	if err != nil {
+	// 创建 rqlite 多节点客户端
+	rqliteClient := NewRQLiteClient(cfg.RQLiteAddrs, cfg.RQLiteUser, cfg.RQLitePass, cfg.RQLiteTLS)
+	if err := rqliteClient.Connect(ctx); err != nil {
 		slog.Error("failed to connect to rqlite", "error", err)
 		os.Exit(1)
 	}
-	slog.Info("connected to rqlite")
+	defer rqliteClient.Close()
+
+	db := rqliteClient.Connection()
 
 	schedulerService := service.NewSchedulerService(*db, redisClient)
 

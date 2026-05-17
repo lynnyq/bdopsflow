@@ -68,7 +68,7 @@ brew install redis
 brew services start redis
 ```
 
-### 2. 启动 rqlite
+### 2. 启动 rqlite（单节点）
 
 ```bash
 # 使用 Docker 启动 rqlite
@@ -102,8 +102,11 @@ cp config.yaml.example config.yaml
 
 预期输出：
 ```
-Connected to Redis successfully
-Connected to rqlite successfully
+scheduler starting http_port=8080 grpc_port=50051 config_file=config.yaml redis_mode=single rqlite_tls=false rqlite_has_auth=false
+using Redis single mode addr=localhost:6379
+connected to Redis
+attempting to connect to rqlite addr=http://localhost:4001 index=0
+successfully connected to rqlite addr=http://localhost:4001
 gRPC server listening on port 50051
 HTTP server listening on port 8080
 ```
@@ -141,51 +144,306 @@ npm run dev
 
 ## 生产环境部署
 
-### 1. 部署 Redis 集群
+### 1. 部署 Redis（哨兵模式）
 
-推荐使用 Redis Sentinel 或 Redis Cluster 实现高可用。
+推荐使用 Redis Sentinel 实现高可用，生产环境至少部署 3 个哨兵节点。
 
-**Redis Sentinel 配置**：
+#### 完整的 Docker Compose 部署（3 哨兵模式）
 
-```conf
-# sentinel.conf
-sentinel monitor mymaster 192.168.1.100 6379 2
-sentinel down-after-milliseconds mymaster 30000
-sentinel parallel-syncs mymaster 1
-sentinel failover-timeout mymaster 180000
+创建 `docker-compose-redis.yml`：
+```yaml
+version: '3.8'
+services:
+  # Redis 主节点
+  redis-master:
+    image: redis:7-alpine
+    container_name: redis-master
+    command: >
+      redis-server
+      --bind 0.0.0.0
+      --port 6379
+      --requirepass your-redis-password
+      --masterauth your-redis-password
+      --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-master-data:/data
+    networks:
+      - redis-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "your-redis-password", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Redis 从节点 1
+  redis-slave1:
+    image: redis:7-alpine
+    container_name: redis-slave1
+    command: >
+      redis-server
+      --bind 0.0.0.0
+      --port 6379
+      --requirepass your-redis-password
+      --masterauth your-redis-password
+      --replicaof redis-master 6379
+      --appendonly yes
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis-slave1-data:/data
+    networks:
+      - redis-network
+    depends_on:
+      redis-master:
+        condition: service_healthy
+
+  # Redis 从节点 2
+  redis-slave2:
+    image: redis:7-alpine
+    container_name: redis-slave2
+    command: >
+      redis-server
+      --bind 0.0.0.0
+      --port 6379
+      --requirepass your-redis-password
+      --masterauth your-redis-password
+      --replicaof redis-master 6379
+      --appendonly yes
+    ports:
+      - "6381:6379"
+    volumes:
+      - redis-slave2-data:/data
+    networks:
+      - redis-network
+    depends_on:
+      redis-master:
+        condition: service_healthy
+
+  # 哨兵节点 1
+  sentinel1:
+    image: redis:7-alpine
+    container_name: redis-sentinel1
+    command: >
+      redis-sentinel
+      --port 26379
+      --sentinel monitor mymaster redis-master 6379 2
+      --sentinel auth-pass mymaster your-redis-password
+      --sentinel down-after-milliseconds mymaster 5000
+      --sentinel parallel-syncs mymaster 1
+      --sentinel failover-timeout mymaster 10000
+    ports:
+      - "26379:26379"
+    networks:
+      - redis-network
+    depends_on:
+      - redis-master
+      - redis-slave1
+      - redis-slave2
+
+  # 哨兵节点 2
+  sentinel2:
+    image: redis:7-alpine
+    container_name: redis-sentinel2
+    command: >
+      redis-sentinel
+      --port 26379
+      --sentinel monitor mymaster redis-master 6379 2
+      --sentinel auth-pass mymaster your-redis-password
+      --sentinel down-after-milliseconds mymaster 5000
+      --sentinel parallel-syncs mymaster 1
+      --sentinel failover-timeout mymaster 10000
+    ports:
+      - "26380:26379"
+    networks:
+      - redis-network
+    depends_on:
+      - redis-master
+      - redis-slave1
+      - redis-slave2
+
+  # 哨兵节点 3
+  sentinel3:
+    image: redis:7-alpine
+    container_name: redis-sentinel3
+    command: >
+      redis-sentinel
+      --port 26379
+      --sentinel monitor mymaster redis-master 6379 2
+      --sentinel auth-pass mymaster your-redis-password
+      --sentinel down-after-milliseconds mymaster 5000
+      --sentinel parallel-syncs mymaster 1
+      --sentinel failover-timeout mymaster 10000
+    ports:
+      - "26381:26379"
+    networks:
+      - redis-network
+    depends_on:
+      - redis-master
+      - redis-slave1
+      - redis-slave2
+
+volumes:
+  redis-master-data:
+  redis-slave1-data:
+  redis-slave2-data:
+
+networks:
+  redis-network:
+    driver: bridge
 ```
 
-### 2. 部署 rqlite 集群
-
-rqlite 使用 Raft 协议实现高可用，建议至少 3 节点部署。
-
-**节点 1**：
+启动 Redis 集群：
 ```bash
-rqlited -node-id 1 \
-  -http-addr 0.0.0.0:4001 \
-  -raft-addr 0.0.0.0:4002 \
-  -data-dir /data/rqlite1 \
-  -bootstrap-expect 3
+docker-compose -f docker-compose-redis.yml up -d
 ```
 
-**节点 2**：
-```bash
-rqlited -node-id 2 \
-  -http-addr 0.0.0.0:4001 \
-  -raft-addr 0.0.0.0:4002 \
-  -data-dir /data/rqlite2 \
-  -join http://node1:4002 \
-  -bootstrap-expect 3
+#### Scheduler 配置（使用 Redis Sentinel）
+
+```yaml
+redis:
+  mode: "sentinel"
+  master_name: "mymaster"
+  sentinel_addrs:
+    - "sentinel1:26379"
+    - "sentinel2:26379"
+    - "sentinel3:26379"
+  password: "your-redis-password"
+  sentinel_password: ""
+  db: 0
 ```
 
-**节点 3**：
+### 2. 部署 rqlite（3 节点集群）
+
+rqlite 使用 Raft 协议实现高可用，生产环境至少 3 节点部署。支持密码认证和 TLS 加密。
+
+#### 准备认证配置
+
+创建 `auth.json`：
+```json
+[
+  {
+    "username": "admin",
+    "password": "your-rqlite-password",
+    "perms": ["all"]
+  }
+]
+```
+
+#### 完整的 Docker Compose 部署（3 节点带认证）
+
+创建 `docker-compose-rqlite.yml`：
+```yaml
+version: '3.8'
+services:
+  # rqlite 节点 1（引导节点）
+  rqlite1:
+    image: rqlite/rqlite:latest
+    container_name: rqlite1
+    ports:
+      - "4001:4001"
+      - "4002:4002"
+    volumes:
+      - rqlite1-data:/data
+      - ./auth.json:/auth.json
+    command: >
+      -node-id 1
+      -http-addr 0.0.0.0:4001
+      -raft-addr 0.0.0.0:4002
+      -data-dir /data
+      -auth /auth.json
+      -bootstrap-expect 3
+    networks:
+      - rqlite-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "-u", "admin:your-rqlite-password", "http://localhost:4001/status"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # rqlite 节点 2
+  rqlite2:
+    image: rqlite/rqlite:latest
+    container_name: rqlite2
+    ports:
+      - "4011:4001"
+      - "4012:4002"
+    volumes:
+      - rqlite2-data:/data
+      - ./auth.json:/auth.json
+    command: >
+      -node-id 2
+      -http-addr 0.0.0.0:4001
+      -raft-addr 0.0.0.0:4002
+      -data-dir /data
+      -auth /auth.json
+      -join http://admin:your-rqlite-password@rqlite1:4001
+      -bootstrap-expect 3
+    networks:
+      - rqlite-network
+    depends_on:
+      rqlite1:
+        condition: service_healthy
+
+  # rqlite 节点 3
+  rqlite3:
+    image: rqlite/rqlite:latest
+    container_name: rqlite3
+    ports:
+      - "4021:4001"
+      - "4022:4002"
+    volumes:
+      - rqlite3-data:/data
+      - ./auth.json:/auth.json
+    command: >
+      -node-id 3
+      -http-addr 0.0.0.0:4001
+      -raft-addr 0.0.0.0:4002
+      -data-dir /data
+      -auth /auth.json
+      -join http://admin:your-rqlite-password@rqlite1:4001
+      -bootstrap-expect 3
+    networks:
+      - rqlite-network
+    depends_on:
+      rqlite1:
+        condition: service_healthy
+
+volumes:
+  rqlite1-data:
+  rqlite2-data:
+  rqlite3-data:
+
+networks:
+  rqlite-network:
+    driver: bridge
+```
+
+启动 rqlite 集群：
 ```bash
-rqlited -node-id 3 \
-  -http-addr 0.0.0.0:4001 \
-  -raft-addr 0.0.0.0:4002 \
-  -data-dir /data/rqlite3 \
-  -join http://node1:4002 \
-  -bootstrap-expect 3
+docker-compose -f docker-compose-rqlite.yml up -d
+
+# 等待集群启动后初始化数据库
+sleep 15
+curl -XPOST -u admin:your-rqlite-password 'http://localhost:4001/db/load?pretty' \
+  --data-binary @deploy/schema.sql
+```
+
+#### Scheduler 配置（连接 rqlite 3 节点集群）
+
+```yaml
+database:
+  # 配置所有 rqlite 节点地址，客户端会自动故障转移
+  rqlite_addrs:
+    - "http://rqlite1:4001"
+    - "http://rqlite2:4001"
+    - "http://rqlite3:4001"
+  # rqlite 认证信息
+  rqlite_user: "admin"
+  rqlite_password: "your-rqlite-password"
+  # 是否使用 TLS 连接（需要 rqlite 服务端配置 TLS 证书）
+  rqlite_tls: false
 ```
 
 ### 3. 部署调度中心
@@ -203,10 +461,21 @@ app:
   grpc_port: "50051"
 
 database:
-  rqlite_dsn: "http://rqlite-lb:4001"
+  rqlite_addrs:
+    - "http://rqlite1:4001"
+    - "http://rqlite2:4001"
+    - "http://rqlite3:4001"
+  rqlite_user: "admin"
+  rqlite_password: "your-rqlite-password"
+  rqlite_tls: false
 
 redis:
-  addr: "redis-sentinel:26379"
+  mode: "sentinel"
+  master_name: "mymaster"
+  sentinel_addrs:
+    - "sentinel1:26379"
+    - "sentinel2:26379"
+    - "sentinel3:26379"
   password: "your-redis-password"
   db: 0
 
@@ -287,6 +556,12 @@ RestartSec=5
 WantedBy=multi-user.target
 ```
 
+```bash
+systemctl daemon-reload
+systemctl enable bdopsflow-executor
+systemctl start bdopsflow-executor
+```
+
 ### 5. 部署前端
 
 **构建**：
@@ -324,10 +599,10 @@ server {
 
 ## Docker 部署
 
-### Docker Compose 完整部署
+### Docker Compose 完整部署（开发环境）
 
+创建 `docker-compose-dev.yml`：
 ```yaml
-# docker-compose.yml
 version: '3.8'
 
 services:
@@ -375,9 +650,10 @@ services:
     environment:
       - APP_HTTP_PORT=8080
       - APP_GRPC_PORT=50051
-      - DATABASE_RQLITE_DSN=http://rqlite:4001
+      - DATABASE_RQLITE_ADDRS=http://rqlite:4001
+      - REDIS_MODE=single
       - REDIS_ADDR=redis:6379
-      - JWT_SECRET=your-production-secret-key
+      - JWT_SECRET=your-secret-key
 
   executor:
     build:
@@ -411,10 +687,10 @@ volumes:
 
 ```bash
 # 启动所有服务
-docker-compose up -d
+docker-compose -f docker-compose-dev.yml up -d
 
 # 查看日志
-docker-compose logs -f
+docker-compose -f docker-compose-dev.yml logs -f
 
 # 初始化数据库（首次启动）
 sleep 10
@@ -436,55 +712,29 @@ metadata:
   name: bdopsflow
 ```
 
-### 2. 部署 Redis
+### 2. 部署 Redis（哨兵模式）
 
-```yaml
-# redis.yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: redis
-  namespace: bdopsflow
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: redis
-  template:
-    metadata:
-      labels:
-        app: redis
-    spec:
-      containers:
-      - name: redis
-        image: redis:7-alpine
-        ports:
-        - containerPort: 6379
-        resources:
-          requests:
-            cpu: 100m
-            memory: 256Mi
-          limits:
-            cpu: 500m
-            memory: 512Mi
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: redis
-  namespace: bdopsflow
-spec:
-  selector:
-    app: redis
-  ports:
-  - port: 6379
-    targetPort: 6379
-```
+可以使用 Helm chart 或自定义部署，建议使用成熟的 Redis Operator。
 
-### 3. 部署 rqlite
+### 3. 部署 rqlite（3 节点 StatefulSet）
 
 ```yaml
 # rqlite.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rqlite-auth
+  namespace: bdopsflow
+data:
+  auth.json: |
+    [
+      {
+        "username": "admin",
+        "password": "your-rqlite-password",
+        "perms": ["all"]
+      }
+    ]
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -512,6 +762,27 @@ spec:
         volumeMounts:
         - name: data
           mountPath: /data
+        - name: auth
+          mountPath: /auth.json
+          subPath: auth.json
+        env:
+        - name: NODE_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.annotations['node-id']
+        command:
+        - /bin/sh
+        - -c
+        - |
+          if [ "$(hostname)" = "rqlite-0" ]; then
+            rqlited -node-id 1 -http-addr 0.0.0.0:4001 -raft-addr 0.0.0.0:4002 -data-dir /data -auth /auth.json -bootstrap-expect 3
+          else
+            rqlited -node-id $(($(hostname | cut -d'-' -f2) + 1)) -http-addr 0.0.0.0:4001 -raft-addr 0.0.0.0:4002 -data-dir /data -auth /auth.json -join http://admin:your-rqlite-password@rqlite-0.rqlite:4001 -bootstrap-expect 3
+          fi
+      volumes:
+      - name: auth
+        configMap:
+          name: rqlite-auth
   volumeClaimTemplates:
   - metadata:
       name: data
@@ -532,6 +803,7 @@ spec:
   ports:
   - port: 4001
     targetPort: 4001
+    name: http
 ```
 
 ### 4. 部署调度中心
@@ -562,10 +834,20 @@ spec:
         - containerPort: 50051
           name: grpc
         env:
-        - name: DATABASE_RQLITE_DSN
-          value: "http://rqlite:4001"
-        - name: REDIS_ADDR
-          value: "redis:6379"
+        - name: DATABASE_RQLITE_ADDRS
+          value: "http://rqlite-0.rqlite:4001,http://rqlite-1.rqlite:4001,http://rqlite-2.rqlite:4001"
+        - name: DATABASE_RQLITE_USER
+          value: "admin"
+        - name: DATABASE_RQLITE_PASSWORD
+          value: "your-rqlite-password"
+        - name: REDIS_MODE
+          value: "sentinel"
+        - name: REDIS_MASTER_NAME
+          value: "mymaster"
+        - name: REDIS_SENTINEL_ADDRS
+          value: "redis-sentinel:26379"
+        - name: REDIS_PASSWORD
+          value: "your-redis-password"
         - name: JWT_SECRET
           valueFrom:
             secretKeyRef:
@@ -642,10 +924,17 @@ spec:
 |--------|----------|--------|------|
 | app.http_port | APP_HTTP_PORT | 8080 | HTTP API 端口 |
 | app.grpc_port | APP_GRPC_PORT | 50051 | gRPC 端口 |
-| database.rqlite_dsn | DATABASE_RQLITE_DSN | http://localhost:4001 | rqlite 地址 |
-| redis.addr | REDIS_ADDR | localhost:6379 | Redis 地址 |
+| database.rqlite_addrs | DATABASE_RQLITE_ADDRS | ["http://localhost:4001"] | rqlite 多节点地址列表（逗号分隔） |
+| database.rqlite_user | DATABASE_RQLITE_USER | "" | rqlite 用户名 |
+| database.rqlite_password | DATABASE_RQLITE_PASSWORD | "" | rqlite 密码 |
+| database.rqlite_tls | DATABASE_RQLITE_TLS | false | 是否使用 TLS 连接 rqlite |
+| redis.mode | REDIS_MODE | single | Redis 模式：single 或 sentinel |
+| redis.addr | REDIS_ADDR | localhost:6379 | Redis 单实例地址 |
 | redis.password | REDIS_PASSWORD | (空) | Redis 密码 |
 | redis.db | REDIS_DB | 0 | Redis 数据库 |
+| redis.master_name | REDIS_MASTER_NAME | mymaster | Redis Sentinel 主节点名称 |
+| redis.sentinel_addrs | REDIS_SENTINEL_ADDRS | (空) | Redis Sentinel 节点地址列表（逗号分隔） |
+| redis.sentinel_password | REDIS_SENTINEL_PASSWORD | (空) | Redis Sentinel 密码 |
 | jwt.secret | JWT_SECRET | (必填) | JWT 密钥 |
 | jwt.expiry_hours | JWT_EXPIRY_HOURS | 24 | Token 过期时间 |
 | log.level | LOG_LEVEL | info | 日志级别 |
@@ -679,13 +968,21 @@ curl http://localhost:8080/health
 
 **Redis**：
 ```bash
-redis-cli ping
+# 单实例
+redis-cli -a your-redis-password ping
 # 预期响应: PONG
+
+# Sentinel
+redis-cli -p 26379 sentinel get-master-addr-by-name mymaster
 ```
 
 **rqlite**：
 ```bash
+# 单节点
 curl http://localhost:4001/status?pretty
+
+# 带认证
+curl -u admin:your-rqlite-password http://localhost:4001/status?pretty
 ```
 
 ### 日志管理
@@ -724,17 +1021,17 @@ docker logs -f bdopsflow-executor
 
 **rqlite 备份**：
 ```bash
-# 创建备份
-curl http://localhost:4001/db/backup > backup-$(date +%Y%m%d).sqlite
+# 创建备份（带认证）
+curl -u admin:your-rqlite-password http://localhost:4001/db/backup > backup-$(date +%Y%m%d).sqlite
 
 # 定时备份（crontab）
-0 2 * * * curl http://localhost:4001/db/backup > /backup/rqlite-$(date +\%Y\%m\%d).sqlite
+0 2 * * * curl -u admin:your-rqlite-password http://localhost:4001/db/backup > /backup/rqlite-$(date +\%Y\%m\%d).sqlite
 ```
 
 **Redis 备份**：
 ```bash
 # RDB 备份
-redis-cli BGSAVE
+redis-cli -a your-redis-password BGSAVE
 
 # 复制 RDB 文件
 cp /var/lib/redis/dump.rdb /backup/redis-$(date +%Y%m%d).rdb
@@ -754,10 +1051,11 @@ cp /var/lib/redis/dump.rdb /backup/redis-$(date +%Y%m%d).rdb
 
 **数据库故障**：
 1. rqlite 集群自动选举新主节点
-2. 从备份恢复数据（如需要）
+2. 客户端自动连接到可用节点
+3. 从备份恢复数据（如需要）
 
 **Redis 故障**：
-1. 使用 Sentinel 自动故障转移
+1. Sentinel 自动故障转移
 2. 从备份恢复数据（如需要）
 
 ---
@@ -775,12 +1073,15 @@ cp /var/lib/redis/dump.rdb /backup/redis-$(date +%Y%m%d).rdb
 - 使用强 JWT 密钥（至少 32 字符）
 - 定期轮换密钥
 - 设置合理的 Token 过期时间
+- rqlite 启用密码认证
+- Redis 启用密码认证
 
 ### 3. 数据安全
 
-- Redis 启用密码认证
-- 数据库连接使用 TLS
+- rqlite 和 Redis 启用密码认证
+- 数据库连接使用 TLS（生产环境建议）
 - 定期备份数据
+- 敏感数据脱敏存储
 
 ### 4. 容器安全
 

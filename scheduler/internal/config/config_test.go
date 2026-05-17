@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"reflect"
 	"testing"
 )
 
@@ -9,16 +10,23 @@ func TestDefaultConfig(t *testing.T) {
 	cfg := defaultConfig()
 
 	expected := &Config{
-		HTTPPort:      "8080",
-		GRPCPort:      "50051",
-		RQLiteDSN:     "http://localhost:4001",
-		RedisAddr:     "localhost:6379",
-		RedisPassword: "",
-		RedisDB:       0,
-		JWTSecret:     "your-secret-key-change-in-production",
-		JWTExpiry:     24,
-		LogLevel:      "info",
-		LogFormat:     "json",
+		HTTPPort:       "8080",
+		GRPCPort:       "50051",
+		RQLiteAddrs:    []string{"http://localhost:4001"},
+		RQLiteUser:     "",
+		RQLitePass:     "",
+		RQLiteTLS:      false,
+		RedisMode:      "single",
+		RedisAddr:      "localhost:6379",
+		RedisPassword:  "",
+		RedisDB:        0,
+		RedisMaster:    "mymaster",
+		RedisSentinelAddrs: []string{},
+		RedisSentinelPassword: "",
+		JWTSecret:      "your-secret-key-change-in-production",
+		JWTExpiry:      24,
+		LogLevel:       "info",
+		LogFormat:      "json",
 	}
 
 	if cfg.HTTPPort != expected.HTTPPort {
@@ -27,8 +35,8 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.GRPCPort != expected.GRPCPort {
 		t.Errorf("GRPCPort = %v, want %v", cfg.GRPCPort, expected.GRPCPort)
 	}
-	if cfg.RQLiteDSN != expected.RQLiteDSN {
-		t.Errorf("RQLiteDSN = %v, want %v", cfg.RQLiteDSN, expected.RQLiteDSN)
+	if !reflect.DeepEqual(cfg.RQLiteAddrs, expected.RQLiteAddrs) {
+		t.Errorf("RQLiteAddrs = %v, want %v", cfg.RQLiteAddrs, expected.RQLiteAddrs)
 	}
 	if cfg.RedisAddr != expected.RedisAddr {
 		t.Errorf("RedisAddr = %v, want %v", cfg.RedisAddr, expected.RedisAddr)
@@ -80,11 +88,21 @@ app:
   grpc_port: "50052"
 
 database:
-  rqlite_dsn: "http://rqlite:4001"
+  rqlite_addrs:
+    - "http://rqlite1:4001"
+    - "http://rqlite2:4001"
+  rqlite_user: "admin"
+  rqlite_password: "secret"
+  rqlite_tls: true
 
 redis:
-  addr: "redis:6379"
-  password: "test-pass"
+  mode: "sentinel"
+  master_name: "mymaster"
+  sentinel_addrs:
+    - "sentinel1:26379"
+    - "sentinel2:26379"
+  sentinel_password: "sentinel-pass"
+  password: "redis-pass"
   db: 1
 
 jwt:
@@ -108,14 +126,34 @@ log:
 	if cfg.GRPCPort != "50052" {
 		t.Errorf("GRPCPort = %v, want %v", cfg.GRPCPort, "50052")
 	}
-	if cfg.RQLiteDSN != "http://rqlite:4001" {
-		t.Errorf("RQLiteDSN = %v, want %v", cfg.RQLiteDSN, "http://rqlite:4001")
+	expectedRQLiteAddrs := []string{"http://rqlite1:4001", "http://rqlite2:4001"}
+	if !reflect.DeepEqual(cfg.RQLiteAddrs, expectedRQLiteAddrs) {
+		t.Errorf("RQLiteAddrs = %v, want %v", cfg.RQLiteAddrs, expectedRQLiteAddrs)
 	}
-	if cfg.RedisAddr != "redis:6379" {
-		t.Errorf("RedisAddr = %v, want %v", cfg.RedisAddr, "redis:6379")
+	if cfg.RQLiteUser != "admin" {
+		t.Errorf("RQLiteUser = %v, want %v", cfg.RQLiteUser, "admin")
 	}
-	if cfg.RedisPassword != "test-pass" {
-		t.Errorf("RedisPassword = %v, want %v", cfg.RedisPassword, "test-pass")
+	if cfg.RQLitePass != "secret" {
+		t.Errorf("RQLitePass = %v, want %v", cfg.RQLitePass, "secret")
+	}
+	if cfg.RQLiteTLS != true {
+		t.Errorf("RQLiteTLS = %v, want %v", cfg.RQLiteTLS, true)
+	}
+	if cfg.RedisMode != "sentinel" {
+		t.Errorf("RedisMode = %v, want %v", cfg.RedisMode, "sentinel")
+	}
+	if cfg.RedisMaster != "mymaster" {
+		t.Errorf("RedisMaster = %v, want %v", cfg.RedisMaster, "mymaster")
+	}
+	expectedSentinelAddrs := []string{"sentinel1:26379", "sentinel2:26379"}
+	if !reflect.DeepEqual(cfg.RedisSentinelAddrs, expectedSentinelAddrs) {
+		t.Errorf("RedisSentinelAddrs = %v, want %v", cfg.RedisSentinelAddrs, expectedSentinelAddrs)
+	}
+	if cfg.RedisSentinelPassword != "sentinel-pass" {
+		t.Errorf("RedisSentinelPassword = %v, want %v", cfg.RedisSentinelPassword, "sentinel-pass")
+	}
+	if cfg.RedisPassword != "redis-pass" {
+		t.Errorf("RedisPassword = %v, want %v", cfg.RedisPassword, "redis-pass")
 	}
 	if cfg.RedisDB != 1 {
 		t.Errorf("RedisDB = %v, want %v", cfg.RedisDB, 1)
