@@ -1,9 +1,50 @@
-.PHONY: proto run-dev run-scheduler run-executor run-web
+.PHONY: proto proto-clean proto-check proto-deps install-tools run-dev run-scheduler run-executor run-web
 
-proto:
-	protoc --go_out=. --go_opt=paths=source_relative \
-		--go-grpc_out=. --go-grpc_opt=paths=source_relative \
+# 获取 GOPATH/bin 路径
+GOPATH_BIN := $(shell go env GOPATH)/bin
+# 确保 GOPATH/bin 在 PATH 中
+export PATH := $(GOPATH_BIN):$(PATH)
+
+# 安装 protobuf 相关工具
+install-tools:
+	@echo "Installing protobuf tools..."
+	@which protoc > /dev/null || (echo "❌ protoc not found, please install protobuf first (brew install protobuf on macOS)"; exit 1)
+	@go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.32.0
+	@go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.3.0
+	@echo "✅ Protobuf tools installed successfully!"
+
+# 检查 protobuf 相关依赖
+proto-deps:
+	@echo "Checking protobuf dependencies..."
+	@which protoc > /dev/null || (echo "❌ protoc not found"; exit 1)
+	@which protoc-gen-go > /dev/null || (echo "❌ protoc-gen-go not found, run 'make install-tools'"; exit 1)
+	@which protoc-gen-go-grpc > /dev/null || (echo "❌ protoc-gen-go-grpc not found, run 'make install-tools'"; exit 1)
+	@echo "✅ All protobuf dependencies found!"
+
+# 清理旧的 proto 生成文件
+proto-clean:
+	@echo "Cleaning old proto generated files..."
+	@rm -f proto/*.pb.go proto/*_grpc.pb.go
+	@echo "✅ Old proto files cleaned!"
+
+# 验证 proto 文件语法
+proto-check: proto-deps
+	@echo "Checking proto file syntax..."
+	@protoc --proto_path=proto --proto_path=. proto/executor.proto
+	@echo "✅ Proto file syntax check completed!"
+
+# 生成 protobuf 代码
+proto: proto-deps
+	@echo "Generating protobuf code..."
+	@protoc --proto_path=proto \
+		--go_out=proto \
+		--go_opt=paths=source_relative \
+		--go-grpc_out=proto \
+		--go-grpc_opt=paths=source_relative \
 		proto/executor.proto
+	@echo "✅ Protobuf code generated successfully!"
+	@echo "   - proto/executor.pb.go"
+	@echo "   - proto/executor_grpc.pb.go"
 
 tidy:
 	go mod tidy

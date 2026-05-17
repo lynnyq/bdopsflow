@@ -2762,16 +2762,15 @@ type DashboardStats struct {
 		Success       int64 `json:"success"`
 		Failed        int64 `json:"failed"`
 		AvgDuration   int64 `json:"avg_duration"` // 平均执行时长（秒）
-	} `json:"bdopsflow_tasks"`
+	} `json:"tasks"`
 	Workflows struct {
 		Total   int64 `json:"total"`
 		Enabled int64 `json:"enabled"`
-	} `json:"bdopsflow_workflows"`
+	} `json:"workflows"`
 	Executors struct {
-		Total   int64 `json:"total"`
-		Online  int64 `json:"online"`
-		Offline int64 `json:"offline"`
-	} `json:"bdopsflow_executors"`
+		Total  int64 `json:"total"`
+		Active int64 `json:"active"`
+	} `json:"executors"`
 	Scheduler struct {
 		Paused bool   `json:"paused"`
 		Uptime int64  `json:"uptime"` // 运行时长（秒）
@@ -2856,16 +2855,14 @@ func (s *SchedulerService) GetDashboardStats(ctx context.Context) (*DashboardSta
 	execQuery := `
 		SELECT 
 			COUNT(*) as total,
-			SUM(CASE WHEN status = 'online' THEN 1 ELSE 0 END) as online,
-			SUM(CASE WHEN status = 'offline' THEN 1 ELSE 0 END) as offline
+			SUM(CASE WHEN status = 'online' THEN 1 ELSE 0 END) as online
 		FROM bdopsflow_executors
 	`
 	qr, err = s.DB.QueryOne(execQuery)
 	if err == nil && qr.Err == nil && qr.Next() {
 		row, _ := qr.Slice()
 		stats.Executors.Total = rowInt64(row[0])
-		stats.Executors.Online = rowInt64(row[1])
-		stats.Executors.Offline = rowInt64(row[2])
+		stats.Executors.Active = rowInt64(row[1])
 	}
 	
 	// 调度器状态
