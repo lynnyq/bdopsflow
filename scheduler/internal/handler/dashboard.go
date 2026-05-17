@@ -28,7 +28,19 @@ func (h *DashboardHandler) GetStats(c *gin.Context) {
 
 	slog.Debug("DashboardHandler.GetStats: handling request")
 
-	stats, err := h.svc.GetDashboardStats(ctx)
+	domainID, _ := c.Get("domain_id")
+	userRole, _ := c.Get("role")
+	
+	var dID int64
+	var role string
+	if v, ok := domainID.(int64); ok {
+		dID = v
+	}
+	if v, ok := userRole.(string); ok {
+		role = v
+	}
+
+	stats, err := h.svc.GetDashboardStats(ctx, dID, role)
 	if err != nil {
 		slog.Error("DashboardHandler.GetStats: failed to get stats", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -50,7 +62,19 @@ func (h *DashboardHandler) GetTrends(c *gin.Context) {
 
 	slog.Debug("DashboardHandler.GetTrends: handling request")
 
-	trends, err := h.svc.GetTrendData(ctx)
+	domainID, _ := c.Get("domain_id")
+	userRole, _ := c.Get("role")
+	
+	var dID int64
+	var role string
+	if v, ok := domainID.(int64); ok {
+		dID = v
+	}
+	if v, ok := userRole.(string); ok {
+		role = v
+	}
+
+	trends, err := h.svc.GetTrendData(ctx, dID, role)
 	if err != nil {
 		slog.Error("DashboardHandler.GetTrends: failed to get trends", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

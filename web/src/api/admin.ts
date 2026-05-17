@@ -20,7 +20,7 @@ export interface Role {
 export interface Domain {
   id: number
   name: string
-  description: string
+  description?: string
   created_at: string
   updated_at: string
   user_count?: number
@@ -33,6 +33,59 @@ export interface DomainExecutor {
   domain_id: number
   domain_name: string
   assigned_at: string
+}
+
+export interface User {
+  id: number
+  username: string
+  email: string
+  domain_id: number
+  role: string
+  is_active: boolean
+  last_login_at: string | null
+  created_by: number
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateUserRequest {
+  username: string
+  password: string
+  email: string
+  role: string
+  domain_id?: number
+}
+
+export interface UpdateUserRequest {
+  username?: string
+  email?: string
+  role?: string
+  is_active?: boolean
+}
+
+export interface AssignRolesRequest {
+  role_ids: number[]
+}
+
+export interface AssignDomainsRequest {
+  domain_ids: number[]
+}
+
+export interface CreateRoleRequest {
+  name: string
+  code: string
+  description?: string
+  is_system?: boolean
+  domain_id?: number
+}
+
+export interface UpdateRoleRequest {
+  name?: string
+  description?: string
+}
+
+export interface AssignPermissionsRequest {
+  permission_ids: number[]
 }
 
 export const permissionAPI = {
@@ -48,6 +101,7 @@ export const userAdminAPI = {
   assignRoles: (id: number, data: AssignRolesRequest) => api.post(`/admin/users/${id}/roles`, data),
   getRoles: (id: number) => api.get<{ items: Role[] }>(`/admin/users/${id}/roles`),
   assignDomains: (id: number, data: AssignDomainsRequest) => api.post(`/admin/users/${id}/domains`, data),
+  resetPassword: (id: number, data: { new_password: string }) => api.post(`/admin/users/${id}/reset-password`, data),
 }
 
 export const roleAdminAPI = {
@@ -63,78 +117,11 @@ export const roleAdminAPI = {
 export const domainAdminAPI = {
   list: () => api.get<{ items: Domain[] }>('/admin/domains'),
   get: (id: number) => api.get<Domain>(`/admin/domains/${id}`),
-  create: (data: CreateDomainRequest) => api.post<Domain>('/admin/domains', data),
-  update: (id: number, data: UpdateDomainRequest) => api.put<Domain>(`/admin/domains/${id}`, data),
+  create: (data: Partial<Domain>) => api.post<Domain>('/admin/domains', data),
+  update: (id: number, data: Partial<Domain>) => api.put<Domain>(`/admin/domains/${id}`, data),
   delete: (id: number) => api.delete(`/admin/domains/${id}`),
 }
 
 export const executorDomainAPI = {
-  getDomains: (executorId: number) => api.get<{ items: Domain[] }>(`/admin/executors/${executorId}/domains`),
-  assignDomains: (executorId: number, data: AssignExecutorDomainsRequest) => api.post(`/admin/executors/${executorId}/domains`, data),
-  removeDomain: (executorId: number, domainId: number) => api.delete(`/admin/executors/${executorId}/domains/${domainId}`),
-}
-
-export interface User {
-  id: number
-  username: string
-  email: string
-  role: string
-  domain_id: number | null
-  is_active: boolean
-  last_login_at: string | null
-  created_by: number
-  created_at: string
-  updated_at: string
-}
-
-export interface CreateUserRequest {
-  username: string
-  email: string
-  password: string
-}
-
-export interface UpdateUserRequest {
-  username: string
-  email: string
-  role: string
-  is_active: boolean
-}
-
-export interface AssignRolesRequest {
-  role_ids: number[]
-  domain_ids: number[]
-}
-
-export interface AssignDomainsRequest {
-  domain_ids: number[]
-}
-
-export interface CreateRoleRequest {
-  name: string
-  code: string
-  description: string
-  domain_id?: number | null
-}
-
-export interface UpdateRoleRequest {
-  name: string
-  description: string
-}
-
-export interface AssignPermissionsRequest {
-  permission_ids: number[]
-}
-
-export interface CreateDomainRequest {
-  name: string
-  description: string
-}
-
-export interface UpdateDomainRequest {
-  name: string
-  description: string
-}
-
-export interface AssignExecutorDomainsRequest {
-  domain_ids: number[]
+  getDomains: (executorId: number) => api.get<{ items: Domain[] }>(`/executors/${executorId}/domains`),
 }

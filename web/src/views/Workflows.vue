@@ -14,7 +14,7 @@
         </div>
         <div class="toolbar-right">
           <el-button :icon="Refresh" @click="loadWorkflows" :loading="loading" class="refresh-btn">刷新</el-button>
-          <el-button :icon="Plus" @click="showCreateDialog = true" class="create-btn">
+          <el-button v-if="canManageWorkflow" :icon="Plus" @click="openCreateDialog" class="create-btn">
             创建工作流
           </el-button>
         </div>
@@ -54,17 +54,17 @@
             </div>
           </div>
           <div class="card-actions">
-            <el-button :icon="Edit" text size="small" @click.stop="editWorkflow(workflow)">
+            <el-button v-if="canManageWorkflow" :icon="Edit" text size="small" @click.stop="editWorkflow(workflow)">
               编辑
             </el-button>
-            <el-button :icon="Delete" text size="small" type="danger" @click.stop="deleteWorkflowConfirm(workflow)">
+            <el-button v-if="canManageWorkflow" :icon="Delete" text size="small" type="danger" @click.stop="deleteWorkflowConfirm(workflow)">
               删除
             </el-button>
           </div>
         </div>
       </div>
 
-      <div class="workflow-card create-card" @click="showCreateDialog = true">
+      <div v-if="canManageWorkflow" class="workflow-card create-card" @click="openCreateDialog">
         <div class="create-content">
           <div class="create-icon">
             <el-icon><Plus /></el-icon>
@@ -263,6 +263,9 @@ import FlowCanvas from '@/components/FlowCanvas.vue'
 import { workflowAPI } from '@/api'
 import type { Workflow, WorkflowDAG, WorkflowExecution, TaskLog } from '@/types'
 import { handleError, handleSuccess, formatValue } from '@/utils/error'
+import { useAuthStore } from '@/stores/auth'
+
+const authStore = useAuthStore()
 
 const workflows = ref<Workflow[]>([])
 const selectedWorkflow = ref<Workflow | null>(null)
@@ -288,6 +291,11 @@ const filteredWorkflows = computed(() => {
     w.name.toLowerCase().includes(query) || 
     w.description?.toLowerCase().includes(query)
   )
+})
+
+const canManageWorkflow = computed(() => {
+  const role = authStore.user?.role
+  return role === 'admin' || role === 'system_admin' || role === 'domain_admin'
 })
 
 let logPollingInterval: number | null = null
@@ -401,6 +409,16 @@ const handleDAGUpdate = (dag: WorkflowDAG) => {
   currentDAG.value = dag
 }
 
+const openCreateDialog = () => {
+  editingWorkflow.value = null
+  workflowForm.name = ''
+  workflowForm.description = ''
+  workflowForm.cron_expression = ''
+  workflowForm.domain_id = authStore.user?.domain_id || 1
+  formErrors.name = ''
+  showCreateDialog.value = true
+}
+
 const editWorkflow = (workflow: Workflow) => {
   editingWorkflow.value = workflow
   workflowForm.name = workflow.name
@@ -416,7 +434,7 @@ const closeDialog = () => {
   workflowForm.name = ''
   workflowForm.description = ''
   workflowForm.cron_expression = ''
-  workflowForm.domain_id = 1
+  workflowForm.domain_id = authStore.user?.domain_id || 1
   formErrors.name = ''
 }
 

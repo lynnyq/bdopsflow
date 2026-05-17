@@ -7,7 +7,6 @@ import (
 )
 
 type Config struct {
-	ExecutorID    string
 	ExecutorName  string
 	Hostname      string
 	Capacity      int32
@@ -36,12 +35,12 @@ func Load(configFile string) *Config {
 		slog.Info("loaded config from file", "file", configured)
 	}
 
-	executorID := cfg.GetString("app.executor_id", "executor-1")
+	executorName := cfg.GetString("app.executor_name", "executor-default")
+	hostname := cfg.GetString("app.hostname", "localhost")
 
 	return &Config{
-		ExecutorID:    executorID,
-		ExecutorName:  cfg.GetString("app.executor_name", executorID),
-		Hostname:      cfg.GetString("app.hostname", executorID),
+		ExecutorName:  executorName,
+		Hostname:      hostname,
 		Capacity:      cfg.GetInt32("app.capacity", 10),
 		SchedulerAddr: cfg.GetString("scheduler.addr", "localhost:50051"),
 		Timeout:       cfg.GetInt("scheduler.timeout", 30),
@@ -53,9 +52,8 @@ func Load(configFile string) *Config {
 
 func defaultConfig() *Config {
 	return &Config{
-		ExecutorID:    "executor-1",
-		ExecutorName:  "executor-1",
-		Hostname:      "executor-1",
+		ExecutorName:  "executor-default",
+		Hostname:      "localhost",
 		Capacity:      10,
 		SchedulerAddr: "localhost:50051",
 		Timeout:       30,

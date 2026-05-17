@@ -17,7 +17,7 @@ import (
 type mockTaskService struct {
 	createTaskFunc      func(ctx context.Context, query string, args ...interface{}) (*model.Task, error)
 	getTaskByIDFunc     func(ctx context.Context, id int64) (*model.Task, error)
-	listTasksFunc       func(ctx context.Context) ([]*model.Task, error)
+	listTasksFunc       func(ctx context.Context, domainID int64, role string) ([]*model.Task, error)
 	updateTaskFunc      func(ctx context.Context, id int64, task *model.Task) error
 	deleteTaskFunc      func(ctx context.Context, id int64) error
 	triggerTaskFunc     func(ctx context.Context, taskID int64) (string, error)
@@ -44,9 +44,9 @@ func (m *mockTaskService) GetTaskByID(ctx context.Context, id int64) (*model.Tas
 	return &model.Task{ID: id, Name: "test", Type: "http", Status: "pending"}, nil
 }
 
-func (m *mockTaskService) ListTasks(ctx context.Context) ([]*model.Task, error) {
+func (m *mockTaskService) ListTasks(ctx context.Context, domainID int64, role string) ([]*model.Task, error) {
 	if m.listTasksFunc != nil {
-		return m.listTasksFunc(ctx)
+		return m.listTasksFunc(ctx, domainID, role)
 	}
 	return []*model.Task{}, nil
 }
@@ -286,7 +286,7 @@ func TestCreateTask_DefaultValues(t *testing.T) {
 
 func TestListTasks(t *testing.T) {
 	mock := &mockTaskService{
-		listTasksFunc: func(ctx context.Context) ([]*model.Task, error) {
+		listTasksFunc: func(ctx context.Context, domainID int64, role string) ([]*model.Task, error) {
 			return []*model.Task{
 				{ID: 1, Name: "task1", Type: "http", Status: "pending"},
 				{ID: 2, Name: "task2", Type: "shell", Status: "success"},

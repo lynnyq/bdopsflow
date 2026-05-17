@@ -102,20 +102,37 @@ func RBACMiddleware(allowedRoles ...string) gin.HandlerFunc {
 		}
 
 		userRole := role.(string)
+		
+		// 如果检查 'admin'，同时允许 'system_admin'
+		// 如果检查 'system_admin'，同时允许 'admin'
 		for _, allowed := range allowedRoles {
 			if userRole == allowed {
 				c.Next()
 				return
 			}
+			if (allowed == "admin" && userRole == "system_admin") || 
+			   (allowed == "system_admin" && userRole == "admin") {
+				c.Next()
+				return
+			}
 		}
 
-		c.JSON(http.StatusForbidden, gin.H{"error": "Insufficient bdopsflow_permissions"})
+		c.JSON(http.StatusForbidden, gin.H{"error": "Insufficient permissions"})
 		c.Abort()
 	}
 }
 
 func RequireSystemAdmin(permissionService *service.PermissionService) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		role, exists := c.Get("role")
+		if exists {
+			userRole := role.(string)
+			if userRole == "system_admin" || userRole == "admin" {
+				c.Next()
+				return
+			}
+		}
+
 		userID, exists := c.Get("user_id")
 		if !exists {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
@@ -125,7 +142,7 @@ func RequireSystemAdmin(permissionService *service.PermissionService) gin.Handle
 
 		isAdmin, err := permissionService.IsSystemAdmin(c.Request.Context(), userID.(int64))
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check bdopsflow_permissions"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check permissions"})
 			c.Abort()
 			return
 		}
@@ -150,7 +167,7 @@ func RequireAdminOrDomainAdmin() gin.HandlerFunc {
 		}
 
 		userRole := role.(string)
-		if userRole == "system_admin" || userRole == "domain_admin" {
+		if userRole == "system_admin" || userRole == "domain_admin" || userRole == "admin" {
 			c.Next()
 			return
 		}

@@ -19,7 +19,7 @@ type Server struct {
 	grpcServer *grpc.Server
 	scheduler *service.SchedulerService
 	mu        sync.RWMutex
-	bdopsflow_executors map[string]*executorConn
+	executors map[string]*executorConn
 	lis       net.Listener
 }
 
@@ -33,7 +33,7 @@ func NewServer(port string, scheduler *service.SchedulerService) *Server {
 	s := &Server{
 		port:      port,
 		scheduler: scheduler,
-		bdopsflow_executors: make(map[string]*executorConn),
+		executors: make(map[string]*executorConn),
 	}
 
 	scheduler.SetTaskDispatcher(s.dispatchTask)
@@ -41,17 +41,17 @@ func NewServer(port string, scheduler *service.SchedulerService) *Server {
 	return s
 }
 
-func (s *Server) dispatchTask(executorID string, task *pb.Task) error {
+func (s *Server) dispatchTask(executorName string, task *pb.Task) error {
 	s.mu.RLock()
-	conn, ok := s.bdopsflow_executors[executorID]
+	conn, ok := s.executors[executorName]
 	s.mu.RUnlock()
 
 	if !ok {
-		return fmt.Errorf("executor %s not connected", executorID)
+		return fmt.Errorf("executor %s not connected", executorName)
 	}
 
 	slog.Info("dispatching task to executor",
-		"executor_id", executorID,
+		"executor_name", executorName,
 		"task_id", task.TaskId,
 		"execution_id", task.ExecutionId,
 	)
@@ -61,36 +61,43 @@ func (s *Server) dispatchTask(executorID string, task *pb.Task) error {
 
 func (s *Server) Register(ctx context.Context, req *pb.RegisterRequest) (*pb.RegisterResponse, error) {
 	slog.Info("executor register request",
-		"executor_id", req.ExecutorId,
 		"name", req.Name,
+		"address", req.Address,
 	)
 
-	if err := s.scheduler.RegisterExecutor(ctx, req.ExecutorId, req.Name, req.Address, req.Capacity); err != nil {
-		slog.Error("executor register failed", "executor_id", req.ExecutorId, "error", err)
+	executorName, err := s.scheduler.RegisterExecutor(ctx, req.Name, req.Address, req.Capacity)
+	if err != nil {
+		slog.Error("executor register failed", "error", err)
 		return &pb.RegisterResponse{
 			Success: false,
 			Message: err.Error(),
 		}, nil
 	}
 
+	slog.Info("executor registered successfully", "executor_name", executorName)
+
 	return &pb.RegisterResponse{
-		Success: true,
-		Message: "registered",
+		Success:      true,
+		Message:      "registered",
+		ExecutorName: executorName,
 	}, nil
 }
 
 func (s *Server) Heartbeat(ctx context.Context, req *pb.HeartbeatRequest) (*pb.HeartbeatResponse, error) {
-	if req.ExecutorId == "" {
+	if req.ExecutorName == "" {
 		return &pb.HeartbeatResponse{
 			Success: true,
 			Message: "ok",
 		}, nil
 	}
-	s.scheduler.UpdateExecutorHeartbeatWithRunningTasks(ctx, req.ExecutorId, req.CurrentLoad, req.RunningExecutionIds)
-	
-	// 获取目标容量
-	targetCapacity, _ := s.scheduler.GetExecutorTargetCapacity(ctx, req.ExecutorId)
-	
+
+	err := s.scheduler.UpdateExecutorHeartbeatWithRunningTasks(ctx, req.ExecutorName, req.CurrentLoad, req.RunningExecutionIds)
+	if err != nil {
+		slog.Warn("failed to update executor heartbeat", "executor_name", req.ExecutorName, "error", err)
+	}
+
+	targetCapacity, _ := s.scheduler.GetExecutorTargetCapacity(ctx, req.ExecutorName)
+
 	return &pb.HeartbeatResponse{
 		Success:        true,
 		Message:        "ok",
@@ -99,23 +106,23 @@ func (s *Server) Heartbeat(ctx context.Context, req *pb.HeartbeatRequest) (*pb.H
 }
 
 func (s *Server) SubscribeTask(req *pb.SubscribeTaskRequest, stream pb.ExecutorService_SubscribeTaskServer) error {
-	executorID := req.ExecutorId
+	executorName := req.ExecutorName
 
 	s.mu.Lock()
-	s.bdopsflow_executors[executorID] = &executorConn{
+	s.executors[executorName] = &executorConn{
 		stream: stream,
 	}
 	s.mu.Unlock()
 
-	slog.Info("executor subscribed", "executor_id", executorID)
+	slog.Info("executor subscribed", "executor_name", executorName)
 
 	<-stream.Context().Done()
 
 	s.mu.Lock()
-	delete(s.bdopsflow_executors, executorID)
+	delete(s.executors, executorName)
 	s.mu.Unlock()
 
-	slog.Info("executor disconnected", "executor_id", executorID)
+	slog.Info("executor disconnected", "executor_name", executorName)
 	return nil
 }
 

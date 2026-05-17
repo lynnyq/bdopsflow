@@ -29,7 +29,6 @@ func main() {
 	}
 
 	slog.Info("executor starting",
-		"executor_id", cfg.ExecutorID,
 		"executor_name", cfg.ExecutorName,
 		"scheduler_addr", cfg.SchedulerAddr,
 		"capacity", cfg.Capacity,
@@ -40,7 +39,7 @@ func main() {
 	taskPool := pool.NewPool(cfg.Capacity)
 	taskPool.Start()
 
-	exec := executor.NewTaskExecutor(cfg.ExecutorID, taskPool)
+	exec := executor.NewTaskExecutor(taskPool)
 
 	client, err := grpcclient.NewClient(cfg.SchedulerAddr)
 	if err != nil {
@@ -50,14 +49,13 @@ func main() {
 
 	go func() {
 		address := fmt.Sprintf("%s#%d", cfg.Hostname, os.Getpid())
-		if err := client.Subscribe(cfg.ExecutorID, cfg.ExecutorName, address, cfg.Capacity, exec); err != nil {
+		if err := client.Subscribe(cfg.ExecutorName, address, cfg.Capacity, exec); err != nil {
 			slog.Error("gRPC subscription failed", "error", err)
 			os.Exit(1)
 		}
 	}()
 
 	slog.Info("executor running",
-		"executor_id", cfg.ExecutorID,
 		"name", cfg.ExecutorName,
 	)
 

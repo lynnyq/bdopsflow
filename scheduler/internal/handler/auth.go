@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/base64"
 	"net/http"
 	"time"
 
@@ -61,7 +62,13 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	if err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(req.Password)); err != nil {
+	// 尝试解码密码，如果解码失败则使用原始密码（兼容旧数据）
+	passwordToCheck := req.Password
+	if decodedPassword, err := base64.StdEncoding.DecodeString(req.Password); err == nil {
+		passwordToCheck = string(decodedPassword)
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(passwordToCheck)); err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误"})
 		return
 	}
@@ -80,6 +87,15 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "服务器错误，请稍后重试"})
 		return
 	}
+
+	go func() {
+		updateQuery := "UPDATE bdopsflow_users SET last_login_at = ? WHERE id = ?"
+		updateStmt := rqlite.ParameterizedStatement{
+			Query:     updateQuery,
+			Arguments: []interface{}{time.Now(), userID},
+		}
+		h.db.WriteOneParameterized(updateStmt)
+	}()
 
 	c.JSON(http.StatusOK, gin.H{
 		"token": tokenString,

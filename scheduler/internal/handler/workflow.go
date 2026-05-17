@@ -31,7 +31,19 @@ func (h *WorkflowHandler) List(c *gin.Context) {
 
 	slog.Debug("WorkflowHandler.List: handling request")
 
-	bdopsflow_workflows, err := h.svc.ListWorkflows(ctx)
+	domainID, _ := c.Get("domain_id")
+	userRole, _ := c.Get("role")
+	
+	var dID int64
+	var role string
+	if v, ok := domainID.(int64); ok {
+		dID = v
+	}
+	if v, ok := userRole.(string); ok {
+		role = v
+	}
+
+	bdopsflow_workflows, err := h.svc.ListWorkflows(ctx, dID, role)
 	if err != nil {
 		slog.Error("WorkflowHandler.List: failed to list bdopsflow_workflows", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

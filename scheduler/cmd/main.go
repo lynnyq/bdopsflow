@@ -69,6 +69,9 @@ func main() {
 	domainAdminService := service.NewDomainAdminService(*db)
 	executorDomainService := service.NewExecutorDomainService(*db)
 
+	// 注入执行器领域服务到调度器服务
+	schedulerService.ExecutorDomainService = executorDomainService
+
 	schedulerService.StartCleanupRoutine()
 
 	webhookSvc := webhook.NewService()
@@ -111,11 +114,11 @@ func main() {
 		tasks := protected.Group("/tasks")
 		{
 			tasks.GET("", taskHandler.List)
-			tasks.POST("", middleware.RBACMiddleware("admin", "operator"), taskHandler.Create)
+			tasks.POST("", middleware.RBACMiddleware("admin", "system_admin", "domain_admin"), taskHandler.Create)
 			tasks.GET("/:id", taskHandler.Get)
-			tasks.PUT("/:id", middleware.RBACMiddleware("admin", "operator"), taskHandler.Update)
-			tasks.DELETE("/:id", middleware.RBACMiddleware("admin"), taskHandler.Delete)
-			tasks.POST("/:id/trigger", middleware.RBACMiddleware("admin", "operator"), taskHandler.Trigger)
+			tasks.PUT("/:id", middleware.RBACMiddleware("admin", "system_admin", "domain_admin"), taskHandler.Update)
+			tasks.DELETE("/:id", middleware.RBACMiddleware("admin", "system_admin", "domain_admin"), taskHandler.Delete)
+			tasks.POST("/:id/trigger", middleware.RBACMiddleware("admin", "system_admin", "domain_admin", "user"), taskHandler.Trigger)
 			tasks.GET("/:id/executions", taskHandler.Executions)
 			tasks.GET("/executions/:executionId/logs", taskHandler.ExecutionLogs)
 		}
@@ -124,25 +127,31 @@ func main() {
 		workflows := protected.Group("/workflows")
 		{
 			workflows.GET("", workflowHandler.List)
-			workflows.POST("", middleware.RBACMiddleware("admin", "operator"), workflowHandler.Create)
+			workflows.POST("", middleware.RBACMiddleware("admin", "system_admin", "domain_admin"), workflowHandler.Create)
 			workflows.GET("/:id", workflowHandler.Get)
-			workflows.PUT("/:id", middleware.RBACMiddleware("admin", "operator"), workflowHandler.Update)
-			workflows.DELETE("/:id", middleware.RBACMiddleware("admin"), workflowHandler.Delete)
-			workflows.POST("/:id/trigger", middleware.RBACMiddleware("admin", "operator"), workflowHandler.TriggerWorkflow)
+			workflows.PUT("/:id", middleware.RBACMiddleware("admin", "system_admin", "domain_admin"), workflowHandler.Update)
+			workflows.DELETE("/:id", middleware.RBACMiddleware("admin", "system_admin", "domain_admin"), workflowHandler.Delete)
+			workflows.POST("/:id/trigger", middleware.RBACMiddleware("admin", "system_admin", "domain_admin", "user"), workflowHandler.TriggerWorkflow)
 			workflows.GET("/:id/executions", workflowHandler.GetWorkflowExecutions)
 			workflows.GET("/executions/:executionId", workflowHandler.GetWorkflowExecution)
 			workflows.GET("/executions/:executionId/logs", workflowHandler.GetExecutionLogs)
 		}
 
 		executorHandler := handler.NewExecutorHandler(schedulerService)
+		executorDomainHandler := handler.NewExecutorDomainHandler(executorDomainService, permissionService, userAdminService)
 		executors := protected.Group("/executors")
 		{
-			executors.GET("", executorHandler.List)
-			executors.GET("/:id", executorHandler.Get)
-			executors.POST("/:id/online", middleware.RBACMiddleware("admin"), executorHandler.Online)
-			executors.POST("/:id/offline", middleware.RBACMiddleware("admin"), executorHandler.Offline)
-			executors.PUT("/:id/capacity", middleware.RBACMiddleware("admin"), executorHandler.UpdateCapacity)
-			executors.DELETE("/:id", middleware.RBACMiddleware("admin"), executorHandler.Delete)
+			executors.GET("", executorDomainHandler.GetExecutorsWithDomains)
+			executors.GET("/:name", executorHandler.Get)
+			executors.GET("/:name/domains", middleware.RequireSystemAdmin(permissionService), executorDomainHandler.GetExecutorDomains)
+			executors.POST("/:name/domains", middleware.RequireSystemAdmin(permissionService), executorDomainHandler.AssignDomains)
+			executors.DELETE("/:name/domains/:domainId", middleware.RequireSystemAdmin(permissionService), executorDomainHandler.RemoveDomain)
+			executors.GET("/:name/tasks", middleware.RBACMiddleware("admin", "system_admin", "domain_admin"), executorDomainHandler.GetAssignedTasks)
+			executors.GET("/:name/can-delete", executorDomainHandler.CanDeleteExecutor)
+			executors.POST("/:name/online", middleware.RBACMiddleware("admin", "system_admin", "domain_admin"), executorHandler.Online)
+			executors.POST("/:name/offline", middleware.RBACMiddleware("admin", "system_admin", "domain_admin"), executorHandler.Offline)
+			executors.PUT("/:name/capacity", middleware.RBACMiddleware("admin", "system_admin", "domain_admin"), executorHandler.UpdateCapacity)
+			executors.DELETE("/:name", middleware.RBACMiddleware("admin", "system_admin", "domain_admin"), executorHandler.Delete)
 		}
 
 		logHandler := handler.NewLogHandler(schedulerService)
@@ -162,8 +171,8 @@ func main() {
 			dashboard.GET("/stats", dashboardHandler.GetStats)
 			dashboard.GET("/trends", dashboardHandler.GetTrends)
 			dashboard.GET("/scheduler/status", dashboardHandler.GetSchedulerStatus)
-			dashboard.POST("/scheduler/pause", middleware.RBACMiddleware("admin"), dashboardHandler.PauseScheduler)
-			dashboard.POST("/scheduler/resume", middleware.RBACMiddleware("admin"), dashboardHandler.ResumeScheduler)
+			dashboard.POST("/scheduler/pause", middleware.RequireSystemAdmin(permissionService), dashboardHandler.PauseScheduler)
+			dashboard.POST("/scheduler/resume", middleware.RequireSystemAdmin(permissionService), dashboardHandler.ResumeScheduler)
 		}
 
 		admin := protected.Group("/admin")
@@ -196,11 +205,6 @@ func main() {
 			admin.POST("/domains", middleware.RequireSystemAdmin(permissionService), domainAdminHandler.CreateDomain)
 			admin.PUT("/domains/:id", middleware.RequireSystemAdmin(permissionService), domainAdminHandler.UpdateDomain)
 			admin.DELETE("/domains/:id", middleware.RequireSystemAdmin(permissionService), domainAdminHandler.DeleteDomain)
-
-			executorDomainHandler := handler.NewExecutorDomainHandler(executorDomainService)
-			admin.GET("/executors/:id/domains", middleware.RequireSystemAdmin(permissionService), executorDomainHandler.GetExecutorDomains)
-			admin.POST("/executors/:id/domains", middleware.RequireSystemAdmin(permissionService), executorDomainHandler.AssignDomains)
-			admin.DELETE("/executors/:id/domains/:domainId", middleware.RequireSystemAdmin(permissionService), executorDomainHandler.RemoveDomain)
 		}
 	}
 

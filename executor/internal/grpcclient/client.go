@@ -3,6 +3,7 @@ package grpcclient
 import (
 	"context"
 	"log/slog"
+	"sync"
 	"time"
 
 	pb "github.com/lynnyq/bdopsflow/proto"
@@ -28,16 +29,15 @@ type Client struct {
 	schedulerAddr string
 	stopCh        chan struct{}
 	taskRunner    TaskRunnerStats
+	executorName  string
+	mu            sync.RWMutex
 }
 
 func NewClient(schedulerAddr string) (*Client, error) {
-	// 使用异步连接，不阻塞启动，不等待连接成功
 	conn, err := grpc.Dial(schedulerAddr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		// 不使用 WithBlock，让连接在后台建立
 	)
 	if err != nil {
-		// 即使连接失败也不返回错误，后续会自动重连
 		slog.Warn("initial connection to scheduler failed, will retry", "addr", schedulerAddr, "error", err)
 		return &Client{
 			schedulerAddr: schedulerAddr,
@@ -57,9 +57,12 @@ func (c *Client) ensureConnected() error {
 	if c.client != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
+		c.mu.RLock()
+		executorName := c.executorName
+		c.mu.RUnlock()
 		_, err := c.client.Heartbeat(ctx, &pb.HeartbeatRequest{
-			ExecutorId:  "",
-			CurrentLoad: 0,
+			ExecutorName: executorName,
+			CurrentLoad:  0,
 		})
 		if err == nil {
 			return nil
@@ -101,7 +104,7 @@ func (c *Client) ReportLog(req *pb.ReportTaskLogRequest) error {
 	return err
 }
 
-func (c *Client) Subscribe(executorID, name, address string, capacity int32, runner TaskRunner) error {
+func (c *Client) Subscribe(name, address string, capacity int32, runner TaskRunner) error {
 	c.taskRunner = runner.(TaskRunnerStats)
 
 	ticker := time.NewTicker(3 * time.Second)
@@ -122,19 +125,29 @@ func (c *Client) Subscribe(executorID, name, address string, capacity int32, run
 			ctx := context.Background()
 
 			regResp, err := c.client.Register(ctx, &pb.RegisterRequest{
-				ExecutorId: executorID,
-				Name:       name,
-				Address:    address,
-				Capacity:   currentCapacity,
+				Name:     name,
+				Address:  address,
+				Capacity: currentCapacity,
 			})
 			if err != nil {
 				slog.Warn("register failed, retrying", "error", err)
 				continue
 			}
-			slog.Info("executor registered", "success", regResp.Success, "message", regResp.Message)
+
+			if !regResp.Success {
+				slog.Warn("register failed from server", "message", regResp.Message)
+				continue
+			}
+
+			executorName := regResp.ExecutorName
+			c.mu.Lock()
+			c.executorName = executorName
+			c.mu.Unlock()
+
+			slog.Info("executor registered", "executor_name", executorName, "success", regResp.Success, "message", regResp.Message)
 
 			stream, err := c.client.SubscribeTask(ctx, &pb.SubscribeTaskRequest{
-				ExecutorId: executorID,
+				ExecutorName: executorName,
 			})
 			if err != nil {
 				slog.Warn("subscribe failed, retrying", "error", err)
@@ -155,15 +168,18 @@ func (c *Client) Subscribe(executorID, name, address string, capacity int32, run
 								currentLoad = c.taskRunner.GetRunningTasks()
 								runningExecIds = c.taskRunner.GetRunningExecutionIds()
 							}
+							c.mu.RLock()
+							execName := c.executorName
+							c.mu.RUnlock()
 							slog.Info("sending heartbeat",
-								"executor_id", executorID,
+								"executor_name", execName,
 								"current_load", currentLoad,
 								"running_executions", len(runningExecIds),
 							)
 							resp, err := c.client.Heartbeat(context.Background(), &pb.HeartbeatRequest{
-								ExecutorId:          executorID,
-								CurrentLoad:         currentLoad,
-								RunningExecutionIds: runningExecIds,
+								ExecutorName:         execName,
+								CurrentLoad:          currentLoad,
+								RunningExecutionIds:  runningExecIds,
 							})
 							if err == nil && resp != nil && resp.TargetCapacity > 0 && resp.TargetCapacity != currentCapacity {
 								slog.Info("received capacity update from scheduler",
@@ -209,4 +225,10 @@ func (c *Client) Close() {
 	if c.conn != nil {
 		c.conn.Close()
 	}
+}
+
+func (c *Client) GetExecutorName() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.executorName
 }

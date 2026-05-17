@@ -1,7 +1,10 @@
 import api from '@/utils/api'
-import type { Task, Workflow, TaskExecution, TaskExecutionListResponse, Executor, LoginRequest, LoginResponse, WorkflowExecution, TaskLog, DashboardStats, TrendData } from '@/types'
-import { userAdminAPI, roleAdminAPI, domainAdminAPI, executorDomainAPI, permissionAPI } from './admin'
-import type { User, Role, Domain, Permission } from './admin'
+import type { Task, Workflow, TaskExecution, TaskExecutionListResponse, Executor, ExecutorWithDomains, Domain, LoginRequest, LoginResponse, WorkflowExecution, TaskLog, DashboardStats, TrendData } from '@/types'
+import { userAdminAPI, roleAdminAPI, domainAdminAPI, permissionAPI } from './admin'
+import type { User, Role, Permission } from './admin'
+
+export { userAdminAPI, roleAdminAPI, domainAdminAPI, permissionAPI }
+export type { User, Role, Permission }
 
 interface TaskListResponse {
   items: Task[]
@@ -57,13 +60,18 @@ export const workflowAPI = {
 }
 
 export const executorAPI = {
-	list: () => api.get<Executor[]>("/executors"),
-	get: (id: string) => api.get<Executor>(`/executors/${id}`),
-	delete: (executorId: string) => api.delete(`/executors/${executorId}`),
-	online: (executorId: string) => api.post(`/executors/${executorId}/online`),
-	offline: (executorId: string) => api.post(`/executors/${executorId}/offline`),
-	updateCapacity: (executorId: string, capacity: number) =>
-		api.put(`/executors/${executorId}/capacity`, { capacity }),
+	list: () => api.get<{ items: ExecutorWithDomains[] }>("/executors"),
+	get: (name: string) => api.get<Executor>(`/executors/${name}`),
+	delete: (name: string) => api.delete(`/executors/${name}`),
+	online: (name: string) => api.post(`/executors/${name}/online`),
+	offline: (name: string) => api.post(`/executors/${name}/offline`),
+	updateCapacity: (name: string, capacity: number) =>
+		api.put(`/executors/${name}/capacity`, { capacity }),
+	getExecutorDomains: (name: string) => api.get<{ items: Domain[] }>(`/executors/${name}/domains`),
+	assignDomains: (name: string, domainIds: number[]) => api.post(`/executors/${name}/domains`, { domain_ids: domainIds }),
+	removeDomain: (name: string, domainId: number) => api.delete(`/executors/${name}/domains/${domainId}`),
+	getAssignedTasks: (name: string) => api.get<{ task_count: number; task_names: string[] }>(`/executors/${name}/tasks`),
+	canDelete: (name: string) => api.get<{ can_delete: boolean; reason?: string; has_tasks: boolean; task_count: number }>(`/executors/${name}/can-delete`),
 }
 
 export const logAPI = {

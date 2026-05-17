@@ -1,8 +1,8 @@
 -- BDopsFlow 数据库初始化脚本
 -- rqlite 分布式数据库
--- 版本：v2.1
+-- 版本：v2.2
 -- 日期：2026-05-17
--- 描述：完整的数据库初始化脚本，包含基础功能和权限管理系统，优化了 rqlite 索引设计
+-- 描述：执行器全面重构，统一使用数据库ID，移除executor_id字段
 
 -- 启用外键约束
 PRAGMA foreign_keys = ON;
@@ -77,12 +77,13 @@ CREATE TABLE IF NOT EXISTS bdopsflow_tasks (
     status TEXT DEFAULT 'pending',
     domain_id INTEGER NOT NULL,
     webhook_config TEXT,
-    assigned_executor_id TEXT,
+    assigned_executor_id INTEGER,
     created_by INTEGER,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (workflow_id) REFERENCES bdopsflow_workflows(id) ON DELETE CASCADE,
-    FOREIGN KEY (domain_id) REFERENCES bdopsflow_domains(id) ON DELETE CASCADE
+    FOREIGN KEY (domain_id) REFERENCES bdopsflow_domains(id) ON DELETE CASCADE,
+    FOREIGN KEY (assigned_executor_id) REFERENCES bdopsflow_executors(id) ON DELETE SET NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_tasks_workflow_id ON bdopsflow_tasks(workflow_id);
@@ -98,7 +99,7 @@ CREATE TABLE IF NOT EXISTS bdopsflow_task_executions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     task_id INTEGER NOT NULL,
     execution_id TEXT NOT NULL UNIQUE,
-    executor_id TEXT,
+    executor_id INTEGER,
     status TEXT NOT NULL,
     start_time DATETIME,
     end_time DATETIME,
@@ -106,7 +107,8 @@ CREATE TABLE IF NOT EXISTS bdopsflow_task_executions (
     error TEXT,
     retry_times INTEGER DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (task_id) REFERENCES bdopsflow_tasks(id) ON DELETE CASCADE
+    FOREIGN KEY (task_id) REFERENCES bdopsflow_tasks(id) ON DELETE CASCADE,
+    FOREIGN KEY (executor_id) REFERENCES bdopsflow_executors(id) ON DELETE SET NULL
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_bdopsflow_task_executions_execution_id ON bdopsflow_task_executions(execution_id);
@@ -116,11 +118,10 @@ CREATE INDEX IF NOT EXISTS idx_bdopsflow_task_executions_status ON bdopsflow_tas
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_task_executions_created_at ON bdopsflow_task_executions(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_task_executions_status_time ON bdopsflow_task_executions(status, created_at);
 
--- 6. 执行器节点表
+-- 6. 执行器节点表 (使用 name 作为唯一标识)
 CREATE TABLE IF NOT EXISTS bdopsflow_executors (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    executor_id TEXT NOT NULL UNIQUE,
-    name TEXT,
+    name TEXT NOT NULL UNIQUE,
     address TEXT NOT NULL,
     status TEXT DEFAULT 'online',
     last_heartbeat DATETIME,
@@ -131,7 +132,7 @@ CREATE TABLE IF NOT EXISTS bdopsflow_executors (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_bdopsflow_executors_executor_id ON bdopsflow_executors(executor_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_bdopsflow_executors_name ON bdopsflow_executors(name);
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_executors_status ON bdopsflow_executors(status);
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_executors_last_heartbeat ON bdopsflow_executors(last_heartbeat);
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_executors_status_heartbeat ON bdopsflow_executors(status, last_heartbeat);
@@ -169,17 +170,18 @@ CREATE TABLE IF NOT EXISTS bdopsflow_task_dependencies (
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_task_dependencies_task_id ON bdopsflow_task_dependencies(task_id);
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_task_dependencies_parent_id ON bdopsflow_task_dependencies(parent_task_id);
 
--- 9. 任务执行日志表（用于存储详细日志）
+-- 9. 任务执行日志表
 CREATE TABLE IF NOT EXISTS bdopsflow_task_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     execution_id TEXT NOT NULL,
     task_id INTEGER NOT NULL,
-    executor_id TEXT,
+    executor_id INTEGER,
     node_id TEXT,
     log_level TEXT DEFAULT 'info',
     message TEXT NOT NULL,
     log_time DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (task_id) REFERENCES bdopsflow_tasks(id) ON DELETE CASCADE
+    FOREIGN KEY (task_id) REFERENCES bdopsflow_tasks(id) ON DELETE CASCADE,
+    FOREIGN KEY (executor_id) REFERENCES bdopsflow_executors(id) ON DELETE SET NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_task_logs_execution_id ON bdopsflow_task_logs(execution_id);
@@ -351,7 +353,7 @@ AND p.action IN ('read', 'trigger');
 
 -- 默认管理员用户 (密码: admin123, bcrypt hash)
 INSERT OR IGNORE INTO bdopsflow_users (username, password, email, domain_id, role, is_active) 
-VALUES ('admin', '$2a$10$V4DeC68lOaLwF6N1pAVR8ux7WzY9NOeuPgwrAkyF9XcpWOL9muEaG', 'admin@example.com', 1, 'admin', 1);
+VALUES ('admin', '$2a$10$V4DeC68lOaLwF6N1pAVR8ux7WzY9NOeuPgwrAkyF9XcpWOL9muEaG', 'admin@example.com', 1, 'system_admin', 1);
 
 -- 将 admin 用户设置为系统管理员
 INSERT OR IGNORE INTO bdopsflow_user_roles (user_id, role_id, domain_id)

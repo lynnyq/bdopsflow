@@ -9,7 +9,7 @@ import (
 type TaskServicer interface {
 	CreateTask(ctx context.Context, query string, args ...interface{}) (*model.Task, error)
 	GetTaskByID(ctx context.Context, id int64) (*model.Task, error)
-	ListTasks(ctx context.Context) ([]*model.Task, error)
+	ListTasks(ctx context.Context, domainID int64, role string) ([]*model.Task, error)
 	UpdateTask(ctx context.Context, id int64, task *model.Task) error
 	DeleteTask(ctx context.Context, id int64) error
 	TriggerTask(ctx context.Context, taskID int64) (string, error)

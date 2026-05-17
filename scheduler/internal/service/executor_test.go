@@ -52,7 +52,7 @@ func TestExecutorCapacity(t *testing.T) {
 }
 
 func TestSelectAvailableExecutorQuery(t *testing.T) {
-	query := `SELECT id, executor_id, name, address, status, last_heartbeat, capacity, current_load, created_at, updated_at
+	query := `SELECT id, name, address, status, last_heartbeat, capacity, current_load, created_at, updated_at
 		FROM bdopsflow_executors
 		WHERE status = 'online' AND current_load < capacity
 		  AND last_heartbeat > datetime('now', '-30 seconds')
@@ -70,34 +70,35 @@ func TestSelectAvailableExecutorQuery(t *testing.T) {
 	if !strings.Contains(query, "last_heartbeat") {
 		t.Error("expected query to check heartbeat")
 	}
+
+	if strings.Contains(query, "executor_id") {
+		t.Error("query should not contain executor_id field")
+	}
 }
 
 func TestRegisterExecutorQuery(t *testing.T) {
-	query := `INSERT INTO bdopsflow_executors (executor_id, name, address, status, capacity, current_load, last_heartbeat, created_at, updated_at)
-		VALUES (?, ?, ?, 'online', ?, 0, ?, ?, ?)
-		ON CONFLICT(executor_id) DO UPDATE SET
-			name = excluded.name, address = excluded.address, status = 'online', capacity = excluded.capacity,
-			last_heartbeat = excluded.last_heartbeat, updated_at = excluded.updated_at`
+	query := `INSERT INTO bdopsflow_executors (name, address, status, capacity, current_load, last_heartbeat, created_at, updated_at)
+		VALUES (?, ?, 'online', ?, 0, ?, ?, ?)`
 
-	if !strings.Contains(query, "address = excluded.address") {
-		t.Error("expected query to update address on conflict")
+	if !strings.Contains(query, "address") {
+		t.Error("expected query to insert address")
 	}
 
-	if !strings.Contains(query, "ON CONFLICT(executor_id)") {
-		t.Error("expected query to have ON CONFLICT clause")
+	if !strings.Contains(query, "'online'") {
+		t.Error("expected query to set status to online")
+	}
+
+	if strings.Contains(query, "executor_id") {
+		t.Error("query should not contain executor_id field")
 	}
 }
 
 func TestRegisterExecutorDuplicateCheck(t *testing.T) {
 	existsQuery := `
 		SELECT id, address FROM bdopsflow_executors 
-		WHERE executor_id = ? AND status = 'online' 
+		WHERE name = ? AND address = ? AND status = 'online' 
 		AND last_heartbeat > datetime('now', '-30 seconds')
 	`
-
-	if !strings.Contains(existsQuery, "executor_id = ?") {
-		t.Error("expected query to filter by executor_id")
-	}
 
 	if !strings.Contains(existsQuery, "status = 'online'") {
 		t.Error("expected query to filter by status = online")
@@ -107,25 +108,29 @@ func TestRegisterExecutorDuplicateCheck(t *testing.T) {
 		t.Error("expected query to check heartbeat")
 	}
 
-	if !strings.Contains(existsQuery, "'-30 seconds'") {
-		t.Error("expected query to check heartbeat within 30 seconds")
+	if strings.Contains(existsQuery, "executor_id") {
+		t.Error("query should not contain executor_id field")
 	}
 }
 
 func TestDeleteExecutorQuery(t *testing.T) {
-	query := `DELETE FROM bdopsflow_executors WHERE executor_id = ?`
+	query := `DELETE FROM bdopsflow_executors WHERE id = ?`
 
 	if !strings.Contains(query, "DELETE FROM bdopsflow_executors") {
 		t.Error("expected query to be DELETE statement")
 	}
 
-	if !strings.Contains(query, "executor_id = ?") {
-		t.Error("expected query to filter by executor_id")
+	if !strings.Contains(query, "id = ?") {
+		t.Error("expected query to filter by id")
+	}
+
+	if strings.Contains(query, "executor_id") {
+		t.Error("query should not contain executor_id field")
 	}
 }
 
 func TestSetExecutorStatusQuery(t *testing.T) {
-	query := `UPDATE bdopsflow_executors SET status = ?, updated_at = ? WHERE executor_id = ?`
+	query := `UPDATE bdopsflow_executors SET status = ?, updated_at = ? WHERE id = ?`
 
 	if !strings.Contains(query, "UPDATE bdopsflow_executors") {
 		t.Error("expected query to be UPDATE statement")
@@ -135,8 +140,12 @@ func TestSetExecutorStatusQuery(t *testing.T) {
 		t.Error("expected query to set status")
 	}
 
-	if !strings.Contains(query, "executor_id = ?") {
-		t.Error("expected query to filter by executor_id")
+	if !strings.Contains(query, "id = ?") {
+		t.Error("expected query to filter by id")
+	}
+
+	if strings.Contains(query, "executor_id") {
+		t.Error("query should not contain executor_id field")
 	}
 }
 

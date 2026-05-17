@@ -41,7 +41,7 @@ func CalculateNextExecutionTime(cronExpr string, isEnabled bool) string {
 	return nextTime.Format(time.RFC3339)
 }
 
-type TaskDispatcher func(executorID string, task *pb.Task) error
+type TaskDispatcher func(executorName string, task *pb.Task) error
 
 type SchedulerService struct {
 	DB        rqlite.Connection
@@ -57,6 +57,7 @@ type SchedulerService struct {
 	}
 	webhookSvc *webhook.Service
 	stopCleanupCh chan struct{}
+	ExecutorDomainService *ExecutorDomainService
 }
 
 func NewSchedulerService(db rqlite.Connection, redis *redis.Client) *SchedulerService {
@@ -224,8 +225,8 @@ func (s *SchedulerService) cleanupTasksFromOfflineExecutors(ctx context.Context)
 	query := `
 		SELECT te.id, te.task_id, te.execution_id, te.start_time
 		FROM bdopsflow_task_executions te
-		JOIN bdopsflow_executors e ON te.executor_id = e.executor_id
-		WHERE te.status = 'running' 
+		JOIN bdopsflow_executors e ON te.executor_id = e.id
+		WHERE te.status = 'running'
 		  AND (e.status = 'offline' OR e.last_heartbeat < datetime('now', '-30 seconds'))
 	`
 
@@ -443,15 +444,41 @@ func (s *SchedulerService) GetTaskByID(ctx context.Context, id int64) (*model.Ta
 	return task, nil
 }
 
-func (s *SchedulerService) ListTasks(ctx context.Context) ([]*model.Task, error) {
-	query := `
-		SELECT id, workflow_id, name, type, config, cron_expression, timeout_seconds,
-		       retry_count, retry_interval, is_enabled, status, domain_id, webhook_config,
-		       assigned_executor_id, created_by, created_at, updated_at
-		FROM bdopsflow_tasks ORDER BY created_at DESC
-	`
+func (s *SchedulerService) ListTasks(ctx context.Context, domainID int64, role string) ([]*model.Task, error) {
+	var query string
+	var args []interface{}
 
-	qr, err := s.DB.QueryOne(query)
+	isSystemAdmin := role == "system_admin" || role == "admin"
+
+	if isSystemAdmin {
+		query = `
+			SELECT id, workflow_id, name, type, config, cron_expression, timeout_seconds,
+			       retry_count, retry_interval, is_enabled, status, domain_id, webhook_config,
+			       assigned_executor_id, created_by, created_at, updated_at
+			FROM bdopsflow_tasks ORDER BY created_at DESC
+		`
+	} else {
+		query = `
+			SELECT id, workflow_id, name, type, config, cron_expression, timeout_seconds,
+			       retry_count, retry_interval, is_enabled, status, domain_id, webhook_config,
+			       assigned_executor_id, created_by, created_at, updated_at
+			FROM bdopsflow_tasks WHERE domain_id = ? ORDER BY created_at DESC
+		`
+		args = append(args, domainID)
+	}
+
+	var qr rqlite.QueryResult
+	var err error
+	if len(args) > 0 {
+		stmt := rqlite.ParameterizedStatement{
+			Query:     query,
+			Arguments: args,
+		}
+		qr, err = s.DB.QueryOneParameterized(stmt)
+	} else {
+		qr, err = s.DB.QueryOne(query)
+	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -574,7 +601,7 @@ func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (strin
 		
 		insertQuery := `
 			INSERT INTO bdopsflow_task_executions (task_id, execution_id, executor_id, status, output, error, start_time, retry_times, created_at)
-			VALUES (?, ?, '', 'skipped', '', ?, ?, 0, ?)
+			VALUES (?, ?, 0, 'skipped', '', ?, ?, 0, ?)
 		`
 		insertStmt := rqlite.ParameterizedStatement{
 			Query:     insertQuery,
@@ -631,7 +658,7 @@ func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (strin
 	now := time.Now().Format("2006-01-02 15:04:05")
 	insertQuery := `
 		INSERT INTO bdopsflow_task_executions (task_id, execution_id, executor_id, status, start_time, retry_times, created_at)
-		VALUES (?, ?, '', 'running', ?, 0, ?)
+		VALUES (?, ?, 0, 'running', ?, 0, ?)
 	`
 
 	stmt := rqlite.ParameterizedStatement{
@@ -657,7 +684,7 @@ func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (strin
 
 	// 选择执行器：如果任务指定了执行器，则使用指定的执行器；否则使用负载均衡
 	var executor *model.Executor
-	if task.AssignedExecutorID != "" {
+	if task.AssignedExecutorID > 0 {
 		// 使用指定的执行器
 		executor, err = s.GetExecutorByID(ctx, task.AssignedExecutorID)
 		if err != nil {
@@ -666,11 +693,11 @@ func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (strin
 				"assigned_executor_id", task.AssignedExecutorID,
 				"error", err,
 			)
-			s.UpdateExecutionResult(ctx, executionID, "failed", "", fmt.Sprintf("specified executor %s not found: %v", task.AssignedExecutorID, err))
+			s.UpdateExecutionResult(ctx, executionID, "failed", "", fmt.Sprintf("specified executor %d not found: %v", task.AssignedExecutorID, err))
 			s.UpdateTaskStatusByID(ctx, taskID, "failed")
-			s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", fmt.Sprintf("specified executor %s not found: %v", task.AssignedExecutorID, err), 0)
+			s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", fmt.Sprintf("specified executor %d not found: %v", task.AssignedExecutorID, err), 0)
 			s.redis.Del(ctx, lockKey)
-			return executionID, fmt.Errorf("specified executor %s not found: %w", task.AssignedExecutorID, err)
+			return executionID, fmt.Errorf("specified executor %d not found: %w", task.AssignedExecutorID, err)
 		}
 
 		// 检查执行器是否在线且有容量
@@ -680,11 +707,11 @@ func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (strin
 				"assigned_executor_id", task.AssignedExecutorID,
 				"executor_status", executor.Status,
 			)
-			s.UpdateExecutionResult(ctx, executionID, "failed", "", fmt.Sprintf("specified executor %s is not online (status: %s)", task.AssignedExecutorID, executor.Status))
+			s.UpdateExecutionResult(ctx, executionID, "failed", "", fmt.Sprintf("specified executor %d is not online (status: %s)", task.AssignedExecutorID, executor.Status))
 			s.UpdateTaskStatusByID(ctx, taskID, "failed")
-			s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", fmt.Sprintf("specified executor %s is not online (status: %s)", task.AssignedExecutorID, executor.Status), 0)
+			s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", fmt.Sprintf("specified executor %d is not online (status: %s)", task.AssignedExecutorID, executor.Status), 0)
 			s.redis.Del(ctx, lockKey)
-			return executionID, fmt.Errorf("specified executor %s is not online", task.AssignedExecutorID)
+			return executionID, fmt.Errorf("specified executor %d is not online", task.AssignedExecutorID)
 		}
 
 		if executor.CurrentLoad >= executor.Capacity {
@@ -694,11 +721,11 @@ func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (strin
 				"current_load", executor.CurrentLoad,
 				"capacity", executor.Capacity,
 			)
-			s.UpdateExecutionResult(ctx, executionID, "failed", "", fmt.Sprintf("specified executor %s has no capacity (load: %d/%d)", task.AssignedExecutorID, executor.CurrentLoad, executor.Capacity))
+			s.UpdateExecutionResult(ctx, executionID, "failed", "", fmt.Sprintf("specified executor %d has no capacity (load: %d/%d)", task.AssignedExecutorID, executor.CurrentLoad, executor.Capacity))
 			s.UpdateTaskStatusByID(ctx, taskID, "failed")
-			s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", fmt.Sprintf("specified executor %s has no capacity (load: %d/%d)", task.AssignedExecutorID, executor.CurrentLoad, executor.Capacity), 0)
+			s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", fmt.Sprintf("specified executor %d has no capacity (load: %d/%d)", task.AssignedExecutorID, executor.CurrentLoad, executor.Capacity), 0)
 			s.redis.Del(ctx, lockKey)
-			return executionID, fmt.Errorf("specified executor %s has no capacity", task.AssignedExecutorID)
+			return executionID, fmt.Errorf("specified executor %d has no capacity", task.AssignedExecutorID)
 		}
 
 		slog.Info("using specified executor",
@@ -721,7 +748,7 @@ func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (strin
 		slog.Info("using load-balanced executor",
 			"task_id", taskID,
 			"execution_id", executionID,
-			"executor_id", executor.ExecutorID,
+			"executor_id", executor.ID,
 			"executor_name", executor.Name,
 		)
 	}
@@ -749,7 +776,7 @@ func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (strin
 	updateExecutorQuery := `UPDATE bdopsflow_task_executions SET executor_id = ? WHERE execution_id = ?`
 	updateExecutorStmt := rqlite.ParameterizedStatement{
 		Query:     updateExecutorQuery,
-		Arguments: []interface{}{executor.ExecutorID, executionID},
+		Arguments: []interface{}{executor.ID, executionID},
 	}
 	_, err = s.DB.WriteOneParameterized(updateExecutorStmt)
 	if err != nil {
@@ -757,8 +784,8 @@ func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (strin
 		// 继续执行，不影响任务调度
 	}
 
-	if err := s.dispatcher(executor.ExecutorID, grpcTask); err != nil {
-		slog.Error("dispatch task failed", "task_id", taskID, "executor", executor.ExecutorID, "error", err)
+	if err := s.dispatcher(executor.Name, grpcTask); err != nil {
+		slog.Error("dispatch task failed", "task_id", taskID, "executor", executor.Name, "error", err)
 		s.UpdateExecutionResult(ctx, executionID, "failed", "", fmt.Sprintf("dispatch failed: %v", err))
 		s.UpdateTaskStatusByID(ctx, taskID, "failed")
 		s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", fmt.Sprintf("dispatch failed: %v", err), 0)
@@ -769,7 +796,7 @@ func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (strin
 	slog.Info("task dispatched",
 		"task_id", taskID,
 		"execution_id", executionID,
-		"executor", executor.ExecutorID,
+		"executor", executor.ID,
 	)
 
 	renewKey := fmt.Sprintf("task:renew:%s", executionID)
@@ -846,7 +873,7 @@ func (s *SchedulerService) ScanPendingTasks(ctx context.Context) ([]*model.Task,
 
 func (s *SchedulerService) SelectAvailableExecutor(ctx context.Context) (*model.Executor, error) {
 	query := `
-		SELECT id, executor_id, name, address, status, last_heartbeat, capacity, current_load, created_at, updated_at
+		SELECT id, name, address, status, last_heartbeat, capacity, current_load, created_at, updated_at
 		FROM bdopsflow_executors
 		WHERE status = 'online' AND current_load < capacity
 		  AND last_heartbeat > datetime('now', '-30 seconds')
@@ -875,72 +902,77 @@ func (s *SchedulerService) SelectAvailableExecutor(ctx context.Context) (*model.
 	return exec, nil
 }
 
-func (s *SchedulerService) RegisterExecutor(ctx context.Context, executorID, name, address string, capacity int32) error {
-	existsQuery := `
-		SELECT id, address, status, last_heartbeat FROM bdopsflow_executors 
-		WHERE executor_id = ?
-	`
-	stmt := rqlite.ParameterizedStatement{
-		Query:     existsQuery,
-		Arguments: []interface{}{executorID},
-	}
-	qr, err := s.DB.QueryOneParameterized(stmt)
-	if err != nil {
-		return fmt.Errorf("failed to check executor existence: %w", err)
-	}
-	if qr.Err != nil && !strings.Contains(qr.Err.Error(), "no rows") {
-		return fmt.Errorf("failed to query executor: %w", qr.Err)
-	}
-
-	if qr.Next() {
-		var existingID int64
-		var existingAddr string
-		var existingStatus string
-		var lastHeartbeat string
-		if err := qr.Scan(&existingID, &existingAddr, &existingStatus, &lastHeartbeat); err != nil {
-			return fmt.Errorf("failed to scan executor record: %w", err)
-		}
-
-		if existingStatus == "offline" {
-			return fmt.Errorf("executor %s is currently offline, please go online first", executorID)
-		}
-
-		if existingAddr != address {
-			return fmt.Errorf("executor %s already registered with different address (existing: %s, new: %s), please stop the existing instance first", executorID, existingAddr, address)
-		}
-	}
-
-	query := `
-		INSERT INTO bdopsflow_executors (executor_id, name, address, status, capacity, current_load, is_global, last_heartbeat, created_at, updated_at)
-		VALUES (?, ?, ?, 'online', ?, 0, 1, ?, ?, ?)
-		ON CONFLICT(executor_id) DO UPDATE SET
-			name = excluded.name, address = excluded.address, status = 'online', capacity = excluded.capacity,
-			last_heartbeat = excluded.last_heartbeat, updated_at = excluded.updated_at
-	`
-
+func (s *SchedulerService) RegisterExecutor(ctx context.Context, name, address string, capacity int32) (string, error) {
 	now := time.Now().Format("2006-01-02 15:04:05")
-	stmt = rqlite.ParameterizedStatement{
-		Query:     query,
-		Arguments: []interface{}{executorID, name, address, capacity, now, now, now},
+
+	existingExecutor, err := s.GetExecutorByName(ctx, name)
+	if err == nil && existingExecutor != nil {
+		updateQuery := `
+			UPDATE bdopsflow_executors 
+			SET address = ?, capacity = ?, status = 'online', last_heartbeat = ?, updated_at = ?
+			WHERE name = ?
+		`
+		stmt := rqlite.ParameterizedStatement{
+			Query:     updateQuery,
+			Arguments: []interface{}{address, capacity, now, now, name},
+		}
+		result, err := s.DB.WriteOneParameterized(stmt)
+		if err != nil {
+			return "", err
+		}
+		if result.Err != nil {
+			return "", result.Err
+		}
+
+		slog.Info("RegisterExecutor: updated existing executor",
+			"name", name,
+			"executor_id", existingExecutor.ID,
+			"address", address,
+			"capacity", capacity,
+		)
+		return name, nil
+	}
+
+	insertQuery := `
+		INSERT INTO bdopsflow_executors (name, address, status, capacity, current_load, is_global, last_heartbeat, created_at, updated_at)
+		VALUES (?, ?, 'online', ?, 0, 0, ?, ?, ?)
+	`
+
+	stmt := rqlite.ParameterizedStatement{
+		Query:     insertQuery,
+		Arguments: []interface{}{name, address, capacity, now, now, now},
 	}
 
 	result, err := s.DB.WriteOneParameterized(stmt)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	if result.Err != nil {
-		return result.Err
+		return "", result.Err
 	}
 
-	return nil
+	executorDBID := result.LastInsertID
+
+	if executorDBID > 0 && s.ExecutorDomainService != nil {
+		_ = s.ExecutorDomainService.AssignExecutorToDefaultDomain(ctx, name, 1)
+	}
+
+	slog.Info("RegisterExecutor: created new executor",
+		"name", name,
+		"executor_id", executorDBID,
+		"address", address,
+		"capacity", capacity,
+	)
+
+	return name, nil
 }
 
-func (s *SchedulerService) DeleteExecutor(ctx context.Context, executorID string) error {
-	query := `DELETE FROM bdopsflow_executors WHERE executor_id = ?`
+func (s *SchedulerService) DeleteExecutor(ctx context.Context, id int64) error {
+	query := `DELETE FROM bdopsflow_executors WHERE id = ?`
 	result, err := s.DB.WriteOneParameterized(rqlite.ParameterizedStatement{
 		Query:     query,
-		Arguments: []interface{}{executorID},
+		Arguments: []interface{}{id},
 	})
 	if err != nil {
 		return err
@@ -953,12 +985,77 @@ func (s *SchedulerService) DeleteExecutor(ctx context.Context, executorID string
 	return nil
 }
 
-func (s *SchedulerService) SetExecutorStatus(ctx context.Context, executorID string, status string) error {
-	query := `UPDATE bdopsflow_executors SET status = ?, updated_at = ? WHERE executor_id = ?`
+func (s *SchedulerService) DeleteExecutorByName(ctx context.Context, name string) error {
+	query := `DELETE FROM bdopsflow_executors WHERE name = ?`
+	result, err := s.DB.WriteOneParameterized(rqlite.ParameterizedStatement{
+		Query:     query,
+		Arguments: []interface{}{name},
+	})
+	if err != nil {
+		return err
+	}
+
+	if result.Err != nil {
+		return result.Err
+	}
+
+	return nil
+}
+
+func (s *SchedulerService) SetExecutorStatusByName(ctx context.Context, name string, status string) error {
+	query := `UPDATE bdopsflow_executors SET status = ?, updated_at = ? WHERE name = ?`
 	now := time.Now().Format("2006-01-02 15:04:05")
 	result, err := s.DB.WriteOneParameterized(rqlite.ParameterizedStatement{
 		Query:     query,
-		Arguments: []interface{}{status, now, executorID},
+		Arguments: []interface{}{status, now, name},
+	})
+	if err != nil {
+		return err
+	}
+
+	if result.Err != nil {
+		return result.Err
+	}
+
+	return nil
+}
+
+// UpdateExecutorCapacityByName 更新执行器的容量（通过名称）
+func (s *SchedulerService) UpdateExecutorCapacityByName(ctx context.Context, name string, capacity int64) error {
+	if capacity <= 0 {
+		return fmt.Errorf("capacity must be positive")
+	}
+
+	query := `UPDATE bdopsflow_executors SET capacity = ?, updated_at = ? WHERE name = ?`
+	now := time.Now().Format("2006-01-02 15:04:05")
+	result, err := s.DB.WriteOneParameterized(rqlite.ParameterizedStatement{
+		Query:     query,
+		Arguments: []interface{}{capacity, now, name},
+	})
+	if err != nil {
+		return err
+	}
+	if result.Err != nil {
+		return result.Err
+	}
+
+	key := fmt.Sprintf("executor:target_capacity:%s", name)
+	if err := s.redis.Set(ctx, key, capacity, 0).Err(); err != nil {
+		slog.Warn("failed to store target capacity in redis", "error", err)
+	}
+
+	slog.Info("updated executor capacity",
+		"executor_name", name,
+		"new_capacity", capacity)
+	return nil
+}
+
+func (s *SchedulerService) SetExecutorStatus(ctx context.Context, id int64, status string) error {
+	query := `UPDATE bdopsflow_executors SET status = ?, updated_at = ? WHERE id = ?`
+	now := time.Now().Format("2006-01-02 15:04:05")
+	result, err := s.DB.WriteOneParameterized(rqlite.ParameterizedStatement{
+		Query:     query,
+		Arguments: []interface{}{status, now, id},
 	})
 	if err != nil {
 		return err
@@ -972,17 +1069,16 @@ func (s *SchedulerService) SetExecutorStatus(ctx context.Context, executorID str
 }
 
 // UpdateExecutorCapacity 更新执行器的容量
-func (s *SchedulerService) UpdateExecutorCapacity(ctx context.Context, executorID string, capacity int64) error {
+func (s *SchedulerService) UpdateExecutorCapacity(ctx context.Context, id int64, capacity int64) error {
 	if capacity <= 0 {
 		return fmt.Errorf("capacity must be positive")
 	}
-	
-	// 首先更新数据库
-	query := `UPDATE bdopsflow_executors SET capacity = ?, updated_at = ? WHERE executor_id = ?`
+
+	query := `UPDATE bdopsflow_executors SET capacity = ?, updated_at = ? WHERE id = ?`
 	now := time.Now().Format("2006-01-02 15:04:05")
 	result, err := s.DB.WriteOneParameterized(rqlite.ParameterizedStatement{
 		Query:     query,
-		Arguments: []interface{}{capacity, now, executorID},
+		Arguments: []interface{}{capacity, now, id},
 	})
 	if err != nil {
 		return err
@@ -990,26 +1086,24 @@ func (s *SchedulerService) UpdateExecutorCapacity(ctx context.Context, executorI
 	if result.Err != nil {
 		return result.Err
 	}
-	
-	// 将目标容量存储到 Redis，用于下次心跳
-	key := fmt.Sprintf("executor:target_capacity:%s", executorID)
+
+	key := fmt.Sprintf("executor:target_capacity:%d", id)
 	if err := s.redis.Set(ctx, key, capacity, 0).Err(); err != nil {
 		slog.Warn("failed to store target capacity in redis", "error", err)
 	}
-	
+
 	slog.Info("updated executor capacity",
-		"executor_id", executorID,
+		"executor_id", id,
 		"new_capacity", capacity)
 	return nil
 }
 
 // GetExecutorTargetCapacity 获取执行器的目标容量
-func (s *SchedulerService) GetExecutorTargetCapacity(ctx context.Context, executorID string) (int32, error) {
-	key := fmt.Sprintf("executor:target_capacity:%s", executorID)
+func (s *SchedulerService) GetExecutorTargetCapacity(ctx context.Context, name string) (int32, error) {
+	key := fmt.Sprintf("executor:target_capacity:%s", name)
 	val, err := s.redis.Get(ctx, key).Int64()
 	if err != nil {
-		// 如果 Redis 中没有，从数据库获取
-		exec, err := s.GetExecutorByID(ctx, executorID)
+		exec, err := s.GetExecutorByName(ctx, name)
 		if err != nil {
 			return 0, err
 		}
@@ -1018,20 +1112,20 @@ func (s *SchedulerService) GetExecutorTargetCapacity(ctx context.Context, execut
 	return int32(val), nil
 }
 
-func (s *SchedulerService) UpdateExecutorHeartbeat(ctx context.Context, executorID string, currentLoad int32) error {
-	return s.UpdateExecutorHeartbeatWithRunningTasks(ctx, executorID, currentLoad, nil)
+func (s *SchedulerService) UpdateExecutorHeartbeat(ctx context.Context, name string, currentLoad int32) error {
+	return s.UpdateExecutorHeartbeatWithRunningTasks(ctx, name, currentLoad, nil)
 }
 
-func (s *SchedulerService) UpdateExecutorHeartbeatWithRunningTasks(ctx context.Context, executorID string, currentLoad int32, runningExecutionIds []string) error {
+func (s *SchedulerService) UpdateExecutorHeartbeatWithRunningTasks(ctx context.Context, name string, currentLoad int32, runningExecutionIds []string) error {
 	query := `
 		UPDATE bdopsflow_executors SET current_load = ?, last_heartbeat = ?, updated_at = ?
-		WHERE executor_id = ? AND status = 'online'
+		WHERE name = ? AND status = 'online'
 	`
 
 	now := time.Now().Format("2006-01-02 15:04:05")
 	stmt := rqlite.ParameterizedStatement{
 		Query:     query,
-		Arguments: []interface{}{currentLoad, now, now, executorID},
+		Arguments: []interface{}{currentLoad, now, now, name},
 	}
 
 	result, err := s.DB.WriteOneParameterized(stmt)
@@ -1211,16 +1305,47 @@ func (s *SchedulerService) forceFailTask(ctx context.Context, executionID string
 	}()
 }
 
-// GetExecutorByID 根据 executor_id 获取执行器信息
-func (s *SchedulerService) GetExecutorByID(ctx context.Context, executorID string) (*model.Executor, error) {
+// GetExecutorByID 根据数据库 id 获取执行器信息
+func (s *SchedulerService) GetExecutorByID(ctx context.Context, id int64) (*model.Executor, error) {
 	query := `
-		SELECT id, executor_id, name, address, status, last_heartbeat, capacity, current_load, is_global, created_at, updated_at
-		FROM bdopsflow_executors WHERE executor_id = ?
+		SELECT id, name, address, status, last_heartbeat, capacity, current_load, is_global, created_at, updated_at
+		FROM bdopsflow_executors WHERE id = ?
 	`
 
 	stmt := rqlite.ParameterizedStatement{
 		Query:     query,
-		Arguments: []interface{}{executorID},
+		Arguments: []interface{}{id},
+	}
+	qr, err := s.DB.QueryOneParameterized(stmt)
+	if err != nil {
+		return nil, err
+	}
+	if qr.Err != nil {
+		return nil, qr.Err
+	}
+
+	if !qr.Next() {
+		return nil, fmt.Errorf("executor not found")
+	}
+
+	exec := &model.Executor{}
+	if err := scanExecutorResult(&qr, exec); err != nil {
+		return nil, err
+	}
+
+	return exec, nil
+}
+
+// GetExecutorByName 根据 name 获取执行器信息
+func (s *SchedulerService) GetExecutorByName(ctx context.Context, name string) (*model.Executor, error) {
+	query := `
+		SELECT id, name, address, status, last_heartbeat, capacity, current_load, is_global, created_at, updated_at
+		FROM bdopsflow_executors WHERE name = ?
+	`
+
+	stmt := rqlite.ParameterizedStatement{
+		Query:     query,
+		Arguments: []interface{}{name},
 	}
 	qr, err := s.DB.QueryOneParameterized(stmt)
 	if err != nil {
@@ -1352,7 +1477,7 @@ func (s *SchedulerService) RetryTask(ctx context.Context, taskID int64, retryTim
 	now := time.Now().Format("2006-01-02 15:04:05")
 	insertQuery := `
 		INSERT INTO bdopsflow_task_executions (task_id, execution_id, executor_id, status, start_time, retry_times, created_at)
-		VALUES (?, ?, '', 'running', ?, ?, ?)
+		VALUES (?, ?, 0, 'running', ?, ?, ?)
 	`
 	stmt := rqlite.ParameterizedStatement{
 		Query:     insertQuery,
@@ -1373,7 +1498,7 @@ func (s *SchedulerService) RetryTask(ctx context.Context, taskID int64, retryTim
 	)
 
 	var executor *model.Executor
-	if task.AssignedExecutorID != "" {
+	if task.AssignedExecutorID > 0 {
 		executor, err = s.GetExecutorByID(ctx, task.AssignedExecutorID)
 		if err != nil || executor.Status != "online" || executor.CurrentLoad >= executor.Capacity {
 			s.UpdateExecutionResult(ctx, executionID, "failed", "", "specified executor unavailable for retry")
@@ -1414,15 +1539,14 @@ func (s *SchedulerService) RetryTask(ctx context.Context, taskID int64, retryTim
 	updateExecutorQuery := `UPDATE bdopsflow_task_executions SET executor_id = ? WHERE execution_id = ?`
 	updateExecutorStmt := rqlite.ParameterizedStatement{
 		Query:     updateExecutorQuery,
-		Arguments: []interface{}{executor.ExecutorID, executionID},
+		Arguments: []interface{}{executor.ID, executionID},
 	}
 	_, dbErr := s.DB.WriteOneParameterized(updateExecutorStmt)
 	if dbErr != nil {
 		slog.Warn("failed to update executor_id in bdopsflow_task_executions", "error", dbErr, "execution_id", executionID)
-		// 继续执行，不影响任务调度
 	}
 
-	if err := s.dispatcher(executor.ExecutorID, grpcTask); err != nil {
+	if err := s.dispatcher(executor.Name, grpcTask); err != nil {
 		s.UpdateExecutionResult(ctx, executionID, "failed", "", fmt.Sprintf("dispatch failed: %v", err))
 		s.UpdateTaskStatusByID(ctx, taskID, "failed")
 		s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", fmt.Sprintf("retry failed: dispatch failed: %v", err), 0)
@@ -1437,7 +1561,7 @@ func (s *SchedulerService) RetryTask(ctx context.Context, taskID int64, retryTim
 		"task_id", taskID,
 		"execution_id", executionID,
 		"retry_times", retryTimes,
-		"executor", executor.ExecutorID,
+		"executor", executor.ID,
 	)
 
 	return executionID, nil
@@ -1445,7 +1569,7 @@ func (s *SchedulerService) RetryTask(ctx context.Context, taskID int64, retryTim
 
 func (s *SchedulerService) ListExecutors(ctx context.Context) ([]*model.Executor, error) {
 	query := `
-		SELECT id, executor_id, name, address, status, last_heartbeat, capacity, current_load, created_at, updated_at
+		SELECT id, name, address, status, last_heartbeat, capacity, current_load, created_at, updated_at
 		FROM bdopsflow_executors ORDER BY created_at DESC
 	`
 
@@ -1557,35 +1681,9 @@ func (s *SchedulerService) GetTaskInfoByID(ctx context.Context, taskID int64) (*
 	return s.GetTaskByID(ctx, taskID)
 }
 
-// GetExecutorInfoByID 根据执行器ID获取执行器信息
-func (s *SchedulerService) GetExecutorInfoByID(ctx context.Context, executorID string) (*model.Executor, error) {
-	query := `
-		SELECT id, executor_id, name, address, status, last_heartbeat, capacity, current_load, created_at, updated_at
-		FROM bdopsflow_executors WHERE executor_id = ?
-	`
-
-	stmt := rqlite.ParameterizedStatement{
-		Query:     query,
-		Arguments: []interface{}{executorID},
-	}
-	qr, err := s.DB.QueryOneParameterized(stmt)
-	if err != nil {
-		return nil, err
-	}
-	if qr.Err != nil {
-		return nil, qr.Err
-	}
-
-	if !qr.Next() {
-		return nil, fmt.Errorf("executor not found")
-	}
-
-	exec := &model.Executor{}
-	if err := scanExecutorResult(&qr, exec); err != nil {
-		return nil, err
-	}
-
-	return exec, nil
+// GetExecutorInfoByID 根据执行器数据库ID获取执行器信息
+func (s *SchedulerService) GetExecutorInfoByID(ctx context.Context, id int64) (*model.Executor, error) {
+	return s.GetExecutorByID(ctx, id)
 }
 
 // TaskExecutionWithNames 包含任务名和执行器名的执行记录
@@ -1663,7 +1761,7 @@ func (s *SchedulerService) GetAllExecutions(ctx context.Context, filter map[stri
 	joinClause := `
 		FROM bdopsflow_task_executions te
 		LEFT JOIN bdopsflow_tasks t ON te.task_id = t.id
-		LEFT JOIN bdopsflow_executors e ON te.executor_id = e.executor_id
+		LEFT JOIN bdopsflow_executors e ON te.executor_id = e.id
 	`
 
 	// 1. 先获取总数
@@ -1746,7 +1844,7 @@ func (s *SchedulerService) GetAllExecutions(ctx context.Context, filter map[stri
 		exec.ID = rowInt64(row[0])
 		exec.TaskID = rowInt64(row[1])
 		exec.ExecutionID = rowString(row[2])
-		exec.ExecutorID = rowString(row[3])
+		exec.ExecutorID = rowInt64(row[3])
 		exec.Status = rowString(row[4])
 
 		// 处理 start_time
@@ -1943,7 +2041,7 @@ func (s *SchedulerService) GetTaskLogs(ctx context.Context, executionID string) 
 
 func (s *SchedulerService) AddTaskLog(ctx context.Context, executionID string, taskID int64, nodeID string, logLevel string, message string) error {
 	// 首先获取执行记录中的 executor_id
-	var executorID string
+	var executorID int64
 	execQuery := `SELECT executor_id FROM bdopsflow_task_executions WHERE execution_id = ? LIMIT 1`
 	execStmt := rqlite.ParameterizedStatement{
 		Query:     execQuery,
@@ -1952,7 +2050,7 @@ func (s *SchedulerService) AddTaskLog(ctx context.Context, executionID string, t
 	execQr, err := s.DB.QueryOneParameterized(execStmt)
 	if err == nil && execQr.Err == nil && execQr.Next() {
 		row, _ := execQr.Slice()
-		executorID = rowString(row[0])
+		executorID = rowInt64(row[0])
 	}
 
 	// 尝试插入带 executor_id 的新表结构
@@ -2048,14 +2146,39 @@ func (s *SchedulerService) GetWorkflow(ctx context.Context, id int64) (*model.Wo
 	return wf, nil
 }
 
-func (s *SchedulerService) ListWorkflows(ctx context.Context) ([]*model.Workflow, error) {
-	query := `
-		SELECT id, name, description, domain_id, dag_config, cron_expression,
-		       is_enabled, created_by, created_at, updated_at
-		FROM bdopsflow_workflows ORDER BY created_at DESC
-	`
+func (s *SchedulerService) ListWorkflows(ctx context.Context, domainID int64, role string) ([]*model.Workflow, error) {
+	var query string
+	var args []interface{}
 
-	qr, err := s.DB.QueryOne(query)
+	isSystemAdmin := role == "system_admin" || role == "admin"
+
+	if isSystemAdmin {
+		query = `
+			SELECT id, name, description, domain_id, dag_config, cron_expression,
+			       is_enabled, created_by, created_at, updated_at
+			FROM bdopsflow_workflows ORDER BY created_at DESC
+		`
+	} else {
+		query = `
+			SELECT id, name, description, domain_id, dag_config, cron_expression,
+			       is_enabled, created_by, created_at, updated_at
+			FROM bdopsflow_workflows WHERE domain_id = ? ORDER BY created_at DESC
+		`
+		args = append(args, domainID)
+	}
+
+	var qr rqlite.QueryResult
+	var err error
+	if len(args) > 0 {
+		stmt := rqlite.ParameterizedStatement{
+			Query:     query,
+			Arguments: args,
+		}
+		qr, err = s.DB.QueryOneParameterized(stmt)
+	} else {
+		qr, err = s.DB.QueryOne(query)
+	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -2399,7 +2522,7 @@ func scanTaskResult(qr *rqlite.QueryResult, task *model.Task) error {
 	task.Status = rowString(row[10])
 	task.DomainID = rowInt64(row[11])
 	task.WebhookConfig = rowString(row[12])
-	task.AssignedExecutorID = rowString(row[13])
+	task.AssignedExecutorID = rowInt64(row[13])
 	task.CreatedBy = rowInt64(row[14])
 	if t, ok := row[15].(time.Time); ok {
 		task.CreatedAt = t
@@ -2443,19 +2566,18 @@ func scanExecutorResult(qr *rqlite.QueryResult, exec *model.Executor) error {
 		return err
 	}
 	exec.ID = rowInt64(row[0])
-	exec.ExecutorID = rowString(row[1])
-	exec.Name = rowString(row[2])
-	exec.Address = rowString(row[3])
-	exec.Status = rowString(row[4])
-	if t, ok := row[5].(time.Time); ok {
+	exec.Name = rowString(row[1])
+	exec.Address = rowString(row[2])
+	exec.Status = rowString(row[3])
+	if t, ok := row[4].(time.Time); ok {
 		exec.LastHeartbeat = rqlite.NullTime{Time: t, Valid: true}
 	}
-	exec.Capacity = rowInt64(row[6])
-	exec.CurrentLoad = rowInt64(row[7])
-	if t, ok := row[8].(time.Time); ok {
+	exec.Capacity = rowInt64(row[5])
+	exec.CurrentLoad = rowInt64(row[6])
+	if t, ok := row[7].(time.Time); ok {
 		exec.CreatedAt = t
 	}
-	if t, ok := row[9].(time.Time); ok {
+	if t, ok := row[8].(time.Time); ok {
 		exec.UpdatedAt = t
 	}
 	return nil
@@ -2470,9 +2592,9 @@ func scanExecutionResult(qr *rqlite.QueryResult, exec *model.TaskExecution) erro
 	exec.ID = rowInt64(row[0])
 	exec.TaskID = rowInt64(row[1])
 	exec.ExecutionID = rowString(row[2])
-	exec.ExecutorID = rowString(row[3])
+	exec.ExecutorID = rowInt64(row[3])
 	exec.Status = rowString(row[4])
-	
+
 	// 处理 start_time
 	if t, ok := row[5].(time.Time); ok {
 		exec.StartTime = rqlite.NullTime{Time: t, Valid: true}
@@ -2482,7 +2604,7 @@ func scanExecutionResult(qr *rqlite.QueryResult, exec *model.TaskExecution) erro
 			exec.StartTime = rqlite.NullTime{Time: parsed, Valid: true}
 		}
 	}
-	
+
 	// 处理 end_time
 	if t, ok := row[6].(time.Time); ok {
 		exec.EndTime = rqlite.NullTime{Time: t, Valid: true}
@@ -2492,11 +2614,11 @@ func scanExecutionResult(qr *rqlite.QueryResult, exec *model.TaskExecution) erro
 			exec.EndTime = rqlite.NullTime{Time: parsed, Valid: true}
 		}
 	}
-	
+
 	exec.Output = rowString(row[7])
 	exec.Error = rowString(row[8])
 	exec.RetryTimes = int32(rowInt64(row[9]))
-	
+
 	// 处理 created_at
 	if t, ok := row[10].(time.Time); ok {
 		exec.CreatedAt = t
@@ -2506,7 +2628,7 @@ func scanExecutionResult(qr *rqlite.QueryResult, exec *model.TaskExecution) erro
 			exec.CreatedAt = parsed
 		}
 	}
-	
+
 	return nil
 }
 
@@ -2563,11 +2685,11 @@ func scanTaskLogResult(qr *rqlite.QueryResult, tl *model.TaskLog) error {
 	tl.ID = rowInt64(row[0])
 	tl.ExecutionID = rowString(row[1])
 	tl.TaskID = rowInt64(row[2])
-	tl.ExecutorID = rowString(row[3])
+	tl.ExecutorID = rowInt64(row[3])
 	tl.NodeID = rowString(row[4])
 	tl.LogLevel = rowString(row[5])
 	tl.Message = rowString(row[6])
-	
+
 	// 处理 log_time
 	if t, ok := row[7].(time.Time); ok {
 		tl.LogTime = t
@@ -2577,7 +2699,7 @@ func scanTaskLogResult(qr *rqlite.QueryResult, tl *model.TaskLog) error {
 			tl.LogTime = parsed
 		}
 	}
-	
+
 	return nil
 }
 
@@ -2708,7 +2830,7 @@ func (s *SchedulerService) GetExecutionStats(ctx context.Context, filter map[str
 	joinClause := `
 		FROM bdopsflow_task_executions te
 		LEFT JOIN bdopsflow_tasks t ON te.task_id = t.id
-		LEFT JOIN bdopsflow_executors e ON te.executor_id = e.executor_id
+		LEFT JOIN bdopsflow_executors e ON te.executor_id = e.id
 	`
 
 	// 统计各个状态的数量
@@ -2786,23 +2908,34 @@ type TrendData struct {
 }
 
 // GetDashboardStats 获取仪表盘统计数据
-func (s *SchedulerService) GetDashboardStats(ctx context.Context) (*DashboardStats, error) {
+func (s *SchedulerService) GetDashboardStats(ctx context.Context, domainID int64, role string) (*DashboardStats, error) {
 	stats := &DashboardStats{}
+	isSystemAdmin := role == "system_admin" || role == "admin"
 	
 	// 任务统计
-	taskQuery := `
-		SELECT 
-			COUNT(*) as total,
-			SUM(CASE WHEN is_enabled = 1 THEN 1 ELSE 0 END) as enabled,
-			SUM(CASE WHEN cron_expression IS NOT NULL AND cron_expression != '' THEN 1 ELSE 0 END) as cron
-		FROM bdopsflow_tasks
-	`
-	qr, err := s.DB.QueryOne(taskQuery)
+	var taskQuery string
+	var args []interface{}
+	if isSystemAdmin {
+		taskQuery = `
+			SELECT 
+				COUNT(*) as total,
+				SUM(CASE WHEN is_enabled = 1 THEN 1 ELSE 0 END) as enabled,
+				SUM(CASE WHEN cron_expression IS NOT NULL AND cron_expression != '' THEN 1 ELSE 0 END) as cron
+			FROM bdopsflow_tasks
+		`
+	} else {
+		taskQuery = `
+			SELECT 
+				COUNT(*) as total,
+				SUM(CASE WHEN is_enabled = 1 THEN 1 ELSE 0 END) as enabled,
+				SUM(CASE WHEN cron_expression IS NOT NULL AND cron_expression != '' THEN 1 ELSE 0 END) as cron
+			FROM bdopsflow_tasks WHERE domain_id = ?
+		`
+		args = append(args, domainID)
+	}
+	qr, err := s.executeQuery(taskQuery, args)
 	if err != nil {
 		return nil, err
-	}
-	if qr.Err != nil {
-		return nil, qr.Err
 	}
 	if qr.Next() {
 		row, _ := qr.Slice()
@@ -2812,25 +2945,53 @@ func (s *SchedulerService) GetDashboardStats(ctx context.Context) (*DashboardSta
 	}
 	
 	// 运行中的任务
-	runningQuery := `SELECT COUNT(*) FROM bdopsflow_task_executions WHERE status = 'running'`
-	qr, err = s.DB.QueryOne(runningQuery)
-	if err == nil && qr.Err == nil && qr.Next() {
+	var runningQuery string
+	args = []interface{}{}
+	if isSystemAdmin {
+		runningQuery = `SELECT COUNT(*) FROM bdopsflow_task_executions WHERE status = 'running'`
+	} else {
+		runningQuery = `
+			SELECT COUNT(*) 
+			FROM bdopsflow_task_executions te 
+			JOIN bdopsflow_tasks t ON te.task_id = t.id
+			WHERE te.status = 'running' AND t.domain_id = ?
+		`
+		args = append(args, domainID)
+	}
+	qr, err = s.executeQuery(runningQuery, args)
+	if err == nil && qr.Next() {
 		row, _ := qr.Slice()
 		stats.Tasks.Running = rowInt64(row[0])
 	}
 	
 	// 最近执行的任务统计
-	recentExecQuery := `
-		SELECT 
-			SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success,
-			SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
-			AVG(CASE WHEN end_time IS NOT NULL AND start_time IS NOT NULL 
-				THEN julianday(end_time) - julianday(start_time) ELSE 0 END) * 86400 as avg_duration
-		FROM bdopsflow_task_executions
-		WHERE created_at > datetime('now', '-7 days')
-	`
-	qr, err = s.DB.QueryOne(recentExecQuery)
-	if err == nil && qr.Err == nil && qr.Next() {
+	var recentExecQuery string
+	args = []interface{}{}
+	if isSystemAdmin {
+		recentExecQuery = `
+			SELECT 
+				SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success,
+				SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
+				AVG(CASE WHEN end_time IS NOT NULL AND start_time IS NOT NULL 
+					THEN julianday(end_time) - julianday(start_time) ELSE 0 END) * 86400 as avg_duration
+			FROM bdopsflow_task_executions
+			WHERE created_at > datetime('now', '-7 days')
+		`
+	} else {
+		recentExecQuery = `
+			SELECT 
+				SUM(CASE WHEN te.status = 'success' THEN 1 ELSE 0 END) as success,
+				SUM(CASE WHEN te.status = 'failed' THEN 1 ELSE 0 END) as failed,
+				AVG(CASE WHEN te.end_time IS NOT NULL AND te.start_time IS NOT NULL 
+					THEN julianday(te.end_time) - julianday(te.start_time) ELSE 0 END) * 86400 as avg_duration
+			FROM bdopsflow_task_executions te
+			JOIN bdopsflow_tasks t ON te.task_id = t.id
+			WHERE te.created_at > datetime('now', '-7 days') AND t.domain_id = ?
+		`
+		args = append(args, domainID)
+	}
+	qr, err = s.executeQuery(recentExecQuery, args)
+	if err == nil && qr.Next() {
 		row, _ := qr.Slice()
 		stats.Tasks.Success = rowInt64(row[0])
 		stats.Tasks.Failed = rowInt64(row[1])
@@ -2838,28 +2999,54 @@ func (s *SchedulerService) GetDashboardStats(ctx context.Context) (*DashboardSta
 	}
 	
 	// 工作流统计
-	wfQuery := `
-		SELECT 
-			COUNT(*) as total,
-			SUM(CASE WHEN is_enabled = 1 THEN 1 ELSE 0 END) as enabled
-		FROM bdopsflow_workflows
-	`
-	qr, err = s.DB.QueryOne(wfQuery)
-	if err == nil && qr.Err == nil && qr.Next() {
+	var wfQuery string
+	args = []interface{}{}
+	if isSystemAdmin {
+		wfQuery = `
+			SELECT 
+				COUNT(*) as total,
+				SUM(CASE WHEN is_enabled = 1 THEN 1 ELSE 0 END) as enabled
+			FROM bdopsflow_workflows
+		`
+	} else {
+		wfQuery = `
+			SELECT 
+				COUNT(*) as total,
+				SUM(CASE WHEN is_enabled = 1 THEN 1 ELSE 0 END) as enabled
+			FROM bdopsflow_workflows WHERE domain_id = ?
+		`
+		args = append(args, domainID)
+	}
+	qr, err = s.executeQuery(wfQuery, args)
+	if err == nil && qr.Next() {
 		row, _ := qr.Slice()
 		stats.Workflows.Total = rowInt64(row[0])
 		stats.Workflows.Enabled = rowInt64(row[1])
 	}
 	
 	// 执行器统计
-	execQuery := `
-		SELECT 
-			COUNT(*) as total,
-			SUM(CASE WHEN status = 'online' THEN 1 ELSE 0 END) as online
-		FROM bdopsflow_executors
-	`
-	qr, err = s.DB.QueryOne(execQuery)
-	if err == nil && qr.Err == nil && qr.Next() {
+	var execQuery string
+	args = []interface{}{}
+	if isSystemAdmin {
+		execQuery = `
+			SELECT 
+				COUNT(*) as total,
+				SUM(CASE WHEN status = 'online' THEN 1 ELSE 0 END) as online
+			FROM bdopsflow_executors
+		`
+	} else {
+		execQuery = `
+			SELECT 
+				COUNT(DISTINCT e.id) as total,
+				SUM(CASE WHEN e.status = 'online' THEN 1 ELSE 0 END) as online
+			FROM bdopsflow_executors e
+			JOIN bdopsflow_domain_executors de ON e.id = de.executor_id
+			WHERE de.domain_id = ?
+		`
+		args = append(args, domainID)
+	}
+	qr, err = s.executeQuery(execQuery, args)
+	if err == nil && qr.Next() {
 		row, _ := qr.Slice()
 		stats.Executors.Total = rowInt64(row[0])
 		stats.Executors.Active = rowInt64(row[1])
@@ -2874,23 +3061,53 @@ func (s *SchedulerService) GetDashboardStats(ctx context.Context) (*DashboardSta
 	return stats, nil
 }
 
+func (s *SchedulerService) executeQuery(query string, args []interface{}) (rqlite.QueryResult, error) {
+	if len(args) > 0 {
+		stmt := rqlite.ParameterizedStatement{
+			Query:     query,
+			Arguments: args,
+		}
+		return s.DB.QueryOneParameterized(stmt)
+	}
+	return s.DB.QueryOne(query)
+}
+
 // GetTrendData 获取最近7天的趋势数据
-func (s *SchedulerService) GetTrendData(ctx context.Context) ([]*TrendData, error) {
+func (s *SchedulerService) GetTrendData(ctx context.Context, domainID int64, role string) ([]*TrendData, error) {
 	var trends []*TrendData
+	isSystemAdmin := role == "system_admin" || role == "admin"
 	
-	query := `
-		SELECT 
-			date(created_at) as exec_date,
-			COUNT(*) as total,
-			SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success,
-			SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
-		FROM bdopsflow_task_executions
-		WHERE created_at > datetime('now', '-7 days')
-		GROUP BY date(created_at)
-		ORDER BY exec_date DESC
-	`
+	var query string
+	var args []interface{}
+	if isSystemAdmin {
+		query = `
+			SELECT 
+				date(created_at) as exec_date,
+				COUNT(*) as total,
+				SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success,
+				SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
+			FROM bdopsflow_task_executions
+			WHERE created_at > datetime('now', '-7 days')
+			GROUP BY date(created_at)
+			ORDER BY exec_date DESC
+		`
+	} else {
+		query = `
+			SELECT 
+				date(te.created_at) as exec_date,
+				COUNT(*) as total,
+				SUM(CASE WHEN te.status = 'success' THEN 1 ELSE 0 END) as success,
+				SUM(CASE WHEN te.status = 'failed' THEN 1 ELSE 0 END) as failed
+			FROM bdopsflow_task_executions te
+			JOIN bdopsflow_tasks t ON te.task_id = t.id
+			WHERE te.created_at > datetime('now', '-7 days') AND t.domain_id = ?
+			GROUP BY date(te.created_at)
+			ORDER BY exec_date DESC
+		`
+		args = append(args, domainID)
+	}
 	
-	qr, err := s.DB.QueryOne(query)
+	qr, err := s.executeQuery(query, args)
 	if err != nil {
 		return nil, err
 	}

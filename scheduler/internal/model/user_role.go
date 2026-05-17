@@ -28,7 +28,7 @@ type UserDomainRequest struct {
 // UserWithRoles 带有角色的用户信息
 type UserWithRoles struct {
 	User
-	Roles []*UserRoleDetail `json:"bdopsflow_roles"`
+	Roles []*UserRoleDetail `json:"roles"`
 }
 
 // UserRoleDetail 用户角色详情

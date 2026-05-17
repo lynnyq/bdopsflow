@@ -10,7 +10,7 @@ import (
 )
 
 func TestTaskExecutor_ExecuteHTTP(t *testing.T) {
-	executor := NewTaskExecutor("test-executor", nil)
+	executor := NewTaskExecutor(nil)
 
 	httpConfig := map[string]string{
 		"url":    "https://httpbin.org/get",
@@ -31,7 +31,7 @@ func TestTaskExecutor_ExecuteHTTP(t *testing.T) {
 }
 
 func TestTaskExecutor_ExecuteHTTPParseError(t *testing.T) {
-	executor := NewTaskExecutor("test-executor", nil)
+	executor := NewTaskExecutor(nil)
 
 	task := &pb.Task{
 		ExecutionId:    "exec-1",
@@ -46,7 +46,7 @@ func TestTaskExecutor_ExecuteHTTPParseError(t *testing.T) {
 }
 
 func TestTaskExecutor_ExecuteShell(t *testing.T) {
-	executor := NewTaskExecutor("test-executor", nil)
+	executor := NewTaskExecutor(nil)
 
 	shellConfig := map[string]string{
 		"script": "echo 'Hello World'",
@@ -66,7 +66,7 @@ func TestTaskExecutor_ExecuteShell(t *testing.T) {
 }
 
 func TestTaskExecutor_ExecuteShellParseError(t *testing.T) {
-	executor := NewTaskExecutor("test-executor", nil)
+	executor := NewTaskExecutor(nil)
 
 	task := &pb.Task{
 		ExecutionId:    "exec-1",
@@ -81,7 +81,7 @@ func TestTaskExecutor_ExecuteShellParseError(t *testing.T) {
 }
 
 func TestTaskExecutor_ExecuteUnknownType(t *testing.T) {
-	executor := NewTaskExecutor("test-executor", nil)
+	executor := NewTaskExecutor(nil)
 
 	task := &pb.Task{
 		ExecutionId:    "exec-1",
@@ -96,7 +96,7 @@ func TestTaskExecutor_ExecuteUnknownType(t *testing.T) {
 }
 
 func TestTaskExecutor_ExecuteHTTPTimeout(t *testing.T) {
-	executor := NewTaskExecutor("test-executor", nil)
+	executor := NewTaskExecutor(nil)
 
 	httpConfig := map[string]string{
 		"url":    "http://httpbin.org/delay/10",
@@ -123,7 +123,7 @@ func TestTaskExecutor_ExecuteHTTPTimeout(t *testing.T) {
 }
 
 func TestTaskExecutor_ExecuteShellTimeout(t *testing.T) {
-	executor := NewTaskExecutor("test-executor", nil)
+	executor := NewTaskExecutor(nil)
 
 	shellConfig := map[string]string{
 		"script": "sleep 10",

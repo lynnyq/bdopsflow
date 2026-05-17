@@ -40,16 +40,9 @@
       </div>
     </div>
 
-    <!-- 工具栏 -->
+    <!-- Toolbar -->
     <div class="page-toolbar">
       <div class="toolbar-left">
-        <el-input
-          v-model="filters.executor_id"
-          placeholder="执行器ID"
-          clearable
-          class="filter-input"
-          @keyup.enter="loadExecutors"
-        />
         <el-input
           v-model="filters.name"
           placeholder="执行器名称"
@@ -73,7 +66,7 @@
       </div>
     </div>
 
-    <!-- 表格 -->
+    <!-- Table -->
     <div class="table-wrapper">
       <el-table
         :data="filteredExecutors"
@@ -83,9 +76,21 @@
         height="100%"
       >
         <el-table-column prop="id" label="ID" width="70" />
-        <el-table-column prop="executor_id" label="执行器ID" :minWidth="150" show-overflow-tooltip />
         <el-table-column prop="name" label="名称" :minWidth="150" show-overflow-tooltip />
         <el-table-column prop="address" label="地址" :minWidth="180" show-overflow-tooltip />
+        <el-table-column label="所属领域" width="200" show-overflow-tooltip>
+          <template #default="{ row }">
+            <el-tag
+              v-for="domain in row.domains"
+              :key="domain.id"
+              size="small"
+              class="domain-tag"
+            >
+              {{ domain.name }}
+            </el-tag>
+            <span v-if="row.is_global" class="global-tag">全局</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="status" label="状态" width="120" align="center">
           <template #default="{ row }">
             <span class="status-dot" :class="getStatusDotClass(row.status)"></span>
@@ -106,10 +111,11 @@
               @keyup.enter="handleSaveCapacity(row)"
               ref="capacityInputRef"
             />
-            <div v-else class="capacity-display" @click="handleEditCapacity(row)">
+            <div v-else-if="canManageExecutor" class="capacity-display" @click="handleEditCapacity(row)">
               <span class="capacity-value">{{ row.capacity }}</span>
               <el-icon class="edit-icon"><Edit /></el-icon>
             </div>
+            <span v-else>{{ row.capacity }}</span>
           </template>
         </el-table-column>
         <el-table-column prop="current_load" label="当前负载" width="110" align="center" />
@@ -123,9 +129,10 @@
             {{ formatTime(row.created_at) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="220" fixed="right" align="center">
+        <el-table-column label="操作" width="320" fixed="right" align="center">
           <template #default="{ row }">
             <el-button
+              v-if="canManageExecutor"
               type="success"
               size="small"
               circle
@@ -137,17 +144,30 @@
               <el-icon><CircleCheck /></el-icon>
             </el-button>
             <el-button
+              v-if="canManageExecutor"
               type="warning"
               size="small"
               circle
               :disabled="row.status === 'offline'"
               @click="handleChangeStatus(row, 'offline')"
               class="action-btn offline-btn"
-              title="下线"
+              title="离线"
             >
               <el-icon><SwitchButton /></el-icon>
             </el-button>
             <el-button
+              v-if="isAdmin"
+              type="primary"
+              size="small"
+              circle
+              @click="handleAssignDomains(row)"
+              class="action-btn assign-btn"
+              title="分配领域"
+            >
+              <el-icon><Share /></el-icon>
+            </el-button>
+            <el-button
+              v-if="canManageExecutor"
               type="danger"
               size="small"
               circle
@@ -167,41 +187,83 @@
         </template>
       </el-table>
     </div>
+
+    <!-- Assign Domains Dialog -->
+    <el-dialog
+      v-model="assignDialogVisible"
+      title="分配领域"
+      width="500px"
+      @close="resetAssignForm"
+    >
+      <el-form :model="assignForm" label-width="100px">
+        <el-form-item label="执行器">
+          <span>{{ currentExecutor?.name }} ({{ currentExecutor?.id }})</span>
+        </el-form-item>
+        <el-form-item label="选择领域">
+          <el-select
+            v-model="assignForm.domain_ids"
+            multiple
+            placeholder="选择要分配的领域"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="domain in allDomains"
+              :key="domain.id"
+              :label="domain.name"
+              :value="domain.id"
+            />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="assignDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="handleSaveAssignDomains" :loading="assignLoading">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Refresh, Delete, Document, List, CircleCheck, CircleClose, DataLine, SwitchButton, Edit } from '@element-plus/icons-vue'
-import { executorAPI } from '@/api'
-import type { Executor } from '@/types'
-import { handleError, handleSuccess, formatValue, formatNumber } from '@/utils/error'
+import { Refresh, Delete, Document, List, CircleCheck, CircleClose, DataLine, SwitchButton, Edit, Share } from '@element-plus/icons-vue'
+import { executorAPI, domainAdminAPI } from '@/api'
+import type { ExecutorWithDomains, Domain } from '@/types'
+import { useAuthStore } from '@/stores/auth'
 
-const executors = ref<Executor[]>([])
+const authStore = useAuthStore()
+const executors = ref<ExecutorWithDomains[]>([])
+const allDomains = ref<Domain[]>([])
 const loading = ref(false)
 const editingRow = ref<number | null>(null)
 const tempCapacity = ref<number>(1)
 const capacityInputRef = ref()
+const assignDialogVisible = ref(false)
+const assignLoading = ref(false)
+const currentExecutor = ref<ExecutorWithDomains | null>(null)
+
+const assignForm = ref({
+  domain_ids: [] as number[]
+})
 
 const filters = ref({
-  executor_id: '',
   name: '',
   status: ''
 })
 
-// 统计计算属性
+const isAdmin = computed(() => authStore.user?.role === 'admin' || authStore.user?.role === 'system_admin')
+const canManageExecutor = computed(() => {
+  const role = authStore.user?.role
+  return role === 'admin' || role === 'system_admin' || role === 'domain_admin'
+})
+
 const total = computed(() => executors.value.length)
 const onlineCount = computed(() => executors.value.filter(e => e.status === 'online').length)
 const offlineCount = computed(() => executors.value.filter(e => e.status === 'offline').length)
 const totalCapacity = computed(() => executors.value.reduce((sum, e) => sum + (e.capacity || 0), 0))
 
-// 筛选后的执行器列表
 const filteredExecutors = computed(() => {
   return executors.value.filter(ex => {
-    if (filters.value.executor_id && !ex.executor_id?.toLowerCase().includes(filters.value.executor_id.toLowerCase())) {
-      return false
-    }
     if (filters.value.name && !ex.name?.toLowerCase().includes(filters.value.name.toLowerCase())) {
       return false
     }
@@ -259,7 +321,7 @@ const loadExecutors = async () => {
   loading.value = true
   try {
     const response = await executorAPI.list()
-    executors.value = response.data || []
+    executors.value = response.data.items || []
   } catch (error) {
     console.error('Failed to load executors:', error)
     ElMessage.error('加载执行器失败')
@@ -268,10 +330,19 @@ const loadExecutors = async () => {
   }
 }
 
-const handleChangeStatus = async (row: Executor, status: string) => {
+const loadDomains = async () => {
+  try {
+    const response = await domainAdminAPI.list()
+    allDomains.value = response.data.items || []
+  } catch (error) {
+    console.error('Failed to load domains:', error)
+  }
+}
+
+const handleChangeStatus = async (row: ExecutorWithDomains, status: string) => {
   try {
     await ElMessageBox.confirm(
-      `确定要将执行器 "${row.executor_id}" 设置为${status === 'online' ? '上线' : '离线'}状态吗？`,
+      `确定要将执行器 "${row.name}" 设置为${status === 'online' ? '上线' : '离线'}状态吗？`,
       '状态变更确认',
       {
         confirmButtonText: '确定',
@@ -281,10 +352,10 @@ const handleChangeStatus = async (row: Executor, status: string) => {
     )
 
     if (status === 'online') {
-      await executorAPI.online(row.executor_id)
+      await executorAPI.online(row.name)
       ElMessage.success('上线成功')
     } else {
-      await executorAPI.offline(row.executor_id)
+      await executorAPI.offline(row.name)
       ElMessage.success('离线成功')
     }
     loadExecutors()
@@ -295,10 +366,24 @@ const handleChangeStatus = async (row: Executor, status: string) => {
   }
 }
 
-const handleDelete = async (row: Executor) => {
+const handleDelete = async (row: ExecutorWithDomains) => {
   try {
+    const deleteCheck = await executorAPI.canDelete(row.name)
+    const { can_delete, reason, has_tasks, task_count } = deleteCheck.data
+
+    let confirmMessage = `确定要删除执行器 "${row.name}" 吗？`
+    
+    if (!can_delete) {
+      ElMessage.error(reason || '无法删除该执行器')
+      return
+    }
+
+    if (has_tasks) {
+      confirmMessage = `该执行器已绑定 ${task_count} 个任务，删除后这些任务将无法正常执行。确定要继续删除吗？`
+    }
+
     await ElMessageBox.confirm(
-      `确定要删除执行器 "${row.executor_id}" 吗？`,
+      confirmMessage,
       '删除确认',
       {
         confirmButtonText: '删除',
@@ -307,36 +392,35 @@ const handleDelete = async (row: Executor) => {
       }
     )
 
-    await executorAPI.delete(row.executor_id)
+    await executorAPI.delete(row.name)
     ElMessage.success('删除成功')
     loadExecutors()
   } catch (error: any) {
     if (error !== 'cancel') {
-      ElMessage.error('删除失败')
+      ElMessage.error(error?.response?.data?.error || '删除失败')
     }
   }
 }
 
-const handleEditCapacity = (row: Executor) => {
+const handleEditCapacity = (row: ExecutorWithDomains) => {
   editingRow.value = row.id
   tempCapacity.value = row.capacity || 1
-  // 等待 DOM 更新后聚焦输入框
   setTimeout(() => {
     capacityInputRef.value?.focus()
   }, 50)
 }
 
-const handleSaveCapacity = async (row: Executor) => {
+const handleSaveCapacity = async (row: ExecutorWithDomains) => {
   if (editingRow.value === null) return
-  
+
   const newCapacity = tempCapacity.value
   if (newCapacity === row.capacity) {
     editingRow.value = null
     return
   }
-  
+
   try {
-    await executorAPI.updateCapacity(row.executor_id, newCapacity)
+    await executorAPI.updateCapacity(row.name, newCapacity)
     row.capacity = newCapacity
     ElMessage.success('容量更新成功')
   } catch (error) {
@@ -347,8 +431,42 @@ const handleSaveCapacity = async (row: Executor) => {
   }
 }
 
+const handleAssignDomains = async (row: ExecutorWithDomains) => {
+  currentExecutor.value = row
+  assignForm.value.domain_ids = (row.domains || []).map(d => d.id)
+  assignDialogVisible.value = true
+  if (allDomains.value.length === 0) {
+    await loadDomains()
+  }
+}
+
+const resetAssignForm = () => {
+  assignForm.value = { domain_ids: [] }
+  currentExecutor.value = null
+}
+
+const handleSaveAssignDomains = async () => {
+  if (!currentExecutor.value) return
+  
+  assignLoading.value = true
+  try {
+    await executorAPI.assignDomains(currentExecutor.value.name, assignForm.value.domain_ids)
+    ElMessage.success('分配成功')
+    assignDialogVisible.value = false
+    loadExecutors()
+  } catch (error) {
+    console.error('Failed to assign domains:', error)
+    ElMessage.error('分配失败')
+  } finally {
+    assignLoading.value = false
+  }
+}
+
 onMounted(() => {
   loadExecutors()
+  if (isAdmin.value) {
+    loadDomains()
+  }
 })
 </script>
 
@@ -361,7 +479,6 @@ onMounted(() => {
   height: 100%;
 }
 
-/* Stats Grid */
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -439,7 +556,6 @@ onMounted(() => {
   font-weight: 500;
 }
 
-/* Page Toolbar */
 .page-toolbar {
   display: flex;
   align-items: center;
@@ -494,7 +610,6 @@ onMounted(() => {
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
 }
 
-/* Toolbar Buttons */
 .refresh-btn {
   font-weight: 500;
   background: var(--bg-secondary);
@@ -518,7 +633,6 @@ onMounted(() => {
   transform: translateY(0);
 }
 
-/* Table */
 .table-wrapper {
   flex: 1;
   overflow: hidden;
@@ -577,7 +691,6 @@ onMounted(() => {
   box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2);
 }
 
-/* Table Empty State */
 .table-empty-state {
   display: flex;
   flex-direction: column;
@@ -597,7 +710,6 @@ onMounted(() => {
   font-size: 0.875rem;
 }
 
-/* Action Buttons */
 .action-btn {
   transition: all var(--duration-normal) var(--ease-out);
   opacity: 0.8;
@@ -615,7 +727,6 @@ onMounted(() => {
   transform: none;
 }
 
-/* Capacity Display */
 .capacity-display {
   display: flex;
   align-items: center;
@@ -647,7 +758,15 @@ onMounted(() => {
   transition: opacity var(--duration-fast) var(--ease-out);
 }
 
-/* Responsive */
+.domain-tag {
+  margin: 2px;
+}
+
+.global-tag {
+  font-style: italic;
+  color: var(--accent-primary);
+}
+
 @media (max-width: 768px) {
   .executors-page {
     gap: var(--space-3);

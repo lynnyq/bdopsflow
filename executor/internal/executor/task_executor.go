@@ -19,15 +19,13 @@ import (
 )
 
 type TaskExecutor struct {
-	executorID  string
 	taskPool    *pool.Pool
 	runningTasks sync.Map
 }
 
-func NewTaskExecutor(executorID string, taskPool *pool.Pool) *TaskExecutor {
+func NewTaskExecutor(taskPool *pool.Pool) *TaskExecutor {
 	return &TaskExecutor{
-		executorID: executorID,
-		taskPool:   taskPool,
+		taskPool: taskPool,
 	}
 }
 
@@ -176,7 +174,6 @@ func (e *TaskExecutor) executeHTTP(ctx context.Context, task *pb.Task, client *g
 		return "", fmt.Errorf("create request failed: %w", err)
 	}
 
-	// 添加请求头
 	if config.Headers != "" {
 		var headers map[string]string
 		if err := json.Unmarshal([]byte(config.Headers), &headers); err == nil {
@@ -208,14 +205,11 @@ func (e *TaskExecutor) executeHTTP(ctx context.Context, task *pb.Task, client *g
 
 	contentType := resp.Header.Get("Content-Type")
 	
-	// 根据状态码和内容类型分别处理日志输出
 	if resp.StatusCode >= 400 {
-		// 错误响应 - 输出到 stderr
 		sendLog(client, task, "error", fmt.Sprintf("❌ HTTP Error Response"))
 		sendLog(client, task, "error", fmt.Sprintf("Status: %d %s", resp.StatusCode, resp.Status))
 		sendLog(client, task, "error", fmt.Sprintf("Content-Type: %s", contentType))
 		
-		// 格式化错误响应体
 		if strings.Contains(strings.ToLower(contentType), "json") {
 			var jsonData interface{}
 			if err := json.Unmarshal(bodyBytes, &jsonData); err == nil {
@@ -231,13 +225,11 @@ func (e *TaskExecutor) executeHTTP(ctx context.Context, task *pb.Task, client *g
 		return body, fmt.Errorf("http status %d: %s", resp.StatusCode, body)
 	}
 
-	// 成功响应 - 输出到 stdout
 	sendLog(client, task, "info", fmt.Sprintf("✅ HTTP Success Response"))
 	sendLog(client, task, "info", fmt.Sprintf("Status: %d %s", resp.StatusCode, resp.Status))
 	sendLog(client, task, "info", fmt.Sprintf("Content-Type: %s", contentType))
 	sendLog(client, task, "info", fmt.Sprintf("Response size: %d bytes", len(body)))
 
-	// 格式化响应体输出
 	if strings.Contains(strings.ToLower(contentType), "json") {
 		var jsonData interface{}
 		if err := json.Unmarshal(bodyBytes, &jsonData); err == nil {
@@ -253,14 +245,11 @@ func (e *TaskExecutor) executeHTTP(ctx context.Context, task *pb.Task, client *g
 		}
 	} else if strings.Contains(strings.ToLower(contentType), "text") || 
 	           strings.Contains(strings.ToLower(contentType), "html") {
-		// 文本或HTML内容
 		sendLog(client, task, "info", fmt.Sprintf("📄 Response Body (Text):"))
 		sendOutputLog(client, task, "stdout", body)
 	} else {
-		// 其他类型，二进制或未知
 		if len(body) > 0 {
 			sendLog(client, task, "info", fmt.Sprintf("📄 Response Body (Binary/Unknown, %d bytes)", len(body)))
-			// 只显示前1KB预览
 			previewLen := len(body)
 			if previewLen > 1024 {
 				previewLen = 1024
@@ -290,7 +279,6 @@ func (e *TaskExecutor) executeShell(ctx context.Context, task *pb.Task, client *
 
 	cmd := exec.CommandContext(ctx, "bash", "-c", config.Script)
 	
-	// 创建实时读取器
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return "", fmt.Errorf("create stdout pipe: %w", err)
@@ -304,10 +292,8 @@ func (e *TaskExecutor) executeShell(ctx context.Context, task *pb.Task, client *
 		return "", fmt.Errorf("start command: %w", err)
 	}
 
-	// 用于收集完整输出
 	var fullOutput, fullError bytes.Buffer
 	
-	// 启动 goroutine 实时读取并发送 stdout
 	go func() {
 		buf := make([]byte, 1024)
 		for {
@@ -315,7 +301,6 @@ func (e *TaskExecutor) executeShell(ctx context.Context, task *pb.Task, client *
 			if n > 0 {
 				chunk := string(buf[:n])
 				fullOutput.WriteString(chunk)
-				// 发送特殊日志标识是 stdout
 				sendOutputLog(client, task, "stdout", chunk)
 			}
 			if err != nil {
@@ -324,7 +309,6 @@ func (e *TaskExecutor) executeShell(ctx context.Context, task *pb.Task, client *
 		}
 	}()
 	
-	// 启动 goroutine 实时读取并发送 stderr
 	go func() {
 		buf := make([]byte, 1024)
 		for {
@@ -332,7 +316,6 @@ func (e *TaskExecutor) executeShell(ctx context.Context, task *pb.Task, client *
 			if n > 0 {
 				chunk := string(buf[:n])
 				fullError.WriteString(chunk)
-				// 发送特殊日志标识是 stderr
 				sendOutputLog(client, task, "stderr", chunk)
 			}
 			if err != nil {
@@ -341,10 +324,8 @@ func (e *TaskExecutor) executeShell(ctx context.Context, task *pb.Task, client *
 		}
 	}()
 
-	// 等待命令完成
 	err = cmd.Wait()
 
-	// 构建最终输出
 	output := fullOutput.String()
 	if fullError.Len() > 0 {
 		output += "\n[stderr]\n" + fullError.String()
@@ -359,7 +340,6 @@ func (e *TaskExecutor) executeShell(ctx context.Context, task *pb.Task, client *
 	return output, nil
 }
 
-// 发送 stdout/stderr 的特殊日志
 func sendOutputLog(client *grpcclient.Client, task *pb.Task, logType string, message string) {
 	if client == nil {
 		return
@@ -367,7 +347,7 @@ func sendOutputLog(client *grpcclient.Client, task *pb.Task, logType string, mes
 	err := client.ReportLog(&pb.ReportTaskLogRequest{
 		ExecutionId: task.ExecutionId,
 		TaskId:      task.TaskId,
-		LogLevel:    logType, // 特殊类型：stdout 或 stderr
+		LogLevel:    logType,
 		LogContent:  message,
 		Timestamp:   time.Now().Unix(),
 	})

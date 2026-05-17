@@ -63,7 +63,7 @@
       </div>
       <div class="toolbar-right">
         <el-button :icon="Refresh" @click="loadTasks" :loading="loading" class="refresh-btn">刷新</el-button>
-        <el-button :icon="Plus" @click="handleCreate" class="create-btn">
+        <el-button v-if="canManageTask" :icon="Plus" @click="handleCreate" class="create-btn">
           创建任务
         </el-button>
       </div>
@@ -95,11 +95,15 @@
           </div>
           <div class="task-status-toggle">
             <el-switch
+              v-if="canManageTask"
               v-model="task.is_enabled"
               @change="() => handleToggleStatus(task)"
               :loading="toggleLoading === task.id"
               size="small"
             />
+            <el-tag v-else :type="task.is_enabled ? 'success' : 'info'" size="small">
+              {{ task.is_enabled ? '启用' : '停用' }}
+            </el-tag>
           </div>
         </div>
 
@@ -166,6 +170,7 @@
               历史
             </el-button>
             <el-button
+              v-if="canManageTask"
               size="small"
               :icon="Edit"
               @click="handleEdit(task)"
@@ -173,6 +178,7 @@
               编辑
             </el-button>
             <el-button
+              v-if="canManageTask"
               size="small"
               :icon="Delete"
               type="danger"
@@ -329,12 +335,12 @@
                       <template #prefix>
                         <el-icon><Cpu /></el-icon>
                       </template>
-                      <el-option label="默认调度（自动选择）" value="" />
+                      <el-option label="默认调度（自动选择）" :value="undefined" />
                       <el-option
                         v-for="executor in executors"
-                        :key="executor.executor_id"
+                        :key="executor.id"
                         :label="`${executor.name} (${executor.current_load}/${executor.capacity})`"
-                        :value="executor.executor_id"
+                        :value="executor.id"
                       >
                         <div class="executor-option">
                           <span>{{ executor.name }}</span>
@@ -727,9 +733,11 @@ import { taskAPI, executorAPI } from '@/api'
 import type { Task, TaskConfig, Executor } from '@/types'
 import TaskLogViewer from '@/components/TaskLogViewer.vue'
 import { handleError, handleSuccess, formatValue, formatNumber } from '@/utils/error'
+import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
 const route = useRoute()
+const authStore = useAuthStore()
 
 const tasks = ref<Task[]>([])
 const executors = ref<Executor[]>([])
@@ -809,7 +817,8 @@ const defaultForm = {
   is_enabled: true,
   webhook_url: '',
   webhook_events: [] as string[],
-  assigned_executor_id: '' // 指定执行器，空表示使用默认调度
+  assigned_executor_id: undefined as number | undefined,
+  domain_id: 1 as number
 }
 
 const form = ref({ ...defaultForm })
@@ -832,6 +841,11 @@ const filteredTasks = computed(() => {
     const matchStatus = filterStatus.value == null || task.is_enabled === filterStatus.value
     return matchSearch && matchType && matchStatus
   })
+})
+
+const canManageTask = computed(() => {
+  const role = authStore.user?.role
+  return role === 'admin' || role === 'system_admin' || role === 'domain_admin'
 })
 
 const pagedTasks = computed(() => {
@@ -932,7 +946,8 @@ const loadTasks = async () => {
 
 const handleCreate = () => {
   editingTask.value = null
-  form.value = { ...defaultForm }
+  const userDomainId = authStore.user?.domain_id || 1
+  form.value = { ...defaultForm, domain_id: userDomainId }
   cronPreset.value = 'manual'
   dialogVisible.value = true
 }
@@ -967,7 +982,8 @@ const handleEdit = (task: Task) => {
     is_enabled: task.is_enabled,
     webhook_url: webhookUrl,
     webhook_events: webhookEvents,
-    assigned_executor_id: task.assigned_executor_id || ''
+    assigned_executor_id: task.assigned_executor_id || undefined,
+    domain_id: task.domain_id
   }
   
   // 根据当前任务的 cron 表达式设置预设
@@ -1012,10 +1028,12 @@ const handleSubmit = async () => {
         })
       }
       
+      const userDomainId = authStore.user?.domain_id || 1
       const submitData = {
         ...form.value,
         config: stringifyConfig(form.value.config),
-        webhook_config: webhookConfig
+        webhook_config: webhookConfig,
+        domain_id: editingTask.value ? form.value.domain_id : userDomainId
       }
       if (editingTask.value) {
         await taskAPI.update(editingTask.value.id, submitData)

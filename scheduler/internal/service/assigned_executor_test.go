@@ -16,15 +16,15 @@ func TestTaskStructHasAssignedExecutorID(t *testing.T) {
 // 测试当我们创建 Task 结构体时，AssignedExecutorID 字段是否可以正常设置和获取
 func TestTaskAssignedExecutorIDField(t *testing.T) {
 	task := model.Task{
-		AssignedExecutorID: "executor-123",
+		AssignedExecutorID: 123,
 	}
-	
-	if task.AssignedExecutorID != "executor-123" {
-		t.Errorf("期望 AssignedExecutorID 为 'executor-123'，实际为 '%s'", task.AssignedExecutorID)
+
+	if task.AssignedExecutorID != 123 {
+		t.Errorf("期望 AssignedExecutorID 为 123，实际为 %d", task.AssignedExecutorID)
 	}
-	
-	task.AssignedExecutorID = "new-executor-456"
-	if task.AssignedExecutorID != "new-executor-456" {
-		t.Errorf("期望 AssignedExecutorID 为 'new-executor-456'，实际为 '%s'", task.AssignedExecutorID)
+
+	task.AssignedExecutorID = 456
+	if task.AssignedExecutorID != 456 {
+		t.Errorf("期望 AssignedExecutorID 为 456，实际为 %d", task.AssignedExecutorID)
 	}
 }

@@ -3,156 +3,224 @@ package handler
 import (
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/model"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/service"
 )
 
-// UserAdminHandler 用户管理 Handler
+func formatValidationError(err error) string {
+	if err == nil {
+		return "请求参数错误"
+	}
+
+	errStr := err.Error()
+
+	fieldMap := map[string]string{
+		"Username": "用户名",
+		"Email":    "邮箱",
+		"Password": "密码",
+		"Role":     "角色",
+		"DomainID": "领域",
+	}
+
+	for eng, chn := range fieldMap {
+		errStr = strings.ReplaceAll(errStr, eng, chn)
+	}
+
+	errStr = strings.ReplaceAll(errStr, "Key: '", "")
+	errStr = strings.ReplaceAll(errStr, "' Error:", "：")
+	errStr = strings.ReplaceAll(errStr, "Field validation for", "")
+	errStr = strings.ReplaceAll(errStr, "failed on the", "校验失败：")
+	errStr = strings.ReplaceAll(errStr, "tag", "")
+
+	errStr = strings.ReplaceAll(errStr, "required", "不能为空")
+	errStr = strings.ReplaceAll(errStr, "min", "最小长度为")
+	errStr = strings.ReplaceAll(errStr, "max", "最大长度为")
+	errStr = strings.ReplaceAll(errStr, "email", "邮箱格式不正确")
+	errStr = strings.ReplaceAll(errStr, "alphanum", "只能包含字母和数字")
+	errStr = strings.ReplaceAll(errStr, "oneof", "可选值为")
+
+	errStr = strings.TrimSpace(errStr)
+	errStr = regexp.MustCompile(`\s+`).ReplaceAllString(errStr, " ")
+
+	return errStr
+}
+
+func getUserFriendlyError(err error, operation string) (string, int) {
+	if err == nil {
+		return "操作失败，请稍后重试", http.StatusInternalServerError
+	}
+
+	errStr := err.Error()
+
+	switch {
+	case strings.Contains(errStr, "UNIQUE constraint failed"):
+		if strings.Contains(errStr, "username") {
+			return "用户名已存在", http.StatusBadRequest
+		}
+		if strings.Contains(errStr, "email") {
+			return "邮箱已被使用", http.StatusBadRequest
+		}
+		return "数据已存在，请检查后重试", http.StatusBadRequest
+
+	case strings.Contains(errStr, "FOREIGN KEY constraint failed"):
+		return "关联数据不存在，请检查输入", http.StatusBadRequest
+
+	case strings.Contains(errStr, "NOT NULL constraint failed"):
+		return "缺少必填字段", http.StatusBadRequest
+
+	default:
+		slog.Error("UserAdminHandler: "+operation+" failed", "error", err)
+		return "操作失败，请稍后重试", http.StatusInternalServerError
+	}
+}
+
 type UserAdminHandler struct {
 	svc *service.UserAdminService
 }
 
-// NewUserAdminHandler 创建用户管理 Handler
 func NewUserAdminHandler(svc *service.UserAdminService) *UserAdminHandler {
 	return &UserAdminHandler{svc: svc}
 }
 
-// ListUsers 获取用户列表
 func (h *UserAdminHandler) ListUsers(c *gin.Context) {
 	ctx := c.Request.Context()
 	defer func() {
 		if r := recover(); r != nil {
 			slog.Error("UserAdminHandler.ListUsers: panic recovered", "panic", r)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "服务异常，请稍后重试"})
 		}
 	}()
 
-	slog.Debug("UserAdminHandler.ListUsers: handling request")
-
-	bdopsflow_users, err := h.svc.ListUsers(ctx)
+	users, err := h.svc.ListUsers(ctx)
 	if err != nil {
-		slog.Error("UserAdminHandler.ListUsers: failed to list bdopsflow_users", "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		slog.Error("UserAdminHandler.ListUsers: failed to list users", "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "加载用户列表失败，请稍后重试"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"items": bdopsflow_users})
+	for i := range users {
+		if users[i] != nil {
+			users[i].Password = ""
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"items": users})
 }
 
-// GetUser 获取用户详情
 func (h *UserAdminHandler) GetUser(c *gin.Context) {
 	ctx := c.Request.Context()
 	idStr := c.Param("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
-	if err != nil {
-		slog.Warn("UserAdminHandler.GetUser: invalid id", "id_str", idStr, "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+	if err != nil || id <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的用户ID"})
 		return
 	}
-
-	if id <= 0 {
-		slog.Warn("UserAdminHandler.GetUser: id must be positive", "id", id)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "id must be positive"})
-		return
-	}
-
-	slog.Debug("UserAdminHandler.GetUser: handling request", "user_id", id)
 
 	user, err := h.svc.GetUserByID(ctx, id)
 	if err != nil {
 		slog.Error("UserAdminHandler.GetUser: failed to get user", "user_id", id, "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取用户信息失败，请稍后重试"})
 		return
 	}
 
 	if user == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "用户不存在"})
 		return
 	}
 
-	// 获取用户角色
-	bdopsflow_roles, err := h.svc.GetUserRoles(ctx, id)
+	user.Password = ""
+
+	roles, err := h.svc.GetUserRoles(ctx, id)
 	if err != nil {
-		slog.Error("UserAdminHandler.GetUser: failed to get user bdopsflow_roles", "user_id", id, "error", err)
+		slog.Error("UserAdminHandler.GetUser: failed to get user roles", "user_id", id, "error", err)
+		roles = nil
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"user":  user,
-		"bdopsflow_roles": bdopsflow_roles,
+		"roles": roles,
 	})
 }
 
-// CreateUser 创建用户
 func (h *UserAdminHandler) CreateUser(c *gin.Context) {
 	ctx := c.Request.Context()
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("UserAdminHandler.CreateUser: panic recovered", "panic", r)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "服务异常，请稍后重试"})
+		}
+	}()
 
 	var req struct {
 		Username string `json:"username" binding:"required,min=3,max=50,alphanum"`
 		Email    string `json:"email" binding:"required,email"`
 		Password string `json:"password" binding:"required,min=6,max=100"`
+		Role     string `json:"role" binding:"required,oneof=system_admin domain_admin user"`
+		DomainID *int64 `json:"domain_id"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		slog.Warn("UserAdminHandler.CreateUser: invalid request", "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": formatValidationError(err)})
 		return
 	}
 
-	// 获取当前用户ID
 	userID, exists := c.Get("user_id")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "未授权，请重新登录"})
 		return
 	}
 
 	createdBy, ok := userID.(int64)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid user"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户信息无效，请重新登录"})
 		return
 	}
 
-	slog.Debug("UserAdminHandler.CreateUser: handling request", "username", req.Username)
-
-	user, err := h.svc.CreateUser(ctx, req.Username, req.Email, req.Password, createdBy)
+	user, err := h.svc.CreateUser(ctx, req.Username, req.Email, req.Password, req.Role, req.DomainID, createdBy)
 	if err != nil {
-		slog.Error("UserAdminHandler.CreateUser: failed to create user", "username", req.Username, "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		errMsg, statusCode := getUserFriendlyError(err, "CreateUser")
+		c.JSON(statusCode, gin.H{"error": errMsg})
 		return
+	}
+
+	if user != nil {
+		user.Password = ""
 	}
 
 	c.JSON(http.StatusCreated, user)
 }
 
-// UpdateUser 更新用户
 func (h *UserAdminHandler) UpdateUser(c *gin.Context) {
 	ctx := c.Request.Context()
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("UserAdminHandler.UpdateUser: panic recovered", "panic", r)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "服务异常，请稍后重试"})
+		}
+	}()
 
 	userID, exists := c.Get("user_id")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "未授权，请重新登录"})
 		return
 	}
 
 	adminID, ok := userID.(int64)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid user"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户信息无效，请重新登录"})
 		return
 	}
 
 	idStr := c.Param("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
-	if err != nil {
-		slog.Warn("UserAdminHandler.UpdateUser: invalid id", "id_str", idStr, "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
-		return
-	}
-
-	if id <= 0 {
-		slog.Warn("UserAdminHandler.UpdateUser: id must be positive", "id", id)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "id must be positive"})
+	if err != nil || id <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的用户ID"})
 		return
 	}
 
@@ -165,139 +233,107 @@ func (h *UserAdminHandler) UpdateUser(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		slog.Warn("UserAdminHandler.UpdateUser: invalid request", "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": formatValidationError(err)})
 		return
 	}
-
-	slog.Debug("UserAdminHandler.UpdateUser: handling request", "user_id", id, "username", req.Username)
 
 	user, err := h.svc.UpdateUserWithDomainCheck(ctx, adminID, id, req.Username, req.Email, req.Role, req.IsActive)
 	if err != nil {
 		if err == service.ErrPermissionDenied {
-			slog.Warn("UserAdminHandler.UpdateUser: permission denied", "admin_id", adminID, "target_id", id)
-			c.JSON(http.StatusForbidden, gin.H{"error": "permission denied"})
+			c.JSON(http.StatusForbidden, gin.H{"error": "权限不足，无法修改此用户"})
 			return
 		}
 		if err == service.ErrUserNotFound {
-			c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+			c.JSON(http.StatusNotFound, gin.H{"error": "用户不存在"})
 			return
 		}
-		slog.Error("UserAdminHandler.UpdateUser: failed to update user", "user_id", id, "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		errMsg, statusCode := getUserFriendlyError(err, "UpdateUser")
+		c.JSON(statusCode, gin.H{"error": errMsg})
 		return
+	}
+
+	if user != nil {
+		user.Password = ""
 	}
 
 	c.JSON(http.StatusOK, user)
 }
 
-// DeleteUser 删除用户
 func (h *UserAdminHandler) DeleteUser(c *gin.Context) {
 	ctx := c.Request.Context()
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("UserAdminHandler.DeleteUser: panic recovered", "panic", r)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "服务异常，请稍后重试"})
+		}
+	}()
+
 	idStr := c.Param("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
-	if err != nil {
-		slog.Warn("UserAdminHandler.DeleteUser: invalid id", "id_str", idStr, "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+	if err != nil || id <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的用户ID"})
 		return
 	}
 
-	if id <= 0 {
-		slog.Warn("UserAdminHandler.DeleteUser: id must be positive", "id", id)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "id must be positive"})
-		return
-	}
-
-	slog.Debug("UserAdminHandler.DeleteUser: handling request", "user_id", id)
-
-	err = h.svc.DeleteUser(ctx, id)
-	if err != nil {
-		slog.Error("UserAdminHandler.DeleteUser: failed to delete user", "user_id", id, "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	if err := h.svc.DeleteUser(ctx, id); err != nil {
+		errMsg, statusCode := getUserFriendlyError(err, "DeleteUser")
+		c.JSON(statusCode, gin.H{"error": errMsg})
 		return
 	}
 
 	c.JSON(http.StatusNoContent, nil)
 }
 
-// GetUserRoles 获取用户角色详情
 func (h *UserAdminHandler) GetUserRoles(c *gin.Context) {
 	ctx := c.Request.Context()
 	idStr := c.Param("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil || id <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的用户ID"})
+		return
+	}
+
+	roles, err := h.svc.GetUserRoles(ctx, id)
 	if err != nil {
-		slog.Warn("UserAdminHandler.GetUserRoles: invalid id", "id_str", idStr, "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		slog.Error("UserAdminHandler.GetUserRoles: failed to get user roles", "user_id", id, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取用户角色失败，请稍后重试"})
 		return
 	}
 
-	if id <= 0 {
-		slog.Warn("UserAdminHandler.GetUserRoles: id must be positive", "id", id)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "id must be positive"})
-		return
-	}
-
-	slog.Debug("UserAdminHandler.GetUserRoles: handling request", "user_id", id)
-
-	bdopsflow_roles, err := h.svc.GetUserRoles(ctx, id)
-	if err != nil {
-		slog.Error("UserAdminHandler.GetUserRoles: failed to get user bdopsflow_roles", "user_id", id, "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"items": bdopsflow_roles})
+	c.JSON(http.StatusOK, gin.H{"items": roles})
 }
 
-// AssignUserRoles 分配用户角色
 func (h *UserAdminHandler) AssignUserRoles(c *gin.Context) {
 	ctx := c.Request.Context()
 	idStr := c.Param("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
-	if err != nil {
-		slog.Warn("UserAdminHandler.AssignUserRoles: invalid id", "id_str", idStr, "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
-		return
-	}
-
-	if id <= 0 {
-		slog.Warn("UserAdminHandler.AssignUserRoles: id must be positive", "id", id)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "id must be positive"})
+	if err != nil || id <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的用户ID"})
 		return
 	}
 
 	var req model.UserRoleRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		slog.Warn("UserAdminHandler.AssignUserRoles: invalid request", "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": formatValidationError(err)})
 		return
 	}
 
-	slog.Debug("UserAdminHandler.AssignUserRoles: handling request", "user_id", id)
-
-	err = h.svc.AssignUserRoles(ctx, id, req.RoleIDs, req.DomainIDs)
-	if err != nil {
-		slog.Error("UserAdminHandler.AssignUserRoles: failed to assign bdopsflow_roles", "user_id", id, "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	if err := h.svc.AssignUserRoles(ctx, id, req.RoleIDs, req.DomainIDs); err != nil {
+		errMsg, statusCode := getUserFriendlyError(err, "AssignUserRoles")
+		c.JSON(statusCode, gin.H{"error": errMsg})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "bdopsflow_roles assigned successfully"})
+	c.JSON(http.StatusOK, gin.H{"message": "角色分配成功"})
 }
 
-// AssignUserDomains 分配用户领域
 func (h *UserAdminHandler) AssignUserDomains(c *gin.Context) {
 	ctx := c.Request.Context()
 	idStr := c.Param("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
-	if err != nil {
-		slog.Warn("UserAdminHandler.AssignUserDomains: invalid id", "id_str", idStr, "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
-		return
-	}
-
-	if id <= 0 {
-		slog.Warn("UserAdminHandler.AssignUserDomains: id must be positive", "id", id)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "id must be positive"})
+	if err != nil || id <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的用户ID"})
 		return
 	}
 
@@ -307,198 +343,174 @@ func (h *UserAdminHandler) AssignUserDomains(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		slog.Warn("UserAdminHandler.AssignUserDomains: invalid request", "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": formatValidationError(err)})
 		return
 	}
 
-	slog.Debug("UserAdminHandler.AssignUserDomains: handling request", "user_id", id, "domain_ids", req.DomainIDs)
-
-	err = h.svc.AssignUserDomains(ctx, id, req.DomainIDs)
-	if err != nil {
-		slog.Error("UserAdminHandler.AssignUserDomains: failed to assign bdopsflow_domains", "user_id", id, "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	if err := h.svc.AssignUserDomains(ctx, id, req.DomainIDs); err != nil {
+		errMsg, statusCode := getUserFriendlyError(err, "AssignUserDomains")
+		c.JSON(statusCode, gin.H{"error": errMsg})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "bdopsflow_domains assigned successfully"})
+	c.JSON(http.StatusOK, gin.H{"message": "领域分配成功"})
 }
 
-// GetCurrentUser 获取当前用户信息
 func (h *UserAdminHandler) GetCurrentUser(c *gin.Context) {
 	ctx := c.Request.Context()
 
 	userID, exists := c.Get("user_id")
 	if !exists {
-		slog.Warn("UserAdminHandler.GetCurrentUser: user_id not found in context")
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "未授权，请重新登录"})
 		return
 	}
 
 	id, ok := userID.(int64)
 	if !ok {
-		slog.Warn("UserAdminHandler.GetCurrentUser: invalid user_id type")
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid user"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户信息无效，请重新登录"})
 		return
 	}
-
-	slog.Debug("UserAdminHandler.GetCurrentUser: handling request", "user_id", id)
 
 	user, err := h.svc.GetCurrentUserInfo(ctx, id)
 	if err != nil {
 		slog.Error("UserAdminHandler.GetCurrentUser: failed to get user", "user_id", id, "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取用户信息失败，请稍后重试"})
 		return
 	}
 
 	if user == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "用户不存在"})
 		return
 	}
+
+	user.Password = ""
 
 	c.JSON(http.StatusOK, user)
 }
 
-// UpdateCurrentUser 更新当前用户信息（只能修改邮箱）
 func (h *UserAdminHandler) UpdateCurrentUser(c *gin.Context) {
 	ctx := c.Request.Context()
 
 	userID, exists := c.Get("user_id")
 	if !exists {
-		slog.Warn("UserAdminHandler.UpdateCurrentUser: user_id not found in context")
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "未授权，请重新登录"})
 		return
 	}
 
 	id, ok := userID.(int64)
 	if !ok {
-		slog.Warn("UserAdminHandler.UpdateCurrentUser: invalid user_id type")
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid user"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户信息无效，请重新登录"})
 		return
 	}
 
 	var req model.UpdateCurrentUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		slog.Warn("UserAdminHandler.UpdateCurrentUser: invalid request", "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": formatValidationError(err)})
 		return
 	}
 
-	slog.Debug("UserAdminHandler.UpdateCurrentUser: handling request", "user_id", id)
-
 	user, err := h.svc.UpdateCurrentUser(ctx, id, req.Email)
 	if err != nil {
-		slog.Error("UserAdminHandler.UpdateCurrentUser: failed to update user", "user_id", id, "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		errMsg, statusCode := getUserFriendlyError(err, "UpdateCurrentUser")
+		c.JSON(statusCode, gin.H{"error": errMsg})
 		return
+	}
+
+	if user != nil {
+		user.Password = ""
 	}
 
 	c.JSON(http.StatusOK, user)
 }
 
-// ChangePassword 修改当前用户密码
 func (h *UserAdminHandler) ChangePassword(c *gin.Context) {
 	ctx := c.Request.Context()
 
 	userID, exists := c.Get("user_id")
 	if !exists {
-		slog.Warn("UserAdminHandler.ChangePassword: user_id not found in context")
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "未授权，请重新登录"})
 		return
 	}
 
 	id, ok := userID.(int64)
 	if !ok {
-		slog.Warn("UserAdminHandler.ChangePassword: invalid user_id type")
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid user"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户信息无效，请重新登录"})
 		return
 	}
 
 	var req model.ChangePasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		slog.Warn("UserAdminHandler.ChangePassword: invalid request", "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": formatValidationError(err)})
 		return
 	}
 
-	slog.Debug("UserAdminHandler.ChangePassword: handling request", "user_id", id)
-
-	err := h.svc.ChangePassword(ctx, id, req.OldPassword, req.NewPassword)
-	if err != nil {
+	if err := h.svc.ChangePassword(ctx, id, req.OldPassword, req.NewPassword); err != nil {
 		if err == service.ErrWrongPassword {
-			slog.Warn("UserAdminHandler.ChangePassword: wrong old password", "user_id", id)
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "原密码错误"})
 			return
 		}
 		if err == service.ErrPasswordTooShort {
-			slog.Warn("UserAdminHandler.ChangePassword: password too short", "user_id", id)
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "新密码长度不足"})
 			return
 		}
-		slog.Error("UserAdminHandler.ChangePassword: failed to change password", "user_id", id, "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		errMsg, statusCode := getUserFriendlyError(err, "ChangePassword")
+		c.JSON(statusCode, gin.H{"error": errMsg})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "password changed successfully"})
+	c.JSON(http.StatusOK, gin.H{"message": "密码修改成功"})
 }
 
-// ResetUserPassword 重置用户密码（管理员用）
 func (h *UserAdminHandler) ResetUserPassword(c *gin.Context) {
 	ctx := c.Request.Context()
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("UserAdminHandler.ResetUserPassword: panic recovered", "panic", r)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "服务异常，请稍后重试"})
+		}
+	}()
 
 	currentUserID, exists := c.Get("user_id")
 	if !exists {
-		slog.Warn("UserAdminHandler.ResetUserPassword: user_id not found in context")
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "未授权，请重新登录"})
 		return
 	}
 
 	currID, ok := currentUserID.(int64)
 	if !ok {
-		slog.Warn("UserAdminHandler.ResetUserPassword: invalid current user_id type")
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid user"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户信息无效，请重新登录"})
 		return
 	}
 
 	idStr := c.Param("id")
 	targetUserID, err := strconv.ParseInt(idStr, 10, 64)
-	if err != nil {
-		slog.Warn("UserAdminHandler.ResetUserPassword: invalid target user id", "id_str", idStr, "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
-		return
-	}
-
-	if targetUserID <= 0 {
-		slog.Warn("UserAdminHandler.ResetUserPassword: id must be positive", "id", targetUserID)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "id must be positive"})
+	if err != nil || targetUserID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的用户ID"})
 		return
 	}
 
 	var req model.ResetPasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		slog.Warn("UserAdminHandler.ResetUserPassword: invalid request", "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": formatValidationError(err)})
 		return
 	}
 
-	slog.Debug("UserAdminHandler.ResetUserPassword: handling request", "current_user_id", currID, "target_user_id", targetUserID)
-
-	err = h.svc.ResetUserPasswordWithDomainCheck(ctx, currID, targetUserID, req.NewPassword)
-	if err != nil {
+	if err := h.svc.ResetUserPasswordWithDomainCheck(ctx, currID, targetUserID, req.NewPassword); err != nil {
 		if err == service.ErrPermissionDenied {
-			slog.Warn("UserAdminHandler.ResetUserPassword: permission denied", "current_user_id", currID, "target_user_id", targetUserID)
-			c.JSON(http.StatusForbidden, gin.H{"error": "permission denied: you can only manage bdopsflow_users in your domain"})
+			c.JSON(http.StatusForbidden, gin.H{"error": "权限不足，只能管理本领域用户"})
 			return
 		}
 		if err == service.ErrUserNotFound {
-			slog.Warn("UserAdminHandler.ResetUserPassword: target user not found", "target_user_id", targetUserID)
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			c.JSON(http.StatusNotFound, gin.H{"error": "目标用户不存在"})
 			return
 		}
-		slog.Error("UserAdminHandler.ResetUserPassword: failed to reset password", "target_user_id", targetUserID, "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		errMsg, statusCode := getUserFriendlyError(err, "ResetUserPassword")
+		c.JSON(statusCode, gin.H{"error": errMsg})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "password reset successfully"})
+	c.JSON(http.StatusOK, gin.H{"message": "密码重置成功"})
 }

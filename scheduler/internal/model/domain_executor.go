@@ -23,8 +23,8 @@ type ExecutorDomainRequest struct {
 // ExecutorWithDomains 带有领域信息的执行器
 type ExecutorWithDomains struct {
 	Executor
-	Domains []*Domain `json:"bdopsflow_domains"`
-	IsGlobal bool    `json:"is_global"` // 是否全局执行器
+	Domains  []*Domain `json:"domains"`
+	IsGlobal bool      `json:"is_global"` // 是否全局执行器
 }
 
 // DomainWithStats 带有统计信息的领域

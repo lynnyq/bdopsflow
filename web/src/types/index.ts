@@ -25,7 +25,7 @@ export interface Task {
   status: string
   domain_id: number
   webhook_config: string
-  assigned_executor_id: string
+  assigned_executor_id: number
   created_by: number
   created_at: string
   updated_at: string
@@ -90,7 +90,7 @@ export interface TaskExecution {
   id: number
   task_id: number
   execution_id: string
-  executor_id: string
+  executor_id: number
   status: string
   start_time: string | null
   end_time: string | null
@@ -104,7 +104,7 @@ export interface TaskExecutionListResponse {
   id: number
   task_id: number
   execution_id: string
-  executor_id: string
+  executor_id: number
   executor_name: string | null
   task_name: string | null
   task_type: string | null
@@ -126,15 +126,27 @@ export interface PaginatedResponse<T> {
 
 export interface Executor {
   id: number
-  executor_id: string
   name: string
   address: string
   status: string
-  last_heartbeat: string
+  last_heartbeat: string | null
   capacity: number
   current_load: number
+  is_global: boolean
   created_at: string
   updated_at: string
+}
+
+export interface Domain {
+  id: number
+  name: string
+  description?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface ExecutorWithDomains extends Executor {
+  domains?: Domain[]
 }
 
 export interface LoginRequest {
@@ -162,6 +174,7 @@ export interface TaskLog {
   id: number
   execution_id: string
   task_id: number
+  executor_id: number
   node_id: string
   log_level: string
   message: string
@@ -199,4 +212,3 @@ export interface TrendData {
   success: number
   failed: number
 }
-

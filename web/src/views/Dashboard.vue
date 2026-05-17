@@ -122,6 +122,7 @@
       </div>
       <div class="scheduler-actions">
         <el-button 
+          v-if="canControlScheduler"
           :icon="VideoPlay" 
           type="success"
           @click="handleResumeScheduler"
@@ -131,6 +132,7 @@
           恢复调度
         </el-button>
         <el-button 
+          v-if="canControlScheduler"
           :icon="VideoPause" 
           type="warning"
           @click="handlePauseScheduler"
@@ -202,11 +204,19 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { VideoPlay, VideoPause, Refresh, List, CircleCheck, CircleClose, Clock, Timer, Cpu, Connection, DataLine } from '@element-plus/icons-vue'
 import { dashboardAPI } from '@/api'
 import { handleError, handleSuccess, formatValue, formatNumber } from '@/utils/error'
+import { useAuthStore } from '@/stores/auth'
+
+const authStore = useAuthStore()
+
+const canControlScheduler = computed(() => {
+  const role = authStore.user?.role
+  return role === 'admin' || role === 'system_admin'
+})
 
 interface DashboardStats {
   tasks: {

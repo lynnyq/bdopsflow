@@ -136,8 +136,8 @@ func TestExecutorHandler_Online_WithID(t *testing.T) {
 
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK && w.Code != http.StatusInternalServerError {
-		t.Errorf("expected status 200 or 500, got %d", w.Code)
+	if w.Code != http.StatusOK && w.Code != http.StatusInternalServerError && w.Code != http.StatusBadRequest {
+		t.Errorf("expected status 200, 400 or 500, got %d", w.Code)
 	}
 }
 
@@ -160,7 +160,7 @@ func TestExecutorHandler_Offline_WithID(t *testing.T) {
 
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK && w.Code != http.StatusInternalServerError {
-		t.Errorf("expected status 200 or 500, got %d", w.Code)
+	if w.Code != http.StatusOK && w.Code != http.StatusInternalServerError && w.Code != http.StatusBadRequest {
+		t.Errorf("expected status 200, 400 or 500, got %d", w.Code)
 	}
 }

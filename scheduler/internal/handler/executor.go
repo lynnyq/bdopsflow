@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -18,15 +19,37 @@ func NewExecutorHandler(svc *service.SchedulerService) *ExecutorHandler {
 	return &ExecutorHandler{svc: svc}
 }
 
+func parseName(nameStr string) (string, error) {
+	if nameStr == "" {
+		return "", fmt.Errorf("name cannot be empty")
+	}
+	return nameStr, nil
+}
+
+func parseParam(s string, handler func(int64)) (bool, error) {
+	if s == "" {
+		return false, fmt.Errorf("parameter is required")
+	}
+	v, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return false, err
+	}
+	if v <= 0 {
+		return false, fmt.Errorf("parameter must be positive")
+	}
+	handler(v)
+	return true, nil
+}
+
 type ExecutorDTO struct {
 	ID             int64  `json:"id"`
-	ExecutorID     string `json:"executor_id"`
 	Name           string `json:"name"`
 	Address        string `json:"address"`
 	Status         string `json:"status"`
 	LastHeartbeat  string `json:"last_heartbeat"`
 	Capacity       int64  `json:"capacity"`
 	CurrentLoad    int64  `json:"current_load"`
+	IsGlobal       bool   `json:"is_global"`
 	CreatedAt      string `json:"created_at"`
 	UpdatedAt      string `json:"updated_at"`
 }
@@ -34,12 +57,12 @@ type ExecutorDTO struct {
 func executorToDTO(exec *model.Executor) *ExecutorDTO {
 	dto := &ExecutorDTO{
 		ID:          exec.ID,
-		ExecutorID:  exec.ExecutorID,
 		Name:        exec.Name,
 		Address:     exec.Address,
 		Status:      exec.Status,
 		Capacity:    exec.Capacity,
 		CurrentLoad: exec.CurrentLoad,
+		IsGlobal:    exec.IsGlobal,
 	}
 
 	if exec.LastHeartbeat.Valid {
@@ -85,17 +108,12 @@ func (h *ExecutorHandler) List(c *gin.Context) {
 }
 
 func (h *ExecutorHandler) Get(c *gin.Context) {
-	idStr := c.Param("id")
-	id, err := strconv.ParseInt(idStr, 10, 64)
-	if err != nil {
-		slog.Warn("ExecutorHandler.Get: invalid id", "id_str", idStr, "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
-		return
-	}
+	nameStr := c.Param("name")
 
-	if id <= 0 {
-		slog.Warn("ExecutorHandler.Get: id must be positive", "id", id)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "id must be positive"})
+	_, err := parseName(nameStr)
+	if err != nil {
+		slog.Warn("ExecutorHandler.Get: invalid name", "name_str", nameStr, "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid name"})
 		return
 	}
 
@@ -103,10 +121,11 @@ func (h *ExecutorHandler) Get(c *gin.Context) {
 }
 
 func (h *ExecutorHandler) Delete(c *gin.Context) {
-	executorID := c.Param("id")
-	if executorID == "" {
-		slog.Warn("ExecutorHandler.Delete: executor_id is required")
-		c.JSON(http.StatusBadRequest, gin.H{"error": "executor_id is required"})
+	nameStr := c.Param("name")
+	name, err := parseName(nameStr)
+	if err != nil {
+		slog.Warn("ExecutorHandler.Delete: invalid name", "name_str", nameStr, "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid name"})
 		return
 	}
 
@@ -117,21 +136,22 @@ func (h *ExecutorHandler) Delete(c *gin.Context) {
 		}
 	}()
 
-	if err := h.svc.DeleteExecutor(c.Request.Context(), executorID); err != nil {
-		slog.Error("ExecutorHandler.Delete: failed to delete executor", "executor_id", executorID, "error", err)
+	if err := h.svc.DeleteExecutorByName(c.Request.Context(), name); err != nil {
+		slog.Error("ExecutorHandler.Delete: failed to delete executor", "name", name, "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	slog.Info("ExecutorHandler.Delete: executor deleted", "executor_id", executorID)
+	slog.Info("ExecutorHandler.Delete: executor deleted", "name", name)
 	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
 }
 
 func (h *ExecutorHandler) Online(c *gin.Context) {
-	executorID := c.Param("id")
-	if executorID == "" {
-		slog.Warn("ExecutorHandler.Online: executor_id is required")
-		c.JSON(http.StatusBadRequest, gin.H{"error": "executor_id is required"})
+	nameStr := c.Param("name")
+	name, err := parseName(nameStr)
+	if err != nil {
+		slog.Warn("ExecutorHandler.Online: invalid name", "name_str", nameStr, "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid name"})
 		return
 	}
 
@@ -142,21 +162,22 @@ func (h *ExecutorHandler) Online(c *gin.Context) {
 		}
 	}()
 
-	if err := h.svc.SetExecutorStatus(c.Request.Context(), executorID, "online"); err != nil {
-		slog.Error("ExecutorHandler.Online: failed to set executor online", "executor_id", executorID, "error", err)
+	if err := h.svc.SetExecutorStatusByName(c.Request.Context(), name, "online"); err != nil {
+		slog.Error("ExecutorHandler.Online: failed to set executor online", "name", name, "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	slog.Info("ExecutorHandler.Online: executor set online", "executor_id", executorID)
+	slog.Info("ExecutorHandler.Online: executor set online", "name", name)
 	c.JSON(http.StatusOK, gin.H{"message": "online"})
 }
 
 func (h *ExecutorHandler) Offline(c *gin.Context) {
-	executorID := c.Param("id")
-	if executorID == "" {
-		slog.Warn("ExecutorHandler.Offline: executor_id is required")
-		c.JSON(http.StatusBadRequest, gin.H{"error": "executor_id is required"})
+	nameStr := c.Param("name")
+	name, err := parseName(nameStr)
+	if err != nil {
+		slog.Warn("ExecutorHandler.Offline: invalid name", "name_str", nameStr, "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid name"})
 		return
 	}
 
@@ -167,22 +188,23 @@ func (h *ExecutorHandler) Offline(c *gin.Context) {
 		}
 	}()
 
-	if err := h.svc.SetExecutorStatus(c.Request.Context(), executorID, "offline"); err != nil {
-		slog.Error("ExecutorHandler.Offline: failed to set executor offline", "executor_id", executorID, "error", err)
+	if err := h.svc.SetExecutorStatusByName(c.Request.Context(), name, "offline"); err != nil {
+		slog.Error("ExecutorHandler.Offline: failed to set executor offline", "name", name, "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	slog.Info("ExecutorHandler.Offline: executor set offline", "executor_id", executorID)
+	slog.Info("ExecutorHandler.Offline: executor set offline", "name", name)
 	c.JSON(http.StatusOK, gin.H{"message": "offline"})
 }
 
 // UpdateCapacity 更新执行器容量
 func (h *ExecutorHandler) UpdateCapacity(c *gin.Context) {
-	executorID := c.Param("id")
-	if executorID == "" {
-		slog.Warn("ExecutorHandler.UpdateCapacity: executor_id is required")
-		c.JSON(http.StatusBadRequest, gin.H{"error": "executor_id is required"})
+	nameStr := c.Param("name")
+	name, err := parseName(nameStr)
+	if err != nil {
+		slog.Warn("ExecutorHandler.UpdateCapacity: invalid name", "name_str", nameStr, "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid name"})
 		return
 	}
 
@@ -202,12 +224,12 @@ func (h *ExecutorHandler) UpdateCapacity(c *gin.Context) {
 		}
 	}()
 
-	if err := h.svc.UpdateExecutorCapacity(c.Request.Context(), executorID, req.Capacity); err != nil {
-		slog.Error("ExecutorHandler.UpdateCapacity: failed to update executor capacity", "executor_id", executorID, "error", err)
+	if err := h.svc.UpdateExecutorCapacityByName(c.Request.Context(), name, req.Capacity); err != nil {
+		slog.Error("ExecutorHandler.UpdateCapacity: failed to update executor capacity", "name", name, "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	slog.Info("ExecutorHandler.UpdateCapacity: executor capacity updated", "executor_id", executorID, "capacity", req.Capacity)
+	slog.Info("ExecutorHandler.UpdateCapacity: executor capacity updated", "name", name, "capacity", req.Capacity)
 	c.JSON(http.StatusOK, gin.H{"message": "capacity updated", "capacity": req.Capacity})
 }

@@ -14,7 +14,7 @@ type User struct {
 	DomainID      int64      `db:"domain_id" json:"domain_id"`
 	Role          string     `db:"role" json:"role"`
 	IsActive      bool       `db:"is_active" json:"is_active"`
-	LastLoginAt   *time.Time `db:"last_login_at" json:"last_login_at,omitempty"`
+	LastLoginAt   *time.Time `db:"last_login_at" json:"last_login_at"`
 	CreatedBy     *int64     `db:"created_by" json:"created_by,omitempty"`
 	CreatedAt     time.Time  `db:"created_at" json:"created_at"`
 	UpdatedAt     time.Time  `db:"updated_at" json:"updated_at"`
@@ -55,7 +55,7 @@ type Task struct {
 	Status              string    `db:"status" json:"status"`
 	DomainID            int64     `db:"domain_id" json:"domain_id"`
 	WebhookConfig       string    `db:"webhook_config" json:"webhook_config"`
-	AssignedExecutorID  string    `db:"assigned_executor_id" json:"assigned_executor_id"`
+	AssignedExecutorID  int64     `db:"assigned_executor_id" json:"assigned_executor_id"`
 	CreatedBy           int64     `db:"created_by" json:"created_by"`
 	CreatedAt           time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt           time.Time `db:"updated_at" json:"updated_at"`
@@ -64,17 +64,17 @@ type Task struct {
 }
 
 type TaskExecution struct {
-	ID          int64          `db:"id" json:"id"`
-	TaskID      int64          `db:"task_id" json:"task_id"`
-	ExecutionID string         `db:"execution_id" json:"execution_id"`
-	ExecutorID  string         `db:"executor_id" json:"executor_id"`
-	Status      string         `db:"status" json:"status"`
+	ID          int64           `db:"id" json:"id"`
+	TaskID      int64           `db:"task_id" json:"task_id"`
+	ExecutionID string          `db:"execution_id" json:"execution_id"`
+	ExecutorID  int64           `db:"executor_id" json:"executor_id"`
+	Status      string          `db:"status" json:"status"`
 	StartTime   rqlite.NullTime `db:"start_time" json:"start_time"`
 	EndTime     rqlite.NullTime `db:"end_time" json:"end_time"`
-	Output      string         `db:"output" json:"output"`
-	Error       string         `db:"error" json:"error"`
-	RetryTimes  int32          `db:"retry_times" json:"retry_times"`
-	CreatedAt   time.Time      `db:"created_at" json:"created_at"`
+	Output      string          `db:"output" json:"output"`
+	Error       string          `db:"error" json:"error"`
+	RetryTimes  int32           `db:"retry_times" json:"retry_times"`
+	CreatedAt   time.Time       `db:"created_at" json:"created_at"`
 }
 
 func (te *TaskExecution) GetStartTime() *time.Time {
@@ -92,17 +92,16 @@ func (te *TaskExecution) GetEndTime() *time.Time {
 }
 
 type Executor struct {
-	ID             int64          `db:"id" json:"id"`
-	ExecutorID     string         `db:"executor_id" json:"executor_id"`
-	Name           string         `db:"name" json:"name"`
-	Address        string         `db:"address" json:"address"`
-	Status         string         `db:"status" json:"status"`
-	LastHeartbeat  rqlite.NullTime `db:"last_heartbeat" json:"last_heartbeat"`
-	Capacity       int64          `db:"capacity" json:"capacity"`
-	CurrentLoad    int64          `db:"current_load" json:"current_load"`
-	IsGlobal       bool           `db:"is_global" json:"is_global"`   // 是否全局执行器
-	CreatedAt      time.Time      `db:"created_at" json:"created_at"`
-	UpdatedAt      time.Time      `db:"updated_at" json:"updated_at"`
+	ID            int64           `db:"id" json:"id"`
+	Name          string          `db:"name" json:"name"`
+	Address       string          `db:"address" json:"address"`
+	Status        string          `db:"status" json:"status"`
+	LastHeartbeat rqlite.NullTime `db:"last_heartbeat" json:"last_heartbeat"`
+	Capacity      int64           `db:"capacity" json:"capacity"`
+	CurrentLoad   int64           `db:"current_load" json:"current_load"`
+	IsGlobal      bool            `db:"is_global" json:"is_global"`
+	CreatedAt     time.Time       `db:"created_at" json:"created_at"`
+	UpdatedAt     time.Time       `db:"updated_at" json:"updated_at"`
 }
 
 func (e *Executor) GetLastHeartbeat() *time.Time {
@@ -112,16 +111,15 @@ func (e *Executor) GetLastHeartbeat() *time.Time {
 	return nil
 }
 
-// WorkflowExecution 工作流执行记录
 type WorkflowExecution struct {
-	ID          int64          `db:"id" json:"id"`
-	WorkflowID  int64          `db:"workflow_id" json:"workflow_id"`
+	ID         int64           `db:"id" json:"id"`
+	WorkflowID int64           `db:"workflow_id" json:"workflow_id"`
 	ExecutionID string         `db:"execution_id" json:"execution_id"`
-	Status      string         `db:"status" json:"status"`
-	StartTime   rqlite.NullTime `db:"start_time" json:"start_time"`
-	EndTime     rqlite.NullTime `db:"end_time" json:"end_time"`
-	NodeStates  string         `db:"node_states" json:"node_states"` // JSON 存储各节点状态
-	CreatedAt   time.Time      `db:"created_at" json:"created_at"`
+	Status     string         `db:"status" json:"status"`
+	StartTime  rqlite.NullTime `db:"start_time" json:"start_time"`
+	EndTime    rqlite.NullTime `db:"end_time" json:"end_time"`
+	NodeStates string         `db:"node_states" json:"node_states"`
+	CreatedAt  time.Time      `db:"created_at" json:"created_at"`
 }
 
 func (we *WorkflowExecution) GetStartTime() *time.Time {
@@ -138,12 +136,11 @@ func (we *WorkflowExecution) GetEndTime() *time.Time {
 	return nil
 }
 
-// TaskLog 任务执行日志
 type TaskLog struct {
 	ID          int64     `db:"id" json:"id"`
 	ExecutionID string    `db:"execution_id" json:"execution_id"`
 	TaskID      int64     `db:"task_id" json:"task_id"`
-	ExecutorID  string    `db:"executor_id" json:"executor_id"`
+	ExecutorID  int64     `db:"executor_id" json:"executor_id"`
 	NodeID      string    `db:"node_id" json:"node_id"`
 	LogLevel    string    `db:"log_level" json:"log_level"`
 	Message     string    `db:"message" json:"message"`

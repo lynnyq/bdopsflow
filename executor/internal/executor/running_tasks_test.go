@@ -5,7 +5,7 @@ import (
 )
 
 func TestTaskExecutor_GetRunningExecutionIds(t *testing.T) {
-	executor := NewTaskExecutor("test-executor", nil)
+	executor := NewTaskExecutor(nil)
 
 	ids := executor.GetRunningExecutionIds()
 	if len(ids) != 0 {
@@ -14,7 +14,7 @@ func TestTaskExecutor_GetRunningExecutionIds(t *testing.T) {
 }
 
 func TestTaskExecutor_RunningTaskTracking(t *testing.T) {
-	executor := NewTaskExecutor("test-executor", nil)
+	executor := NewTaskExecutor(nil)
 
 	executionId1 := "exec-001"
 	executionId2 := "exec-002"
@@ -74,7 +74,7 @@ func TestTaskExecutor_RunningTaskTracking(t *testing.T) {
 }
 
 func TestTaskExecutor_GetRunningTasks(t *testing.T) {
-	executor := NewTaskExecutor("test-executor", nil)
+	executor := NewTaskExecutor(nil)
 
 	count := executor.GetRunningTasks()
 	if count != 0 {

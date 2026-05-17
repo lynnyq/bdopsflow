@@ -2,13 +2,22 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { User } from '@/types'
 import { authAPI } from '@/api'
+import { passwordUtils } from '@/utils/password'
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null)
   const token = ref<string | null>(localStorage.getItem('token'))
 
   const isAdmin = computed(() => {
-    return user.value?.role === 'admin'
+    return user.value?.role === 'admin' || user.value?.role === 'system_admin'
+  })
+
+  const isSystemAdmin = computed(() => {
+    return user.value?.role === 'system_admin' || user.value?.role === 'admin'
+  })
+
+  const isDomainAdmin = computed(() => {
+    return user.value?.role === 'domain_admin'
   })
 
   const setToken = (newToken: string) => {
@@ -27,7 +36,9 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   const login = async (username: string, password: string) => {
-    const response = await authAPI.login({ username, password })
+    // 使用 Base64 编码密码后发送给后端
+    const encryptedPassword = passwordUtils.encodePassword(password)
+    const response = await authAPI.login({ username, password: encryptedPassword })
     const { token: newToken, user: newUser } = response.data
     setToken(newToken)
     setUser(newUser)
@@ -50,6 +61,8 @@ export const useAuthStore = defineStore('auth', () => {
     user,
     token,
     isAdmin,
+    isSystemAdmin,
+    isDomainAdmin,
     setToken,
     setUser,
     logout,

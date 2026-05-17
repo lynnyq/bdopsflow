@@ -82,7 +82,7 @@
             >
               <el-option
                 v-for="exec in executors"
-                :key="exec.executor_id"
+                :key="exec.id"
                 :label="exec.name"
                 :value="exec.name"
               />

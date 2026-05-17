@@ -58,7 +58,19 @@ func (h *TaskHandler) List(c *gin.Context) {
 
 	slog.Debug("TaskHandler.List: handling request")
 
-	bdopsflow_tasks, err := h.svc.ListTasks(ctx)
+	domainID, _ := c.Get("domain_id")
+	userRole, _ := c.Get("role")
+	
+	var dID int64
+	var role string
+	if v, ok := domainID.(int64); ok {
+		dID = v
+	}
+	if v, ok := userRole.(string); ok {
+		role = v
+	}
+
+	bdopsflow_tasks, err := h.svc.ListTasks(ctx, dID, role)
 	if err != nil {
 		slog.Error("TaskHandler.List: failed to list bdopsflow_tasks", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -108,7 +120,7 @@ func (h *TaskHandler) Create(c *gin.Context) {
 		IsEnabled          bool        `json:"is_enabled"`
 		DomainID           int64       `json:"domain_id"`
 		WebhookConfig      string      `json:"webhook_config"`
-		AssignedExecutorID string      `json:"assigned_executor_id"`
+		AssignedExecutorID int64     `json:"assigned_executor_id"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -168,8 +180,8 @@ func (h *TaskHandler) Create(c *gin.Context) {
 
 	// 处理 AssignedExecutorID，如果为空字符串则设置为 NULL
 	assignedExecutorID := req.AssignedExecutorID
-	if assignedExecutorID == "" {
-		assignedExecutorID = "" // 空字符串会在 SQL 中设为 NULL
+	if assignedExecutorID == 0 {
+		assignedExecutorID = 0
 	}
 
 	var query string
@@ -259,7 +271,7 @@ func (h *TaskHandler) Update(c *gin.Context) {
 		IsEnabled          *bool       `json:"is_enabled"`
 		DomainID           int64       `json:"domain_id"`
 		WebhookConfig      string      `json:"webhook_config"`
-		AssignedExecutorID string      `json:"assigned_executor_id"`
+		AssignedExecutorID int64       `json:"assigned_executor_id"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -527,7 +539,7 @@ type TaskExecutionResponse struct {
 	ID           int64   `json:"id"`
 	TaskID       int64   `json:"task_id"`
 	ExecutionID  string  `json:"execution_id"`
-	ExecutorID   string  `json:"executor_id"`
+	ExecutorID   int64   `json:"executor_id"`
 	ExecutorName *string `json:"executor_name,omitempty"`
 	TaskName    *string `json:"task_name,omitempty"`
 	TaskType    *string `json:"task_type,omitempty"`
@@ -567,7 +579,7 @@ type TaskLogResponse struct {
 	ID          int64  `json:"id"`
 	ExecutionID string `json:"execution_id"`
 	TaskID      int64  `json:"task_id"`
-	ExecutorID  string `json:"executor_id,omitempty"`
+	ExecutorID  int64  `json:"executor_id,omitempty"`
 	NodeID      string `json:"node_id,omitempty"`
 	LogLevel    string `json:"log_level,omitempty"`
 	Message     string `json:"message,omitempty"`
