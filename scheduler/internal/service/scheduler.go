@@ -607,13 +607,14 @@ func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (strin
 		now := time.Now().Format("2006-01-02 15:04:05")
 		skippedReason := fmt.Sprintf("skipped: previous execution (id: %s) is still running", runningExecID)
 		
+		var executorID interface{} = nil
 		insertQuery := `
 			INSERT INTO bdopsflow_task_executions (task_id, execution_id, executor_id, status, output, error, start_time, retry_times, created_at)
-			VALUES (?, ?, 0, 'skipped', '', ?, ?, 0, ?)
+			VALUES (?, ?, ?, 'skipped', '', ?, ?, 0, ?)
 		`
 		insertStmt := rqlite.ParameterizedStatement{
 			Query:     insertQuery,
-			Arguments: []interface{}{taskID, skippedExecutionID, skippedReason, now, now},
+			Arguments: []interface{}{taskID, skippedExecutionID, executorID, skippedReason, now, now},
 		}
 		
 		// 忽略插入错误，继续执行
@@ -664,14 +665,15 @@ func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (strin
 	}
 
 	now := time.Now().Format("2006-01-02 15:04:05")
+	var executorID interface{} = nil
 	insertQuery := `
 		INSERT INTO bdopsflow_task_executions (task_id, execution_id, executor_id, status, start_time, retry_times, created_at)
-		VALUES (?, ?, 0, 'running', ?, 0, ?)
+		VALUES (?, ?, ?, 'running', ?, 0, ?)
 	`
 
 	stmt := rqlite.ParameterizedStatement{
 		Query:     insertQuery,
-		Arguments: []interface{}{taskID, executionID, now, now},
+		Arguments: []interface{}{taskID, executionID, executorID, now, now},
 	}
 	_, err = s.DB.WriteOneParameterized(stmt)
 	if err != nil {
@@ -1483,13 +1485,14 @@ func (s *SchedulerService) RetryTask(ctx context.Context, taskID int64, retryTim
 	}
 
 	now := time.Now().Format("2006-01-02 15:04:05")
+	var executorID interface{} = nil
 	insertQuery := `
 		INSERT INTO bdopsflow_task_executions (task_id, execution_id, executor_id, status, start_time, retry_times, created_at)
-		VALUES (?, ?, 0, 'running', ?, ?, ?)
+		VALUES (?, ?, ?, 'running', ?, ?, ?)
 	`
 	stmt := rqlite.ParameterizedStatement{
 		Query:     insertQuery,
-		Arguments: []interface{}{taskID, executionID, now, retryTimes, now},
+		Arguments: []interface{}{taskID, executionID, executorID, now, retryTimes, now},
 	}
 	_, err = s.DB.WriteOneParameterized(stmt)
 	if err != nil {
@@ -2049,7 +2052,7 @@ func (s *SchedulerService) GetTaskLogs(ctx context.Context, executionID string) 
 
 func (s *SchedulerService) AddTaskLog(ctx context.Context, executionID string, taskID int64, nodeID string, logLevel string, message string) error {
 	// 首先获取执行记录中的 executor_id
-	var executorID int64
+	var executorID interface{} = nil
 	execQuery := `SELECT executor_id FROM bdopsflow_task_executions WHERE execution_id = ? LIMIT 1`
 	execStmt := rqlite.ParameterizedStatement{
 		Query:     execQuery,
@@ -2058,7 +2061,10 @@ func (s *SchedulerService) AddTaskLog(ctx context.Context, executionID string, t
 	execQr, err := s.DB.QueryOneParameterized(execStmt)
 	if err == nil && execQr.Err == nil && execQr.Next() {
 		row, _ := execQr.Slice()
-		executorID = rowInt64(row[0])
+		rawID := rowInt64(row[0])
+		if rawID > 0 {
+			executorID = rawID
+		}
 	}
 
 	// 尝试插入带 executor_id 的新表结构
