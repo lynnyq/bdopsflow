@@ -204,12 +204,23 @@ const loginRules = {
 
 const checkSystemHealth = async () => {
   try {
-    await axios.get('/health', { timeout: 5000 })
-    systemHealthy.value = true
-    systemStatusText.value = '系统运行正常'
+    const response = await axios.get('/health', { timeout: 5000 })
+    const data = response.data
+    if (data.status === 'healthy') {
+      systemHealthy.value = true
+      systemStatusText.value = '系统运行正常'
+    } else {
+      systemHealthy.value = false
+      const unhealthyComponents = data.unhealthy_components || []
+      if (unhealthyComponents.length > 0) {
+        systemStatusText.value = unhealthyComponents.join('、')
+      } else {
+        systemStatusText.value = '系统异常'
+      }
+    }
   } catch (error) {
     systemHealthy.value = false
-    systemStatusText.value = '系统暂不可用'
+    systemStatusText.value = '系统异常'
   }
 }
 
