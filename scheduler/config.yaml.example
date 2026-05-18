@@ -2,6 +2,7 @@
 app:
   http_port: "8080"
   grpc_port: "50051"
+  node_id: "" # 节点ID，用于主节点选举（可选，会自动生成UUID）
 
 # 数据库配置 - 开发环境（单节点）
 database:

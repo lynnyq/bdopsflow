@@ -44,7 +44,7 @@ func CalculateNextExecutionTime(cronExpr string, isEnabled bool) string {
 type TaskDispatcher func(executorName string, task *pb.Task) error
 
 type SchedulerService struct {
-	DB        rqlite.Connection
+	DB        *rqlite.Connection
 	redis     *redis.Client
 	dispatcher TaskDispatcher
 	cronScheduler interface {
@@ -60,7 +60,7 @@ type SchedulerService struct {
 	ExecutorDomainService *ExecutorDomainService
 }
 
-func NewSchedulerService(db rqlite.Connection, redis *redis.Client) *SchedulerService {
+func NewSchedulerService(db *rqlite.Connection, redis *redis.Client) *SchedulerService {
 	return &SchedulerService{
 		DB:    db,
 		redis: redis,

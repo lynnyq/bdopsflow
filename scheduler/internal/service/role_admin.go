@@ -10,12 +10,12 @@ import (
 
 // RoleAdminService 角色管理服务
 type RoleAdminService struct {
-	db      rqlite.Connection
+	db      *rqlite.Connection
 	permSvc *PermissionService
 }
 
 // NewRoleAdminService 创建角色管理服务
-func NewRoleAdminService(db rqlite.Connection, permSvc *PermissionService) *RoleAdminService {
+func NewRoleAdminService(db *rqlite.Connection, permSvc *PermissionService) *RoleAdminService {
 	return &RoleAdminService{
 		db:      db,
 		permSvc: permSvc,

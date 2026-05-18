@@ -10,11 +10,11 @@ import (
 
 // DomainAdminService 领域管理服务
 type DomainAdminService struct {
-	db rqlite.Connection
+	db *rqlite.Connection
 }
 
 // NewDomainAdminService 创建领域管理服务
-func NewDomainAdminService(db rqlite.Connection) *DomainAdminService {
+func NewDomainAdminService(db *rqlite.Connection) *DomainAdminService {
 	return &DomainAdminService{db: db}
 }
 

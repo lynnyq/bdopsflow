@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	rqlite "github.com/rqlite/gorqlite"
 
@@ -25,6 +26,7 @@ import (
 	"github.com/lynnyq/bdopsflow/scheduler/internal/middleware"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/service"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/webhook"
+	"github.com/lynnyq/bdopsflow/scheduler/pkg/election"
 )
 
 // RQLiteClient rqlite 多节点客户端
@@ -129,6 +131,15 @@ func main() {
 
 	cfg := config.Load(*configFile)
 
+	// 生成节点ID（如果配置中没有提供）
+	nodeID := cfg.NodeID
+	if nodeID == "" {
+		nodeID = uuid.New().String()
+		slog.Info("generated node ID", "node_id", nodeID)
+	} else {
+		slog.Info("using configured node ID", "node_id", nodeID)
+	}
+
 	slog.Info("scheduler starting",
 		"http_port", cfg.HTTPPort,
 		"grpc_port", cfg.GRPCPort,
@@ -137,6 +148,7 @@ func main() {
 		"rqlite_addrs", cfg.RQLiteAddrs,
 		"rqlite_tls", cfg.RQLiteTLS,
 		"rqlite_has_auth", cfg.RQLiteUser != "" && cfg.RQLitePass != "",
+		"node_id", nodeID,
 	)
 
 	// 创建 Redis 客户端
@@ -180,13 +192,16 @@ func main() {
 
 	db := rqliteClient.Connection()
 
-	schedulerService := service.NewSchedulerService(*db, redisClient)
+	// 初始化主节点选举（先声明变量）
+	leaderElection := election.NewLeaderElection(redisClient, "bdopsflow:leader", nodeID, 15*time.Second)
 
-	permissionService := service.NewPermissionService(*db, redisClient)
-	userAdminService := service.NewUserAdminService(*db, permissionService)
-	roleAdminService := service.NewRoleAdminService(*db, permissionService)
-	domainAdminService := service.NewDomainAdminService(*db)
-	executorDomainService := service.NewExecutorDomainService(*db)
+	schedulerService := service.NewSchedulerService(db, redisClient)
+
+	permissionService := service.NewPermissionService(db, redisClient)
+	userAdminService := service.NewUserAdminService(db, permissionService)
+	roleAdminService := service.NewRoleAdminService(db, permissionService)
+	domainAdminService := service.NewDomainAdminService(db)
+	executorDomainService := service.NewExecutorDomainService(db)
 
 	// 注入执行器领域服务到调度器服务
 	schedulerService.ExecutorDomainService = executorDomainService
@@ -208,6 +223,21 @@ func main() {
 	defer cronScheduler.Stop()
 	defer schedulerService.StopCleanupRoutine()
 
+	// 设置主节点选举回调
+	leaderElection.OnAcquire(func() {
+		slog.Info("this node became the leader", "node_id", nodeID)
+		cronScheduler.OnBecomeLeader()
+	})
+	leaderElection.OnRelease(func() {
+		slog.Info("this node lost leadership", "node_id", nodeID)
+		cronScheduler.OnLoseLeader()
+	})
+
+	// 创建一个可取消的context
+	mainCtx, mainCancel := context.WithCancel(context.Background())
+	leaderElection.Start(mainCtx)
+	defer mainCancel()
+
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.Default()
 
@@ -215,10 +245,20 @@ func main() {
 
 	router.GET("/health", func(c *gin.Context) {
 		result := schedulerService.HealthCheck(c.Request.Context())
+		// 添加节点ID和主节点状态到健康检查结果
+		healthData := map[string]interface{}{
+			"status":    result.Status,
+			"timestamp": result.Timestamp,
+			"node_id":   nodeID,
+			"is_leader": leaderElection.IsLeader(),
+		}
+		if result.Components != nil {
+			healthData["components"] = result.Components
+		}
 		if result.Status == "healthy" {
-			c.JSON(http.StatusOK, result)
+			c.JSON(http.StatusOK, healthData)
 		} else {
-			c.JSON(http.StatusServiceUnavailable, result)
+			c.JSON(http.StatusServiceUnavailable, healthData)
 		}
 	})
 

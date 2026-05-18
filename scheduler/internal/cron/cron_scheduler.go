@@ -21,6 +21,8 @@ type CronScheduler struct {
 	taskEntries  map[int64]cron.EntryID // 任务ID到cron entry的映射
 	mu           sync.RWMutex
 	paused       bool                    // 全局暂停标志
+	isLeader     bool                    // 是否是主节点
+	started      bool                    // cron调度器是否已启动
 	startTime    time.Time               // 启动时间
 }
 
@@ -35,8 +37,8 @@ func NewCronScheduler(svc *service.SchedulerService, redis *redis.Client) *CronS
 }
 
 func (cs *CronScheduler) Start() error {
-	cs.cron.Start()
-	slog.Info("cron scheduler started", "mode", "6-field (with seconds)", "distributed_lock", "enabled")
+	// 不立即启动cron，等成为主节点后再启动
+	slog.Info("cron scheduler initialized, waiting to become leader")
 	
 	// 从 Redis 加载暂停状态
 	if cs.redis != nil {
@@ -44,14 +46,47 @@ func (cs *CronScheduler) Start() error {
 		paused, err := cs.redis.Get(ctx, "scheduler:paused").Bool()
 		if err == nil && paused {
 			cs.paused = true
-			slog.Info("cron scheduler resumed in paused state from redis")
+			slog.Info("cron scheduler initialized in paused state from redis")
 		}
 	}
 	
-	// 启动后立即加载和注册所有任务
-	go cs.loadAndRegisterTasks()
-	
 	return nil
+}
+
+// OnBecomeLeader 当成为主节点时调用
+func (cs *CronScheduler) OnBecomeLeader() {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	
+	if cs.isLeader {
+		return
+	}
+	
+	cs.isLeader = true
+	slog.Info("node became leader, starting cron scheduler")
+	
+	// 启动cron
+	if !cs.started {
+		cs.cron.Start()
+		cs.started = true
+		slog.Info("cron scheduler started", "mode", "6-field (with seconds)", "distributed_lock", "enabled")
+	}
+	
+	// 加载和注册所有任务
+	go cs.loadAndRegisterTasks()
+}
+
+// OnLoseLeader 当失去主节点地位时调用
+func (cs *CronScheduler) OnLoseLeader() {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	
+	if !cs.isLeader {
+		return
+	}
+	
+	cs.isLeader = false
+	slog.Info("node lost leadership, stopping cron scheduler")
 }
 
 // Pause 暂停调度器
@@ -184,6 +219,16 @@ func (cs *CronScheduler) UnregisterTask(taskID int64) {
 func (cs *CronScheduler) executeTask(taskID int64) {
 	if cs.svc == nil {
 		slog.Debug("Scheduler service is nil, skipping task execution", "task_id", taskID)
+		return
+	}
+	
+	// 检查是否是主节点
+	cs.mu.RLock()
+	isLeader := cs.isLeader
+	cs.mu.RUnlock()
+	
+	if !isLeader {
+		slog.Debug("not leader, skipping task execution", "task_id", taskID)
 		return
 	}
 	

@@ -13,12 +13,12 @@ import (
 
 // UserAdminService 用户管理服务
 type UserAdminService struct {
-	db      rqlite.Connection
+	db      *rqlite.Connection
 	permSvc *PermissionService
 }
 
 // NewUserAdminService 创建用户管理服务
-func NewUserAdminService(db rqlite.Connection, permSvc *PermissionService) *UserAdminService {
+func NewUserAdminService(db *rqlite.Connection, permSvc *PermissionService) *UserAdminService {
 	return &UserAdminService{
 		db:      db,
 		permSvc: permSvc,

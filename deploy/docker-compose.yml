@@ -40,18 +40,60 @@ services:
     networks:
       - bdopsflow
 
-  scheduler:
+  # 调度器集群（3个节点）
+  scheduler1:
     build:
       context: ..
       dockerfile: deploy/Dockerfile.scheduler
-    container_name: bdopsflow-scheduler
+    container_name: bdopsflow-scheduler1
     ports:
       - "8080:8080"
       - "50051:50051"
     environment:
+      - APP_NODE_ID=scheduler1
       - HTTP_PORT=8080
       - GRPC_PORT=50051
-      - RQLITE_DSN=http://rqlite1:4001
+      - DATABASE_RQLITE_ADDRS=http://rqlite1:4001,http://rqlite2:4001,http://rqlite3:4001
+      - REDIS_ADDR=redis:6379
+    depends_on:
+      - redis
+      - rqlite1
+    networks:
+      - bdopsflow
+
+  scheduler2:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.scheduler
+    container_name: bdopsflow-scheduler2
+    ports:
+      - "8081:8080"
+      - "50052:50051"
+    environment:
+      - APP_NODE_ID=scheduler2
+      - HTTP_PORT=8080
+      - GRPC_PORT=50051
+      - DATABASE_RQLITE_ADDRS=http://rqlite1:4001,http://rqlite2:4001,http://rqlite3:4001
+      - REDIS_ADDR=redis:6379
+    depends_on:
+      - redis
+      - rqlite1
+    networks:
+      - bdopsflow
+
+  scheduler3:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.scheduler
+    container_name: bdopsflow-scheduler3
+    ports:
+      - "8082:8080"
+      - "50053:50051"
+    environment:
+      - APP_NODE_ID=scheduler3
+      - HTTP_PORT=8080
+      - GRPC_PORT=50051
+      - DATABASE_RQLITE_ADDRS=http://rqlite1:4001,http://rqlite2:4001,http://rqlite3:4001
       - REDIS_ADDR=redis:6379
     depends_on:
       - redis
@@ -67,22 +109,22 @@ services:
     environment:
       - EXECUTOR_ID=executor-1
       - EXECUTOR_NAME=executor-1
-      - SCHEDULER_ADDR=scheduler:50051
+      - SCHEDULER_ADDR=scheduler1:50051
       - CAPACITY=10
     depends_on:
-      - scheduler
+      - scheduler1
     networks:
       - bdopsflow
 
   web:
     build:
-      context: ../web
-      dockerfile: ../deploy/Dockerfile.web
+      context: ..
+      dockerfile: deploy/Dockerfile.web
     container_name: bdopsflow-web
     ports:
       - "3000:80"
     depends_on:
-      - scheduler
+      - scheduler1
     networks:
       - bdopsflow
 

@@ -9,6 +9,7 @@ import (
 type Config struct {
 	HTTPPort      string
 	GRPCPort      string
+	NodeID        string // 节点ID，用于主节点选举
 	RQLiteAddrs    []string // rqlite 多节点地址列表
 	RQLiteUser     string
 	RQLitePass     string
@@ -48,6 +49,7 @@ func Load(configFile string) *Config {
 	return &Config{
 		HTTPPort:      cfg.GetString("app.http_port", "8080"),
 		GRPCPort:      cfg.GetString("app.grpc_port", "50051"),
+		NodeID:        cfg.GetString("app.node_id", ""),
 		RQLiteAddrs:   cfg.GetStringSlice("database.rqlite_addrs", []string{"http://localhost:4001"}),
 		RQLiteUser:    cfg.GetString("database.rqlite_user", ""),
 		RQLitePass:    cfg.GetString("database.rqlite_password", ""),
@@ -71,6 +73,7 @@ func defaultConfig() *Config {
 	return &Config{
 		HTTPPort:      "8080",
 		GRPCPort:      "50051",
+		NodeID:        "",
 		RQLiteAddrs:   []string{"http://localhost:4001"},
 		RQLiteUser:    "",
 		RQLitePass:    "",

@@ -11,11 +11,11 @@ import (
 
 // ExecutorDomainService 执行器领域分配服务
 type ExecutorDomainService struct {
-	db rqlite.Connection
+	db *rqlite.Connection
 }
 
 // NewExecutorDomainService 创建执行器领域分配服务
-func NewExecutorDomainService(db rqlite.Connection) *ExecutorDomainService {
+func NewExecutorDomainService(db *rqlite.Connection) *ExecutorDomainService {
 	return &ExecutorDomainService{db: db}
 }
 

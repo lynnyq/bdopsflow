@@ -12,12 +12,12 @@ import (
 
 // PermissionService 权限检查服务
 type PermissionService struct {
-	db    rqlite.Connection
+	db    *rqlite.Connection
 	cache *redis.Client
 }
 
 // NewPermissionService 创建权限服务
-func NewPermissionService(db rqlite.Connection, cache *redis.Client) *PermissionService {
+func NewPermissionService(db *rqlite.Connection, cache *redis.Client) *PermissionService {
 	return &PermissionService{
 		db:    db,
 		cache: cache,
