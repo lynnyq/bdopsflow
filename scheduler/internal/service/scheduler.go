@@ -3501,8 +3501,6 @@ func (s *SchedulerService) checkRedis() ComponentCheck {
 
 // checkScheduler 检查调度器状态
 func (s *SchedulerService) checkScheduler() ComponentCheck {
-	paused := s.IsSchedulerPaused()
-	
 	if s.cronScheduler == nil {
 		return ComponentCheck{
 			Status:  "unhealthy",
