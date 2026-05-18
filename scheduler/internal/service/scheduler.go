@@ -3512,7 +3512,7 @@ func (s *SchedulerService) checkScheduler() ComponentCheck {
 	
 	return ComponentCheck{
 		Status:  "healthy",
-		Message: fmt.Sprintf("运行中 (暂停: %v)", paused),
+		Message: "运行中",
 	}
 }
 
