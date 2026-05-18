@@ -102,7 +102,7 @@
           </div>
           <div class="health-card-body">
             <div class="health-status-badge" :class="check.status">
-              {{ check.status === 'healthy' ? '正常' : '异常' }}
+              {{ check.status === 'healthy' ? (key === 'scheduler' ? '运行中' : '正常') : '异常' }}
             </div>
             <div class="health-message">{{ check.message }}</div>
             <div v-if="check.latency" class="health-latency">
@@ -299,7 +299,7 @@ const healthStatusClass = computed(() => {
 
 const getComponentName = (key: string): string => {
   const names: Record<string, string> = {
-    rqlite: 'RQLite 数据库',
+    rqlite: '数据库',
     rqlite_tables: '数据库表结构',
     redis: 'Redis 缓存',
     scheduler: '任务调度器'
