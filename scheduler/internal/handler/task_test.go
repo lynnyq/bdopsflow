@@ -9,9 +9,11 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/model"
+	rqlite "github.com/rqlite/gorqlite"
 )
 
 type mockTaskService struct {
@@ -23,6 +25,8 @@ type mockTaskService struct {
 	triggerTaskFunc     func(ctx context.Context, taskID int64) (string, error)
 	getTaskExecsFunc    func(ctx context.Context, taskID int64) ([]*model.TaskExecution, error)
 	getTaskLogsFunc     func(ctx context.Context, executionID string) ([]*model.TaskLog, error)
+	listExecutorsByDomainFunc func(ctx context.Context, domainID int64) ([]*model.Executor, error)
+	getDomainNameFunc   func(ctx context.Context, domainID int64) string
 
 	lastQuery string
 	lastArgs  []interface{}
@@ -84,6 +88,20 @@ func (m *mockTaskService) GetTaskLogs(ctx context.Context, executionID string) (
 		return m.getTaskLogsFunc(ctx, executionID)
 	}
 	return []*model.TaskLog{}, nil
+}
+
+func (m *mockTaskService) ListExecutorsByDomain(ctx context.Context, domainID int64) ([]*model.Executor, error) {
+	if m.listExecutorsByDomainFunc != nil {
+		return m.listExecutorsByDomainFunc(ctx, domainID)
+	}
+	return []*model.Executor{}, nil
+}
+
+func (m *mockTaskService) GetDomainName(ctx context.Context, domainID int64) string {
+	if m.getDomainNameFunc != nil {
+		return m.getDomainNameFunc(ctx, domainID)
+	}
+	return fmt.Sprintf("领域 %d", domainID)
 }
 
 func setupTestRouter(handler *TaskHandler) *gin.Engine {
@@ -212,10 +230,10 @@ func TestCreateTask_ServiceError(t *testing.T) {
 		t.Errorf("expected status 500 for service error, got %d", w.Code)
 	}
 
-	var resp map[string]string
+	var resp map[string]interface{}
 	json.Unmarshal(w.Body.Bytes(), &resp)
-	if !strings.Contains(resp["error"], "database connection refused") {
-		t.Errorf("expected error message about database, got: %s", resp["error"])
+	if !strings.Contains(resp["message"].(string), "database connection refused") {
+		t.Errorf("expected error message about database, got: %s", resp["message"])
 	}
 }
 
@@ -306,11 +324,16 @@ func TestListTasks(t *testing.T) {
 	}
 
 	var resp struct {
-		Items []model.Task `json:"items"`
+		Code    int                 `json:"code"`
+		Status  string              `json:"status"`
+		Message string              `json:"message"`
+		Data    struct {
+			Items []model.Task `json:"items"`
+		} `json:"data"`
 	}
 	json.Unmarshal(w.Body.Bytes(), &resp)
-	if len(resp.Items) != 2 {
-		t.Errorf("expected 2 bdopsflow_tasks, got %d", len(resp.Items))
+	if len(resp.Data.Items) != 2 {
+		t.Errorf("expected 2 bdopsflow_tasks, got %d", len(resp.Data.Items))
 	}
 }
 
@@ -364,12 +387,18 @@ func TestTriggerTask(t *testing.T) {
 
 	var resp map[string]interface{}
 	json.Unmarshal(w.Body.Bytes(), &resp)
-	if resp["message"] != "triggered" {
-		t.Errorf("expected message 'triggered', got %v", resp["message"])
+	// 新的统一响应格式：data 字段包含实际数据
+	data, ok := resp["data"].(map[string]interface{})
+	if !ok {
+		t.Errorf("expected data field in response, got: %v", resp)
+		return
 	}
-	execID, ok := resp["execution_id"].(string)
+	if data["message"] != "triggered" {
+		t.Errorf("expected message 'triggered', got %v", data["message"])
+	}
+	execID, ok := data["execution_id"].(string)
 	if !ok || execID == "" {
-		t.Errorf("expected execution_id in response, got %v", resp["execution_id"])
+		t.Errorf("expected execution_id in response, got %v", data["execution_id"])
 	}
 }
 
@@ -609,5 +638,198 @@ func TestEscapeJSON(t *testing.T) {
 				t.Errorf("escapeJSON(%q) = %q, expected %q", tt.input, result, tt.expected)
 			}
 		})
+	}
+}
+
+func TestIsExecutorOnline(t *testing.T) {
+	now := time.Now()
+	justNow := now.Add(-10 * time.Second)
+	halfMinuteAgo := now.Add(-15 * time.Second)
+	oneMinuteAgo := now.Add(-30 * time.Second)
+
+	nullTime := rqlite.NullTime{Valid: false}
+
+	tests := []struct {
+		name     string
+		exec     *model.Executor
+		expected bool
+	}{
+		{
+			name:     "status offline should return false",
+			exec:     &model.Executor{Status: "offline", LastHeartbeat: rqlite.NullTime{Time: now, Valid: true}},
+			expected: false,
+		},
+		{
+			name:     "status online but no heartbeat should return false",
+			exec:     &model.Executor{Status: "online", LastHeartbeat: nullTime},
+			expected: false,
+		},
+		{
+			name:     "status online with recent heartbeat should return true",
+			exec:     &model.Executor{Status: "online", LastHeartbeat: rqlite.NullTime{Time: justNow, Valid: true}},
+			expected: true,
+		},
+		{
+			name:     "status online with heartbeat within timeout should return true",
+			exec:     &model.Executor{Status: "online", LastHeartbeat: rqlite.NullTime{Time: halfMinuteAgo, Valid: true}},
+			expected: true,
+		},
+		{
+			name:     "status online with heartbeat beyond timeout should return false",
+			exec:     &model.Executor{Status: "online", LastHeartbeat: rqlite.NullTime{Time: oneMinuteAgo, Valid: true}},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isExecutorOnline(tt.exec)
+			if result != tt.expected {
+				t.Errorf("isExecutorOnline() = %v, expected %v", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestCreateTask_NoAvailableExecutors(t *testing.T) {
+	mock := &mockTaskService{
+		listExecutorsByDomainFunc: func(ctx context.Context, domainID int64) ([]*model.Executor, error) {
+			return []*model.Executor{}, nil
+		},
+	}
+	handler := newTaskHandlerWithSvc(mock)
+	router := setupTestRouter(handler)
+
+	body := map[string]interface{}{
+		"name":            "任务无执行器",
+		"type":            "http",
+		"config":          `{"url":"http://example.com","method":"GET"}`,
+		"domain_id":       1,
+	}
+
+	jsonBody, _ := json.Marshal(body)
+	req, _ := http.NewRequest("POST", "/api/bdopsflow_tasks", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	if w.Code != 201 {
+		t.Errorf("expected status 201, got %d, body: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+
+	data, ok := resp["data"].(map[string]interface{})
+	if !ok {
+		t.Errorf("expected data field in response, got: %v", resp)
+		return
+	}
+
+	if data["has_available_executors"] != false {
+		t.Errorf("expected has_available_executors to be false, got %v", data["has_available_executors"])
+	}
+}
+
+func TestCreateTask_WithAvailableExecutor(t *testing.T) {
+	now := time.Now()
+	mock := &mockTaskService{
+		listExecutorsByDomainFunc: func(ctx context.Context, domainID int64) ([]*model.Executor, error) {
+			return []*model.Executor{
+				{
+					ID:          1,
+					Name:        "executor-1",
+					Status:      "online",
+					LastHeartbeat: rqlite.NullTime{Time: now.Add(-10 * time.Second), Valid: true},
+					Capacity:    10,
+					CurrentLoad: 5,
+				},
+			}, nil
+		},
+	}
+	handler := newTaskHandlerWithSvc(mock)
+	router := setupTestRouter(handler)
+
+	body := map[string]interface{}{
+		"name":            "任务有执行器",
+		"type":            "http",
+		"config":          `{"url":"http://example.com","method":"GET"}`,
+		"domain_id":       1,
+	}
+
+	jsonBody, _ := json.Marshal(body)
+	req, _ := http.NewRequest("POST", "/api/bdopsflow_tasks", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	if w.Code != 201 {
+		t.Errorf("expected status 201, got %d, body: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+
+	data, ok := resp["data"].(map[string]interface{})
+	if !ok {
+		t.Errorf("expected data field in response, got: %v", resp)
+		return
+	}
+
+	if data["has_available_executors"] != true {
+		t.Errorf("expected has_available_executors to be true, got %v", data["has_available_executors"])
+	}
+}
+
+func TestCreateTask_ExecutorAtCapacity(t *testing.T) {
+	now := time.Now()
+	mock := &mockTaskService{
+		listExecutorsByDomainFunc: func(ctx context.Context, domainID int64) ([]*model.Executor, error) {
+			return []*model.Executor{
+				{
+					ID:          1,
+					Name:        "executor-1",
+					Status:      "online",
+					LastHeartbeat: rqlite.NullTime{Time: now.Add(-10 * time.Second), Valid: true},
+					Capacity:    10,
+					CurrentLoad: 10,
+				},
+			}, nil
+		},
+	}
+	handler := newTaskHandlerWithSvc(mock)
+	router := setupTestRouter(handler)
+
+	body := map[string]interface{}{
+		"name":            "任务执行器满载",
+		"type":            "http",
+		"config":          `{"url":"http://example.com","method":"GET"}`,
+		"domain_id":       1,
+	}
+
+	jsonBody, _ := json.Marshal(body)
+	req, _ := http.NewRequest("POST", "/api/bdopsflow_tasks", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	if w.Code != 201 {
+		t.Errorf("expected status 201, got %d, body: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+
+	data, ok := resp["data"].(map[string]interface{})
+	if !ok {
+		t.Errorf("expected data field in response, got: %v", resp)
+		return
+	}
+
+	if data["has_available_executors"] != false {
+		t.Errorf("expected has_available_executors to be false when executor at capacity, got %v", data["has_available_executors"])
 	}
 }

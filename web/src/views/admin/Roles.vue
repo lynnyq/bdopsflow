@@ -121,7 +121,7 @@
         />
         <el-checkbox-group v-model="selectedPermissionIds" :disabled="currentRole?.is_system">
           <el-checkbox
-            v-for="group in permissionGroups"
+            v-for="group in (permissionGroups || [])"
             :key="group.resource"
             :label="group.resource"
             border
@@ -132,7 +132,7 @@
                 <strong>{{ group.description }}</strong>
                 <div style="margin-top: 8px">
                   <el-checkbox
-                    v-for="perm in group.permissions"
+                    v-for="perm in (group.permissions || [])"
                     :key="perm.code"
                     :value="perm.id"
                     style="margin-left: 0; margin-right: 16px"

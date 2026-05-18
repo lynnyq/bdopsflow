@@ -81,7 +81,7 @@
         <el-table-column label="所属领域" width="200" show-overflow-tooltip>
           <template #default="{ row }">
             <el-tag
-              v-for="domain in row.domains"
+              v-for="domain in (row.domains || [])"
               :key="domain.id"
               size="small"
               class="domain-tag"
@@ -129,7 +129,7 @@
             {{ formatTime(row.created_at) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="320" fixed="right" align="center">
+        <el-table-column v-if="showActions" label="操作" width="180" fixed="right" align="center">
           <template #default="{ row }">
             <el-button
               v-if="canManageExecutor"
@@ -256,6 +256,7 @@ const canManageExecutor = computed(() => {
   const role = authStore.user?.role
   return role === 'admin' || role === 'system_admin' || role === 'domain_admin'
 })
+const showActions = computed(() => isAdmin.value || canManageExecutor.value)
 
 const total = computed(() => executors.value.length)
 const onlineCount = computed(() => executors.value.filter(e => e.status === 'online').length)

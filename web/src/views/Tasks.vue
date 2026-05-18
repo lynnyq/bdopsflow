@@ -91,6 +91,10 @@
             <div class="task-title-info">
               <h3 class="task-name">{{ task.name }}</h3>
               <p class="task-id">ID: {{ task.id }}</p>
+              <p class="task-creator" v-if="task.created_by_name">
+                <el-icon><User /></el-icon>
+                {{ task.created_by_name }}
+              </p>
             </div>
           </div>
           <div class="task-status-toggle">
@@ -140,6 +144,17 @@
                 <span class="result-dot"></span>
                 {{ getResultText(task.last_execution_status) }}
               </div>
+            </div>
+          </div>
+
+          <div class="task-timestamps">
+            <div class="timestamp-item">
+              <el-icon :size="12"><Clock /></el-icon>
+              <span>创建: {{ formatDateTime(task.created_at) }}</span>
+            </div>
+            <div class="timestamp-item" v-if="task.updated_at !== task.created_at">
+              <el-icon :size="12"><Refresh /></el-icon>
+              <span>更新: {{ formatDateTime(task.updated_at) }}</span>
             </div>
           </div>
         </div>
@@ -335,9 +350,8 @@
                       <template #prefix>
                         <el-icon><Cpu /></el-icon>
                       </template>
-                      <el-option label="默认调度（自动选择）" :value="undefined" />
                       <el-option
-                        v-for="executor in executors"
+                        v-for="executor in safeExecutors"
                         :key="executor.id"
                         :label="`${executor.name} (${executor.current_load}/${executor.capacity})`"
                         :value="executor.id"
@@ -727,7 +741,8 @@ import {
   Setting,
   SwitchButton,
   DataAnalysis,
-  Link
+  Link,
+  User
 } from '@element-plus/icons-vue'
 import { taskAPI, executorAPI } from '@/api'
 import type { Task, TaskConfig, Executor } from '@/types'
@@ -771,6 +786,12 @@ const cronPlaceholder = computed(() => {
   if (cronPreset.value === 'manual') return '手动触发'
   if (cronPreset.value === 'custom') return '输入 Cron 表达式（支持5位或6位）'
   return form.value.cron_expression || ''
+})
+
+// 安全过滤执行器列表，确保所有元素都有有效的 id
+const safeExecutors = computed(() => {
+  const list = Array.isArray(executors.value) ? executors.value : []
+  return list.filter(exec => exec && typeof exec.id !== 'undefined' && exec.id !== null)
 })
 
 const handleCronPresetChange = (preset: string) => {
@@ -817,16 +838,32 @@ const defaultForm = {
   is_enabled: true,
   webhook_url: '',
   webhook_events: [] as string[],
-  assigned_executor_id: undefined as number | undefined,
+  assigned_executor_id: null as number | null,
   domain_id: 1 as number
 }
 
 const form = ref({ ...defaultForm })
 
-const rules = {
-  name: [{ required: true, message: '请输入任务名称', trigger: 'blur' }],
-  type: [{ required: true, message: '请选择任务类型', trigger: 'change' }]
-} satisfies FormRules
+const rules = computed(() => {
+  const baseRules: any = {
+    name: [{ required: true, message: '请输入任务名称', trigger: 'blur' }],
+    type: [{ required: true, message: '请选择任务类型', trigger: 'change' }]
+  }
+
+  if (form.value.type === 'http') {
+    baseRules['config.url'] = [
+      { required: true, message: '请输入请求 URL', trigger: 'blur' }
+    ]
+  }
+
+  if (form.value.type === 'shell') {
+    baseRules['config.script'] = [
+      { required: true, message: '请输入 Shell 脚本', trigger: 'blur' }
+    ]
+  }
+
+  return baseRules
+})
 
 const enabledTasks = computed(() => tasks.value.filter(t => t.is_enabled).length)
 const cronTasks = computed(() => tasks.value.filter(t => t.cron_expression).length)
@@ -982,7 +1019,7 @@ const handleEdit = (task: Task) => {
     is_enabled: task.is_enabled,
     webhook_url: webhookUrl,
     webhook_events: webhookEvents,
-    assigned_executor_id: task.assigned_executor_id || undefined,
+    assigned_executor_id: task.assigned_executor_id || null,
     domain_id: task.domain_id
   }
   
@@ -1036,11 +1073,19 @@ const handleSubmit = async () => {
         domain_id: editingTask.value ? form.value.domain_id : userDomainId
       }
       if (editingTask.value) {
-        await taskAPI.update(editingTask.value.id, submitData)
+        const response = await taskAPI.update(editingTask.value.id, submitData)
         ElMessage.success('任务更新成功')
+        // 检查是否有可用的执行器
+        if (response.data.has_available_executors === false) {
+          ElMessage.warning('当前领域没有可用的执行器，任务已更新但已停用，请联系管理员分配执行器')
+        }
       } else {
-        await taskAPI.create(submitData)
+        const response = await taskAPI.create(submitData)
         ElMessage.success('任务创建成功')
+        // 检查是否有可用的执行器
+        if (response.data.has_available_executors === false) {
+          ElMessage.warning('当前领域没有可用的执行器，任务已创建但已停用，请联系管理员分配执行器')
+        }
       }
       dialogVisible.value = false
       await loadTasks()
@@ -1059,13 +1104,20 @@ const handleDialogClose = () => {
 }
 
 const handleToggleStatus = async (task: Task) => {
+  const expectedEnabled = task.is_enabled
   toggleLoading.value = task.id
   try {
-    await taskAPI.update(task.id, { is_enabled: task.is_enabled })
-    ElMessage.success(task.is_enabled ? '任务已启用' : '任务已停用')
+    const response = await taskAPI.update(task.id, { is_enabled: expectedEnabled })
+    const result = response.data as { task?: Task; has_available_executors?: boolean }
+    
+    if (expectedEnabled && result.has_available_executors === false) {
+      ElMessage.warning('当前领域没有可用的执行器，任务已自动设置为停用状态，请联系管理员分配执行器')
+    } else {
+      ElMessage.success(expectedEnabled ? '任务已启用' : '任务已停用')
+    }
     await loadTasks()
   } catch (err: any) {
-    task.is_enabled = !task.is_enabled
+    task.is_enabled = !expectedEnabled
     ElMessage.error(err.message || '操作失败')
   } finally {
     toggleLoading.value = null
@@ -1095,7 +1147,9 @@ const handleTrigger = async (task: Task) => {
     await taskAPI.trigger(task.id)
     ElMessage.success('任务已触发')
   } catch (err: any) {
-    ElMessage.error(err.message || '触发失败')
+    // 优先使用后端返回的错误信息
+    const errorMessage = err.response?.data?.error || err.message || '触发失败'
+    ElMessage.error(errorMessage)
   } finally {
     triggeringId.value = null
   }
@@ -1176,9 +1230,9 @@ onMounted(async () => {
 const loadExecutors = async () => {
   try {
     const response = await executorAPI.list()
-    executors.value = response.data
+    executors.value = response.data.items || []
   } catch (error) {
-    console.error('Failed to load executors:', error)
+    console.error('加载执行器列表失败:', error)
     ElMessage.error('加载执行器列表失败')
   }
 }
@@ -1675,6 +1729,19 @@ const loadExecutors = async () => {
   margin: 0;
 }
 
+.task-creator {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin: 4px 0 0 0;
+  
+  .el-icon {
+    font-size: 14px;
+  }
+}
+
 .task-meta {
   display: flex;
   flex-wrap: wrap;
@@ -1708,6 +1775,27 @@ const loadExecutors = async () => {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
+}
+
+.task-timestamps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px dashed var(--border-subtle);
+}
+
+.timestamp-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.timestamp-item .el-icon {
+  font-size: 12px;
 }
 
 .execution-info {

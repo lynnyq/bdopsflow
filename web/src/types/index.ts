@@ -27,6 +27,7 @@ export interface Task {
   webhook_config: string
   assigned_executor_id: number
   created_by: number
+  created_by_name?: string
   created_at: string
   updated_at: string
   next_execution_time?: string

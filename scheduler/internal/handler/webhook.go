@@ -3,7 +3,6 @@ package handler
 import (
 	"encoding/json"
 	"log/slog"
-	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -34,29 +33,26 @@ func (h *WebhookHandler) Create(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		slog.Warn("WebhookHandler.Create: invalid request body", "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		BadRequest(c, err.Error())
 		return
 	}
 
 	if safeString(req.URL) == "" {
 		slog.Warn("WebhookHandler.Create: url is required")
-		c.JSON(http.StatusBadRequest, gin.H{"error": "url is required"})
+		BadRequest(c, "url is required")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"message": "webhook configuration created",
-		"config": webhook.WebhookConfig{
-			URL:     req.URL,
-			Method:  req.Method,
-			Headers: req.Headers,
-			Events:  req.Events,
-		},
+	SuccessWithMessage(c, "webhook configuration created", webhook.WebhookConfig{
+		URL:     req.URL,
+		Method:  req.Method,
+		Headers: req.Headers,
+		Events:  req.Events,
 	})
 }
 
 func (h *WebhookHandler) List(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
+	Success(c, gin.H{
 		"webhooks": []interface{}{},
 	})
 }
@@ -66,19 +62,17 @@ func (h *WebhookHandler) Delete(c *gin.Context) {
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		slog.Warn("WebhookHandler.Delete: invalid id", "id_str", idStr, "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		BadRequest(c, "invalid id")
 		return
 	}
 
 	if id <= 0 {
 		slog.Warn("WebhookHandler.Delete: id must be positive", "id", id)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "id must be positive"})
+		BadRequest(c, "id must be positive")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"message": "webhook deleted",
-	})
+	SuccessWithMessage(c, "webhook deleted", nil)
 }
 
 func (h *WebhookHandler) Test(c *gin.Context) {
@@ -86,7 +80,7 @@ func (h *WebhookHandler) Test(c *gin.Context) {
 	_, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		slog.Warn("WebhookHandler.Test: invalid id", "id_str", idStr, "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		BadRequest(c, "invalid id")
 		return
 	}
 
@@ -96,7 +90,7 @@ func (h *WebhookHandler) Test(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		slog.Warn("WebhookHandler.Test: invalid request body", "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		BadRequest(c, err.Error())
 		return
 	}
 
@@ -117,51 +111,52 @@ func (h *WebhookHandler) Test(c *gin.Context) {
 	err = h.webhookSvc.Send(c.Request.Context(), config, payload)
 	if err != nil {
 		slog.Error("WebhookHandler.Test: failed to send webhook", "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		BadRequest(c, err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"message": "test webhook sent successfully",
-	})
+	SuccessWithMessage(c, "test webhook sent successfully", nil)
 }
 
 func (h *WebhookHandler) TriggerForTask(c *gin.Context) {
 	var req struct {
-		TaskID int64  `json:"task_id"`
+		TaskID int64  `json:"task_id" binding:"required,min=1"`
 		Event  string `json:"event"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		BadRequest(c, "task_id为必填项，且必须为正整数")
+		return
+	}
+
+	if req.TaskID <= 0 {
+		BadRequest(c, "task_id必须为正整数")
 		return
 	}
 
 	task, err := h.schedulerSvc.GetTaskByID(c.Request.Context(), req.TaskID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
+		NotFound(c, "task not found")
 		return
 	}
 
 	webhookConfigStr := task.WebhookConfig
 	if webhookConfigStr == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "no webhook configured for this task"})
+		BadRequest(c, "no webhook configured for this task")
 		return
 	}
 
 	var config webhook.WebhookConfig
 	if err := json.Unmarshal([]byte(webhookConfigStr), &config); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid webhook config"})
+		BadRequest(c, "invalid webhook config")
 		return
 	}
 
 	payload := webhook.BuildPayload(req.Event, task.ID, "", task.Status, "", "", 0)
 	if err := h.webhookSvc.Send(c.Request.Context(), config, payload); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalServerError(c, err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"message": "webhook triggered successfully",
-	})
+	SuccessWithMessage(c, "webhook triggered successfully", nil)
 }

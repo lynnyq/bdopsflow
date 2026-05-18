@@ -78,6 +78,41 @@
       </div>
     </section>
 
+    <!-- Health Check -->
+    <section class="health-section">
+      <div class="section-header">
+        <h2 class="section-title">系统健康状态</h2>
+        <span class="health-status" :class="healthStatusClass">
+          <span class="status-dot"></span>
+          {{ healthData?.status === 'healthy' ? '健康' : '异常' }}
+        </span>
+      </div>
+      <div class="health-grid">
+        <div 
+          v-for="(check, key) in healthData?.components" 
+          :key="key"
+          class="health-card"
+          :class="{ healthy: check.status === 'healthy', unhealthy: check.status !== 'healthy' }"
+        >
+          <div class="health-card-header">
+            <el-icon :size="20">
+              <component :is="getComponentIcon(key)" />
+            </el-icon>
+            <span class="health-card-title">{{ getComponentName(key) }}</span>
+          </div>
+          <div class="health-card-body">
+            <div class="health-status-badge" :class="check.status">
+              {{ check.status === 'healthy' ? '正常' : '异常' }}
+            </div>
+            <div class="health-message">{{ check.message }}</div>
+            <div v-if="check.latency" class="health-latency">
+              响应时间: {{ check.latency }}
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- Execution Stats -->
     <section class="execution-section">
       <div class="execution-grid">
@@ -206,8 +241,8 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { VideoPlay, VideoPause, Refresh, List, CircleCheck, CircleClose, Clock, Timer, Cpu, Connection, DataLine } from '@element-plus/icons-vue'
-import { dashboardAPI } from '@/api'
+import { VideoPlay, VideoPause, Refresh, List, CircleCheck, CircleClose, Clock, Timer, Cpu, Connection, DataLine, Odometer, Database, Bell, Monitor } from '@element-plus/icons-vue'
+import { dashboardAPI, type HealthCheckResult } from '@/api'
 import { handleError, handleSuccess, formatValue, formatNumber } from '@/utils/error'
 import { useAuthStore } from '@/stores/auth'
 
@@ -254,8 +289,42 @@ const stats = ref<DashboardStats>({
 })
 const schedulerStatus = ref({ paused: false })
 const trends = ref<TrendData[]>([])
+const healthData = ref<HealthCheckResult | null>(null)
 
 let refreshInterval: number | null = null
+
+const healthStatusClass = computed(() => {
+  return healthData.value?.status === 'healthy' ? 'healthy' : 'unhealthy'
+})
+
+const getComponentName = (key: string): string => {
+  const names: Record<string, string> = {
+    rqlite: 'RQLite 数据库',
+    rqlite_tables: '数据库表结构',
+    redis: 'Redis 缓存',
+    scheduler: '任务调度器'
+  }
+  return names[key] || key
+}
+
+const getComponentIcon = (key: string): string => {
+  const icons: Record<string, string> = {
+    rqlite: 'Database',
+    rqlite_tables: 'Odometer',
+    redis: 'Bell',
+    scheduler: 'Monitor'
+  }
+  return icons[key] || 'Monitor'
+}
+
+const loadHealthData = async () => {
+  try {
+    const response = await dashboardAPI.getHealth()
+    healthData.value = response.data
+  } catch (error) {
+    console.error('Failed to load health data:', error)
+  }
+}
 
 const loadDashboardStats = async () => {
   try {
@@ -314,7 +383,8 @@ const refreshData = async () => {
     await Promise.all([
       loadDashboardStats(),
       loadSchedulerStatus(),
-      loadTrends()
+      loadTrends(),
+      loadHealthData()
     ])
   } finally {
     loading.value = false
@@ -494,6 +564,146 @@ onUnmounted(() => {
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.03em;
+}
+
+/* Health Section */
+.health-section {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  box-shadow: var(--shadow-sm);
+}
+
+.health-section .section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-4);
+}
+
+.health-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-weight: 500;
+  font-size: 0.875rem;
+}
+
+.health-status.healthy {
+  background: rgba(52, 211, 153, 0.1);
+  color: var(--accent-success);
+}
+
+.health-status.unhealthy {
+  background: rgba(248, 113, 113, 0.1);
+  color: var(--accent-danger);
+}
+
+.health-status .status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.health-status.healthy .status-dot {
+  background: var(--accent-success);
+}
+
+.health-status.unhealthy .status-dot {
+  background: var(--accent-danger);
+}
+
+.health-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-4);
+}
+
+@media (max-width: 1200px) {
+  .health-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .health-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.health-card {
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  border: 1px solid var(--border-subtle);
+  transition: all var(--duration-normal) var(--ease-out);
+}
+
+.health-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.health-card.healthy {
+  border-left: 3px solid var(--accent-success);
+}
+
+.health-card.unhealthy {
+  border-left: 3px solid var(--accent-danger);
+}
+
+.health-card-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  color: var(--text-primary);
+}
+
+.health-card-title {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.health-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.health-status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  font-weight: 500;
+  width: fit-content;
+}
+
+.health-status-badge.healthy {
+  background: rgba(52, 211, 153, 0.15);
+  color: var(--accent-success);
+}
+
+.health-status-badge.unhealthy {
+  background: rgba(248, 113, 113, 0.15);
+  color: var(--accent-danger);
+}
+
+.health-message {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  word-break: break-word;
+}
+
+.health-latency {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
 }
 
 /* Execution Section */

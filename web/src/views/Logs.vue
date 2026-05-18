@@ -67,7 +67,7 @@
               @change="loadExecutions(1)"
             >
               <el-option
-                v-for="task in tasks"
+                v-for="task in (tasks || [])"
                 :key="task.id"
                 :label="task.name"
                 :value="task.name"
@@ -81,7 +81,7 @@
               @change="loadExecutions(1)"
             >
               <el-option
-                v-for="exec in executors"
+                v-for="exec in (executors || [])"
                 :key="exec.id"
                 :label="exec.name"
                 :value="exec.name"
@@ -110,7 +110,7 @@
             </el-button>
             <el-button :icon="Refresh" @click="loadExecutions(1)" :loading="loading" class="refresh-btn">刷新</el-button>
             <el-button
-              v-if="selectedIds && selectedIds.length > 0"
+              v-if="selectedIds && selectedIds.length > 0 && canDelete"
               type="danger"
               @click="handleBatchDelete"
               class="delete-btn"
@@ -264,6 +264,7 @@
                   <el-icon><View /></el-icon>
                 </el-button>
                 <el-button
+                  v-if="canDelete"
                   type="danger"
                   size="small"
                   circle
@@ -316,11 +317,17 @@ import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh, Delete, Document, View, List, CircleCheck, CircleClose, Loading, Filter, ArrowDown } from '@element-plus/icons-vue'
 import { logAPI, taskAPI, executorAPI } from '@/api'
+import { useAuthStore } from '@/stores/auth'
 import TaskLogViewer from '@/components/TaskLogViewer.vue'
 import type { TaskExecutionListResponse, Task, Executor } from '@/types'
 import { handleError, handleSuccess, formatValue, formatNumber } from '@/utils/error'
 
 const route = useRoute()
+const authStore = useAuthStore()
+
+const canDelete = computed(() => {
+  return authStore.user?.role === 'admin' || authStore.user?.role === 'system_admin' || authStore.user?.role === 'domain_admin'
+})
 const executions = ref<TaskExecutionListResponse[]>([])
 const executors = ref<Executor[]>([])
 const tasks = ref<Task[]>([])
@@ -541,7 +548,7 @@ const loadExecutions = async (page: number = currentPage.value) => {
 const loadExecutors = async () => {
   try {
     const response = await executorAPI.list()
-    executors.value = response.data || []
+    executors.value = response.data.items || []
   } catch (error) {
     console.error('加载执行器列表失败', error)
   }

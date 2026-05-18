@@ -2,7 +2,6 @@ package handler
 
 import (
 	"log/slog"
-	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -26,7 +25,7 @@ func (h *RoleAdminHandler) ListRoles(c *gin.Context) {
 	defer func() {
 		if r := recover(); r != nil {
 			slog.Error("RoleAdminHandler.ListRoles: panic recovered", "panic", r)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+			InternalServerError(c, "internal server error")
 		}
 	}()
 
@@ -35,11 +34,11 @@ func (h *RoleAdminHandler) ListRoles(c *gin.Context) {
 	bdopsflow_roles, err := h.svc.ListRoles(ctx)
 	if err != nil {
 		slog.Error("RoleAdminHandler.ListRoles: failed to list bdopsflow_roles", "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalServerError(c, err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"items": bdopsflow_roles})
+	Success(c, gin.H{"items": bdopsflow_roles})
 }
 
 // GetRole 获取角色详情
@@ -49,13 +48,13 @@ func (h *RoleAdminHandler) GetRole(c *gin.Context) {
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		slog.Warn("RoleAdminHandler.GetRole: invalid id", "id_str", idStr, "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		BadRequest(c, "invalid id")
 		return
 	}
 
 	if id <= 0 {
 		slog.Warn("RoleAdminHandler.GetRole: id must be positive", "id", id)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "id must be positive"})
+		BadRequest(c, "id must be positive")
 		return
 	}
 
@@ -64,12 +63,12 @@ func (h *RoleAdminHandler) GetRole(c *gin.Context) {
 	role, err := h.svc.GetRole(ctx, id)
 	if err != nil {
 		slog.Error("RoleAdminHandler.GetRole: failed to get role", "role_id", id, "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalServerError(c, err.Error())
 		return
 	}
 
 	if role == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "role not found"})
+		NotFound(c, "role not found")
 		return
 	}
 
@@ -79,7 +78,7 @@ func (h *RoleAdminHandler) GetRole(c *gin.Context) {
 		slog.Error("RoleAdminHandler.GetRole: failed to get role bdopsflow_permissions", "role_id", id, "error", err)
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	Success(c, gin.H{
 		"role":        role,
 		"bdopsflow_permissions": bdopsflow_permissions,
 	})
@@ -92,7 +91,7 @@ func (h *RoleAdminHandler) CreateRole(c *gin.Context) {
 	var req model.RoleRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		slog.Warn("RoleAdminHandler.CreateRole: invalid request", "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		BadRequest(c, err.Error())
 		return
 	}
 
@@ -106,11 +105,11 @@ func (h *RoleAdminHandler) CreateRole(c *gin.Context) {
 	role, err := h.svc.CreateRole(ctx, req.Name, req.Code, req.Description, domainID)
 	if err != nil {
 		slog.Error("RoleAdminHandler.CreateRole: failed to create role", "name", req.Name, "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalServerError(c, err.Error())
 		return
 	}
 
-	c.JSON(http.StatusCreated, role)
+	Created(c, role)
 }
 
 // UpdateRole 更新角色
@@ -120,13 +119,13 @@ func (h *RoleAdminHandler) UpdateRole(c *gin.Context) {
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		slog.Warn("RoleAdminHandler.UpdateRole: invalid id", "id_str", idStr, "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		BadRequest(c, "invalid id")
 		return
 	}
 
 	if id <= 0 {
 		slog.Warn("RoleAdminHandler.UpdateRole: id must be positive", "id", id)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "id must be positive"})
+		BadRequest(c, "id must be positive")
 		return
 	}
 
@@ -137,7 +136,7 @@ func (h *RoleAdminHandler) UpdateRole(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		slog.Warn("RoleAdminHandler.UpdateRole: invalid request", "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		BadRequest(c, err.Error())
 		return
 	}
 
@@ -146,20 +145,20 @@ func (h *RoleAdminHandler) UpdateRole(c *gin.Context) {
 	role, err := h.svc.UpdateRole(ctx, id, req.Name, req.Description)
 	if err != nil {
 		if err == service.ErrSystemRoleCannotModify {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			BadRequest(c, err.Error())
 			return
 		}
 		slog.Error("RoleAdminHandler.UpdateRole: failed to update role", "role_id", id, "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalServerError(c, err.Error())
 		return
 	}
 
 	if role == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "role not found"})
+		NotFound(c, "role not found")
 		return
 	}
 
-	c.JSON(http.StatusOK, role)
+	Success(c, role)
 }
 
 // DeleteRole 删除角色
@@ -169,13 +168,13 @@ func (h *RoleAdminHandler) DeleteRole(c *gin.Context) {
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		slog.Warn("RoleAdminHandler.DeleteRole: invalid id", "id_str", idStr, "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		BadRequest(c, "invalid id")
 		return
 	}
 
 	if id <= 0 {
 		slog.Warn("RoleAdminHandler.DeleteRole: id must be positive", "id", id)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "id must be positive"})
+		BadRequest(c, "id must be positive")
 		return
 	}
 
@@ -184,19 +183,19 @@ func (h *RoleAdminHandler) DeleteRole(c *gin.Context) {
 	err = h.svc.DeleteRole(ctx, id)
 	if err != nil {
 		if err == service.ErrSystemRoleCannotDelete {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			BadRequest(c, err.Error())
 			return
 		}
 		if err == service.ErrRoleNotFound {
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			NotFound(c, err.Error())
 			return
 		}
 		slog.Error("RoleAdminHandler.DeleteRole: failed to delete role", "role_id", id, "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalServerError(c, err.Error())
 		return
 	}
 
-	c.JSON(http.StatusNoContent, nil)
+	Success(c, nil)
 }
 
 // GetRolePermissions 获取角色权限
@@ -206,13 +205,13 @@ func (h *RoleAdminHandler) GetRolePermissions(c *gin.Context) {
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		slog.Warn("RoleAdminHandler.GetRolePermissions: invalid id", "id_str", idStr, "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		BadRequest(c, "invalid id")
 		return
 	}
 
 	if id <= 0 {
 		slog.Warn("RoleAdminHandler.GetRolePermissions: id must be positive", "id", id)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "id must be positive"})
+		BadRequest(c, "id must be positive")
 		return
 	}
 
@@ -221,11 +220,11 @@ func (h *RoleAdminHandler) GetRolePermissions(c *gin.Context) {
 	bdopsflow_permissions, err := h.svc.GetRolePermissions(ctx, id)
 	if err != nil {
 		slog.Error("RoleAdminHandler.GetRolePermissions: failed to get role bdopsflow_permissions", "role_id", id, "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalServerError(c, err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"items": bdopsflow_permissions})
+	Success(c, gin.H{"items": bdopsflow_permissions})
 }
 
 // AssignPermissions 分配权限给角色
@@ -235,20 +234,20 @@ func (h *RoleAdminHandler) AssignPermissions(c *gin.Context) {
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		slog.Warn("RoleAdminHandler.AssignPermissions: invalid id", "id_str", idStr, "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		BadRequest(c, "invalid id")
 		return
 	}
 
 	if id <= 0 {
 		slog.Warn("RoleAdminHandler.AssignPermissions: id must be positive", "id", id)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "id must be positive"})
+		BadRequest(c, "id must be positive")
 		return
 	}
 
 	var req model.RolePermissionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		slog.Warn("RoleAdminHandler.AssignPermissions: invalid request", "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		BadRequest(c, err.Error())
 		return
 	}
 
@@ -257,19 +256,19 @@ func (h *RoleAdminHandler) AssignPermissions(c *gin.Context) {
 	err = h.svc.AssignPermissionsToRole(ctx, id, req.PermissionIDs)
 	if err != nil {
 		if err == service.ErrSystemRoleCannotModify {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			BadRequest(c, err.Error())
 			return
 		}
 		if err == service.ErrRoleNotFound {
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			NotFound(c, err.Error())
 			return
 		}
 		slog.Error("RoleAdminHandler.AssignPermissions: failed to assign bdopsflow_permissions", "role_id", id, "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalServerError(c, err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "bdopsflow_permissions assigned successfully"})
+	SuccessWithMessage(c, "bdopsflow_permissions assigned successfully", nil)
 }
 
 // GetAllPermissions 获取所有权限
@@ -281,14 +280,14 @@ func (h *RoleAdminHandler) GetAllPermissions(c *gin.Context) {
 	bdopsflow_permissions, err := h.svc.GetAllPermissions(ctx)
 	if err != nil {
 		slog.Error("RoleAdminHandler.GetAllPermissions: failed to get all bdopsflow_permissions", "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalServerError(c, err.Error())
 		return
 	}
 
 	// 按资源分组
 	groups := model.GetAllPermissionGroups()
 
-	c.JSON(http.StatusOK, gin.H{
+	Success(c, gin.H{
 		"items":  bdopsflow_permissions,
 		"groups": groups,
 	})

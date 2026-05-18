@@ -113,4 +113,19 @@ export const dashboardAPI = {
   getSchedulerStatus: () => api.get<{ paused: boolean }>('/dashboard/scheduler/status'),
   pauseScheduler: () => api.post('/dashboard/scheduler/pause'),
   resumeScheduler: () => api.post('/dashboard/scheduler/resume'),
+  getHealth: () => api.get<HealthCheckResult>('/dashboard/health'),
+}
+
+export interface ComponentCheck {
+  status: string
+  message: string
+  latency?: string
+}
+
+export interface HealthCheckResult {
+  status: string
+  timestamp: string
+  components: {
+    [key: string]: ComponentCheck
+  }
 }

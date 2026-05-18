@@ -2,7 +2,6 @@ package handler
 
 import (
 	"log/slog"
-	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -25,7 +24,7 @@ func (h *DomainAdminHandler) ListDomains(c *gin.Context) {
 	defer func() {
 		if r := recover(); r != nil {
 			slog.Error("DomainAdminHandler.ListDomains: panic recovered", "panic", r)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+			InternalServerError(c, "internal server error")
 		}
 	}()
 
@@ -34,11 +33,11 @@ func (h *DomainAdminHandler) ListDomains(c *gin.Context) {
 	bdopsflow_domains, err := h.svc.ListDomains(ctx)
 	if err != nil {
 		slog.Error("DomainAdminHandler.ListDomains: failed to list bdopsflow_domains", "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalServerError(c, err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"items": bdopsflow_domains})
+	Success(c, gin.H{"items": bdopsflow_domains})
 }
 
 // GetDomain 获取领域详情
@@ -48,13 +47,13 @@ func (h *DomainAdminHandler) GetDomain(c *gin.Context) {
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		slog.Warn("DomainAdminHandler.GetDomain: invalid id", "id_str", idStr, "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		BadRequest(c, "invalid id")
 		return
 	}
 
 	if id <= 0 {
 		slog.Warn("DomainAdminHandler.GetDomain: id must be positive", "id", id)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "id must be positive"})
+		BadRequest(c, "id must be positive")
 		return
 	}
 
@@ -63,16 +62,16 @@ func (h *DomainAdminHandler) GetDomain(c *gin.Context) {
 	domain, err := h.svc.GetDomain(ctx, id)
 	if err != nil {
 		slog.Error("DomainAdminHandler.GetDomain: failed to get domain", "domain_id", id, "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalServerError(c, err.Error())
 		return
 	}
 
 	if domain == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "domain not found"})
+		NotFound(c, "domain not found")
 		return
 	}
 
-	c.JSON(http.StatusOK, domain)
+	Success(c, domain)
 }
 
 // CreateDomain 创建领域
@@ -86,7 +85,7 @@ func (h *DomainAdminHandler) CreateDomain(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		slog.Warn("DomainAdminHandler.CreateDomain: invalid request", "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		BadRequest(c, err.Error())
 		return
 	}
 
@@ -95,11 +94,11 @@ func (h *DomainAdminHandler) CreateDomain(c *gin.Context) {
 	domain, err := h.svc.CreateDomain(ctx, req.Name, req.Description)
 	if err != nil {
 		slog.Error("DomainAdminHandler.CreateDomain: failed to create domain", "name", req.Name, "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalServerError(c, err.Error())
 		return
 	}
 
-	c.JSON(http.StatusCreated, domain)
+	Created(c, domain)
 }
 
 // UpdateDomain 更新领域
@@ -109,13 +108,13 @@ func (h *DomainAdminHandler) UpdateDomain(c *gin.Context) {
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		slog.Warn("DomainAdminHandler.UpdateDomain: invalid id", "id_str", idStr, "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		BadRequest(c, "invalid id")
 		return
 	}
 
 	if id <= 0 {
 		slog.Warn("DomainAdminHandler.UpdateDomain: id must be positive", "id", id)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "id must be positive"})
+		BadRequest(c, "id must be positive")
 		return
 	}
 
@@ -126,7 +125,7 @@ func (h *DomainAdminHandler) UpdateDomain(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		slog.Warn("DomainAdminHandler.UpdateDomain: invalid request", "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		BadRequest(c, err.Error())
 		return
 	}
 
@@ -135,16 +134,16 @@ func (h *DomainAdminHandler) UpdateDomain(c *gin.Context) {
 	domain, err := h.svc.UpdateDomain(ctx, id, req.Name, req.Description)
 	if err != nil {
 		slog.Error("DomainAdminHandler.UpdateDomain: failed to update domain", "domain_id", id, "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalServerError(c, err.Error())
 		return
 	}
 
 	if domain == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "domain not found"})
+		NotFound(c, "domain not found")
 		return
 	}
 
-	c.JSON(http.StatusOK, domain)
+	Success(c, domain)
 }
 
 // DeleteDomain 删除领域
@@ -154,13 +153,13 @@ func (h *DomainAdminHandler) DeleteDomain(c *gin.Context) {
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		slog.Warn("DomainAdminHandler.DeleteDomain: invalid id", "id_str", idStr, "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		BadRequest(c, "invalid id")
 		return
 	}
 
 	if id <= 0 {
 		slog.Warn("DomainAdminHandler.DeleteDomain: id must be positive", "id", id)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "id must be positive"})
+		BadRequest(c, "id must be positive")
 		return
 	}
 
@@ -169,17 +168,17 @@ func (h *DomainAdminHandler) DeleteDomain(c *gin.Context) {
 	err = h.svc.DeleteDomain(ctx, id)
 	if err != nil {
 		if err == service.ErrDomainHasResources {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			BadRequest(c, err.Error())
 			return
 		}
 		if err == service.ErrDomainNotFound {
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			NotFound(c, err.Error())
 			return
 		}
 		slog.Error("DomainAdminHandler.DeleteDomain: failed to delete domain", "domain_id", id, "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalServerError(c, err.Error())
 		return
 	}
 
-	c.JSON(http.StatusNoContent, nil)
+	Success(c, nil)
 }

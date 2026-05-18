@@ -53,7 +53,7 @@
               <span>{{ workflow.cron_expression || '手动' }}</span>
             </div>
           </div>
-          <div class="card-actions">
+          <div v-if="showCardActions" class="card-actions">
             <el-button v-if="canManageWorkflow" :icon="Edit" text size="small" @click.stop="editWorkflow(workflow)">
               编辑
             </el-button>
@@ -80,8 +80,8 @@
         <div class="editor-info">
           <el-button :icon="ArrowLeft" text @click="exitEditor" />
           <div class="info-text">
-            <h2>{{ selectedWorkflow.name }}</h2>
-            <p>{{ selectedWorkflow.description }}</p>
+            <h2>{{ selectedWorkflow?.name }}</h2>
+            <p>{{ selectedWorkflow?.description }}</p>
           </div>
         </div>
         <div class="editor-actions">
@@ -101,7 +101,7 @@
         <div class="toolbar-info">
           <span class="info-item">
             <el-icon><Timer /></el-icon>
-            上次运行: {{ formatTime(selectedWorkflow.updated_at) || '从未' }}
+            上次运行: {{ formatTime(selectedWorkflow?.updated_at) || '从未' }}
           </span>
           <span class="info-item" v-if="currentExecution">
             <el-icon><Loading /></el-icon>
@@ -298,6 +298,8 @@ const canManageWorkflow = computed(() => {
   return role === 'admin' || role === 'system_admin' || role === 'domain_admin'
 })
 
+const showCardActions = computed(() => canManageWorkflow.value)
+
 let logPollingInterval: number | null = null
 let executionPollingInterval: number | null = null
 
@@ -360,7 +362,7 @@ const getStatusTagType = (status: string): string => {
 const loadWorkflows = async () => {
   try {
     const response = await workflowAPI.list()
-    workflows.value = response.data
+    workflows.value = response.data || []
   } catch (error) {
     console.error('加载工作流失败:', error)
     workflows.value = []
@@ -398,7 +400,7 @@ const loadWorkflowDAG = async (workflowId: number) => {
 const loadWorkflowExecutions = async (workflowId: number) => {
   try {
     const response = await workflowAPI.getExecutions(workflowId)
-    workflowExecutions.value = response.data
+    workflowExecutions.value = response.data || []
   } catch (error) {
     console.error('加载工作流执行历史失败:', error)
     workflowExecutions.value = []

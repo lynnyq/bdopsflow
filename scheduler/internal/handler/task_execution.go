@@ -2,7 +2,6 @@ package handler
 
 import (
 	"log/slog"
-	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -22,13 +21,13 @@ func (h *TaskExecutionHandler) ListByTask(c *gin.Context) {
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		slog.Warn("TaskExecutionHandler.ListByTask: invalid id", "id_str", idStr, "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		BadRequest(c, "invalid id")
 		return
 	}
 
 	if id <= 0 {
 		slog.Warn("TaskExecutionHandler.ListByTask: id must be positive", "id", id)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "id must be positive"})
+		BadRequest(c, "id must be positive")
 		return
 	}
 
@@ -36,7 +35,7 @@ func (h *TaskExecutionHandler) ListByTask(c *gin.Context) {
 	executions, err := h.svc.GetTaskExecutions(ctx, id)
 	if err != nil {
 		slog.Error("TaskExecutionHandler.ListByTask: failed to get executions", "task_id", id, "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalServerError(c, err.Error())
 		return
 	}
 
@@ -45,5 +44,5 @@ func (h *TaskExecutionHandler) ListByTask(c *gin.Context) {
 		response = append(response, toTaskExecutionResponse(exec))
 	}
 
-	c.JSON(http.StatusOK, response)
+	Success(c, response)
 }

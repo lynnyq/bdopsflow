@@ -55,7 +55,7 @@ func TestSelectAvailableExecutorQuery(t *testing.T) {
 	query := `SELECT id, name, address, status, last_heartbeat, capacity, current_load, created_at, updated_at
 		FROM bdopsflow_executors
 		WHERE status = 'online' AND current_load < capacity
-		  AND last_heartbeat > datetime('now', '-30 seconds')
+		  AND julianday('now') - julianday(last_heartbeat) <= 30/86400.0
 		ORDER BY current_load ASC, RANDOM()
 		LIMIT 1`
 
@@ -97,7 +97,7 @@ func TestRegisterExecutorDuplicateCheck(t *testing.T) {
 	existsQuery := `
 		SELECT id, address FROM bdopsflow_executors 
 		WHERE name = ? AND address = ? AND status = 'online' 
-		AND last_heartbeat > datetime('now', '-30 seconds')
+		AND julianday('now') - julianday(last_heartbeat) <= 30/86400.0
 	`
 
 	if !strings.Contains(existsQuery, "status = 'online'") {

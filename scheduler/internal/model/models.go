@@ -57,6 +57,7 @@ type Task struct {
 	WebhookConfig       string    `db:"webhook_config" json:"webhook_config"`
 	AssignedExecutorID  int64     `db:"assigned_executor_id" json:"assigned_executor_id"`
 	CreatedBy           int64     `db:"created_by" json:"created_by"`
+	CreatedByName       string    `db:"-" json:"created_by_name"`
 	CreatedAt           time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt           time.Time `db:"updated_at" json:"updated_at"`
 	NextExecutionTime   string    `db:"-" json:"next_execution_time"`

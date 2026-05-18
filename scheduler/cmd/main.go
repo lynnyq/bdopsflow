@@ -214,7 +214,12 @@ func main() {
 	router.Use(corsMiddleware())
 
 	router.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+		result := schedulerService.HealthCheck(c.Request.Context())
+		if result.Status == "healthy" {
+			c.JSON(http.StatusOK, result)
+		} else {
+			c.JSON(http.StatusServiceUnavailable, result)
+		}
 	})
 
 	authHandler := handler.NewAuthHandler(db)
@@ -278,8 +283,8 @@ func main() {
 		{
 			logs.GET("", logHandler.List)
 			logs.GET("/stats", logHandler.GetStats)
-			logs.DELETE("/:id", logHandler.Delete)
-			logs.POST("/batch-delete", logHandler.BatchDelete)
+			logs.DELETE("/:id", middleware.RBACMiddleware("admin", "system_admin", "domain_admin"), logHandler.Delete)
+			logs.POST("/batch-delete", middleware.RBACMiddleware("admin", "system_admin", "domain_admin"), logHandler.BatchDelete)
 		}
 
 		protected.GET("/logs/stream", taskHandler.StreamLogs)
@@ -292,6 +297,7 @@ func main() {
 			dashboard.GET("/scheduler/status", dashboardHandler.GetSchedulerStatus)
 			dashboard.POST("/scheduler/pause", middleware.RequireSystemAdmin(permissionService), dashboardHandler.PauseScheduler)
 			dashboard.POST("/scheduler/resume", middleware.RequireSystemAdmin(permissionService), dashboardHandler.ResumeScheduler)
+			dashboard.GET("/health", dashboardHandler.HealthCheck)
 		}
 
 		admin := protected.Group("/admin")

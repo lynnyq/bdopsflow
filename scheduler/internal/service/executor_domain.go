@@ -112,6 +112,9 @@ func (s *ExecutorDomainService) AssignExecutorToDefaultDomain(ctx context.Contex
 	if err != nil {
 		return fmt.Errorf("获取执行器失败: %w", err)
 	}
+	if executor == nil {
+		return fmt.Errorf("执行器不存在: %s", executorName)
+	}
 	
 	query := `INSERT INTO bdopsflow_domain_executors (domain_id, executor_id, assigned_by, created_at) VALUES (1, ?, ?, ?)`
 	now := time.Now()
@@ -346,8 +349,8 @@ func (s *ExecutorDomainService) GetExecutorsByUserRole(ctx context.Context, user
 		query = `
 			SELECT e.id, e.name, e.address, e.status, e.last_heartbeat, e.capacity, e.current_load, e.is_global, e.created_at, e.updated_at
 			FROM bdopsflow_executors e
-			JOIN bdopsflow_domain_executors de ON e.id = de.executor_id
-			WHERE de.domain_id = ?
+			LEFT JOIN bdopsflow_domain_executors de ON e.id = de.executor_id
+			WHERE de.domain_id = ? OR e.is_global = 1
 			ORDER BY e.name ASC
 		`
 		args = []interface{}{userDomainID}

@@ -2,7 +2,6 @@ package handler
 
 import (
 	"log/slog"
-	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -24,7 +23,7 @@ func (h *LogHandler) List(c *gin.Context) {
 	defer func() {
 		if r := recover(); r != nil {
 			slog.Error("LogHandler.List: panic recovered", "panic", r)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+			InternalServerError(c, "internal server error")
 		}
 	}()
 
@@ -32,7 +31,7 @@ func (h *LogHandler) List(c *gin.Context) {
 
 	domainID, _ := c.Get("domain_id")
 	userRole, _ := c.Get("role")
-	
+
 	var dID int64
 	var role string
 	if v, ok := domainID.(int64); ok {
@@ -42,13 +41,18 @@ func (h *LogHandler) List(c *gin.Context) {
 		role = v
 	}
 
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
-
-	if page < 1 {
+	var page, pageSize int
+	if p, err := strconv.Atoi(c.DefaultQuery("page", "1")); err == nil && p > 0 {
+		page = p
+	} else {
 		page = 1
 	}
-	if pageSize < 1 || pageSize > 100 {
+	if ps, err := strconv.Atoi(c.DefaultQuery("page_size", "20")); err == nil && ps > 0 {
+		pageSize = ps
+		if pageSize > 100 {
+			pageSize = 100
+		}
+	} else {
 		pageSize = 20
 	}
 
@@ -68,7 +72,7 @@ func (h *LogHandler) List(c *gin.Context) {
 	executions, total, err := h.svc.GetAllExecutions(ctx, dID, role, filter, page, pageSize)
 	if err != nil {
 		slog.Error("LogHandler.List: failed to get executions", "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalServerError(c, err.Error())
 		return
 	}
 
@@ -89,7 +93,7 @@ func (h *LogHandler) List(c *gin.Context) {
 
 	slog.Debug("LogHandler.List: returning response", "count", len(response), "total", total)
 
-	c.JSON(http.StatusOK, gin.H{
+	Success(c, gin.H{
 		"data":      response,
 		"total":     total,
 		"page":      page,
@@ -102,21 +106,21 @@ func (h *LogHandler) Delete(c *gin.Context) {
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		slog.Warn("LogHandler.Delete: invalid id", "id_str", idStr, "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		BadRequest(c, "invalid id")
 		return
 	}
 
 	if id <= 0 {
 		slog.Warn("LogHandler.Delete: id must be positive", "id", id)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "id must be positive"})
+		BadRequest(c, "id must be positive")
 		return
 	}
 
 	ctx := c.Request.Context()
-	
+
 	domainID, _ := c.Get("domain_id")
 	userRole, _ := c.Get("role")
-	
+
 	var dID int64
 	var role string
 	if v, ok := domainID.(int64); ok {
@@ -125,16 +129,16 @@ func (h *LogHandler) Delete(c *gin.Context) {
 	if v, ok := userRole.(string); ok {
 		role = v
 	}
-	
+
 	err = h.svc.DeleteExecutionWithDomainCheck(ctx, id, dID, role)
 	if err != nil {
 		slog.Error("LogHandler.Delete: failed to delete execution", "id", id, "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalServerError(c, err.Error())
 		return
 	}
 
 	slog.Info("LogHandler.Delete: execution deleted", "id", id)
-	c.JSON(http.StatusOK, gin.H{"message": "deleted successfully"})
+	SuccessWithMessage(c, "deleted successfully", nil)
 }
 
 func (h *LogHandler) BatchDelete(c *gin.Context) {
@@ -143,13 +147,13 @@ func (h *LogHandler) BatchDelete(c *gin.Context) {
 	defer func() {
 		if r := recover(); r != nil {
 			slog.Error("LogHandler.BatchDelete: panic recovered", "panic", r)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+			InternalServerError(c, "internal server error")
 		}
 	}()
 
 	domainID, _ := c.Get("domain_id")
 	userRole, _ := c.Get("role")
-	
+
 	var dID int64
 	var role string
 	if v, ok := domainID.(int64); ok {
@@ -165,25 +169,25 @@ func (h *LogHandler) BatchDelete(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		slog.Warn("LogHandler.BatchDelete: invalid request body", "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		BadRequest(c, err.Error())
 		return
 	}
 
 	if len(req.IDs) == 0 {
 		slog.Warn("LogHandler.BatchDelete: no ids provided")
-		c.JSON(http.StatusBadRequest, gin.H{"error": "no ids provided"})
+		BadRequest(c, "no ids provided")
 		return
 	}
 
 	err := h.svc.BatchDeleteExecutionsWithDomainCheck(ctx, req.IDs, dID, role)
 	if err != nil {
 		slog.Error("LogHandler.BatchDelete: failed to batch delete executions", "count", len(req.IDs), "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalServerError(c, err.Error())
 		return
 	}
 
 	slog.Info("LogHandler.BatchDelete: executions deleted", "count", len(req.IDs))
-	c.JSON(http.StatusOK, gin.H{"message": "deleted successfully"})
+	SuccessWithMessage(c, "deleted successfully", nil)
 }
 
 type TaskExecutionWithNames struct {
@@ -199,7 +203,7 @@ func (h *LogHandler) GetStats(c *gin.Context) {
 	defer func() {
 		if r := recover(); r != nil {
 			slog.Error("LogHandler.GetStats: panic recovered", "panic", r)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+			InternalServerError(c, "internal server error")
 		}
 	}()
 
@@ -207,7 +211,7 @@ func (h *LogHandler) GetStats(c *gin.Context) {
 
 	domainID, _ := c.Get("domain_id")
 	userRole, _ := c.Get("role")
-	
+
 	var dID int64
 	var role string
 	if v, ok := domainID.(int64); ok {
@@ -233,11 +237,11 @@ func (h *LogHandler) GetStats(c *gin.Context) {
 	stats, err := h.svc.GetExecutionStats(ctx, dID, role, filter)
 	if err != nil {
 		slog.Error("LogHandler.GetStats: failed to get stats", "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalServerError(c, err.Error())
 		return
 	}
 
 	slog.Debug("LogHandler.GetStats: returning stats", "stats", stats)
 
-	c.JSON(http.StatusOK, stats)
+	Success(c, stats)
 }

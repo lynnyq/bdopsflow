@@ -45,10 +45,7 @@ func executorWithDomainsToDTO(exec *model.ExecutorWithDomains) *ExecutorWithDoma
 		if !exec.LastHeartbeat.Valid {
 			actualStatus = "offline"
 		} else {
-			// 处理旧数据：数据库里保存的是本地时间值但标记为UTC时区
-			// 我们只取时间值，把它作为本地时间来计算
-			t := exec.LastHeartbeat.Time
-			localTime := time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), time.Local)
+			localTime := service.ConvertToLocalTime(exec.LastHeartbeat.Time)
 			if time.Since(localTime) > time.Duration(executorHeartbeatTimeout)*time.Second {
 				actualStatus = "offline"
 			}
@@ -67,9 +64,7 @@ func executorWithDomainsToDTO(exec *model.ExecutorWithDomains) *ExecutorWithDoma
 	}
 
 	if exec.LastHeartbeat.Valid {
-		t := exec.LastHeartbeat.Time
-		localTime := time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), time.Local)
-		dto.LastHeartbeat = localTime.Format("2006-01-02 15:04:05")
+		dto.LastHeartbeat = service.FormatTimeInLocal(exec.LastHeartbeat.Time)
 	}
 
 	if !exec.CreatedAt.IsZero() {

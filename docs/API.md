@@ -34,23 +34,47 @@ Authorization: Bearer <token>
 
 ### 通用响应格式
 
+所有接口统一使用以下响应格式：
+
 #### 成功响应
 
 ```json
 {
-  "id": 1,
-  "name": "task-name",
-  ...
+  "code": 0,
+  "status": "success",
+  "message": "success",
+  "data": {
+    "id": 1,
+    "name": "task-name",
+    ...
+  }
 }
 ```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| code | int | 业务状态码，0 表示成功，非 0 表示失败 |
+| status | string | 状态："success" 或 "error" |
+| message | string | 提示信息 |
+| data | any | 实际数据，成功时返回 |
 
 #### 错误响应
 
 ```json
 {
-  "error": "错误信息描述"
+  "code": 400,
+  "status": "error",
+  "message": "错误信息描述",
+  "data": null
 }
 ```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| code | int | 业务状态码，对应 HTTP 状态码 |
+| status | string | 状态："error" |
+| message | string | 错误信息描述 |
+| data | null | 错误时为 null |
 
 ### HTTP 状态码
 

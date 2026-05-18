@@ -204,7 +204,7 @@ func (s *Service) GetWorkflowLineage(ctx context.Context, workflowID int64) (*Li
 func (s *Service) AddDependency(ctx context.Context, taskID, parentTaskID int64) error {
 	query := `
 		INSERT INTO bdopsflow_task_dependencies (task_id, parent_task_id, created_at)
-		VALUES (?, ?, datetime('now'))
+		VALUES (?, ?, datetime('now', 'localtime'))
 	`
 
 	_, err := s.db.ExecContext(ctx, query, taskID, parentTaskID)

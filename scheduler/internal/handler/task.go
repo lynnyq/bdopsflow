@@ -14,8 +14,7 @@ import (
 )
 
 const (
-	DateTimeFormat = "2006-01-02 15:04:05"
-	TimeResponseFormat = "2006-01-02 15:04:05"
+	TimeResponseFormat     = "2006-01-02 15:04:05"
 	ExecutorHeartbeatTimeout = 30 // 心跳超时时间（秒）
 )
 
@@ -27,10 +26,7 @@ func isExecutorOnline(exec *model.Executor) bool {
 	if !exec.LastHeartbeat.Valid {
 		return false
 	}
-	// 处理旧数据：数据库里保存的是本地时间值但标记为UTC时区
-	// 我们只取时间值，把它作为本地时间来计算
-	t := exec.LastHeartbeat.Time
-	localTime := time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), time.Local)
+	localTime := service.ConvertToLocalTime(exec.LastHeartbeat.Time)
 	return time.Since(localTime) <= time.Duration(ExecutorHeartbeatTimeout)*time.Second
 }
 
@@ -228,7 +224,7 @@ func (h *TaskHandler) Create(c *gin.Context) {
 
 	var query string
 	var args []interface{}
-	now := time.Now().Format(DateTimeFormat)
+	now := time.Now().Format(service.DateTimeFormat)
 	ts := int64(timeoutSeconds)
 	rc := int64(retryCount)
 	ri := int64(retryInterval)

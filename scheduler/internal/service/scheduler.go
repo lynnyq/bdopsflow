@@ -227,7 +227,7 @@ func (s *SchedulerService) cleanupTasksFromOfflineExecutors(ctx context.Context)
 		FROM bdopsflow_task_executions te
 		JOIN bdopsflow_executors e ON te.executor_id = e.id
 		WHERE te.status = 'running'
-		  AND (e.status = 'offline' OR e.last_heartbeat < datetime('now', '-20 seconds'))
+		  AND (e.status = 'offline' OR e.last_heartbeat < datetime('now', '-30 seconds'))
 	`
 
 	qr, err := s.DB.QueryOne(query)
@@ -3338,6 +3338,182 @@ func (s *SchedulerService) IsSchedulerPaused() bool {
 		return s.cronScheduler.IsPaused()
 	}
 	return false
+}
+
+// HealthCheckResult 健康检查结果
+type HealthCheckResult struct {
+	Status    string                   `json:"status"`
+	Timestamp string                   `json:"timestamp"`
+	Components map[string]ComponentCheck `json:"components"`
+}
+
+// ComponentCheck 组件检查结果
+type ComponentCheck struct {
+	Status  string `json:"status"`
+	Message string `json:"message,omitempty"`
+	Latency string `json:"latency,omitempty"`
+}
+
+// requiredTables 必需的表列表
+var requiredTables = []string{
+	"bdopsflow_domains",
+	"bdopsflow_users",
+	"bdopsflow_workflows",
+	"bdopsflow_tasks",
+	"bdopsflow_task_executions",
+	"bdopsflow_executors",
+	"bdopsflow_workflow_executions",
+	"bdopsflow_task_logs",
+	"bdopsflow_roles",
+	"bdopsflow_permissions",
+	"bdopsflow_role_permissions",
+	"bdopsflow_user_roles",
+	"bdopsflow_domain_executors",
+}
+
+// HealthCheck 执行系统健康检查
+func (s *SchedulerService) HealthCheck(ctx context.Context) *HealthCheckResult {
+	result := &HealthCheckResult{
+		Timestamp:  time.Now().Format("2006-01-02 15:04:05"),
+		Components: make(map[string]ComponentCheck),
+	}
+
+	allHealthy := true
+
+	// 1. 检查 rqlite 连接
+	rqliteCheck := s.checkRQLite()
+	result.Components["rqlite"] = rqliteCheck
+	if rqliteCheck.Status != "healthy" {
+		allHealthy = false
+	}
+
+	// 2. 检查 rqlite 表结构
+	tableCheck := s.checkTables()
+	result.Components["rqlite_tables"] = tableCheck
+	if tableCheck.Status != "healthy" {
+		allHealthy = false
+	}
+
+	// 3. 检查 Redis 连接
+	redisCheck := s.checkRedis()
+	result.Components["redis"] = redisCheck
+	if redisCheck.Status != "healthy" {
+		allHealthy = false
+	}
+
+	// 4. 检查调度器状态
+	schedulerCheck := s.checkScheduler()
+	result.Components["scheduler"] = schedulerCheck
+	if schedulerCheck.Status != "healthy" {
+		allHealthy = false
+	}
+
+	if allHealthy {
+		result.Status = "healthy"
+	} else {
+		result.Status = "unhealthy"
+	}
+
+	return result
+}
+
+// checkRQLite 检查 rqlite 连接
+func (s *SchedulerService) checkRQLite() ComponentCheck {
+	start := time.Now()
+	
+	query := "SELECT 1"
+	qr, err := s.DB.QueryOne(query)
+	latency := time.Since(start)
+	
+	if err != nil {
+		return ComponentCheck{
+			Status:  "unhealthy",
+			Message: fmt.Sprintf("连接失败: %v", err),
+			Latency: latency.String(),
+		}
+	}
+	if qr.Err != nil {
+		return ComponentCheck{
+			Status:  "unhealthy",
+			Message: fmt.Sprintf("查询失败: %v", qr.Err),
+			Latency: latency.String(),
+		}
+	}
+	
+	return ComponentCheck{
+		Status:  "healthy",
+		Message: "连接正常",
+		Latency: latency.String(),
+	}
+}
+
+// checkTables 检查必需的表是否存在
+func (s *SchedulerService) checkTables() ComponentCheck {
+	missingTables := []string{}
+	
+	for _, tableName := range requiredTables {
+		query := fmt.Sprintf("SELECT name FROM sqlite_master WHERE type='table' AND name='%s'", tableName)
+		qr, err := s.DB.QueryOne(query)
+		if err != nil {
+			missingTables = append(missingTables, tableName)
+			continue
+		}
+		if qr.Err != nil || !qr.Next() {
+			missingTables = append(missingTables, tableName)
+			continue
+		}
+	}
+	
+	if len(missingTables) > 0 {
+		return ComponentCheck{
+			Status:  "unhealthy",
+			Message: fmt.Sprintf("缺少表: %v", missingTables),
+		}
+	}
+	
+	return ComponentCheck{
+		Status:  "healthy",
+		Message: fmt.Sprintf("所有 %d 个表正常", len(requiredTables)),
+	}
+}
+
+// checkRedis 检查 Redis 连接
+func (s *SchedulerService) checkRedis() ComponentCheck {
+	start := time.Now()
+	
+	err := s.redis.Ping(context.Background()).Err()
+	latency := time.Since(start)
+	
+	if err != nil {
+		return ComponentCheck{
+			Status:  "unhealthy",
+			Message: fmt.Sprintf("连接失败: %v", err),
+			Latency: latency.String(),
+		}
+	}
+	
+	return ComponentCheck{
+		Status:  "healthy",
+		Message: "连接正常",
+		Latency: latency.String(),
+	}
+}
+
+// checkScheduler 检查调度器状态
+func (s *SchedulerService) checkScheduler() ComponentCheck {
+	paused := s.IsSchedulerPaused()
+	
+	if s.cronScheduler == nil {
+		return ComponentCheck{
+			Status:  "unhealthy",
+			Message: "调度器未初始化",
+		}
+	}
+	
+	return ComponentCheck{
+		Status:  "healthy",
+		Message: fmt.Sprintf("运行中 (暂停: %v)", paused),
+	}
 }
 
 func rowFloat64(v interface{}) float64 {

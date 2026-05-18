@@ -2,7 +2,6 @@ package handler
 
 import (
 	"encoding/base64"
-	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -23,12 +22,17 @@ func NewAuthHandler(db *rqlite.Connection) *AuthHandler {
 
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
+		Username string `json:"username" binding:"required"`
+		Password string `json:"password" binding:"required"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		BadRequest(c, "用户名和密码不能为空")
+		return
+	}
+
+	if req.Username == "" || req.Password == "" {
+		BadRequest(c, "用户名和密码不能为空")
 		return
 	}
 
@@ -39,17 +43,17 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 	qr, err := h.db.QueryOneParameterized(stmt)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "服务器错误，请稍后重试"})
+		InternalServerError(c, "服务器错误，请稍后重试")
 		return
 	}
 
 	if qr.Err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "服务器错误，请稍后重试"})
+		InternalServerError(c, "服务器错误，请稍后重试")
 		return
 	}
 
 	if !qr.Next() {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误"})
+		Unauthorized(c, "用户名或密码错误")
 		return
 	}
 
@@ -58,7 +62,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	var domainID rqlite.NullInt64
 	err = qr.Scan(&userID, &username, &hashedPassword, &role, &email, &domainID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "服务器错误，请稍后重试"})
+		InternalServerError(c, "服务器错误，请稍后重试")
 		return
 	}
 
@@ -69,7 +73,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(passwordToCheck)); err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误"})
+		Unauthorized(c, "用户名或密码错误")
 		return
 	}
 
@@ -84,7 +88,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	tokenString, err := middleware.GenerateToken(userID, username, role, dID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "服务器错误，请稍后重试"})
+		InternalServerError(c, "服务器错误，请稍后重试")
 		return
 	}
 
@@ -97,7 +101,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		h.db.WriteOneParameterized(updateStmt)
 	}()
 
-	c.JSON(http.StatusOK, gin.H{
+	Success(c, gin.H{
 		"token": tokenString,
 		"user": map[string]interface{}{
 			"id":        userID,
@@ -111,14 +115,24 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 func (h *AuthHandler) Register(c *gin.Context) {
 	var req struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
+		Username string `json:"username" binding:"required"`
+		Password string `json:"password" binding:"required,min=6"`
 		Role     string `json:"role"`
-		Email    string `json:"email"`
+		Email    string `json:"email" binding:"omitempty,email"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		BadRequest(c, "请求参数错误：用户名和密码为必填项，密码至少6位")
+		return
+	}
+
+	if req.Username == "" || req.Password == "" {
+		BadRequest(c, "用户名和密码不能为空")
+		return
+	}
+
+	if len(req.Password) < 6 {
+		BadRequest(c, "密码长度至少6位")
 		return
 	}
 
@@ -129,7 +143,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "服务器错误，请稍后重试"})
+		InternalServerError(c, "服务器错误，请稍后重试")
 		return
 	}
 
@@ -140,17 +154,17 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	}
 	result, err := h.db.WriteOneParameterized(stmt)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "服务器错误，请稍后重试"})
+		InternalServerError(c, "服务器错误，请稍后重试")
 		return
 	}
 
 	if result.Err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "服务器错误，请稍后重试"})
+		InternalServerError(c, "服务器错误，请稍后重试")
 		return
 	}
 
 	userID := result.LastInsertID
-	c.JSON(http.StatusCreated, gin.H{
+	Created(c, gin.H{
 		"id":       userID,
 		"username": req.Username,
 		"role":     role,
@@ -161,7 +175,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 	userID, exists := c.Get("user_id")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "未授权，请重新登录"})
+		Unauthorized(c, "未授权，请重新登录")
 		return
 	}
 
@@ -172,17 +186,17 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 	}
 	qr, err := h.db.QueryOneParameterized(stmt)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "服务器错误，请稍后重试"})
+		InternalServerError(c, "服务器错误，请稍后重试")
 		return
 	}
 
 	if qr.Err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "服务器错误，请稍后重试"})
+		InternalServerError(c, "服务器错误，请稍后重试")
 		return
 	}
 
 	if !qr.Next() {
-		c.JSON(http.StatusNotFound, gin.H{"error": "用户不存在"})
+		NotFound(c, "用户不存在")
 		return
 	}
 
@@ -190,7 +204,7 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 	var domainID rqlite.NullInt64
 	err = qr.Scan(&username, &role, &email, &domainID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "服务器错误，请稍后重试"})
+		InternalServerError(c, "服务器错误，请稍后重试")
 		return
 	}
 
@@ -203,7 +217,7 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 		role = "admin"
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	Success(c, gin.H{
 		"id":        userID,
 		"username":  username,
 		"role":      role,

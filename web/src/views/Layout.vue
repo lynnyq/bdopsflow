@@ -95,12 +95,6 @@
 
         <div class="header-right">
           <div class="header-actions">
-            <el-button :icon="Search" circle size="small" />
-            <el-button :icon="Bell" circle size="small">
-              <template #default>
-                <span class="notification-badge">3</span>
-              </template>
-            </el-button>
             <el-button :icon="Setting" circle size="small" @click="$router.push('/profile')" />
           </div>
 
@@ -153,11 +147,9 @@ import {
   Cpu,
   Document,
   SwitchButton,
-  Bell,
   Setting,
   Expand,
   Fold,
-  Search,
   User,
   Key,
   Grid,
@@ -403,23 +395,6 @@ const handleCommand = (command: string) => {
 .header-actions {
   display: flex;
   gap: var(--space-2);
-}
-
-.notification-badge {
-  position: absolute;
-  top: -4px;
-  right: -4px;
-  min-width: 16px;
-  height: 16px;
-  background: var(--accent-danger);
-  border-radius: var(--radius-full);
-  font-size: 0.6rem;
-  font-weight: 600;
-  color: white;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 4px;
 }
 
 .header-divider {

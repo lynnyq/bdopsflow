@@ -90,3 +90,14 @@ func handleQueryError(qr rqlite.QueryResult, operation string) error {
 	}
 	return nil
 }
+
+// ConvertToLocalTime 处理从数据库读取的时间，转换为本地时区
+// 解决 gorqlite 将本地时间字符串解析为 UTC 时区的问题
+func ConvertToLocalTime(t time.Time) time.Time {
+	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), time.Local)
+}
+
+// FormatTimeInLocal 格式化时间为本地时区字符串
+func FormatTimeInLocal(t time.Time) string {
+	return t.In(time.Local).Format(DateTimeFormat)
+}

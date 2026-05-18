@@ -50,7 +50,7 @@
             {{ formatDate(row.created_at) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="220" fixed="right" align="center">
+        <el-table-column v-if="showActions" label="操作" width="220" fixed="right" align="center">
           <template #default="{ row }">
             <template v-if="canManageUser(row)">
               <el-button type="primary" link size="small" @click="handleEdit(row)">
@@ -388,6 +388,7 @@ const searchQuery = ref('')
 const isSystemAdmin = computed(() => authStore.isSystemAdmin)
 const isDomainAdmin = computed(() => authStore.isDomainAdmin)
 const currentDomainId = computed(() => authStore.user?.domain_id)
+const showActions = computed(() => isSystemAdmin.value || isDomainAdmin.value)
 
 const filteredUsers = computed(() => {
   if (!searchQuery.value) return users.value
