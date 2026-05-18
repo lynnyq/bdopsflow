@@ -27,6 +27,7 @@ func getSystemHostname() string {
 	return hostname
 }
 
+// Load loads configuration from config file
 func Load(configFile string) *Config {
 	defaultHostname := getSystemHostname()
 	
@@ -47,14 +48,14 @@ func Load(configFile string) *Config {
 		slog.Info("loaded config from file", "file", configured)
 	}
 
-	executorName := cfg.GetString("app.executor_name", "executor-default")
+	executorName := cfg.GetString("app.executor_name", "")
 	hostname := cfg.GetString("app.hostname", defaultHostname)
 
 	return &Config{
 		ExecutorName:  executorName,
 		Hostname:      hostname,
 		Capacity:      cfg.GetInt32("app.capacity", 10),
-		SchedulerAddr: cfg.GetString("scheduler.addr", "localhost:50051"),
+		SchedulerAddr: cfg.GetString("scheduler.addr", ""),
 		Timeout:       cfg.GetInt("scheduler.timeout", 30),
 		LogLevel:      cfg.GetString("log.level", "info"),
 		LogFormat:     cfg.GetString("log.format", "json"),
@@ -67,12 +68,68 @@ func defaultConfig(hostname string) *Config {
 		hostname = "localhost"
 	}
 	return &Config{
-		ExecutorName:  "executor-default",
+		ExecutorName:  "",
 		Hostname:      hostname,
 		Capacity:      10,
-		SchedulerAddr: "localhost:50051",
+		SchedulerAddr: "",
 		Timeout:       30,
 		LogLevel:      "info",
 		LogFormat:     "json",
 	}
+}
+
+// Merge merges command line arguments into config, command line args take precedence
+func (c *Config) Merge(
+	executorName string,
+	capacity int32,
+	schedulerAddr string,
+	timeout int,
+	hostname string,
+	logLevel string,
+	logFormat string,
+) {
+	if executorName != "" {
+		c.ExecutorName = executorName
+	}
+	if capacity > 0 {
+		c.Capacity = capacity
+	}
+	if schedulerAddr != "" {
+		c.SchedulerAddr = schedulerAddr
+	}
+	if timeout > 0 {
+		c.Timeout = timeout
+	}
+	if hostname != "" {
+		c.Hostname = hostname
+	}
+	if logLevel != "" {
+		c.LogLevel = logLevel
+	}
+	if logFormat != "" {
+		c.LogFormat = logFormat
+	}
+}
+
+// Validate validates that required configuration is present
+func (c *Config) Validate() error {
+	if c.ExecutorName == "" {
+		return newRequiredError("executor_name")
+	}
+	if c.SchedulerAddr == "" {
+		return newRequiredError("scheduler.addr")
+	}
+	return nil
+}
+
+func newRequiredError(field string) error {
+	return &RequiredError{Field: field}
+}
+
+type RequiredError struct {
+	Field string
+}
+
+func (e *RequiredError) Error() string {
+	return e.Field + " is required"
 }
