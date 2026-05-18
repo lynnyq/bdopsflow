@@ -3,13 +3,15 @@ package handler
 import (
 	"fmt"
 	"log/slog"
-	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/model"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/service"
 )
+
+const heartbeatTimeout = 30
 
 type ExecutorHandler struct {
 	svc *service.SchedulerService
@@ -55,18 +57,35 @@ type ExecutorDTO struct {
 }
 
 func executorToDTO(exec *model.Executor) *ExecutorDTO {
+	actualStatus := exec.Status
+	if exec.Status == "online" {
+		if !exec.LastHeartbeat.Valid || exec.LastHeartbeat.Time.IsZero() {
+			actualStatus = "offline"
+		} else {
+			// 处理旧数据：数据库里保存的是本地时间值但标记为UTC时区
+			// 我们只取时间值，把它作为本地时间来计算
+			t := exec.LastHeartbeat.Time
+			localTime := time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), time.Local)
+			if time.Since(localTime) > time.Duration(heartbeatTimeout)*time.Second {
+				actualStatus = "offline"
+			}
+		}
+	}
+
 	dto := &ExecutorDTO{
 		ID:          exec.ID,
 		Name:        exec.Name,
 		Address:     exec.Address,
-		Status:      exec.Status,
+		Status:      actualStatus,
 		Capacity:    exec.Capacity,
 		CurrentLoad: exec.CurrentLoad,
 		IsGlobal:    exec.IsGlobal,
 	}
 
 	if exec.LastHeartbeat.Valid {
-		dto.LastHeartbeat = exec.LastHeartbeat.Time.Format("2006-01-02 15:04:05")
+		t := exec.LastHeartbeat.Time
+		localTime := time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), time.Local)
+		dto.LastHeartbeat = localTime.Format("2006-01-02 15:04:05")
 	}
 
 	if !exec.CreatedAt.IsZero() {
@@ -86,7 +105,7 @@ func (h *ExecutorHandler) List(c *gin.Context) {
 	defer func() {
 		if r := recover(); r != nil {
 			slog.Error("ExecutorHandler.List: panic recovered", "panic", r)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+			InternalServerError(c, "internal server error")
 		}
 	}()
 
@@ -95,7 +114,7 @@ func (h *ExecutorHandler) List(c *gin.Context) {
 	bdopsflow_executors, err := h.svc.ListExecutors(ctx)
 	if err != nil {
 		slog.Error("ExecutorHandler.List: failed to list bdopsflow_executors", "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalServerError(c, err.Error())
 		return
 	}
 
@@ -104,7 +123,7 @@ func (h *ExecutorHandler) List(c *gin.Context) {
 		dtos = append(dtos, executorToDTO(exec))
 	}
 
-	c.JSON(http.StatusOK, dtos)
+	Success(c, gin.H{"items": dtos})
 }
 
 func (h *ExecutorHandler) Get(c *gin.Context) {
@@ -113,11 +132,11 @@ func (h *ExecutorHandler) Get(c *gin.Context) {
 	_, err := parseName(nameStr)
 	if err != nil {
 		slog.Warn("ExecutorHandler.Get: invalid name", "name_str", nameStr, "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid name"})
+		BadRequest(c, "invalid name")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "ok"})
+	SuccessWithMessage(c, "ok", nil)
 }
 
 func (h *ExecutorHandler) Delete(c *gin.Context) {
@@ -125,25 +144,25 @@ func (h *ExecutorHandler) Delete(c *gin.Context) {
 	name, err := parseName(nameStr)
 	if err != nil {
 		slog.Warn("ExecutorHandler.Delete: invalid name", "name_str", nameStr, "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid name"})
+		BadRequest(c, "invalid name")
 		return
 	}
 
 	defer func() {
 		if r := recover(); r != nil {
 			slog.Error("ExecutorHandler.Delete: panic recovered", "panic", r)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+			InternalServerError(c, "internal server error")
 		}
 	}()
 
 	if err := h.svc.DeleteExecutorByName(c.Request.Context(), name); err != nil {
 		slog.Error("ExecutorHandler.Delete: failed to delete executor", "name", name, "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalServerError(c, err.Error())
 		return
 	}
 
 	slog.Info("ExecutorHandler.Delete: executor deleted", "name", name)
-	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
+	SuccessWithMessage(c, "deleted", nil)
 }
 
 func (h *ExecutorHandler) Online(c *gin.Context) {
@@ -151,25 +170,25 @@ func (h *ExecutorHandler) Online(c *gin.Context) {
 	name, err := parseName(nameStr)
 	if err != nil {
 		slog.Warn("ExecutorHandler.Online: invalid name", "name_str", nameStr, "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid name"})
+		BadRequest(c, "invalid name")
 		return
 	}
 
 	defer func() {
 		if r := recover(); r != nil {
 			slog.Error("ExecutorHandler.Online: panic recovered", "panic", r)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+			InternalServerError(c, "internal server error")
 		}
 	}()
 
 	if err := h.svc.SetExecutorStatusByName(c.Request.Context(), name, "online"); err != nil {
 		slog.Error("ExecutorHandler.Online: failed to set executor online", "name", name, "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalServerError(c, err.Error())
 		return
 	}
 
 	slog.Info("ExecutorHandler.Online: executor set online", "name", name)
-	c.JSON(http.StatusOK, gin.H{"message": "online"})
+	SuccessWithMessage(c, "online", nil)
 }
 
 func (h *ExecutorHandler) Offline(c *gin.Context) {
@@ -177,25 +196,25 @@ func (h *ExecutorHandler) Offline(c *gin.Context) {
 	name, err := parseName(nameStr)
 	if err != nil {
 		slog.Warn("ExecutorHandler.Offline: invalid name", "name_str", nameStr, "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid name"})
+		BadRequest(c, "invalid name")
 		return
 	}
 
 	defer func() {
 		if r := recover(); r != nil {
 			slog.Error("ExecutorHandler.Offline: panic recovered", "panic", r)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+			InternalServerError(c, "internal server error")
 		}
 	}()
 
 	if err := h.svc.SetExecutorStatusByName(c.Request.Context(), name, "offline"); err != nil {
 		slog.Error("ExecutorHandler.Offline: failed to set executor offline", "name", name, "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalServerError(c, err.Error())
 		return
 	}
 
 	slog.Info("ExecutorHandler.Offline: executor set offline", "name", name)
-	c.JSON(http.StatusOK, gin.H{"message": "offline"})
+	SuccessWithMessage(c, "offline", nil)
 }
 
 // UpdateCapacity 更新执行器容量
@@ -204,7 +223,7 @@ func (h *ExecutorHandler) UpdateCapacity(c *gin.Context) {
 	name, err := parseName(nameStr)
 	if err != nil {
 		slog.Warn("ExecutorHandler.UpdateCapacity: invalid name", "name_str", nameStr, "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid name"})
+		BadRequest(c, "invalid name")
 		return
 	}
 
@@ -213,23 +232,23 @@ func (h *ExecutorHandler) UpdateCapacity(c *gin.Context) {
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		slog.Warn("ExecutorHandler.UpdateCapacity: invalid request", "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request: capacity must be a positive integer"})
+		BadRequest(c, "invalid request: capacity must be a positive integer")
 		return
 	}
 
 	defer func() {
 		if r := recover(); r != nil {
 			slog.Error("ExecutorHandler.UpdateCapacity: panic recovered", "panic", r)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+			InternalServerError(c, "internal server error")
 		}
 	}()
 
 	if err := h.svc.UpdateExecutorCapacityByName(c.Request.Context(), name, req.Capacity); err != nil {
 		slog.Error("ExecutorHandler.UpdateCapacity: failed to update executor capacity", "name", name, "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalServerError(c, err.Error())
 		return
 	}
 
 	slog.Info("ExecutorHandler.UpdateCapacity: executor capacity updated", "name", name, "capacity", req.Capacity)
-	c.JSON(http.StatusOK, gin.H{"message": "capacity updated", "capacity": req.Capacity})
+	SuccessWithMessage(c, "capacity updated", gin.H{"capacity": req.Capacity})
 }

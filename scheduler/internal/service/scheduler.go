@@ -204,7 +204,7 @@ func (s *SchedulerService) cleanupOfflineExecutors() {
 		UPDATE bdopsflow_executors 
 		SET status = 'offline', updated_at = datetime('now')
 		WHERE status = 'online' 
-		AND last_heartbeat < datetime('now', '-60 seconds')
+		AND last_heartbeat < datetime('now', '-30 seconds')
 	`)
 	if err != nil {
 		slog.Error("cleanup: update offline bdopsflow_executors failed", "error", err)
@@ -227,7 +227,7 @@ func (s *SchedulerService) cleanupTasksFromOfflineExecutors(ctx context.Context)
 		FROM bdopsflow_task_executions te
 		JOIN bdopsflow_executors e ON te.executor_id = e.id
 		WHERE te.status = 'running'
-		  AND (e.status = 'offline' OR e.last_heartbeat < datetime('now', '-30 seconds'))
+		  AND (e.status = 'offline' OR e.last_heartbeat < datetime('now', '-20 seconds'))
 	`
 
 	qr, err := s.DB.QueryOne(query)
@@ -1132,7 +1132,7 @@ func (s *SchedulerService) UpdateExecutorHeartbeatWithRunningTasks(ctx context.C
 		WHERE name = ? AND status = 'online'
 	`
 
-	now := time.Now().Format("2006-01-02 15:04:05")
+	now := time.Now()
 	stmt := rqlite.ParameterizedStatement{
 		Query:     query,
 		Arguments: []interface{}{currentLoad, now, now, name},
@@ -3355,4 +3355,71 @@ func rowFloat64(v interface{}) float64 {
 		return n
 	}
 	return 0
+}
+
+func (s *SchedulerService) GetDomainName(ctx context.Context, domainID int64) string {
+	query := `SELECT name FROM bdopsflow_domains WHERE id = ?`
+	stmt := rqlite.ParameterizedStatement{
+		Query:     query,
+		Arguments: []interface{}{domainID},
+	}
+	qr, err := s.DB.QueryOneParameterized(stmt)
+	if err != nil {
+		return fmt.Sprintf("领域 %d", domainID)
+	}
+	if qr.Err != nil {
+		return fmt.Sprintf("领域 %d", domainID)
+	}
+
+	if !qr.Next() {
+		return fmt.Sprintf("领域 %d", domainID)
+	}
+
+	row, err := qr.Slice()
+	if err != nil {
+		return fmt.Sprintf("领域 %d", domainID)
+	}
+
+	name := rowString(row[0])
+	if name == "" {
+		return fmt.Sprintf("领域 %d", domainID)
+	}
+
+	return name
+}
+
+func (s *SchedulerService) ListExecutorsByDomain(ctx context.Context, domainID int64) ([]*model.Executor, error) {
+	query := `
+		SELECT e.id, e.name, e.address, e.status, e.last_heartbeat, e.capacity, e.current_load, e.created_at, e.updated_at
+		FROM bdopsflow_executors e
+		LEFT JOIN bdopsflow_domain_executors de ON e.id = de.executor_id
+		WHERE e.status = 'online' AND (de.domain_id = ? OR e.is_global = 1)
+		ORDER BY e.current_load ASC
+	`
+	stmt := rqlite.ParameterizedStatement{
+		Query:     query,
+		Arguments: []interface{}{domainID},
+	}
+	qr, err := s.DB.QueryOneParameterized(stmt)
+	if err != nil {
+		return nil, err
+	}
+	if qr.Err != nil {
+		return nil, qr.Err
+	}
+
+	var executors []*model.Executor
+	for qr.Next() {
+		exec := &model.Executor{}
+		if err := scanExecutorResult(&qr, exec); err != nil {
+			continue
+		}
+		executors = append(executors, exec)
+	}
+
+	if executors == nil {
+		executors = []*model.Executor{}
+	}
+
+	return executors, nil
 }

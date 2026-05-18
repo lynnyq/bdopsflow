@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -17,7 +16,23 @@ import (
 const (
 	DateTimeFormat = "2006-01-02 15:04:05"
 	TimeResponseFormat = "2006-01-02 15:04:05"
+	ExecutorHeartbeatTimeout = 30 // 心跳超时时间（秒）
 )
+
+// isExecutorOnline 检查执行器是否真正在线（考虑心跳超时）
+func isExecutorOnline(exec *model.Executor) bool {
+	if exec.Status != "online" {
+		return false
+	}
+	if !exec.LastHeartbeat.Valid {
+		return false
+	}
+	// 处理旧数据：数据库里保存的是本地时间值但标记为UTC时区
+	// 我们只取时间值，把它作为本地时间来计算
+	t := exec.LastHeartbeat.Time
+	localTime := time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), time.Local)
+	return time.Since(localTime) <= time.Duration(ExecutorHeartbeatTimeout)*time.Second
+}
 
 func safeString(s string) string {
 	if s == "" {
@@ -52,7 +67,7 @@ func (h *TaskHandler) List(c *gin.Context) {
 	defer func() {
 		if r := recover(); r != nil {
 			slog.Error("TaskHandler.List: panic recovered", "panic", r)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+			InternalServerError(c, "internal server error")
 		}
 	}()
 
@@ -73,11 +88,11 @@ func (h *TaskHandler) List(c *gin.Context) {
 	bdopsflow_tasks, err := h.svc.ListTasks(ctx, dID, role)
 	if err != nil {
 		slog.Error("TaskHandler.List: failed to list bdopsflow_tasks", "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalServerError(c, err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"items": bdopsflow_tasks})
+	Success(c, gin.H{"items": bdopsflow_tasks})
 }
 
 func (h *TaskHandler) Get(c *gin.Context) {
@@ -85,13 +100,13 @@ func (h *TaskHandler) Get(c *gin.Context) {
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		slog.Warn("TaskHandler.Get: invalid id", "id_str", idStr, "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		BadRequest(c, "invalid id")
 		return
 	}
 
 	if id <= 0 {
 		slog.Warn("TaskHandler.Get: id must be positive", "id", id)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "id must be positive"})
+		BadRequest(c, "id must be positive")
 		return
 	}
 
@@ -99,10 +114,10 @@ func (h *TaskHandler) Get(c *gin.Context) {
 	task, err := h.svc.GetTaskByID(ctx, id)
 	if err != nil {
 		slog.Error("TaskHandler.Get: failed to get task", "id", id, "error", err)
-		c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
+		NotFound(c, "task not found")
 		return
 	}
-	c.JSON(http.StatusOK, task)
+	Success(c, task)
 }
 
 func (h *TaskHandler) Create(c *gin.Context) {
@@ -125,18 +140,25 @@ func (h *TaskHandler) Create(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		slog.Warn("TaskHandler.Create: invalid request body", "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		BadRequest(c, err.Error())
 		return
 	}
 
 	if safeString(req.Name) == "" {
 		slog.Warn("TaskHandler.Create: name is required")
-		c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
+		BadRequest(c, "name is required")
 		return
 	}
 	if safeString(req.Type) == "" {
 		slog.Warn("TaskHandler.Create: type is required")
-		c.JSON(http.StatusBadRequest, gin.H{"error": "type is required"})
+		BadRequest(c, "type is required")
+		return
+	}
+
+	validTypes := map[string]bool{"http": true, "shell": true}
+	if !validTypes[req.Type] {
+		slog.Warn("TaskHandler.Create: invalid task type", "type", req.Type)
+		BadRequest(c, "无效的任务类型，支持的类型：http、shell")
 		return
 	}
 
@@ -186,6 +208,24 @@ func (h *TaskHandler) Create(c *gin.Context) {
 		assignedExecutorID = nil
 	}
 
+	ctx := c.Request.Context()
+
+	// 检查是否有可用的执行器
+	hasAvailableExecutors := true
+	executors, err := h.svc.ListExecutorsByDomain(ctx, domainID)
+	if err != nil {
+		slog.Warn("TaskHandler.Create: failed to list executors", "error", err)
+		hasAvailableExecutors = false
+	} else {
+		availableExecutors := 0
+		for _, exec := range executors {
+			if isExecutorOnline(exec) && exec.CurrentLoad < exec.Capacity {
+				availableExecutors++
+			}
+		}
+		hasAvailableExecutors = availableExecutors > 0
+	}
+
 	var query string
 	var args []interface{}
 	now := time.Now().Format(DateTimeFormat)
@@ -194,7 +234,7 @@ func (h *TaskHandler) Create(c *gin.Context) {
 	ri := int64(retryInterval)
 
 	isEnabled := int64(0)
-	if req.IsEnabled {
+	if req.IsEnabled && hasAvailableExecutors { // 只有在有可用执行器时才启用
 		isEnabled = 1
 	}
 
@@ -224,16 +264,20 @@ func (h *TaskHandler) Create(c *gin.Context) {
 		}
 	}
 
-	ctx := c.Request.Context()
 	task, err := h.svc.CreateTask(ctx, query, args...)
 	if err != nil {
 		slog.Error("TaskHandler.Create: failed to create task", "name", req.Name, "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalServerError(c, err.Error())
 		return
 	}
 
 	slog.Info("TaskHandler.Create: task created", "task_id", task.ID, "name", task.Name)
-	c.JSON(http.StatusCreated, task)
+	
+	// 返回任务和是否有可用执行器的信息
+	Created(c, gin.H{
+		"task": task,
+		"has_available_executors": hasAvailableExecutors,
+	})
 }
 
 func (h *TaskHandler) Update(c *gin.Context) {
@@ -241,13 +285,13 @@ func (h *TaskHandler) Update(c *gin.Context) {
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		slog.Warn("TaskHandler.Update: invalid id", "id_str", idStr, "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		BadRequest(c, "invalid id")
 		return
 	}
 
 	if id <= 0 {
 		slog.Warn("TaskHandler.Update: id must be positive", "id", id)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "id must be positive"})
+		BadRequest(c, "id must be positive")
 		return
 	}
 
@@ -256,7 +300,7 @@ func (h *TaskHandler) Update(c *gin.Context) {
 	currentTask, err := h.svc.GetTaskByID(ctx, id)
 	if err != nil {
 		slog.Error("TaskHandler.Update: task not found", "id", id, "error", err)
-		c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
+		NotFound(c, "task not found")
 		return
 	}
 
@@ -278,7 +322,7 @@ func (h *TaskHandler) Update(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		slog.Warn("TaskHandler.Update: invalid request body", "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		BadRequest(c, err.Error())
 		return
 	}
 
@@ -287,6 +331,12 @@ func (h *TaskHandler) Update(c *gin.Context) {
 		currentTask.Name = req.Name
 	}
 	if req.Type != "" {
+		validTypes := map[string]bool{"http": true, "shell": true}
+		if !validTypes[req.Type] {
+			slog.Warn("TaskHandler.Update: invalid task type", "type", req.Type)
+			BadRequest(c, "无效的任务类型，支持的类型：http、shell")
+			return
+		}
 		currentTask.Type = req.Type
 	}
 
@@ -321,7 +371,32 @@ func (h *TaskHandler) Update(c *gin.Context) {
 	}
 
 	// 布尔值总是更新（如果提供）
-	if req.IsEnabled != nil {
+	hasAvailableExecutors := true
+	if req.IsEnabled != nil && *req.IsEnabled {
+		// 检查是否有可用的执行器
+		domainID := currentTask.DomainID
+		if req.DomainID > 0 {
+			domainID = req.DomainID
+		}
+		executors, err := h.svc.ListExecutorsByDomain(ctx, domainID)
+		if err != nil {
+			slog.Warn("TaskHandler.Update: failed to list executors", "error", err)
+			hasAvailableExecutors = false
+		} else {
+			availableExecutors := 0
+			for _, exec := range executors {
+				if isExecutorOnline(exec) && exec.CurrentLoad < exec.Capacity {
+					availableExecutors++
+				}
+			}
+			hasAvailableExecutors = availableExecutors > 0
+		}
+		if hasAvailableExecutors {
+			currentTask.IsEnabled = true
+		} else {
+			currentTask.IsEnabled = false
+		}
+	} else if req.IsEnabled != nil {
 		currentTask.IsEnabled = *req.IsEnabled
 	}
 
@@ -342,7 +417,7 @@ func (h *TaskHandler) Update(c *gin.Context) {
 	err = h.svc.UpdateTask(ctx, id, currentTask)
 	if err != nil {
 		slog.Error("TaskHandler.Update: failed to update task", "id", id, "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalServerError(c, err.Error())
 		return
 	}
 
@@ -351,12 +426,18 @@ func (h *TaskHandler) Update(c *gin.Context) {
 	if err != nil {
 		slog.Error("TaskHandler.Update: failed to get updated task", "id", id, "error", err)
 	} else {
-		c.JSON(http.StatusOK, updatedTask)
+		Success(c, gin.H{
+			"task": updatedTask,
+			"has_available_executors": hasAvailableExecutors,
+		})
 		return
 	}
 
 	slog.Info("TaskHandler.Update: task updated", "id", id)
-	c.JSON(http.StatusOK, currentTask)
+	Success(c, gin.H{
+		"task": currentTask,
+		"has_available_executors": hasAvailableExecutors,
+	})
 }
 
 func (h *TaskHandler) Delete(c *gin.Context) {
@@ -364,13 +445,13 @@ func (h *TaskHandler) Delete(c *gin.Context) {
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		slog.Warn("TaskHandler.Delete: invalid id", "id_str", idStr, "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		BadRequest(c, "invalid id")
 		return
 	}
 
 	if id <= 0 {
 		slog.Warn("TaskHandler.Delete: id must be positive", "id", id)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "id must be positive"})
+		BadRequest(c, "id must be positive")
 		return
 	}
 
@@ -378,12 +459,12 @@ func (h *TaskHandler) Delete(c *gin.Context) {
 	err = h.svc.DeleteTask(ctx, id)
 	if err != nil {
 		slog.Error("TaskHandler.Delete: failed to delete task", "id", id, "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalServerError(c, err.Error())
 		return
 	}
 
 	slog.Info("TaskHandler.Delete: task deleted", "id", id)
-	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
+	SuccessWithMessage(c, "deleted", nil)
 }
 
 func (h *TaskHandler) Trigger(c *gin.Context) {
@@ -391,25 +472,34 @@ func (h *TaskHandler) Trigger(c *gin.Context) {
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		slog.Warn("TaskHandler.Trigger: invalid id", "id_str", idStr, "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		BadRequest(c, "invalid id")
 		return
 	}
 
 	if id <= 0 {
 		slog.Warn("TaskHandler.Trigger: id must be positive", "id", id)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "id must be positive"})
+		BadRequest(c, "id must be positive")
 		return
 	}
 
 	executionID, err := h.svc.TriggerTask(c.Request.Context(), id)
 	if err != nil {
 		slog.Error("TaskHandler.Trigger: failed to trigger task", "task_id", id, "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		
+		// 始终尝试获取任务和领域信息来提供更好的错误提示
+		task, getErr := h.svc.GetTaskByID(c.Request.Context(), id)
+		if getErr == nil {
+			domainName := h.svc.GetDomainName(c.Request.Context(), task.DomainID)
+			BadRequest(c, fmt.Sprintf("%s 没有可用的执行器，请联系管理员为 %s 分配执行器", domainName, domainName))
+		} else {
+			// 如果无法获取任务信息，提供通用提示
+			BadRequest(c, "没有可用的执行器，请联系管理员分配执行器")
+		}
 		return
 	}
 
 	slog.Info("TaskHandler.Trigger: task triggered", "task_id", id, "execution_id", executionID)
-	c.JSON(http.StatusOK, gin.H{"message": "triggered", "execution_id": executionID})
+	Success(c, gin.H{"message": "triggered", "execution_id": executionID})
 }
 
 func (h *TaskHandler) Executions(c *gin.Context) {
@@ -417,13 +507,13 @@ func (h *TaskHandler) Executions(c *gin.Context) {
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		slog.Warn("TaskHandler.Executions: invalid id", "id_str", idStr, "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		BadRequest(c, "invalid id")
 		return
 	}
 
 	if id <= 0 {
 		slog.Warn("TaskHandler.Executions: id must be positive", "id", id)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "id must be positive"})
+		BadRequest(c, "id must be positive")
 		return
 	}
 
@@ -431,7 +521,7 @@ func (h *TaskHandler) Executions(c *gin.Context) {
 	executions, err := h.svc.GetTaskExecutions(ctx, id)
 	if err != nil {
 		slog.Error("TaskHandler.Executions: failed to get executions", "task_id", id, "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalServerError(c, err.Error())
 		return
 	}
 
@@ -440,14 +530,14 @@ func (h *TaskHandler) Executions(c *gin.Context) {
 		response = append(response, toTaskExecutionResponse(exec))
 	}
 
-	c.JSON(http.StatusOK, response)
+	Success(c, response)
 }
 
 func (h *TaskHandler) StreamLogs(c *gin.Context) {
 	executionID := c.Query("execution_id")
 	if safeString(executionID) == "" {
 		slog.Warn("TaskHandler.StreamLogs: execution_id required")
-		c.JSON(http.StatusBadRequest, gin.H{"error": "execution_id required"})
+		BadRequest(c, "execution_id required")
 		return
 	}
 
@@ -605,7 +695,7 @@ func (h *TaskHandler) ExecutionLogs(c *gin.Context) {
 	executionID := c.Param("executionId")
 	if safeString(executionID) == "" {
 		slog.Warn("TaskHandler.ExecutionLogs: executionId required")
-		c.JSON(http.StatusBadRequest, gin.H{"error": "executionId required"})
+		BadRequest(c, "executionId required")
 		return
 	}
 
@@ -613,7 +703,7 @@ func (h *TaskHandler) ExecutionLogs(c *gin.Context) {
 	logs, err := h.svc.GetTaskLogs(ctx, executionID)
 	if err != nil {
 		slog.Error("TaskHandler.ExecutionLogs: failed to get logs", "execution_id", executionID, "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalServerError(c, err.Error())
 		return
 	}
 
@@ -622,7 +712,7 @@ func (h *TaskHandler) ExecutionLogs(c *gin.Context) {
 		response = append(response, toTaskLogResponse(log))
 	}
 
-	c.JSON(http.StatusOK, response)
+	Success(c, response)
 }
 
 func escapeJSON(s string) string {
