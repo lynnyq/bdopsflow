@@ -102,7 +102,7 @@
           </div>
           <div class="health-card-body">
             <div class="health-status-badge" :class="check.status">
-              {{ check.status === 'healthy' ? (key === 'scheduler' ? '运行中' : '正常') : '异常' }}
+              {{ key === 'scheduler' && check.message === '已暂停' ? '已暂停' : (check.status === 'healthy' ? (key === 'scheduler' ? '运行中' : '正常') : '异常') }}
             </div>
             <div class="health-message">{{ check.message }}</div>
             <div v-if="check.latency" class="health-latency">
