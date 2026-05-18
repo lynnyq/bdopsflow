@@ -3,19 +3,21 @@ package config
 import (
 	"log/slog"
 	"os"
+	"strings"
 
 	"github.com/lynnyq/bdopsflow/scheduler/pkg/config"
 )
 
 type Config struct {
-	ExecutorName  string
-	Hostname      string
-	Capacity      int32
-	SchedulerAddr string
-	Timeout       int
-	LogLevel      string
-	LogFormat     string
-	ConfigFile    string
+	ExecutorName   string
+	Hostname       string
+	Capacity       int32
+	SchedulerAddr  string
+	SchedulerAddrs []string
+	Timeout        int
+	LogLevel       string
+	LogFormat      string
+	ConfigFile     string
 }
 
 func getSystemHostname() string {
@@ -25,6 +27,20 @@ func getSystemHostname() string {
 		return "localhost"
 	}
 	return hostname
+}
+
+func parseSchedulerAddrs(addrsStr string) []string {
+	if addrsStr == "" {
+		return nil
+	}
+	var addrs []string
+	for _, addr := range strings.Split(addrsStr, ",") {
+		addr = strings.TrimSpace(addr)
+		if addr != "" {
+			addrs = append(addrs, addr)
+		}
+	}
+	return addrs
 }
 
 // Load loads configuration from config file
@@ -52,14 +68,15 @@ func Load(configFile string) *Config {
 	hostname := cfg.GetString("app.hostname", defaultHostname)
 
 	return &Config{
-		ExecutorName:  executorName,
-		Hostname:      hostname,
-		Capacity:      cfg.GetInt32("app.capacity", 10),
-		SchedulerAddr: cfg.GetString("scheduler.addr", ""),
-		Timeout:       cfg.GetInt("scheduler.timeout", 30),
-		LogLevel:      cfg.GetString("log.level", "info"),
-		LogFormat:     cfg.GetString("log.format", "json"),
-		ConfigFile:    configured,
+		ExecutorName:   executorName,
+		Hostname:       hostname,
+		Capacity:       cfg.GetInt32("app.capacity", 10),
+		SchedulerAddr:  cfg.GetString("scheduler.addr", ""),
+		SchedulerAddrs: parseSchedulerAddrs(cfg.GetString("scheduler.addrs", "")),
+		Timeout:        cfg.GetInt("scheduler.timeout", 30),
+		LogLevel:       cfg.GetString("log.level", "info"),
+		LogFormat:      cfg.GetString("log.format", "json"),
+		ConfigFile:     configured,
 	}
 }
 
@@ -68,13 +85,14 @@ func defaultConfig(hostname string) *Config {
 		hostname = "localhost"
 	}
 	return &Config{
-		ExecutorName:  "",
-		Hostname:      hostname,
-		Capacity:      10,
-		SchedulerAddr: "",
-		Timeout:       30,
-		LogLevel:      "info",
-		LogFormat:     "json",
+		ExecutorName:   "",
+		Hostname:       hostname,
+		Capacity:       10,
+		SchedulerAddr:  "",
+		SchedulerAddrs: nil,
+		Timeout:        30,
+		LogLevel:       "info",
+		LogFormat:      "json",
 	}
 }
 
@@ -83,6 +101,7 @@ func (c *Config) Merge(
 	executorName string,
 	capacity int32,
 	schedulerAddr string,
+	schedulerAddrs []string,
 	timeout int,
 	hostname string,
 	logLevel string,
@@ -96,6 +115,9 @@ func (c *Config) Merge(
 	}
 	if schedulerAddr != "" {
 		c.SchedulerAddr = schedulerAddr
+	}
+	if len(schedulerAddrs) > 0 {
+		c.SchedulerAddrs = schedulerAddrs
 	}
 	if timeout > 0 {
 		c.Timeout = timeout
@@ -111,13 +133,26 @@ func (c *Config) Merge(
 	}
 }
 
+// GetSchedulerAddresses returns the list of scheduler addresses to connect to
+// Priority: SchedulerAddrs > SchedulerAddr > first address from config file
+func (c *Config) GetSchedulerAddresses() []string {
+	if len(c.SchedulerAddrs) > 0 {
+		return c.SchedulerAddrs
+	}
+	if c.SchedulerAddr != "" {
+		return []string{c.SchedulerAddr}
+	}
+	return nil
+}
+
 // Validate validates that required configuration is present
 func (c *Config) Validate() error {
 	if c.ExecutorName == "" {
 		return newRequiredError("executor_name")
 	}
-	if c.SchedulerAddr == "" {
-		return newRequiredError("scheduler.addr")
+	addrs := c.GetSchedulerAddresses()
+	if len(addrs) == 0 {
+		return newRequiredError("scheduler.addr or scheduler.addrs")
 	}
 	return nil
 }

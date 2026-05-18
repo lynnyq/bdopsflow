@@ -57,23 +57,38 @@ func (cs *CronScheduler) Start() error {
 func (cs *CronScheduler) OnBecomeLeader() {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
-	
+
 	if cs.isLeader {
 		return
 	}
-	
+
 	cs.isLeader = true
 	slog.Info("node became leader, starting cron scheduler")
-	
+
 	// 启动cron
 	if !cs.started {
 		cs.cron.Start()
 		cs.started = true
 		slog.Info("cron scheduler started", "mode", "6-field (with seconds)", "distributed_lock", "enabled")
 	}
-	
+
 	// 加载和注册所有任务
 	go cs.loadAndRegisterTasks()
+
+	// 恢复正在执行的任务
+	go cs.recoverRunningTasks()
+}
+
+func (cs *CronScheduler) recoverRunningTasks() {
+	if cs.svc == nil {
+		slog.Warn("SchedulerService is nil, cannot recover running tasks")
+		return
+	}
+
+	ctx := context.Background()
+	if err := cs.svc.RecoverRunningTasksOnBecomeLeader(ctx); err != nil {
+		slog.Error("failed to recover running tasks", "error", err)
+	}
 }
 
 // OnLoseLeader 当失去主节点地位时调用

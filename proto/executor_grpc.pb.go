@@ -19,11 +19,13 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	ExecutorService_Register_FullMethodName         = "/bdopsflow.ExecutorService/Register"
-	ExecutorService_Heartbeat_FullMethodName        = "/bdopsflow.ExecutorService/Heartbeat"
-	ExecutorService_SubscribeTask_FullMethodName    = "/bdopsflow.ExecutorService/SubscribeTask"
-	ExecutorService_ReportTaskResult_FullMethodName = "/bdopsflow.ExecutorService/ReportTaskResult"
-	ExecutorService_ReportTaskLog_FullMethodName    = "/bdopsflow.ExecutorService/ReportTaskLog"
+	ExecutorService_Register_FullMethodName           = "/bdopsflow.ExecutorService/Register"
+	ExecutorService_Heartbeat_FullMethodName          = "/bdopsflow.ExecutorService/Heartbeat"
+	ExecutorService_SubscribeTask_FullMethodName      = "/bdopsflow.ExecutorService/SubscribeTask"
+	ExecutorService_ReportTaskResult_FullMethodName   = "/bdopsflow.ExecutorService/ReportTaskResult"
+	ExecutorService_ReportTaskLog_FullMethodName      = "/bdopsflow.ExecutorService/ReportTaskLog"
+	ExecutorService_ReportTaskProgress_FullMethodName = "/bdopsflow.ExecutorService/ReportTaskProgress"
+	ExecutorService_SyncRunningTasks_FullMethodName   = "/bdopsflow.ExecutorService/SyncRunningTasks"
 )
 
 // ExecutorServiceClient is the client API for ExecutorService service.
@@ -35,6 +37,9 @@ type ExecutorServiceClient interface {
 	SubscribeTask(ctx context.Context, in *SubscribeTaskRequest, opts ...grpc.CallOption) (ExecutorService_SubscribeTaskClient, error)
 	ReportTaskResult(ctx context.Context, in *ReportTaskResultRequest, opts ...grpc.CallOption) (*ReportTaskResultResponse, error)
 	ReportTaskLog(ctx context.Context, in *ReportTaskLogRequest, opts ...grpc.CallOption) (*ReportTaskLogResponse, error)
+	ReportTaskProgress(ctx context.Context, in *ReportTaskProgressRequest, opts ...grpc.CallOption) (*ReportTaskProgressResponse, error)
+	// 新添加：同步正在运行的任务状态（新调度器成为 leader 时调用）
+	SyncRunningTasks(ctx context.Context, in *SyncRunningTasksRequest, opts ...grpc.CallOption) (*SyncRunningTasksResponse, error)
 }
 
 type executorServiceClient struct {
@@ -113,6 +118,24 @@ func (c *executorServiceClient) ReportTaskLog(ctx context.Context, in *ReportTas
 	return out, nil
 }
 
+func (c *executorServiceClient) ReportTaskProgress(ctx context.Context, in *ReportTaskProgressRequest, opts ...grpc.CallOption) (*ReportTaskProgressResponse, error) {
+	out := new(ReportTaskProgressResponse)
+	err := c.cc.Invoke(ctx, ExecutorService_ReportTaskProgress_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *executorServiceClient) SyncRunningTasks(ctx context.Context, in *SyncRunningTasksRequest, opts ...grpc.CallOption) (*SyncRunningTasksResponse, error) {
+	out := new(SyncRunningTasksResponse)
+	err := c.cc.Invoke(ctx, ExecutorService_SyncRunningTasks_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ExecutorServiceServer is the server API for ExecutorService service.
 // All implementations must embed UnimplementedExecutorServiceServer
 // for forward compatibility
@@ -122,6 +145,9 @@ type ExecutorServiceServer interface {
 	SubscribeTask(*SubscribeTaskRequest, ExecutorService_SubscribeTaskServer) error
 	ReportTaskResult(context.Context, *ReportTaskResultRequest) (*ReportTaskResultResponse, error)
 	ReportTaskLog(context.Context, *ReportTaskLogRequest) (*ReportTaskLogResponse, error)
+	ReportTaskProgress(context.Context, *ReportTaskProgressRequest) (*ReportTaskProgressResponse, error)
+	// 新添加：同步正在运行的任务状态（新调度器成为 leader 时调用）
+	SyncRunningTasks(context.Context, *SyncRunningTasksRequest) (*SyncRunningTasksResponse, error)
 	mustEmbedUnimplementedExecutorServiceServer()
 }
 
@@ -143,6 +169,12 @@ func (UnimplementedExecutorServiceServer) ReportTaskResult(context.Context, *Rep
 }
 func (UnimplementedExecutorServiceServer) ReportTaskLog(context.Context, *ReportTaskLogRequest) (*ReportTaskLogResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ReportTaskLog not implemented")
+}
+func (UnimplementedExecutorServiceServer) ReportTaskProgress(context.Context, *ReportTaskProgressRequest) (*ReportTaskProgressResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReportTaskProgress not implemented")
+}
+func (UnimplementedExecutorServiceServer) SyncRunningTasks(context.Context, *SyncRunningTasksRequest) (*SyncRunningTasksResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SyncRunningTasks not implemented")
 }
 func (UnimplementedExecutorServiceServer) mustEmbedUnimplementedExecutorServiceServer() {}
 
@@ -250,6 +282,42 @@ func _ExecutorService_ReportTaskLog_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ExecutorService_ReportTaskProgress_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReportTaskProgressRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ExecutorServiceServer).ReportTaskProgress(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ExecutorService_ReportTaskProgress_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ExecutorServiceServer).ReportTaskProgress(ctx, req.(*ReportTaskProgressRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ExecutorService_SyncRunningTasks_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SyncRunningTasksRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ExecutorServiceServer).SyncRunningTasks(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ExecutorService_SyncRunningTasks_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ExecutorServiceServer).SyncRunningTasks(ctx, req.(*SyncRunningTasksRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ExecutorService_ServiceDesc is the grpc.ServiceDesc for ExecutorService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -272,6 +340,14 @@ var ExecutorService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ReportTaskLog",
 			Handler:    _ExecutorService_ReportTaskLog_Handler,
+		},
+		{
+			MethodName: "ReportTaskProgress",
+			Handler:    _ExecutorService_ReportTaskProgress_Handler,
+		},
+		{
+			MethodName: "SyncRunningTasks",
+			Handler:    _ExecutorService_SyncRunningTasks_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

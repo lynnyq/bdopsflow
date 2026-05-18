@@ -18,9 +18,17 @@ import (
 	"github.com/lynnyq/bdopsflow/executor/internal/pool"
 )
 
+// 正在运行的任务信息
+type RunningTaskInfo struct {
+	task           *pb.Task
+	startTime      time.Time
+	currentProgress int32
+	progressMsg    string
+}
+
 type TaskExecutor struct {
-	taskPool    *pool.Pool
-	runningTasks sync.Map
+	taskPool       *pool.Pool
+	runningTasks   sync.Map // map[string]*RunningTaskInfo
 }
 
 func NewTaskExecutor(taskPool *pool.Pool) *TaskExecutor {
@@ -44,14 +52,52 @@ func (e *TaskExecutor) GetRunningExecutionIds() []string {
 	return ids
 }
 
-func (e *TaskExecutor) addRunningTask(executionId string) {
-	e.runningTasks.Store(executionId, time.Now())
+// 新增：获取正在运行任务的详细状态
+func (e *TaskExecutor) GetRunningTaskStates() []*pb.RunningTaskState {
+	var states []*pb.RunningTaskState
+	e.runningTasks.Range(func(key, value interface{}) bool {
+		if executionId, ok := key.(string); ok {
+			if info, ok := value.(*RunningTaskInfo); ok {
+				state := &pb.RunningTaskState{
+					ExecutionId:     executionId,
+					TaskId:          info.task.TaskId,
+					Progress:        info.currentProgress,
+					ProgressMessage: info.progressMsg,
+					StartTime:       info.startTime.Unix(),
+					Status:          "running",
+				}
+				states = append(states, state)
+			}
+		}
+		return true
+	})
+	return states
+}
+
+func (e *TaskExecutor) addRunningTask(executionId string, task *pb.Task) {
+	e.runningTasks.Store(executionId, &RunningTaskInfo{
+		task:           task,
+		startTime:      time.Now(),
+		currentProgress: 0,
+		progressMsg:    "Task started",
+	})
 	slog.Debug("added task to running list", "execution_id", executionId, "running_count", e.getRunningCount())
 }
 
 func (e *TaskExecutor) removeRunningTask(executionId string) {
 	e.runningTasks.Delete(executionId)
 	slog.Debug("removed task from running list", "execution_id", executionId, "running_count", e.getRunningCount())
+}
+
+// 更新任务进度
+func (e *TaskExecutor) updateTaskProgress(executionId string, progress int32, msg string) {
+	if val, ok := e.runningTasks.Load(executionId); ok {
+		if info, ok := val.(*RunningTaskInfo); ok {
+			info.currentProgress = progress
+			info.progressMsg = msg
+			e.runningTasks.Store(executionId, info)
+		}
+	}
 }
 
 func (e *TaskExecutor) getRunningCount() int {
@@ -63,7 +109,7 @@ func (e *TaskExecutor) getRunningCount() int {
 	return count
 }
 
-func (e *TaskExecutor) Execute(ctx context.Context, task *pb.Task, client *grpcclient.Client) {
+func (e *TaskExecutor) Execute(ctx context.Context, task *pb.Task, client *grpcclient.MultiClient) {
 	slog.Info("task execution started",
 		"execution_id", task.ExecutionId,
 		"task_id", task.TaskId,
@@ -71,7 +117,7 @@ func (e *TaskExecutor) Execute(ctx context.Context, task *pb.Task, client *grpcc
 	)
 
 	sendLog(client, task, "info", "Task execution started")
-	e.addRunningTask(task.ExecutionId)
+	e.addRunningTask(task.ExecutionId, task)
 	defer e.removeRunningTask(task.ExecutionId)
 
 	if e.taskPool != nil {
@@ -123,7 +169,7 @@ func (e *TaskExecutor) GetRunningTasks() int32 {
 	return 0
 }
 
-func (e *TaskExecutor) executeTask(ctx context.Context, task *pb.Task, client *grpcclient.Client) (string, error) {
+func (e *TaskExecutor) executeTask(ctx context.Context, task *pb.Task, client *grpcclient.MultiClient) (string, error) {
 	var execCtx context.Context
 	var cancel context.CancelFunc
 
@@ -144,7 +190,7 @@ func (e *TaskExecutor) executeTask(ctx context.Context, task *pb.Task, client *g
 	}
 }
 
-func (e *TaskExecutor) executeHTTP(ctx context.Context, task *pb.Task, client *grpcclient.Client) (string, error) {
+func (e *TaskExecutor) executeHTTP(ctx context.Context, task *pb.Task, client *grpcclient.MultiClient) (string, error) {
 	var config struct {
 		URL     string `json:"url"`
 		Method  string `json:"method"`
@@ -263,7 +309,7 @@ func (e *TaskExecutor) executeHTTP(ctx context.Context, task *pb.Task, client *g
 	return body, nil
 }
 
-func (e *TaskExecutor) executeShell(ctx context.Context, task *pb.Task, client *grpcclient.Client) (string, error) {
+func (e *TaskExecutor) executeShell(ctx context.Context, task *pb.Task, client *grpcclient.MultiClient) (string, error) {
 	var config struct {
 		Script string `json:"script"`
 	}
@@ -340,7 +386,7 @@ func (e *TaskExecutor) executeShell(ctx context.Context, task *pb.Task, client *
 	return output, nil
 }
 
-func sendOutputLog(client *grpcclient.Client, task *pb.Task, logType string, message string) {
+func sendOutputLog(client *grpcclient.MultiClient, task *pb.Task, logType string, message string) {
 	if client == nil {
 		return
 	}
@@ -356,7 +402,7 @@ func sendOutputLog(client *grpcclient.Client, task *pb.Task, logType string, mes
 	}
 }
 
-func sendLog(client *grpcclient.Client, task *pb.Task, level string, message string) {
+func sendLog(client *grpcclient.MultiClient, task *pb.Task, level string, message string) {
 	if client == nil {
 		return
 	}

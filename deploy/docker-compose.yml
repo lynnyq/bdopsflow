@@ -109,7 +109,10 @@ services:
     environment:
       - EXECUTOR_ID=executor-1
       - EXECUTOR_NAME=executor-1
+      # 单调度器模式（向后兼容）
       - SCHEDULER_ADDR=scheduler1:50051
+      # 多调度器模式（推荐用于高可用）
+      # - SCHEDULER_ADDRS=scheduler1:50051,scheduler2:50051,scheduler3:50051
       - CAPACITY=10
     depends_on:
       - scheduler1

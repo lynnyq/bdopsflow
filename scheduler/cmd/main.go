@@ -212,6 +212,7 @@ func main() {
 	schedulerService.SetWebhookService(webhookSvc)
 
 	grpcSrv := grpcserver.NewServer(cfg.GRPCPort, schedulerService)
+	grpcSrv.SetNodeId(nodeID) // 设置节点 ID
 
 	cronScheduler := cron.NewCronScheduler(schedulerService, redisClient)
 	schedulerService.SetCronScheduler(cronScheduler)
@@ -226,10 +227,14 @@ func main() {
 	// 设置主节点选举回调
 	leaderElection.OnAcquire(func() {
 		slog.Info("this node became the leader", "node_id", nodeID)
+		// 标记 gRPC 服务为新 leader，需要执行器同步任务
+		grpcSrv.MarkAsNewLeader()
+		grpcSrv.SetLeader(true)
 		cronScheduler.OnBecomeLeader()
 	})
 	leaderElection.OnRelease(func() {
 		slog.Info("this node lost leadership", "node_id", nodeID)
+		grpcSrv.SetLeader(false)
 		cronScheduler.OnLoseLeader()
 	})
 

@@ -21,6 +21,7 @@ COPY --from=builder /app/executor/executor .
 ENV EXECUTOR_ID=executor-1
 ENV EXECUTOR_NAME=executor-1
 ENV SCHEDULER_ADDR=localhost:50051
+ENV SCHEDULER_ADDRS=""
 ENV CAPACITY=10
 
 CMD ["./executor"]

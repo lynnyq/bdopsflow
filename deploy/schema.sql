@@ -107,6 +107,9 @@ CREATE TABLE IF NOT EXISTS bdopsflow_task_executions (
     error TEXT,
     retry_times INTEGER DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    progress INTEGER DEFAULT 0,
+    progress_msg TEXT,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (task_id) REFERENCES bdopsflow_tasks(id) ON DELETE CASCADE,
     FOREIGN KEY (executor_id) REFERENCES bdopsflow_executors(id) ON DELETE SET NULL
 );

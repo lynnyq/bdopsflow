@@ -15,6 +15,8 @@
 - ✅ **gRPC 通信**：调度中心与执行器 100% 使用 gRPC 通信
 - ✅ **工作流 DAG**：支持任务依赖和工作流编排
 - ✅ **高可用**：主节点选举、故障自动转移
+- ✅ **任务恢复**：调度器切换时自动恢复执行中的任务
+- ✅ **实时日志**：任务执行日志实时传输与展示
 - ✅ **幂等控制**：Redis 分布式锁 + 状态机，防止重复执行
 - ✅ **锁续期机制**：执行器心跳续期锁 TTL，防止任务卡死
 - ✅ **任务执行**：支持 HTTP、Shell 任务类型
@@ -49,15 +51,11 @@
 ```
 bdopsflow/
 ├── docs/                             # 文档目录
+│   ├── DEVELOPMENT.md               # 开发、部署和使用指南
+│   ├── FEATURES.md                  # 核心功能参考（所有功能实现详解）
+│   ├── LOGGING.md                   # 任务日志系统文档
 │   ├── ARCHITECTURE.md              # 架构设计文档
-│   ├── DEPLOYMENT.md                # 部署文档
-│   ├── API.md                       # API 接口文档
-│   ├── SCHEDULER_CENTER.md          # 调度中心功能说明
-│   ├── DATABASE.md                  # 数据库设计文档
-│   ├── GRPC.md                      # gRPC 通信协议
-│   ├── FRONTEND.md                  # 前端使用指南
-│   ├── EXECUTOR.md                  # 执行器使用指南
-│   └── WEBHOOK.md                   # Webhook 接入指南
+│   └── API.md                       # API 接口文档
 ├── deploy/                          # 部署文件
 │   ├── Dockerfile.scheduler
 │   ├── Dockerfile.executor
@@ -248,15 +246,11 @@ npm run dev
 
 | 文档 | 说明 |
 |------|------|
-| [架构设计文档](docs/ARCHITECTURE.md) | 系统架构详细说明 |
-| [部署文档](docs/DEPLOYMENT.md) | 生产环境部署指南 |
-| [API 接口文档](docs/API.md) | 完整 API 接口说明 |
-| [调度中心功能说明](docs/SCHEDULER_CENTER.md) | 调度中心核心功能详解 |
-| [数据库设计文档](docs/DATABASE.md) | 数据库结构与优化指南 |
-| [gRPC 通信协议](docs/GRPC.md) | 执行器通信协议定义 |
-| [前端使用指南](docs/FRONTEND.md) | Web 界面操作手册 |
-| [执行器使用指南](docs/EXECUTOR.md) | 执行器配置与部署 |
-| [Webhook 接入指南](docs/WEBHOOK.md) | Webhook 配置和使用 |
+| [开发指南](docs/DEVELOPMENT.md) | 完整的开发、部署和使用指南 |
+| [核心功能参考](docs/FEATURES.md) | 所有核心功能实现详解 |
+| [任务日志系统](docs/LOGGING.md) | 实时日志传输与展示实现详解 |
+| [架构设计](docs/ARCHITECTURE.md) | 系统架构和技术设计文档 |
+| [API 接口](docs/API.md) | RESTful API 接口文档 |
 
 ## 🐳 Docker 部署
 

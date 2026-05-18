@@ -29,6 +29,8 @@ type Config struct {
 }
 
 func Load(configFile string) *Config {
+	slog.Info("attempting to load config file", "config_file", configFile)
+	
 	cfg, err := config.New(config.Options{
 		ConfigFile: configFile,
 	})
@@ -38,12 +40,15 @@ func Load(configFile string) *Config {
 	}
 
 	if cfg == nil {
+		slog.Warn("config is nil, using defaults")
 		return defaultConfig()
 	}
 
 	configured := cfg.ConfigFile()
 	if configured != "" {
 		slog.Info("loaded config from file", "file", configured)
+	} else {
+		slog.Warn("no config file loaded, using defaults")
 	}
 
 	return &Config{

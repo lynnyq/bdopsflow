@@ -2,6 +2,8 @@ package executor
 
 import (
 	"testing"
+
+	pb "github.com/lynnyq/bdopsflow/proto"
 )
 
 func TestTaskExecutor_GetRunningExecutionIds(t *testing.T) {
@@ -20,17 +22,30 @@ func TestTaskExecutor_RunningTaskTracking(t *testing.T) {
 	executionId2 := "exec-002"
 	executionId3 := "exec-003"
 
-	executor.addRunningTask(executionId1)
+	task1 := &pb.Task{
+		TaskId:      1,
+		ExecutionId: executionId1,
+	}
+	task2 := &pb.Task{
+		TaskId:      2,
+		ExecutionId: executionId2,
+	}
+	task3 := &pb.Task{
+		TaskId:      3,
+		ExecutionId: executionId3,
+	}
+
+	executor.addRunningTask(executionId1, task1)
 	if executor.getRunningCount() != 1 {
 		t.Errorf("expected 1 running task, got %d", executor.getRunningCount())
 	}
 
-	executor.addRunningTask(executionId2)
+	executor.addRunningTask(executionId2, task2)
 	if executor.getRunningCount() != 2 {
 		t.Errorf("expected 2 running tasks, got %d", executor.getRunningCount())
 	}
 
-	executor.addRunningTask(executionId3)
+	executor.addRunningTask(executionId3, task3)
 	if executor.getRunningCount() != 3 {
 		t.Errorf("expected 3 running tasks, got %d", executor.getRunningCount())
 	}
@@ -79,5 +94,35 @@ func TestTaskExecutor_GetRunningTasks(t *testing.T) {
 	count := executor.GetRunningTasks()
 	if count != 0 {
 		t.Errorf("expected 0 running tasks initially, got %d", count)
+	}
+}
+
+func TestTaskExecutor_GetRunningTaskStates(t *testing.T) {
+	executor := NewTaskExecutor(nil)
+
+	states := executor.GetRunningTaskStates()
+	if len(states) != 0 {
+		t.Errorf("expected 0 running task states initially, got %d", len(states))
+	}
+
+	executionId := "exec-001"
+	task := &pb.Task{
+		TaskId:      1,
+		ExecutionId: executionId,
+	}
+
+	executor.addRunningTask(executionId, task)
+	states = executor.GetRunningTaskStates()
+	if len(states) != 1 {
+		t.Errorf("expected 1 running task state, got %d", len(states))
+	}
+	if states[0].ExecutionId != executionId {
+		t.Errorf("expected execution ID %s, got %s", executionId, states[0].ExecutionId)
+	}
+	if states[0].TaskId != 1 {
+		t.Errorf("expected task ID 1, got %d", states[0].TaskId)
+	}
+	if states[0].Status != "running" {
+		t.Errorf("expected status 'running', got %s", states[0].Status)
 	}
 }

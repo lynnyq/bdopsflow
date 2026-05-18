@@ -1163,18 +1163,29 @@ func (s *SchedulerService) renewTaskLock(ctx context.Context, executionID string
 		return err
 	}
 
-	if exists == 0 {
-		slog.Warn("lock not found for renewal", "execution_id", executionID)
-		return fmt.Errorf("lock not found")
-	}
-
 	lockTTL := 300
-	if err := s.redis.Expire(ctx, lockKey, time.Duration(lockTTL)*time.Second).Err(); err != nil {
-		return err
+
+	if exists == 0 {
+		// 锁不存在，可能是新调度器接管，或者任务锁过期了
+		// 执行器正在运行此任务，我们应该重新创建锁
+		slog.Warn("lock not found, recreating for executor reported running task", "execution_id", executionID)
+		if err := s.redis.Set(ctx, lockKey, "recovered_by_executor", time.Duration(lockTTL)*time.Second).Err(); err != nil {
+			return err
+		}
+	} else {
+		// 锁存在，延长过期时间
+		if err := s.redis.Expire(ctx, lockKey, time.Duration(lockTTL)*time.Second).Err(); err != nil {
+			return err
+		}
 	}
 
+	// 无论锁是新建还是延长，我们都更新 renew 时间戳
 	renewKey := fmt.Sprintf("task:renew:%s", executionID)
 	s.redis.Set(ctx, renewKey, time.Now().Unix(), time.Duration(lockTTL)*time.Second)
+
+	// 任务已经被执行器确认了，清除失败计数
+	failCountKey := fmt.Sprintf("task:renew:fail:count:%s", executionID)
+	s.redis.Del(ctx, failCountKey)
 
 	slog.Debug("task lock renewed", "execution_id", executionID, "lock_ttl_seconds", lockTTL)
 	return nil
@@ -1183,6 +1194,7 @@ func (s *SchedulerService) renewTaskLock(ctx context.Context, executionID string
 func (s *SchedulerService) cleanupStaleTaskLocks() {
 	ctx := context.Background()
 
+	// 第一部分：清理数据库中显示为 running 但状态异常的任务
 	query := `
 		SELECT execution_id, task_id
 		FROM bdopsflow_task_executions
@@ -1204,6 +1216,8 @@ func (s *SchedulerService) cleanupStaleTaskLocks() {
 	maxInterval := lockTTLSeconds // 给足够的缓冲时间，超过 TTL 才标记为失败
 	requiredFailCount := int64(3) // 连续失败 3 次才标记为失败
 
+	runningExecutionIDs := make(map[string]bool)
+
 	for qr.Next() {
 		row, err := qr.Slice()
 		if err != nil {
@@ -1212,6 +1226,8 @@ func (s *SchedulerService) cleanupStaleTaskLocks() {
 
 		executionID := rowString(row[0])
 		taskID := rowInt64(row[1])
+		
+		runningExecutionIDs[executionID] = true
 
 		renewKey := fmt.Sprintf("task:renew:%s", executionID)
 		failCountKey := fmt.Sprintf("task:renew:fail:count:%s", executionID)
@@ -1283,6 +1299,58 @@ func (s *SchedulerService) cleanupStaleTaskLocks() {
 				)
 			}
 		}
+	}
+
+	// 第二部分：清理 Redis 中残留的但数据库中已不是 running 状态的任务锁
+	// 首先获取所有 task:lock: 前缀的键
+	lockPattern := "task:lock:*"
+	var cursor uint64 = 0
+	cleanedLocks := 0
+
+	for {
+		var keys []string
+		var err error
+		keys, cursor, err = s.redis.Scan(ctx, cursor, lockPattern, 100).Result()
+		if err != nil {
+			slog.Error("cleanup: scan task locks failed", "error", err)
+			break
+		}
+
+		for _, key := range keys {
+			// 提取 execution_id
+			// key 格式: task:lock:exec-xxx-xxx
+			executionID := ""
+			parts := strings.SplitN(key, ":", 3)
+			if len(parts) >= 3 {
+				executionID = parts[2]
+			}
+
+			// 检查这个 execution_id 是否还在 running 状态
+			if !runningExecutionIDs[executionID] {
+				// 这个锁对应的任务已经不是 running 状态了，清理掉
+				slog.Info("cleanup: removing stale task lock for non-running execution", 
+					"execution_id", executionID, 
+					"key", key)
+				
+				// 删除锁和相关的键
+				s.redis.Del(ctx, key)
+				
+				// 也清理相关的 renew 和 fail count 键
+				renewKey := fmt.Sprintf("task:renew:%s", executionID)
+				failCountKey := fmt.Sprintf("task:renew:fail:count:%s", executionID)
+				s.redis.Del(ctx, renewKey, failCountKey)
+				
+				cleanedLocks++
+			}
+		}
+
+		if cursor == 0 {
+			break
+		}
+	}
+
+	if cleanedLocks > 0 {
+		slog.Info("cleanup: removed stale task locks", "count", cleanedLocks)
 	}
 }
 
@@ -1654,10 +1722,156 @@ func (s *SchedulerService) UpdateExecutionResult(ctx context.Context, executionI
 	return nil
 }
 
+func (s *SchedulerService) UpdateTaskProgress(ctx context.Context, executionID string, progress int32, progressMsg string) error {
+	query := `
+		UPDATE bdopsflow_task_executions
+		SET progress = ?, progress_msg = ?, updated_at = ?
+		WHERE execution_id = ?
+	`
+
+	stmt := rqlite.ParameterizedStatement{
+		Query:     query,
+		Arguments: []interface{}{progress, progressMsg, time.Now(), executionID},
+	}
+
+	result, err := s.DB.WriteOneParameterized(stmt)
+	if err != nil {
+		return err
+	}
+	if result.Err != nil {
+		return result.Err
+	}
+
+	slog.Debug("task progress updated",
+		"execution_id", executionID,
+		"progress", progress,
+		"message", progressMsg,
+	)
+
+	return nil
+}
+
+func (s *SchedulerService) RecoverRunningTasksOnBecomeLeader(ctx context.Context) error {
+	slog.Info("recovering running tasks on becoming leader")
+
+	query := `
+		SELECT execution_id, task_id, executor_id, status, start_time, progress, progress_msg
+		FROM bdopsflow_task_executions
+		WHERE status = 'running'
+	`
+
+	qr, err := s.DB.QueryOne(query)
+	if err != nil {
+		return err
+	}
+	if qr.Err != nil {
+		return qr.Err
+	}
+
+	recoveredCount := 0
+	failedCount := 0
+	validatedCount := 0
+
+	for qr.Next() {
+		row, err := qr.Slice()
+		if err != nil {
+			continue
+		}
+
+		executionID := rowString(row[0])
+		taskID := rowInt64(row[1])
+		executorID := rowInt64(row[2])
+		startTimeStr := rowString(row[4])
+		progress := int32(rowInt(row[5])) // 使用 rowInt 并转换为 int32
+		progressMsg := rowString(row[6])
+
+		slog.Debug("recovering running task",
+			"execution_id", executionID,
+			"task_id", taskID,
+			"executor_id", executorID,
+			"progress", progress,
+		)
+
+		// 检查执行器是否还在线且心跳正常
+		executor, err := s.GetExecutorByID(ctx, executorID)
+		executorOnline := err == nil && executor.Status == "online"
+
+		// 检查任务锁是否还存在
+		lockKey := fmt.Sprintf("task:lock:%s", executionID)
+		lockExists, _ := s.redis.Exists(ctx, lockKey).Result()
+
+		// 检查任务是否已经超时
+		taskTimeout := false
+		if startTimeStr != "" {
+			if startTime, err := time.Parse("2006-01-02 15:04:05", startTimeStr); err == nil {
+				// 如果任务超过2小时，认为它可能已经卡死
+				if time.Since(startTime) > 2*time.Hour {
+					taskTimeout = true
+				}
+			}
+		}
+
+		// 如果执行器离线、锁不存在，或者任务超时，标记任务失败
+		if !executorOnline || lockExists == 0 || taskTimeout {
+			slog.Warn("task recovery: marking task as failed",
+				"execution_id", executionID,
+				"task_id", taskID,
+				"executor_id", executorID,
+				"executor_online", executorOnline,
+				"lock_exists", lockExists,
+				"task_timeout", taskTimeout,
+			)
+			
+			var reason string
+			if !executorOnline {
+				reason = "scheduler failover: executor is offline"
+			} else if lockExists == 0 {
+				reason = "scheduler failover: task lock not found"
+			} else {
+				reason = "scheduler failover: task execution timeout"
+			}
+			
+			s.forceFailTask(ctx, executionID, taskID, reason)
+			failedCount++
+			continue
+		}
+
+		// 任务看起来还在正常运行，更新任务锁和相关状态
+		lockTTL := 300 // 5分钟
+		if err := s.redis.Set(ctx, lockKey, "leader_recovered", time.Duration(lockTTL)*time.Second).Err(); err != nil {
+			slog.Warn("failed to set task lock during recovery", "execution_id", executionID, "error", err)
+		}
+
+		// 更新 renew 时间戳
+		renewKey := fmt.Sprintf("task:renew:%s", executionID)
+		if err := s.redis.Set(ctx, renewKey, time.Now().Unix(), time.Duration(lockTTL)*time.Second).Err(); err != nil {
+			slog.Warn("failed to set task renew timestamp during recovery", "execution_id", executionID, "error", err)
+		}
+
+		// 清理连续失败计数器
+		failCountKey := fmt.Sprintf("task:renew:fail:count:%s", executionID)
+		s.redis.Del(ctx, failCountKey)
+
+		// 记录恢复事件（使用去重机制）
+		s.addRecoveryLogSafe(ctx, executionID, taskID, "info", 
+			fmt.Sprintf("Task recovered by new leader, progress: %d%%, message: %s", progress, progressMsg))
+
+		recoveredCount++
+		validatedCount++
+	}
+
+	slog.Info("finished recovering running tasks",
+		"recovered_count", recoveredCount,
+		"failed_count", failedCount,
+		"validated_count", validatedCount,
+	)
+	return nil
+}
+
 func (s *SchedulerService) GetTaskExecutions(ctx context.Context, taskID int64) ([]*model.TaskExecution, error) {
 	query := `
 		SELECT id, task_id, execution_id, executor_id, status, start_time, end_time,
-		       output, error, retry_times, created_at
+		       output, error, retry_times, created_at, progress, progress_msg, updated_at
 		FROM bdopsflow_task_executions
 		WHERE task_id = ?
 		ORDER BY created_at DESC
@@ -2218,6 +2432,23 @@ func (s *SchedulerService) GetTaskLogs(ctx context.Context, executionID string) 
 	return logs, nil
 }
 
+// addRecoveryLogSafe 专门用于添加恢复日志，自带去重机制
+func (s *SchedulerService) addRecoveryLogSafe(ctx context.Context, executionID string, taskID int64, logLevel string, message string) error {
+	// 使用 Redis 来检查是否已经记录过类似的恢复日志
+	dedupKey := fmt.Sprintf("task:log:dedup:%s:recovery", executionID)
+	exists, err := s.redis.Exists(ctx, dedupKey).Result()
+	if err == nil && exists > 0 {
+		// 已经记录过恢复日志，跳过
+		slog.Debug("Skipping duplicate recovery log", "execution_id", executionID)
+		return nil
+	}
+	
+	// 设置去重标记，有效期1小时
+	s.redis.Set(ctx, dedupKey, "1", time.Hour)
+	
+	return s.AddTaskLog(ctx, executionID, taskID, "", logLevel, message)
+}
+
 func (s *SchedulerService) AddTaskLog(ctx context.Context, executionID string, taskID int64, nodeID string, logLevel string, message string) error {
 	// 首先获取执行记录中的 executor_id
 	var executorID interface{} = nil
@@ -2233,6 +2464,27 @@ func (s *SchedulerService) AddTaskLog(ctx context.Context, executionID string, t
 		if rawID > 0 {
 			executorID = rawID
 		}
+	}
+
+	// 实现简单的去重机制：避免短时间内相同的日志重复记录
+	dedupEnabled := true
+	if dedupEnabled && s.redis != nil {
+		// 生成日志的唯一标识
+		logHash := fmt.Sprintf("%x", []byte(fmt.Sprintf("%s-%s-%s-%s", executionID, nodeID, logLevel, message)))
+		dedupKey := fmt.Sprintf("task:log:dedup:%s", logHash)
+		
+		// 检查是否已经记录过
+		exists, _ := s.redis.Exists(ctx, dedupKey).Result()
+		if exists > 0 {
+			// 已经记录过相同的日志，跳过
+			slog.Debug("Skipping duplicate task log", 
+				"execution_id", executionID, 
+				"log_level", logLevel)
+			return nil
+		}
+		
+		// 设置去重标记，有效期30秒
+		s.redis.Set(ctx, dedupKey, "1", 30*time.Second)
 	}
 
 	// 尝试插入带 executor_id 的新表结构
@@ -2808,6 +3060,24 @@ func scanExecutionResult(qr *rqlite.QueryResult, exec *model.TaskExecution) erro
 		parsed, err := time.Parse("2006-01-02 15:04:05", s)
 		if err == nil {
 			exec.CreatedAt = parsed
+		}
+	}
+
+	// 处理新增的字段
+	if len(row) > 11 {
+		exec.Progress = int32(rowInt64(row[11]))
+	}
+	if len(row) > 12 {
+		exec.ProgressMsg = rowString(row[12])
+	}
+	if len(row) > 13 {
+		if t, ok := row[13].(time.Time); ok {
+			exec.UpdatedAt = t
+		} else if s, ok := row[13].(string); ok && s != "" {
+			parsed, err := time.Parse("2006-01-02 15:04:05", s)
+			if err == nil {
+				exec.UpdatedAt = parsed
+			}
 		}
 	}
 

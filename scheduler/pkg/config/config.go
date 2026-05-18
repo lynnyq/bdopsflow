@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -30,15 +31,21 @@ func New(opts ...Options) (*Config, error) {
 	}
 
 	if opt.ConfigFile != "" {
+		slog.Info("using specified config file", "file", opt.ConfigFile)
 		cfg.configFile = opt.ConfigFile
 	} else {
+		slog.Info("looking for config file in default locations")
 		cfg.configFile = findConfigFile()
 	}
 
 	if cfg.configFile != "" {
+		slog.Info("found config file, attempting to load", "file", cfg.configFile)
 		if err := cfg.loadFile(); err != nil {
 			return nil, fmt.Errorf("failed to load config file %s: %w", cfg.configFile, err)
 		}
+		slog.Info("config file loaded successfully", "file", cfg.configFile)
+	} else {
+		slog.Warn("no config file found, will use defaults")
 	}
 
 	if opt.Defaults != nil {

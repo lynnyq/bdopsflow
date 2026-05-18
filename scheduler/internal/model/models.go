@@ -76,6 +76,9 @@ type TaskExecution struct {
 	Error       string          `db:"error" json:"error"`
 	RetryTimes  int32           `db:"retry_times" json:"retry_times"`
 	CreatedAt   time.Time       `db:"created_at" json:"created_at"`
+	Progress    int32           `db:"progress" json:"progress"`
+	ProgressMsg string          `db:"progress_msg" json:"progress_msg"`
+	UpdatedAt   time.Time       `db:"updated_at" json:"updated_at"`
 }
 
 func (te *TaskExecution) GetStartTime() *time.Time {

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/lynnyq/bdopsflow/executor/internal/config"
@@ -15,48 +16,58 @@ import (
 	"github.com/lynnyq/bdopsflow/executor/internal/pool"
 )
 
+func parseAddrs(addrsStr string) []string {
+	if addrsStr == "" {
+		return nil
+	}
+	var addrs []string
+	for _, addr := range strings.Split(addrsStr, ",") {
+		addr = strings.TrimSpace(addr)
+		if addr != "" {
+			addrs = append(addrs, addr)
+		}
+	}
+	return addrs
+}
+
 func main() {
-	// 配置文件参数
 	configFile := flag.String("config", "", "path to config file (default: config.yaml in current directory)")
-	
-	// 必需参数
+
 	executorName := flag.String("executor-name", "", "executor name (required)")
-	schedulerAddr := flag.String("scheduler-addr", "", "scheduler gRPC address (required)")
-	
-	// 可选参数，有默认值
+	schedulerAddr := flag.String("scheduler-addr", "", "scheduler gRPC address (single, for backward compatibility)")
+	schedulerAddrs := flag.String("scheduler-addrs", "", "scheduler gRPC addresses (comma-separated, for multiple schedulers)")
+
 	capacity := flag.Int("capacity", 0, "task execution capacity (default: 10)")
 	timeout := flag.Int("timeout", 0, "gRPC request timeout in seconds (default: 30)")
 	hostname := flag.String("hostname", "", "override hostname or IP for executor registration (default: system hostname)")
-	
-	// 日志可选参数
+
 	logLevel := flag.String("log-level", "", "log level: debug, info, warn, error (default: info)")
 	logFormat := flag.String("log-format", "", "log format: json, text (default: json)")
-	
+
 	flag.Parse()
-	
+
 	logger.Init()
-	
-	// 从配置文件加载
+
 	cfg := config.Load(*configFile)
-	
-	// 合并命令行参数（优先级高于配置文件）
+
 	cfg.Merge(
 		*executorName,
 		int32(*capacity),
 		*schedulerAddr,
+		parseAddrs(*schedulerAddrs),
 		*timeout,
 		*hostname,
 		*logLevel,
 		*logFormat,
 	)
-	
-	// 验证必需参数
+
 	if err := cfg.Validate(); err != nil {
 		slog.Error("invalid configuration", "error", err)
 		fmt.Printf("\nUsage: %s [OPTIONS]\n\n", os.Args[0])
 		fmt.Println("Required options:")
 		fmt.Println("  --executor-name     executor name (or via config file)")
-		fmt.Println("  --scheduler-addr    scheduler gRPC address (or via config file)")
+		fmt.Println("  --scheduler-addr     scheduler gRPC address (single, or via config file)")
+		fmt.Println("  --scheduler-addrs   scheduler gRPC addresses (comma-separated, for multiple schedulers)")
 		fmt.Println("\nOptional options:")
 		fmt.Println("  --config            path to config file")
 		fmt.Println("  --capacity          task execution capacity (default: 10)")
@@ -66,10 +77,11 @@ func main() {
 		fmt.Println("  --log-format        log format: json, text (default: json)")
 		os.Exit(1)
 	}
-	
+
+	schedulerAddrsList := cfg.GetSchedulerAddresses()
 	slog.Info("executor starting",
 		"executor_name", cfg.ExecutorName,
-		"scheduler_addr", cfg.SchedulerAddr,
+		"scheduler_addrs", schedulerAddrsList,
 		"capacity", cfg.Capacity,
 		"hostname", cfg.Hostname,
 		"config_file", cfg.ConfigFile,
@@ -80,7 +92,7 @@ func main() {
 
 	exec := executor.NewTaskExecutor(taskPool)
 
-	client, err := grpcclient.NewClient(cfg.SchedulerAddr)
+	client, err := grpcclient.NewMultiClient(schedulerAddrsList)
 	if err != nil {
 		slog.Error("failed to create gRPC client", "error", err)
 		os.Exit(1)

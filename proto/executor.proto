@@ -10,6 +10,19 @@ service ExecutorService {
   rpc SubscribeTask(SubscribeTaskRequest) returns (stream Task);
   rpc ReportTaskResult(ReportTaskResultRequest) returns (ReportTaskResultResponse);
   rpc ReportTaskLog(ReportTaskLogRequest) returns (ReportTaskLogResponse);
+  rpc ReportTaskProgress(ReportTaskProgressRequest) returns (ReportTaskProgressResponse);
+  // 新添加：同步正在运行的任务状态（新调度器成为 leader 时调用）
+  rpc SyncRunningTasks(SyncRunningTasksRequest) returns (SyncRunningTasksResponse);
+}
+
+// 正在运行任务的详细状态信息
+message RunningTaskState {
+  string execution_id = 1;
+  int64 task_id = 2;
+  int32 progress = 3;           // 进度 0-100
+  string progress_message = 4;  // 进度信息
+  int64 start_time = 5;         // 开始时间戳（Unix秒）
+  string status = 6;            // 任务状态：running, pending 等
 }
 
 message RegisterRequest {
@@ -28,12 +41,24 @@ message HeartbeatRequest {
   string executor_name = 1;
   int32 current_load = 2;
   repeated string running_execution_ids = 3;
+  // 新增：携带正在运行任务的详细状态（可选，用于新调度器任务恢复）
+  repeated RunningTaskState running_tasks = 4;
+  // 新增：表示此心跳是否是在检测到调度器变化后的首次心跳
+  bool is_reconnect = 5;
 }
 
 message HeartbeatResponse {
   bool success = 1;
   string message = 2;
   int32 target_capacity = 3;
+  // 新增：调度器是否希望执行器在下一次心跳时发送详细任务状态
+  bool need_full_sync = 4;
+  // 新增：调度器节点 ID（用于检测调度器变化）
+  string scheduler_node_id = 5;
+  // 新增：是否是新的领导节点
+  bool is_new_leader = 6;
+  // 新增：该节点当前是否是领导节点
+  bool is_leader = 7;
 }
 
 message SubscribeTaskRequest {
@@ -77,4 +102,29 @@ message ReportTaskLogRequest {
 message ReportTaskLogResponse {
   bool success = 1;
   string message = 2;
+}
+
+message ReportTaskProgressRequest {
+  string execution_id = 1;
+  int64 task_id = 2;
+  int32 progress = 3;
+  string message = 4;
+  int64 timestamp = 5;
+}
+
+message ReportTaskProgressResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// 新添加：同步正在运行任务的请求
+message SyncRunningTasksRequest {
+  string executor_name = 1;
+}
+
+// 新添加：同步正在运行任务的响应
+message SyncRunningTasksResponse {
+  bool success = 1;
+  string message = 2;
+  repeated RunningTaskState running_tasks = 3;
 }
