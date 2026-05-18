@@ -74,9 +74,11 @@
       <div class="sidebar-footer">
         <div class="system-status">
           <div class="status-indicator">
-            <span class="status-dot"></span>
+            <span class="status-dot" :class="{ healthy: systemHealthy, unhealthy: !systemHealthy }"></span>
             <Transition name="fade">
-              <span v-if="!isCollapse" class="status-text">系统运行正常</span>
+              <span v-if="!isCollapse" class="status-text">
+                {{ systemHealthy ? '系统运行正常' : '系统异常' }}
+              </span>
             </Transition>
           </div>
         </div>
@@ -137,9 +139,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { dashboardAPI } from '@/api'
 import {
   DataAnalysis,
   List,
@@ -162,10 +165,22 @@ const router = useRouter()
 const authStore = useAuthStore()
 
 const isCollapse = ref(false)
+const systemHealthy = ref(true)
 
 const user = computed(() => authStore.user)
 const isAdmin = computed(() => authStore.isAdmin)
 const activeMenu = computed(() => route.path)
+
+let healthCheckInterval: number | null = null
+
+const checkSystemHealth = async () => {
+  try {
+    const response = await dashboardAPI.getHealth()
+    systemHealthy.value = response.data.status === 'healthy'
+  } catch {
+    systemHealthy.value = false
+  }
+}
 
 const pageTitle = computed(() => {
   const titles: Record<string, string> = {
@@ -198,6 +213,17 @@ const handleCommand = (command: string) => {
     router.push('/profile')
   }
 }
+
+onMounted(() => {
+  checkSystemHealth()
+  healthCheckInterval = window.setInterval(checkSystemHealth, 30000)
+})
+
+onUnmounted(() => {
+  if (healthCheckInterval) {
+    clearInterval(healthCheckInterval)
+  }
+})
 </script>
 
 <style scoped>
@@ -317,9 +343,17 @@ const handleCommand = (command: string) => {
 .status-dot {
   width: 8px;
   height: 8px;
-  background: var(--accent-success);
   border-radius: 50%;
+}
+
+.status-dot.healthy {
+  background: var(--accent-success);
   animation: pulse 2s ease-in-out infinite;
+}
+
+.status-dot.unhealthy {
+  background: var(--accent-danger);
+  animation: pulse-danger 1s ease-in-out infinite;
 }
 
 @keyframes pulse {
@@ -327,12 +361,24 @@ const handleCommand = (command: string) => {
   50% { opacity: 0.6; transform: scale(1.2); }
 }
 
+@keyframes pulse-danger {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.2); }
+}
+
 .status-text {
   font-family: var(--font-mono);
   font-size: 0.7rem;
-  color: var(--accent-success);
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+
+.status-dot.healthy + .status-text {
+  color: var(--accent-success);
+}
+
+.status-dot.unhealthy + .status-text {
+  color: var(--accent-danger);
 }
 
 .content-wrapper {
