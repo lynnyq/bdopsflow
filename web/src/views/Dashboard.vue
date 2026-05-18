@@ -309,7 +309,7 @@ const getComponentName = (key: string): string => {
 
 const getComponentIcon = (key: string): string => {
   const icons: Record<string, string> = {
-    rqlite: 'Database',
+    rqlite: 'DataLine',
     rqlite_tables: 'Odometer',
     redis: 'Bell',
     scheduler: 'Monitor'
