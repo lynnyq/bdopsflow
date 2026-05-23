@@ -1,0 +1,127 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: bdopsflow-redis
+    ports:
+      - "6379:6379"
+    networks:
+      - bdopsflow
+
+  rqlite1:
+    image: rqlite/rqlite:latest
+    container_name: bdopsflow-rqlite1
+    ports:
+      - "4001:4001"
+    command: rqlited -http-addr http://0.0.0.0:4001 -raft-addr 0.0.0.0:4002 ~/node1
+    networks:
+      - bdopsflow
+
+  rqlite2:
+    image: rqlite/rqlite:latest
+    container_name: bdopsflow-rqlite2
+    ports:
+      - "4002:4001"
+    command: rqlited -http-addr http://0.0.0.0:4001 -raft-addr 0.0.0.0:4002 -raft-join http://rqlite1:4001 ~/node2
+    depends_on:
+      - rqlite1
+    networks:
+      - bdopsflow
+
+  rqlite3:
+    image: rqlite/rqlite:latest
+    container_name: bdopsflow-rqlite3
+    ports:
+      - "4003:4001"
+    command: rqlited -http-addr http://0.0.0.0:4001 -raft-addr 0.0.0.0:4002 -raft-join http://rqlite1:4001 ~/node3
+    depends_on:
+      - rqlite1
+    networks:
+      - bdopsflow
+
+  # 调度器集群（3个节点），每个都包含完整的 Web UI
+  scheduler1:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.scheduler
+    container_name: bdopsflow-scheduler1
+    ports:
+      - "8080:8080"  # 主 UI 通过这个端口访问
+      - "50051:50051"
+    environment:
+      - APP_NODE_ID=scheduler1
+      - HTTP_PORT=8080
+      - GRPC_PORT=50051
+      - DATABASE_RQLITE_ADDRS=http://rqlite1:4001,http://rqlite2:4001,http://rqlite3:4001
+      - REDIS_ADDR=redis:6379
+      - DATASOURCE_ENCRYPTION_KEY=dev-docker-32byte-key-chg-prod-1
+    depends_on:
+      - redis
+      - rqlite1
+    networks:
+      - bdopsflow
+
+  scheduler2:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.scheduler
+    container_name: bdopsflow-scheduler2
+    ports:
+      - "8081:8080"  # 备用 UI 端口
+      - "50052:50051"
+    environment:
+      - APP_NODE_ID=scheduler2
+      - HTTP_PORT=8080
+      - GRPC_PORT=50051
+      - DATABASE_RQLITE_ADDRS=http://rqlite1:4001,http://rqlite2:4001,http://rqlite3:4001
+      - REDIS_ADDR=redis:6379
+      - DATASOURCE_ENCRYPTION_KEY=dev-docker-32byte-key-chg-prod-1
+    depends_on:
+      - redis
+      - rqlite1
+    networks:
+      - bdopsflow
+
+  scheduler3:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.scheduler
+    container_name: bdopsflow-scheduler3
+    ports:
+      - "8082:8080"  # 备用 UI 端口
+      - "50053:50051"
+    environment:
+      - APP_NODE_ID=scheduler3
+      - HTTP_PORT=8080
+      - GRPC_PORT=50051
+      - DATABASE_RQLITE_ADDRS=http://rqlite1:4001,http://rqlite2:4001,http://rqlite3:4001
+      - REDIS_ADDR=redis:6379
+      - DATASOURCE_ENCRYPTION_KEY=dev-docker-32byte-key-chg-prod-1
+    depends_on:
+      - redis
+      - rqlite1
+    networks:
+      - bdopsflow
+
+  executor:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.executor
+    container_name: bdopsflow-executor
+    environment:
+      - EXECUTOR_ID=executor-1
+      - EXECUTOR_NAME=executor-1
+      # 单调度器模式（向后兼容）
+      - SCHEDULER_ADDR=scheduler1:50051
+      # 多调度器模式（推荐用于高可用）
+      # - SCHEDULER_ADDRS=scheduler1:50051,scheduler2:50051,scheduler3:50051
+      - CAPACITY=10
+    depends_on:
+      - scheduler1
+    networks:
+      - bdopsflow
+
+networks:
+  bdopsflow:
+    driver: bridge

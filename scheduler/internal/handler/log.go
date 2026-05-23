@@ -1,0 +1,247 @@
+package handler
+
+import (
+	"log/slog"
+	"strconv"
+
+	"github.com/gin-gonic/gin"
+	"github.com/lynnyq/bdopsflow/scheduler/internal/model"
+	"github.com/lynnyq/bdopsflow/scheduler/internal/service"
+)
+
+type LogHandler struct {
+	svc *service.SchedulerService
+}
+
+func NewLogHandler(svc *service.SchedulerService) *LogHandler {
+	return &LogHandler{svc: svc}
+}
+
+func (h *LogHandler) List(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("LogHandler.List: panic recovered", "panic", r)
+			InternalServerError(c, "internal server error")
+		}
+	}()
+
+	slog.Debug("LogHandler.List: handling request", "query", c.Request.URL.RawQuery)
+
+	domainID, _ := c.Get("domain_id")
+	userRole, _ := c.Get("role")
+
+	var dID int64
+	var role string
+	if v, ok := domainID.(int64); ok {
+		dID = v
+	}
+	if v, ok := userRole.(string); ok {
+		role = v
+	}
+
+	var page, pageSize int
+	if p, err := strconv.Atoi(c.DefaultQuery("page", "1")); err == nil && p > 0 {
+		page = p
+	} else {
+		page = 1
+	}
+	if ps, err := strconv.Atoi(c.DefaultQuery("page_size", "20")); err == nil && ps > 0 {
+		pageSize = ps
+		if pageSize > 100 {
+			pageSize = 100
+		}
+	} else {
+		pageSize = 20
+	}
+
+	filter := make(map[string]string)
+	filter["id"] = c.Query("id")
+	filter["execution_id"] = c.Query("execution_id")
+	filter["executor_name"] = c.Query("executor_name")
+	filter["task_name"] = c.Query("task_name")
+	filter["status"] = c.Query("status")
+	filter["start_time_from"] = c.Query("start_time_from")
+	filter["start_time_to"] = c.Query("start_time_to")
+	filter["end_time_from"] = c.Query("end_time_from")
+	filter["end_time_to"] = c.Query("end_time_to")
+	filter["duration_min"] = c.Query("duration_min")
+	filter["duration_max"] = c.Query("duration_max")
+
+	executions, total, err := h.svc.GetAllExecutions(ctx, dID, role, filter, page, pageSize)
+	if err != nil {
+		slog.Error("LogHandler.List: failed to get executions", "error", err)
+		InternalServerError(c, err.Error())
+		return
+	}
+
+	var response []interface{}
+	for _, exec := range executions {
+		resp := toTaskExecutionResponse(&exec.TaskExecution)
+		if exec.TaskName != "" {
+			resp.TaskName = &exec.TaskName
+		}
+		if exec.TaskType != "" {
+			resp.TaskType = &exec.TaskType
+		}
+		if exec.ExecutorName != "" {
+			resp.ExecutorName = &exec.ExecutorName
+		}
+		response = append(response, resp)
+	}
+
+	slog.Debug("LogHandler.List: returning response", "count", len(response), "total", total)
+
+	Success(c, gin.H{
+		"data":      response,
+		"total":     total,
+		"page":      page,
+		"page_size": pageSize,
+	})
+}
+
+func (h *LogHandler) Delete(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		slog.Warn("LogHandler.Delete: invalid id", "id_str", idStr, "error", err)
+		BadRequest(c, "invalid id")
+		return
+	}
+
+	if id <= 0 {
+		slog.Warn("LogHandler.Delete: id must be positive", "id", id)
+		BadRequest(c, "id must be positive")
+		return
+	}
+
+	ctx := c.Request.Context()
+
+	domainID, _ := c.Get("domain_id")
+	userRole, _ := c.Get("role")
+
+	var dID int64
+	var role string
+	if v, ok := domainID.(int64); ok {
+		dID = v
+	}
+	if v, ok := userRole.(string); ok {
+		role = v
+	}
+
+	err = h.svc.DeleteExecutionWithDomainCheck(ctx, id, dID, role)
+	if err != nil {
+		slog.Error("LogHandler.Delete: failed to delete execution", "id", id, "error", err)
+		InternalServerError(c, err.Error())
+		return
+	}
+
+	slog.Info("LogHandler.Delete: execution deleted", "id", id)
+	SuccessWithMessage(c, "deleted successfully", nil)
+}
+
+func (h *LogHandler) BatchDelete(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("LogHandler.BatchDelete: panic recovered", "panic", r)
+			InternalServerError(c, "internal server error")
+		}
+	}()
+
+	domainID, _ := c.Get("domain_id")
+	userRole, _ := c.Get("role")
+
+	var dID int64
+	var role string
+	if v, ok := domainID.(int64); ok {
+		dID = v
+	}
+	if v, ok := userRole.(string); ok {
+		role = v
+	}
+
+	var req struct {
+		IDs []int64 `json:"ids"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		slog.Warn("LogHandler.BatchDelete: invalid request body", "error", err)
+		BadRequest(c, err.Error())
+		return
+	}
+
+	if len(req.IDs) == 0 {
+		slog.Warn("LogHandler.BatchDelete: no ids provided")
+		BadRequest(c, "no ids provided")
+		return
+	}
+
+	err := h.svc.BatchDeleteExecutionsWithDomainCheck(ctx, req.IDs, dID, role)
+	if err != nil {
+		slog.Error("LogHandler.BatchDelete: failed to batch delete executions", "count", len(req.IDs), "error", err)
+		InternalServerError(c, err.Error())
+		return
+	}
+
+	slog.Info("LogHandler.BatchDelete: executions deleted", "count", len(req.IDs))
+	SuccessWithMessage(c, "deleted successfully", nil)
+}
+
+type TaskExecutionWithNames struct {
+	model.TaskExecution
+	TaskName     string `db:"task_name" json:"task_name"`
+	TaskType     string `db:"task_type" json:"task_type"`
+	ExecutorName string `db:"executor_name" json:"executor_name"`
+}
+
+func (h *LogHandler) GetStats(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("LogHandler.GetStats: panic recovered", "panic", r)
+			InternalServerError(c, "internal server error")
+		}
+	}()
+
+	slog.Debug("LogHandler.GetStats: handling request")
+
+	domainID, _ := c.Get("domain_id")
+	userRole, _ := c.Get("role")
+
+	var dID int64
+	var role string
+	if v, ok := domainID.(int64); ok {
+		dID = v
+	}
+	if v, ok := userRole.(string); ok {
+		role = v
+	}
+
+	filter := make(map[string]string)
+	filter["id"] = c.Query("id")
+	filter["execution_id"] = c.Query("execution_id")
+	filter["executor_name"] = c.Query("executor_name")
+	filter["task_name"] = c.Query("task_name")
+	filter["status"] = c.Query("status")
+	filter["start_time_from"] = c.Query("start_time_from")
+	filter["start_time_to"] = c.Query("start_time_to")
+	filter["end_time_from"] = c.Query("end_time_from")
+	filter["end_time_to"] = c.Query("end_time_to")
+	filter["duration_min"] = c.Query("duration_min")
+	filter["duration_max"] = c.Query("duration_max")
+
+	stats, err := h.svc.GetExecutionStats(ctx, dID, role, filter)
+	if err != nil {
+		slog.Error("LogHandler.GetStats: failed to get stats", "error", err)
+		InternalServerError(c, err.Error())
+		return
+	}
+
+	slog.Debug("LogHandler.GetStats: returning stats", "stats", stats)
+
+	Success(c, stats)
+}

@@ -1,0 +1,50 @@
+# Frontend build stage
+FROM node:20-alpine AS frontend-builder
+
+WORKDIR /app
+
+# Copy frontend package files
+COPY web/package*.json ./web/
+
+WORKDIR /app/web
+RUN npm ci
+
+# Copy frontend source
+COPY web/ ./
+
+# Build frontend
+RUN npm run build
+
+# Backend build stage
+FROM golang:1.24-alpine AS backend-builder
+
+WORKDIR /app
+
+COPY go.mod go.sum* ./
+RUN go mod download
+
+COPY . .
+
+# Copy built frontend from frontend-builder stage
+COPY --from=frontend-builder /app/scheduler/web ./scheduler/web/
+
+WORKDIR /app/scheduler
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o scheduler ./cmd/main.go
+
+# Final stage
+FROM alpine:latest
+
+RUN apk --no-cache add ca-certificates
+
+WORKDIR /root/
+
+COPY --from=backend-builder /app/scheduler/scheduler .
+
+ENV HTTP_PORT=8080
+ENV GRPC_PORT=50051
+ENV RQLITE_DSN=http://localhost:4001
+ENV REDIS_ADDR=localhost:6379
+
+EXPOSE 8080 50051
+
+CMD ["./scheduler"]

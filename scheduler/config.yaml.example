@@ -1,0 +1,148 @@
+# Scheduler 服务配置
+#
+# 多节点高可用部署说明：
+# 1. 部署至少 3 个 Scheduler 节点（推荐 3-5 个）
+# 2. 所有节点共享同一个 rqlite 和 Redis 集群
+# 3. 使用 Redis 实现主节点选举，确保同一时间只有一个主节点执行 Cron 调度
+# 4. 执行器可以配置多个调度器地址实现故障转移（见 executor 配置）
+# 5. 前端和 API 调用可以通过负载均衡器分发到所有调度器节点
+
+app:
+  # HTTP 服务端口
+  http_port: "8080"
+  # gRPC 服务端口
+  grpc_port: "50051"
+  # 节点ID，用于主节点选举（可选，会自动生成UUID，建议配置便于识别）
+  node_id: ""
+  # 多节点部署时，其他节点配置不同的 node_id：
+  # node_id: "scheduler-2"
+  # node_id: "scheduler-3"
+
+# RSA 密钥配置
+# 用于前端密码传输加密和配置文件敏感密码加密
+# 生成密钥对命令：./scheduler keygen
+# 加密密码命令：./scheduler encrypt-password --config config.yaml --password "your-password"
+rsa:
+  # PKCS#8 格式公钥（Base64编码，不含PEM头尾）
+  # 前端通过 /api/auth/public-key 接口获取此公钥加密用户密码
+  public_key: ""
+  # PKCS#8 格式私钥（Base64编码，不含PEM头尾）
+  # 后端使用此私钥解密前端传输的密码和配置文件中的加密密码
+  private_key: ""
+
+# SSO 第三方登录配置
+# 启用后，默认使用 SSO 登录，/login?isSso=false 时使用本地登录
+sso:
+  # 是否启用 SSO 登录
+  enabled: false
+  # SSO 验证接口地址
+  url: "http://sso.com/account"
+  # SSO RSA 公钥（PKCS#8 格式，Base64编码，不含PEM头尾）
+  # 前端使用此公钥加密密码后传给后端，后端原样转发给 SSO 服务验证
+  public_key: ""
+  # SSO 请求超时时间（秒）
+  timeout: 10
+
+# 数据库配置 - 开发环境（单节点）/ 生产环境（多节点集群）
+database:
+  # rqlite 多节点地址列表（生产环境建议 3 节点，开发环境单节点）
+  # 示例：
+  # 单节点: ["http://localhost:4001"]
+  # 多节点: ["http://rqlite1:4001", "http://rqlite2:4001", "http://rqlite3:4001"]
+  rqlite_addrs:
+    - "http://localhost:4001"
+  # rqlite 用户名（需要 rqlite 服务端配置认证）
+  rqlite_user: ""
+  # rqlite 密码，支持明文或 RSA 加密格式
+  # 明文：直接填写密码
+  # RSA加密：使用 ./scheduler encrypt-password 加密后，格式为 RSA_ENCRYPTED:base64密文
+  rqlite_password: ""
+  # 是否使用 TLS 连接 rqlite（使用 https）
+  rqlite_tls: false
+
+# Redis 配置 - 开发环境（单实例）/ 生产环境（哨兵模式集群）
+# 模式：single（单实例）或 sentinel（哨兵模式）
+redis:
+  mode: "single"
+
+  # 单实例模式配置
+  addr: "localhost:6379"
+  # Redis 密码，支持明文或 RSA 加密格式
+  # 明文：直接填写密码
+  # RSA加密：使用 ./scheduler encrypt-password 加密后，格式为 RSA_ENCRYPTED:base64密文
+  password: ""
+  db: 0
+
+  # 哨兵模式配置（mode=sentinel 时使用，生产环境推荐）
+  master_name: "mymaster"
+  # 哨兵节点地址列表
+  sentinel_addrs:
+    - "sentinel1:26379"
+    - "sentinel2:26379"
+    - "sentinel3:26379"
+  # 哨兵密码，支持明文或 RSA 加密格式
+  sentinel_password: ""
+
+# JWT 配置
+jwt:
+  # JWT 签名密钥，生产环境务必更换为随机强密钥
+  secret: "your-secret-key-change-in-production"
+  # JWT 令牌过期时间（小时）
+  expiry_hours: 24
+
+# 日志配置
+log:
+  # 日志级别：debug / info / warn / error
+  level: "info"
+  # 日志格式：json / text
+  format: "json"
+
+# 数据源加密配置
+# 用于加密存储数据源密码等敏感信息（AES-256-GCM）
+datasource:
+  # 加密密钥，必须为 32 字节（AES-256）
+  # 生产环境务必更换为随机生成的强密钥，可通过命令生成：
+  #   openssl rand -base64 32 | head -c 32
+  # 或设置环境变量 BDOPSFLOW_ENCRYPTION_KEY 代替配置文件
+  encryption_key: "change-in-prod-32byte-key1-here1"
+  # 密钥来源：direct（配置文件直接读取）、env（环境变量）、file（密钥文件）
+  key_source: "direct"
+  # 当 key_source=env 时读取的环境变量名
+  key_env_var: "BDOPSFLOW_ENCRYPTION_KEY"
+  # 当 key_source=file 时读取的密钥文件路径
+  key_file: ""
+  # 密钥自动轮换天数（0 表示不自动轮换）
+  auto_rotate_days: 0
+
+# 多节点部署架构说明：
+#
+# ┌─────────────┐
+# │   User      │
+# │  /  Web UI  │
+# └──────┬──────┘
+#        │
+#   ┌────▼─────┐
+#   │ Load     │  ← 负载均衡器（Nginx/HAProxy）
+#   │ Balancer │
+#   └────┬─────┘
+#        │
+#   ┌────┼───────────────────────────┐
+#   │    │                           │
+#   │    │                           │
+# ┌─▼────▼──┐  ┌──────────┐  ┌──────────┐
+# │Scheduler│  │Scheduler │  │Scheduler │  ← 3个调度器节点
+# │  Node 1 │  │  Node 2  │  │  Node 3 │    (主节点选举，自动切换)
+# └────┬────┘  └────┬─────┘  └────┬─────┘
+#      │            │             │
+#      └────────────┼─────────────┘
+#                   │
+#   ┌───────────────┼───────────────┐
+#   │               │               │
+# ┌─▼──────┐   ┌────▼─────┐   ┌────▼─────┐
+# │ Redis  │   │  rqlite  │   │Executors │  ← 执行器连接多个调度器地址
+# │Cluster │   │ Cluster  │   │          │
+# └────────┘   └──────────┘   └──────────┘
+#
+# 执行器配置示例（多调度器连接）：
+# scheduler:
+#   addrs: "scheduler1:50051,scheduler2:50051,scheduler3:50051"

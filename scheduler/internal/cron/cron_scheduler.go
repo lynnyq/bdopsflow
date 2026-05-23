@@ -1,0 +1,352 @@
+package cron
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/redis/go-redis/v9"
+	"github.com/robfig/cron/v3"
+
+	"github.com/lynnyq/bdopsflow/scheduler/internal/service"
+)
+
+type CronScheduler struct {
+	cron         *cron.Cron
+	svc          *service.SchedulerService
+	redis        *redis.Client
+	taskEntries  map[int64]cron.EntryID // 任务ID到cron entry的映射
+	mu           sync.RWMutex
+	paused       bool                    // 全局暂停标志
+	isLeader     bool                    // 是否是主节点
+	started      bool                    // cron调度器是否已启动
+	startTime    time.Time               // 启动时间
+}
+
+func NewCronScheduler(svc *service.SchedulerService, redis *redis.Client) *CronScheduler {
+	return &CronScheduler{
+		cron:        cron.New(cron.WithSeconds()), // 使用本地时间
+		svc:         svc,
+		redis:       redis,
+		taskEntries: make(map[int64]cron.EntryID),
+		startTime:   time.Now(),
+	}
+}
+
+func (cs *CronScheduler) Start() error {
+	// 不立即启动cron，等成为主节点后再启动
+	slog.Info("cron scheduler initialized, waiting to become leader")
+	
+	// 从 Redis 加载暂停状态
+	if cs.redis != nil {
+		ctx := context.Background()
+		paused, err := cs.redis.Get(ctx, "scheduler:paused").Bool()
+		if err == nil && paused {
+			cs.paused = true
+			slog.Info("cron scheduler initialized in paused state from redis")
+		}
+	}
+	
+	return nil
+}
+
+// OnBecomeLeader 当成为主节点时调用
+func (cs *CronScheduler) OnBecomeLeader() {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+
+	if cs.isLeader {
+		return
+	}
+
+	cs.isLeader = true
+	slog.Info("node became leader, starting cron scheduler")
+
+	// 启动cron
+	if !cs.started {
+		cs.cron.Start()
+		cs.started = true
+		slog.Info("cron scheduler started", "mode", "6-field (with seconds)", "distributed_lock", "enabled")
+	}
+
+	// 加载和注册所有任务
+	go cs.loadAndRegisterTasks()
+
+	// 恢复正在执行的任务
+	go cs.recoverRunningTasks()
+}
+
+func (cs *CronScheduler) recoverRunningTasks() {
+	if cs.svc == nil {
+		slog.Warn("SchedulerService is nil, cannot recover running tasks")
+		return
+	}
+
+	ctx := context.Background()
+	if err := cs.svc.RecoverRunningTasksOnBecomeLeader(ctx); err != nil {
+		slog.Error("failed to recover running tasks", "error", err)
+	}
+}
+
+// OnLoseLeader 当失去主节点地位时调用
+func (cs *CronScheduler) OnLoseLeader() {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	
+	if !cs.isLeader {
+		return
+	}
+	
+	cs.isLeader = false
+	slog.Info("node lost leadership, stopping cron scheduler")
+}
+
+// Pause 暂停调度器
+func (cs *CronScheduler) Pause() {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	
+	cs.paused = true
+	slog.Info("cron scheduler paused")
+	
+	// 持久化到 Redis
+	if cs.redis != nil {
+		ctx := context.Background()
+		cs.redis.Set(ctx, "scheduler:paused", "1", 0)
+	}
+}
+
+// Resume 恢复调度器
+func (cs *CronScheduler) Resume() {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	
+	cs.paused = false
+	slog.Info("cron scheduler resumed")
+	
+	// 持久化到 Redis
+	if cs.redis != nil {
+		ctx := context.Background()
+		cs.redis.Set(ctx, "scheduler:paused", "0", 0)
+	}
+}
+
+// IsPaused 获取暂停状态
+func (cs *CronScheduler) IsPaused() bool {
+	cs.mu.RLock()
+	defer cs.mu.RUnlock()
+	return cs.paused
+}
+
+// GetUptime 获取运行时长
+func (cs *CronScheduler) GetUptime() time.Duration {
+	return time.Since(cs.startTime)
+}
+
+func (cs *CronScheduler) Stop() {
+	cs.cron.Stop()
+}
+
+// loadAndRegisterTasks 从数据库加载并注册所有任务
+func (cs *CronScheduler) loadAndRegisterTasks() {
+	if cs.svc == nil {
+		slog.Debug("Scheduler service is nil, skipping task loading")
+		return
+	}
+
+	ctx := context.Background()
+	bdopsflow_tasks, err := cs.svc.ScanPendingTasks(ctx)
+	if err != nil {
+		slog.Error("load bdopsflow_tasks failed", "error", err)
+		return
+	}
+
+	if len(bdopsflow_tasks) == 0 {
+		slog.Debug("no bdopsflow_tasks found to load")
+		return
+	}
+
+	slog.Info("loading bdopsflow_tasks from database", "count", len(bdopsflow_tasks))
+
+	for _, task := range bdopsflow_tasks {
+		if task.CronExpression != "" && task.IsEnabled {
+			cs.RegisterTask(task.ID, task.CronExpression)
+		}
+	}
+}
+
+// RegisterTask 注册一个新的定时任务
+func (cs *CronScheduler) RegisterTask(taskID int64, cronExpr string) {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+
+	// 如果任务已存在，先移除旧的
+	if entryID, exists := cs.taskEntries[taskID]; exists {
+		cs.cron.Remove(entryID)
+		delete(cs.taskEntries, taskID)
+	}
+
+	var entryID cron.EntryID
+	var err error
+	
+	// 先尝试直接添加（可能是6位）
+	entryID, err = cs.cron.AddFunc(cronExpr, func() {
+		cs.executeTask(taskID)
+	})
+	
+	// 如果失败，尝试解析为标准的5位表达式并加上秒位0
+	if err != nil {
+		// 先检查是否是标准5位格式
+		_, parseErr := cron.ParseStandard(cronExpr)
+		if parseErr == nil {
+			// 如果是标准格式，尝试添加前缀 "0 " 变成6位
+			entryID, err = cs.cron.AddFunc("0 "+cronExpr, func() {
+				cs.executeTask(taskID)
+			})
+		}
+	}
+
+	if err != nil {
+		slog.Error("register task failed", "task_id", taskID, "cron", cronExpr, "error", err)
+		return
+	}
+
+	cs.taskEntries[taskID] = entryID
+	slog.Info("task registered", "task_id", taskID, "cron", cronExpr, "entry_id", entryID)
+}
+
+// UnregisterTask 取消注册任务
+func (cs *CronScheduler) UnregisterTask(taskID int64) {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+
+	if entryID, exists := cs.taskEntries[taskID]; exists {
+		cs.cron.Remove(entryID)
+		delete(cs.taskEntries, taskID)
+		slog.Info("task unregistered", "task_id", taskID)
+	}
+}
+
+// executeTask 执行单个任务
+func (cs *CronScheduler) executeTask(taskID int64) {
+	if cs.svc == nil {
+		slog.Debug("Scheduler service is nil, skipping task execution", "task_id", taskID)
+		return
+	}
+	
+	// 检查是否是主节点
+	cs.mu.RLock()
+	isLeader := cs.isLeader
+	cs.mu.RUnlock()
+	
+	if !isLeader {
+		slog.Debug("not leader, skipping task execution", "task_id", taskID)
+		return
+	}
+	
+	// 检查是否暂停
+	if cs.IsPaused() {
+		slog.Debug("scheduler is paused, skipping task execution", "task_id", taskID)
+		return
+	}
+
+	ctx := context.Background()
+
+	// 重新获取任务并检查是否仍然启用
+	task, err := cs.svc.GetTaskByID(ctx, taskID)
+	if err != nil {
+		slog.Warn("get task failed before cron execution", "task_id", taskID, "error", err)
+		return
+	}
+
+	if !task.IsEnabled {
+		slog.Debug("task is disabled, skipping execution", "task_id", taskID)
+		// 清理任务调度
+		cs.UnregisterTask(taskID)
+		return
+	}
+
+	if task.CronExpression == "" {
+		slog.Debug("task has no cron expression, skipping execution", "task_id", taskID)
+		cs.UnregisterTask(taskID)
+		return
+	}
+
+	// 获取分布式锁，避免多实例重复执行
+	// 锁超时时间与任务超时时间相关，最小60秒，最大3600秒
+	lockTTL := time.Duration(task.TimeoutSeconds) * 2
+	if lockTTL < 60*time.Second {
+		lockTTL = 60 * time.Second
+	}
+	if lockTTL > 3600*time.Second {
+		lockTTL = 3600 * time.Second
+	}
+	if task.TimeoutSeconds == 0 {
+		// 如果任务没有超时限制，锁超时设为10分钟
+		lockTTL = 600 * time.Second
+	}
+
+	acquired, err := cs.acquireTaskLock(ctx, taskID, lockTTL)
+	if err != nil || !acquired {
+		if err != nil {
+			slog.Warn("acquire task lock failed", "task_id", taskID, "error", err)
+		}
+		return
+	}
+	defer cs.releaseTaskLock(ctx, taskID)
+
+	slog.Info("cron task triggering", "task_id", taskID, "task_name", task.Name)
+
+	executionID, err := cs.svc.TriggerTask(ctx, taskID)
+	if err == nil {
+		slog.Info("cron task triggered successfully",
+			"task_id", taskID,
+			"execution_id", executionID,
+		)
+		return
+	}
+
+	if strings.Contains(err.Error(), "already running") || strings.Contains(err.Error(), "skipped") {
+		slog.Warn("cron task skipped: previous execution still running",
+			"task_id", taskID,
+			"error", err,
+		)
+		return
+	}
+
+	slog.Error("cron trigger task failed",
+		"task_id", taskID,
+		"error", err,
+	)
+}
+
+// acquireTaskLock 尝试获取任务执行锁
+func (cs *CronScheduler) acquireTaskLock(ctx context.Context, taskID int64, lockTTL time.Duration) (bool, error) {
+	if cs.redis == nil {
+		return true, nil
+	}
+
+	lockKey := fmt.Sprintf("cron:lock:task:%d", taskID)
+	ok, err := cs.redis.SetNX(ctx, lockKey, "locked", lockTTL).Result()
+	if err != nil {
+		slog.Warn("failed to acquire lock", "task_id", taskID, "error", err)
+		return false, err
+	}
+	return ok, nil
+}
+
+// releaseTaskLock 释放任务执行锁
+func (cs *CronScheduler) releaseTaskLock(ctx context.Context, taskID int64) {
+	if cs.redis == nil {
+		return
+	}
+
+	lockKey := fmt.Sprintf("cron:lock:task:%d", taskID)
+	err := cs.redis.Del(ctx, lockKey).Err()
+	if err != nil {
+		slog.Warn("failed to release lock", "task_id", taskID, "error", err)
+	}
+}

@@ -1,0 +1,18 @@
+# Executor 执行器配置
+app:
+  executor_name: "executor-1"
+  capacity: 10
+
+# Scheduler gRPC 地址配置
+scheduler:
+  # 单个调度器地址（向后兼容）
+  addr: "localhost:50051"
+  # 多个调度器地址（逗号分隔，用于多调度器集群高可用）
+  # 同时配置时，addrs 优先于 addr
+  # addrs: "scheduler1:50051,scheduler2:50051,scheduler3:50051"
+  timeout: 30
+
+# 日志配置
+log:
+  level: "info"
+  format: "json"
