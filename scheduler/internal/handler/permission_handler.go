@@ -29,7 +29,7 @@ func (h *PermissionHandler) GetAllPermissions(c *gin.Context) {
 	bdopsflow_permissions, err := h.svc.GetAllPermissions(c.Request.Context())
 	if err != nil {
 		slog.Error("PermissionHandler.GetAllPermissions: failed to get permissions", "error", err)
-		Fail(c, 500, err.Error())
+		FailFromError(c, err)
 		return
 	}
 

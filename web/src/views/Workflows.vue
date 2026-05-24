@@ -362,7 +362,7 @@ const getStatusTagType = (status: string): string => {
 const loadWorkflows = async () => {
   try {
     const response = await workflowAPI.list()
-    workflows.value = response.data || []
+    workflows.value = response.data.items || []
   } catch (error) {
     console.error('加载工作流失败:', error)
     workflows.value = []

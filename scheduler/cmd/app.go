@@ -1,0 +1,578 @@
+package main
+
+import (
+	"context"
+	"flag"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"net/url"
+	"os"
+	"regexp"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/binding"
+	"github.com/go-playground/validator/v10"
+	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
+	rqlite "github.com/rqlite/gorqlite"
+
+	"github.com/lynnyq/bdopsflow/scheduler/internal/config"
+	"github.com/lynnyq/bdopsflow/scheduler/internal/cron"
+	"github.com/lynnyq/bdopsflow/scheduler/internal/datasource"
+	"github.com/lynnyq/bdopsflow/scheduler/internal/grpcserver"
+	"github.com/lynnyq/bdopsflow/scheduler/internal/middleware"
+	"github.com/lynnyq/bdopsflow/scheduler/internal/service"
+	"github.com/lynnyq/bdopsflow/scheduler/pkg/election"
+	"github.com/lynnyq/bdopsflow/scheduler/pkg/rsautil"
+)
+
+type RQLiteClient struct {
+	addrs    []string
+	user     string
+	password string
+	useTLS   bool
+	mu       sync.RWMutex
+	current  *rqlite.Connection
+	index    int
+}
+
+func NewRQLiteClient(addrs []string, user, password string, useTLS bool) *RQLiteClient {
+	return &RQLiteClient{
+		addrs:    addrs,
+		user:     user,
+		password: password,
+		useTLS:   useTLS,
+		index:    0,
+	}
+}
+
+func (c *RQLiteClient) Connect(ctx context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for i := 0; i < len(c.addrs); i++ {
+		addr := c.addrs[(c.index+i)%len(c.addrs)]
+		connURL := c.buildURL(addr)
+
+		slog.Info("attempting to connect to rqlite", "addr", addr, "index", i)
+		conn, err := rqlite.Open(connURL)
+		if err != nil {
+			slog.Warn("failed to connect to rqlite node", "addr", addr, "error", err)
+			continue
+		}
+
+		stmt := rqlite.ParameterizedStatement{
+			Query: "SELECT 1",
+		}
+		qr, err := conn.QueryOneParameterized(stmt)
+		if err != nil || qr.Err != nil {
+			slog.Warn("rqlite node test query failed", "addr", addr, "error", err)
+			conn.Close()
+			continue
+		}
+
+		c.current = conn
+		c.index = (c.index + i) % len(c.addrs)
+		slog.Info("successfully connected to rqlite", "addr", addr)
+		return nil
+	}
+
+	return fmt.Errorf("failed to connect to any rqlite node")
+}
+
+func (c *RQLiteClient) Connection() *rqlite.Connection {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.current
+}
+
+func (c *RQLiteClient) Close() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.current != nil {
+		c.current.Close()
+	}
+}
+
+func (c *RQLiteClient) buildURL(addr string) string {
+	u, err := url.Parse(addr)
+	if err != nil {
+		slog.Warn("failed to parse rqlite address, using as is", "addr", addr)
+		return addr
+	}
+
+	if c.useTLS {
+		u.Scheme = "https"
+	}
+
+	if c.user != "" && c.password != "" {
+		u.User = url.UserPassword(c.user, c.password)
+	}
+
+	return u.String()
+}
+
+type App struct {
+	cfg         *config.Config
+	db          *rqlite.Connection
+	redisClient *redis.Client
+	rqliteClient *RQLiteClient
+	rsaUtil     *rsautil.RSAUtil
+	ssoRsaUtil  *rsautil.RSAUtil
+	nodeID      string
+
+	schedulerService      *service.SchedulerService
+	permissionService     *service.PermissionService
+	userAdminService      *service.UserAdminService
+	roleAdminService      *service.RoleAdminService
+	domainAdminService    *service.DomainAdminService
+	executorDomainService *service.ExecutorDomainService
+	auditLogService       *service.AuditLogService
+	webhookSvc            *service.WebhookService
+
+	dsCrypto             *datasource.Crypto
+	dsConfigService      *datasource.ConfigService
+	dsManager            *datasource.Manager
+	dsService            *datasource.DatasourceService
+	dsCacheService       *datasource.CacheService
+	dsConcurrentService  *datasource.ConcurrentService
+
+	leaderElection *election.LeaderElection
+	grpcSrv        *grpcserver.Server
+	cronScheduler  *cron.CronScheduler
+
+	httpSrv    *http.Server
+	mainCancel context.CancelFunc
+	wg         sync.WaitGroup
+}
+
+func NewApp(cfg *config.Config) *App {
+	app := &App{cfg: cfg}
+
+	middleware.InitJWT(cfg.JWTSecret, cfg.JWTExpiry)
+
+	rsaUtil, err := rsautil.NewFromConfig(cfg.RSAPublicKey, cfg.RSAPrivateKey)
+	if err != nil {
+		slog.Error("failed to initialize RSA", "error", err)
+		os.Exit(1)
+	}
+	app.rsaUtil = rsaUtil
+
+	var ssoRsaUtil *rsautil.RSAUtil
+	if cfg.SSOEnabled && cfg.SSOPublicKey != "" {
+		ssoRsaUtil, err = rsautil.NewFromConfig(cfg.SSOPublicKey, "")
+		if err != nil {
+			slog.Error("failed to initialize SSO RSA", "error", err)
+			os.Exit(1)
+		}
+		slog.Info("SSO login enabled", "url", cfg.SSOUrl)
+	} else {
+		slog.Info("SSO login disabled")
+	}
+	app.ssoRsaUtil = ssoRsaUtil
+
+	if cfg.RQLitePass != "" {
+		decrypted, err := rsaUtil.DecryptConfigPassword(cfg.RQLitePass)
+		if err != nil {
+			slog.Error("failed to decrypt rqlite password", "error", err)
+			os.Exit(1)
+		}
+		cfg.RQLitePass = decrypted
+	}
+	if cfg.RedisPassword != "" {
+		decrypted, err := rsaUtil.DecryptConfigPassword(cfg.RedisPassword)
+		if err != nil {
+			slog.Error("failed to decrypt redis password", "error", err)
+			os.Exit(1)
+		}
+		cfg.RedisPassword = decrypted
+	}
+	if cfg.RedisSentinelPassword != "" {
+		decrypted, err := rsaUtil.DecryptConfigPassword(cfg.RedisSentinelPassword)
+		if err != nil {
+			slog.Error("failed to decrypt redis sentinel password", "error", err)
+			os.Exit(1)
+		}
+		cfg.RedisSentinelPassword = decrypted
+	}
+
+	nodeID := cfg.NodeID
+	if nodeID == "" {
+		nodeID = uuid.New().String()
+		slog.Info("generated node ID", "node_id", nodeID)
+	} else {
+		slog.Info("using configured node ID", "node_id", nodeID)
+	}
+	app.nodeID = nodeID
+
+	slog.Info("scheduler starting",
+		"http_port", cfg.HTTPPort,
+		"grpc_port", cfg.GRPCPort,
+		"config_file", cfg.ConfigFile,
+		"redis_mode", cfg.RedisMode,
+		"rqlite_addrs", cfg.RQLiteAddrs,
+		"rqlite_tls", cfg.RQLiteTLS,
+		"rqlite_has_auth", cfg.RQLiteUser != "" && cfg.RQLitePass != "",
+		"node_id", nodeID,
+	)
+
+	var redisClient *redis.Client
+	if cfg.RedisMode == "sentinel" {
+		slog.Info("using Redis Sentinel mode",
+			"master_name", cfg.RedisMaster,
+			"sentinel_addrs", cfg.RedisSentinelAddrs,
+		)
+		redisClient = redis.NewFailoverClient(&redis.FailoverOptions{
+			MasterName:       cfg.RedisMaster,
+			SentinelAddrs:    cfg.RedisSentinelAddrs,
+			SentinelPassword: cfg.RedisSentinelPassword,
+			Password:         cfg.RedisPassword,
+			DB:               cfg.RedisDB,
+		})
+	} else {
+		slog.Info("using Redis single mode", "addr", cfg.RedisAddr)
+		redisClient = redis.NewClient(&redis.Options{
+			Addr:     cfg.RedisAddr,
+			Password: cfg.RedisPassword,
+			DB:       cfg.RedisDB,
+		})
+	}
+	app.redisClient = redisClient
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := redisClient.Ping(ctx).Err(); err != nil {
+		slog.Error("failed to connect to Redis", "error", err)
+		os.Exit(1)
+	}
+	slog.Info("connected to Redis")
+
+	rqliteClient := NewRQLiteClient(cfg.RQLiteAddrs, cfg.RQLiteUser, cfg.RQLitePass, cfg.RQLiteTLS)
+	if err := rqliteClient.Connect(ctx); err != nil {
+		slog.Error("failed to connect to rqlite", "error", err)
+		os.Exit(1)
+	}
+	app.rqliteClient = rqliteClient
+
+	db := rqliteClient.Connection()
+	app.db = db
+
+	leaderElection := election.NewLeaderElection(redisClient, "bdopsflow:leader", nodeID, 15*time.Second)
+	app.leaderElection = leaderElection
+
+	schedulerService := service.NewSchedulerService(db, redisClient)
+	app.schedulerService = schedulerService
+
+	permissionService := service.NewPermissionService(db, redisClient)
+	app.permissionService = permissionService
+
+	userAdminService := service.NewUserAdminService(db, permissionService, rsaUtil)
+	app.userAdminService = userAdminService
+
+	roleAdminService := service.NewRoleAdminService(db, permissionService)
+	app.roleAdminService = roleAdminService
+
+	domainAdminService := service.NewDomainAdminService(db)
+	app.domainAdminService = domainAdminService
+
+	executorDomainService := service.NewExecutorDomainService(db)
+	app.executorDomainService = executorDomainService
+
+	auditLogService := service.NewAuditLogService(db)
+	app.auditLogService = auditLogService
+
+	schedulerService.ExecutorDomainService = executorDomainService
+
+	dsCrypto, err := datasource.NewCrypto(cfg.DatasourceCrypto.EncryptionKey)
+	if err != nil {
+		slog.Error("failed to initialize datasource crypto", "error", err)
+		os.Exit(1)
+	}
+	app.dsCrypto = dsCrypto
+
+	dsConfigService := datasource.NewConfigService(db)
+	dsConfigService.StartReloadTicker(5 * time.Minute)
+	app.dsConfigService = dsConfigService
+
+	dsManager := datasource.NewManager(dsCrypto, dsConfigService)
+	app.dsManager = dsManager
+
+	dsService := datasource.NewDatasourceService(db, dsCrypto, dsConfigService, dsManager)
+	app.dsService = dsService
+
+	dsCacheService := datasource.NewCacheService(redisClient, dsConfigService)
+	app.dsCacheService = dsCacheService
+
+	dsConcurrentService := datasource.NewConcurrentService(redisClient, dsConfigService)
+	app.dsConcurrentService = dsConcurrentService
+
+	schedulerService.StartCleanupRoutine()
+
+	go func() {
+		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			retentionDays := auditLogService.GetRetentionDays()
+			deleted, err := auditLogService.CleanExpired(context.Background(), retentionDays)
+			if err != nil {
+				slog.Error("failed to clean expired audit logs", "error", err)
+			} else if deleted > 0 {
+				slog.Info("cleaned expired audit logs", "deleted_count", deleted, "retention_days", retentionDays)
+			}
+		}
+	}()
+
+	webhookSvc := service.NewWebhookService(db)
+	app.webhookSvc = webhookSvc
+	schedulerService.SetWebhookService(webhookSvc)
+
+	grpcSrv := grpcserver.NewServer(cfg.GRPCPort, schedulerService)
+	grpcSrv.SetNodeId(nodeID)
+	app.grpcSrv = grpcSrv
+
+	cronScheduler := cron.NewCronScheduler(schedulerService, redisClient)
+	schedulerService.SetCronScheduler(cronScheduler)
+	app.cronScheduler = cronScheduler
+
+	if err := cronScheduler.Start(); err != nil {
+		slog.Error("failed to start cron scheduler", "error", err)
+		os.Exit(1)
+	}
+
+	leaderElection.OnAcquire(func() {
+		slog.Info("this node became the leader", "node_id", nodeID)
+		grpcSrv.MarkAsNewLeader()
+		grpcSrv.SetLeader(true)
+		cronScheduler.OnBecomeLeader()
+	})
+	leaderElection.OnRelease(func() {
+		slog.Info("this node lost leadership", "node_id", nodeID)
+		grpcSrv.SetLeader(false)
+		cronScheduler.OnLoseLeader()
+	})
+
+	mainCtx, mainCancel := context.WithCancel(context.Background())
+	leaderElection.Start(mainCtx)
+	app.mainCancel = mainCancel
+
+	gin.SetMode(gin.ReleaseMode)
+
+	if v, ok := binding.Validator.Engine().(*validator.Validate); ok {
+		v.RegisterValidation("regexp", func(fl validator.FieldLevel) bool {
+			param := fl.Param()
+			if param == "" {
+				return true
+			}
+			re, err := regexp.Compile("^" + param + "$")
+			if err != nil {
+				return false
+			}
+			return re.MatchString(fl.Field().String())
+		})
+	}
+
+	router := gin.Default()
+	router.Use(corsMiddleware(cfg.CORSAllowOrigins))
+
+	setupRoutes(router, app)
+
+	app.httpSrv = &http.Server{
+		Addr:    fmt.Sprintf(":%s", cfg.HTTPPort),
+		Handler: router,
+	}
+
+	return app
+}
+
+func (a *App) Run() {
+	a.wg.Add(1)
+	go func() {
+		defer a.wg.Done()
+		if err := a.grpcSrv.Start(); err != nil {
+			slog.Error("failed to start gRPC server", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	a.wg.Add(1)
+	go func() {
+		defer a.wg.Done()
+		slog.Info("HTTP server listening", "port", a.cfg.HTTPPort)
+		if err := a.httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Error("failed to start HTTP server", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	slog.Info("scheduler started", "http_port", a.cfg.HTTPPort, "grpc_port", a.cfg.GRPCPort)
+}
+
+func (a *App) Shutdown() {
+	slog.Info("shutting down servers")
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer shutdownCancel()
+
+	if err := a.httpSrv.Shutdown(shutdownCtx); err != nil {
+		slog.Error("HTTP server shutdown error", "error", err)
+	}
+
+	a.grpcSrv.Stop()
+
+	done := make(chan struct{})
+	go func() {
+		a.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		slog.Info("servers exited cleanly")
+	case <-time.After(5 * time.Second):
+		slog.Info("servers force exited")
+	}
+
+	a.schedulerService.StopCleanupRoutine()
+	a.cronScheduler.Stop()
+	a.dsManager.Close()
+	a.rqliteClient.Close()
+	a.mainCancel()
+}
+
+func corsMiddleware(allowOrigins []string) gin.HandlerFunc {
+	originsMap := make(map[string]bool)
+	for _, o := range allowOrigins {
+		originsMap[o] = true
+	}
+
+	return func(c *gin.Context) {
+		origin := c.GetHeader("Origin")
+
+		if len(originsMap) == 0 {
+			c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		} else if originsMap[origin] {
+			c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
+			c.Writer.Header().Set("Vary", "Origin")
+		}
+
+		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE")
+
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(204)
+			return
+		}
+
+		c.Next()
+	}
+}
+
+func printHelp() {
+	fmt.Fprint(os.Stderr, `BDopsFlow Scheduler - 任务调度和执行引擎
+
+用法:
+  ./scheduler [命令] [选项]
+
+命令:
+  keygen                     生成 RSA 密钥对
+  encrypt-password           加密密码
+  decrypt-password           解密密码
+
+选项:
+  -config string             配置文件路径 (默认: 当前目录的 config.yaml)
+  -h, --help                 显示帮助信息
+
+示例:
+  ./scheduler                  启动调度器
+  ./scheduler -config my.yml   使用指定配置启动
+  ./scheduler keygen           生成密钥对
+  ./scheduler encrypt-password --config config.yml --password mypass
+`)
+}
+
+func runKeygen() {
+	publicKeyB64, privateKeyB64, err := rsautil.GenerateKeyPair()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "生成密钥对失败: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println("rsa:")
+	fmt.Printf("  public_key: \"%s\"\n", publicKeyB64)
+	fmt.Printf("  private_key: \"%s\"\n", privateKeyB64)
+}
+
+func runEncryptPassword() {
+	configFile := ""
+	password := ""
+
+	fs := flag.NewFlagSet("encrypt-password", flag.ExitOnError)
+	fs.StringVar(&configFile, "config", "", "path to config file")
+	fs.StringVar(&password, "password", "", "password to encrypt")
+	fs.Parse(os.Args[2:])
+
+	if configFile == "" || password == "" {
+		fmt.Fprintln(os.Stderr, "用法: scheduler encrypt-password --config <config_file> --password <password>")
+		os.Exit(1)
+	}
+
+	cfg := config.Load(configFile)
+	if cfg.RSAPublicKey == "" {
+		fmt.Fprintln(os.Stderr, "配置文件中未找到RSA公钥 (rsa.public_key)")
+		os.Exit(1)
+	}
+
+	rsaUtil, err := rsautil.NewFromConfig(cfg.RSAPublicKey, "")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "初始化RSA失败: %v\n", err)
+		os.Exit(1)
+	}
+
+	ciphertext, err := rsaUtil.Encrypt(password)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "加密失败: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("RSA_ENCRYPTED:%s\n", ciphertext)
+}
+
+func runDecryptPassword() {
+	configFile := ""
+	ciphertext := ""
+
+	fs := flag.NewFlagSet("decrypt-password", flag.ExitOnError)
+	fs.StringVar(&configFile, "config", "", "path to config file")
+	fs.StringVar(&ciphertext, "ciphertext", "", "encrypted ciphertext (with RSA_ENCRYPTED: prefix)")
+	fs.Parse(os.Args[2:])
+
+	if configFile == "" || ciphertext == "" {
+		fmt.Fprintln(os.Stderr, "用法: scheduler decrypt-password --config <config_file> --ciphertext <ciphertext>")
+		os.Exit(1)
+	}
+
+	cfg := config.Load(configFile)
+	if cfg.RSAPrivateKey == "" {
+		fmt.Fprintln(os.Stderr, "配置文件中未找到RSA私钥 (rsa.private_key)")
+		os.Exit(1)
+	}
+
+	rsaUtil, err := rsautil.NewFromConfig(cfg.RSAPublicKey, cfg.RSAPrivateKey)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "初始化RSA失败: %v\n", err)
+		os.Exit(1)
+	}
+
+	ciphertext = strings.TrimPrefix(ciphertext, "RSA_ENCRYPTED:")
+	plaintext, err := rsaUtil.Decrypt(ciphertext)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "解密失败: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println(plaintext)
+}

@@ -106,10 +106,13 @@ func (h *ExecutorHandler) List(c *gin.Context) {
 
 	slog.Debug("ExecutorHandler.List: handling request")
 
-	bdopsflow_executors, err := h.svc.ListExecutors(ctx)
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+
+	bdopsflow_executors, total, err := h.svc.ListExecutors(ctx, page, pageSize)
 	if err != nil {
 		slog.Error("ExecutorHandler.List: failed to list bdopsflow_executors", "error", err)
-		InternalServerError(c, err.Error())
+		FailFromError(c, err)
 		return
 	}
 
@@ -118,7 +121,7 @@ func (h *ExecutorHandler) List(c *gin.Context) {
 		dtos = append(dtos, executorToDTO(exec))
 	}
 
-	Success(c, gin.H{"items": dtos})
+	Success(c, gin.H{"items": dtos, "total": total})
 }
 
 func (h *ExecutorHandler) Get(c *gin.Context) {
@@ -152,7 +155,7 @@ func (h *ExecutorHandler) Delete(c *gin.Context) {
 
 	if err := h.svc.DeleteExecutorByName(c.Request.Context(), name); err != nil {
 		slog.Error("ExecutorHandler.Delete: failed to delete executor", "name", name, "error", err)
-		InternalServerError(c, err.Error())
+		FailFromError(c, err)
 		return
 	}
 
@@ -178,7 +181,7 @@ func (h *ExecutorHandler) Online(c *gin.Context) {
 
 	if err := h.svc.SetExecutorStatusByName(c.Request.Context(), name, "online"); err != nil {
 		slog.Error("ExecutorHandler.Online: failed to set executor online", "name", name, "error", err)
-		InternalServerError(c, err.Error())
+		FailFromError(c, err)
 		return
 	}
 
@@ -204,7 +207,7 @@ func (h *ExecutorHandler) Offline(c *gin.Context) {
 
 	if err := h.svc.SetExecutorStatusByName(c.Request.Context(), name, "offline"); err != nil {
 		slog.Error("ExecutorHandler.Offline: failed to set executor offline", "name", name, "error", err)
-		InternalServerError(c, err.Error())
+		FailFromError(c, err)
 		return
 	}
 
@@ -240,7 +243,7 @@ func (h *ExecutorHandler) UpdateCapacity(c *gin.Context) {
 
 	if err := h.svc.UpdateExecutorCapacityByName(c.Request.Context(), name, req.Capacity); err != nil {
 		slog.Error("ExecutorHandler.UpdateCapacity: failed to update executor capacity", "name", name, "error", err)
-		InternalServerError(c, err.Error())
+		FailFromError(c, err)
 		return
 	}
 

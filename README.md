@@ -246,12 +246,8 @@ npm run dev
 
 | 文档 | 说明 |
 |------|------|
-| [开发指南](docs/DEVELOPMENT.md) | 完整的开发、部署和使用指南 |
-| [数据库设计](docs/DATABASE.md) | 数据库表结构和配置说明 |
-| [核心功能参考](docs/FEATURES.md) | 所有核心功能实现详解 |
-| [任务日志系统](docs/LOGGING.md) | 实时日志传输与展示实现详解 |
-| [架构设计](docs/ARCHITECTURE.md) | 系统架构和技术设计文档 |
-| [API 接口](docs/API.md) | RESTful API 接口文档 |
+| [使用指南](docs/GUIDE.md) | 完整的使用指南（架构、功能、API、错误码、部署、安全） |
+| [配置指南](docs/CONFIGURATION.md) | 配置项详解、示例配置、密钥管理、安全检查清单 |
 
 ## 🐳 Docker 部署
 

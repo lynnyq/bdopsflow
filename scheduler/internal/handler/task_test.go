@@ -17,16 +17,16 @@ import (
 )
 
 type mockTaskService struct {
-	createTaskFunc      func(ctx context.Context, query string, args ...interface{}) (*model.Task, error)
-	getTaskByIDFunc     func(ctx context.Context, id int64) (*model.Task, error)
-	listTasksFunc       func(ctx context.Context, domainID int64, role string) ([]*model.Task, error)
-	updateTaskFunc      func(ctx context.Context, id int64, task *model.Task) error
-	deleteTaskFunc      func(ctx context.Context, id int64) error
-	triggerTaskFunc     func(ctx context.Context, taskID int64) (string, error)
-	getTaskExecsFunc    func(ctx context.Context, taskID int64) ([]*model.TaskExecution, error)
-	getTaskLogsFunc     func(ctx context.Context, executionID string) ([]*model.TaskLog, error)
+	createTaskFunc           func(ctx context.Context, query string, args ...interface{}) (*model.Task, error)
+	getTaskByIDFunc          func(ctx context.Context, id int64) (*model.Task, error)
+	listTasksFunc            func(ctx context.Context, domainID int64, role string, page, pageSize int) ([]*model.Task, int, error)
+	updateTaskFunc           func(ctx context.Context, id int64, task *model.Task) error
+	deleteTaskFunc           func(ctx context.Context, id int64) error
+	triggerTaskFunc          func(ctx context.Context, taskID int64) (string, error)
+	getTaskExecsFunc         func(ctx context.Context, taskID int64) ([]*model.TaskExecution, error)
+	getTaskLogsFunc          func(ctx context.Context, executionID string) ([]*model.TaskLog, error)
 	listExecutorsByDomainFunc func(ctx context.Context, domainID int64) ([]*model.Executor, error)
-	getDomainNameFunc   func(ctx context.Context, domainID int64) string
+	getDomainNameFunc        func(ctx context.Context, domainID int64) string
 
 	lastQuery string
 	lastArgs  []interface{}
@@ -48,11 +48,11 @@ func (m *mockTaskService) GetTaskByID(ctx context.Context, id int64) (*model.Tas
 	return &model.Task{ID: id, Name: "test", Type: "http", Status: "pending"}, nil
 }
 
-func (m *mockTaskService) ListTasks(ctx context.Context, domainID int64, role string) ([]*model.Task, error) {
+func (m *mockTaskService) ListTasks(ctx context.Context, domainID int64, role string, page, pageSize int) ([]*model.Task, int, error) {
 	if m.listTasksFunc != nil {
-		return m.listTasksFunc(ctx, domainID, role)
+		return m.listTasksFunc(ctx, domainID, role, page, pageSize)
 	}
-	return []*model.Task{}, nil
+	return []*model.Task{}, 0, nil
 }
 
 func (m *mockTaskService) UpdateTask(ctx context.Context, id int64, task *model.Task) error {
@@ -140,8 +140,13 @@ func TestCreateTask_WithoutWorkflowID(t *testing.T) {
 
 	router.ServeHTTP(w, req)
 
-	if w.Code != 201 {
-		t.Errorf("expected status 201, got %d, body: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusOK {
+		t.Errorf("expected HTTP 200, got %d, body: %s", w.Code, w.Body.String())
+	}
+	var createResp Response
+	json.Unmarshal(w.Body.Bytes(), &createResp)
+	if createResp.Code != CodeSuccess {
+		t.Errorf("expected code 0, got %d, body: %s", createResp.Code, w.Body.String())
 	}
 
 	if strings.Contains(mock.lastQuery, "workflow_id") {
@@ -177,16 +182,21 @@ func TestCreateTask_WithWorkflowID(t *testing.T) {
 
 	router.ServeHTTP(w, req)
 
-	if w.Code != 201 {
-		t.Errorf("expected status 201, got %d, body: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusOK {
+		t.Errorf("expected HTTP 200, got %d, body: %s", w.Code, w.Body.String())
+	}
+	var createResp Response
+	json.Unmarshal(w.Body.Bytes(), &createResp)
+	if createResp.Code != CodeSuccess {
+		t.Errorf("expected code 0, got %d, body: %s", createResp.Code, w.Body.String())
 	}
 
 	if !strings.Contains(mock.lastQuery, "workflow_id") {
 		t.Errorf("INSERT should contain workflow_id when provided, got query: %s", mock.lastQuery)
 	}
 
-	if len(mock.lastArgs) != 14 {
-		t.Errorf("expected 14 args with workflow_id, got %d", len(mock.lastArgs))
+	if len(mock.lastArgs) != 15 {
+		t.Errorf("expected 15 args with workflow_id, got %d", len(mock.lastArgs))
 	}
 
 	foundWFID := false
@@ -226,14 +236,19 @@ func TestCreateTask_ServiceError(t *testing.T) {
 
 	router.ServeHTTP(w, req)
 
-	if w.Code != 500 {
-		t.Errorf("expected status 500 for service error, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Errorf("expected HTTP 200, got %d", w.Code)
+	}
+	var resp Response
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Code != CodeInternalError {
+		t.Errorf("expected code 500 for service error, got %d", resp.Code)
 	}
 
-	var resp map[string]interface{}
-	json.Unmarshal(w.Body.Bytes(), &resp)
-	if !strings.Contains(resp["message"].(string), "database connection refused") {
-		t.Errorf("expected error message about database, got: %s", resp["message"])
+	var respMap map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &respMap)
+	if !strings.Contains(respMap["message"].(string), "database connection refused") {
+		t.Errorf("expected error message about database, got: %s", respMap["message"])
 	}
 }
 
@@ -248,8 +263,13 @@ func TestCreateTask_InvalidJSON(t *testing.T) {
 
 	router.ServeHTTP(w, req)
 
-	if w.Code != 400 {
-		t.Errorf("expected status 400 for invalid JSON, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Errorf("expected HTTP 200, got %d", w.Code)
+	}
+	var resp Response
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Code != CodeBadRequest {
+		t.Errorf("expected code 400 for invalid JSON, got %d", resp.Code)
 	}
 }
 
@@ -271,8 +291,13 @@ func TestCreateTask_DefaultValues(t *testing.T) {
 
 	router.ServeHTTP(w, req)
 
-	if w.Code != 201 {
-		t.Errorf("expected status 201, got %d, body: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusOK {
+		t.Errorf("expected HTTP 200, got %d, body: %s", w.Code, w.Body.String())
+	}
+	var createResp Response
+	json.Unmarshal(w.Body.Bytes(), &createResp)
+	if createResp.Code != CodeSuccess {
+		t.Errorf("expected code 0, got %d, body: %s", createResp.Code, w.Body.String())
 	}
 
 	var defaultTimeoutFound, defaultRetryFound, defaultDomainFound bool
@@ -304,11 +329,11 @@ func TestCreateTask_DefaultValues(t *testing.T) {
 
 func TestListTasks(t *testing.T) {
 	mock := &mockTaskService{
-		listTasksFunc: func(ctx context.Context, domainID int64, role string) ([]*model.Task, error) {
+		listTasksFunc: func(ctx context.Context, domainID int64, role string, page, pageSize int) ([]*model.Task, int, error) {
 			return []*model.Task{
 				{ID: 1, Name: "task1", Type: "http", Status: "pending"},
 				{ID: 2, Name: "task2", Type: "shell", Status: "success"},
-			}, nil
+			}, 2, nil
 		},
 	}
 	handler := newTaskHandlerWithSvc(mock)
@@ -351,8 +376,13 @@ func TestGetTask_NotFound(t *testing.T) {
 
 	router.ServeHTTP(w, req)
 
-	if w.Code != 404 {
-		t.Errorf("expected status 404, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Errorf("expected HTTP 200, got %d", w.Code)
+	}
+	var resp Response
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Code != CodeNotFound {
+		t.Errorf("expected code 404, got %d", resp.Code)
 	}
 }
 
@@ -435,8 +465,13 @@ func TestTaskHandler_Update_InvalidID(t *testing.T) {
 
 	router.ServeHTTP(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected status 400 for invalid ID, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Errorf("expected HTTP 200 for invalid ID, got %d", w.Code)
+	}
+	var resp Response
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Code != CodeBadRequest {
+		t.Errorf("expected code 400 for invalid ID, got %d", resp.Code)
 	}
 }
 
@@ -472,8 +507,13 @@ func TestTaskHandler_Executions_InvalidID(t *testing.T) {
 
 	router.ServeHTTP(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected status 400 for invalid ID, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Errorf("expected HTTP 200 for invalid ID, got %d", w.Code)
+	}
+	var resp Response
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Code != CodeBadRequest {
+		t.Errorf("expected code 400 for invalid ID, got %d", resp.Code)
 	}
 }
 
@@ -487,8 +527,13 @@ func TestTaskHandler_Delete_InvalidID(t *testing.T) {
 
 	router.ServeHTTP(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected status 400 for invalid ID, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Errorf("expected HTTP 200 for invalid ID, got %d", w.Code)
+	}
+	var resp Response
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Code != CodeBadRequest {
+		t.Errorf("expected code 400 for invalid ID, got %d", resp.Code)
 	}
 }
 
@@ -502,8 +547,13 @@ func TestTaskHandler_Delete_NegativeID(t *testing.T) {
 
 	router.ServeHTTP(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected status 400 for negative ID, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Errorf("expected HTTP 200 for negative ID, got %d", w.Code)
+	}
+	var resp Response
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Code != CodeBadRequest {
+		t.Errorf("expected code 400 for negative ID, got %d", resp.Code)
 	}
 }
 
@@ -517,8 +567,13 @@ func TestTaskHandler_Trigger_InvalidID(t *testing.T) {
 
 	router.ServeHTTP(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected status 400 for invalid ID, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Errorf("expected HTTP 200 for invalid ID, got %d", w.Code)
+	}
+	var resp Response
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Code != CodeBadRequest {
+		t.Errorf("expected code 400 for invalid ID, got %d", resp.Code)
 	}
 }
 
@@ -532,8 +587,13 @@ func TestTaskHandler_Get_InvalidID(t *testing.T) {
 
 	router.ServeHTTP(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected status 400 for invalid ID, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Errorf("expected HTTP 200 for invalid ID, got %d", w.Code)
+	}
+	var resp Response
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Code != CodeBadRequest {
+		t.Errorf("expected code 400 for invalid ID, got %d", resp.Code)
 	}
 }
 
@@ -547,8 +607,13 @@ func TestTaskHandler_Get_NegativeID(t *testing.T) {
 
 	router.ServeHTTP(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected status 400 for negative ID, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Errorf("expected HTTP 200 for negative ID, got %d", w.Code)
+	}
+	var resp Response
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Code != CodeBadRequest {
+		t.Errorf("expected code 400 for negative ID, got %d", resp.Code)
 	}
 }
 
@@ -569,8 +634,13 @@ func TestTaskHandler_Create_MissingName(t *testing.T) {
 
 	router.ServeHTTP(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected status 400 for missing name, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Errorf("expected HTTP 200 for missing name, got %d", w.Code)
+	}
+	var resp Response
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Code != CodeBadRequest {
+		t.Errorf("expected code 400 for missing name, got %d", resp.Code)
 	}
 }
 
@@ -591,8 +661,13 @@ func TestTaskHandler_Create_MissingType(t *testing.T) {
 
 	router.ServeHTTP(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected status 400 for missing type, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Errorf("expected HTTP 200 for missing type, got %d", w.Code)
+	}
+	var resp Response
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Code != CodeBadRequest {
+		t.Errorf("expected code 400 for missing type, got %d", resp.Code)
 	}
 }
 
@@ -701,10 +776,10 @@ func TestCreateTask_NoAvailableExecutors(t *testing.T) {
 	router := setupTestRouter(handler)
 
 	body := map[string]interface{}{
-		"name":            "任务无执行器",
-		"type":            "http",
-		"config":          `{"url":"http://example.com","method":"GET"}`,
-		"domain_id":       1,
+		"name":      "任务无执行器",
+		"type":      "http",
+		"config":    `{"url":"http://example.com","method":"GET"}`,
+		"domain_id": 1,
 	}
 
 	jsonBody, _ := json.Marshal(body)
@@ -714,8 +789,13 @@ func TestCreateTask_NoAvailableExecutors(t *testing.T) {
 
 	router.ServeHTTP(w, req)
 
-	if w.Code != 201 {
-		t.Errorf("expected status 201, got %d, body: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusOK {
+		t.Errorf("expected HTTP 200, got %d, body: %s", w.Code, w.Body.String())
+	}
+	var createResp Response
+	json.Unmarshal(w.Body.Bytes(), &createResp)
+	if createResp.Code != CodeSuccess {
+		t.Errorf("expected code 0, got %d, body: %s", createResp.Code, w.Body.String())
 	}
 
 	var resp map[string]interface{}
@@ -738,12 +818,12 @@ func TestCreateTask_WithAvailableExecutor(t *testing.T) {
 		listExecutorsByDomainFunc: func(ctx context.Context, domainID int64) ([]*model.Executor, error) {
 			return []*model.Executor{
 				{
-					ID:          1,
-					Name:        "executor-1",
-					Status:      "online",
+					ID:            1,
+					Name:          "executor-1",
+					Status:        "online",
 					LastHeartbeat: rqlite.NullTime{Time: now.Add(-10 * time.Second), Valid: true},
-					Capacity:    10,
-					CurrentLoad: 5,
+					Capacity:      10,
+					CurrentLoad:   5,
 				},
 			}, nil
 		},
@@ -752,10 +832,10 @@ func TestCreateTask_WithAvailableExecutor(t *testing.T) {
 	router := setupTestRouter(handler)
 
 	body := map[string]interface{}{
-		"name":            "任务有执行器",
-		"type":            "http",
-		"config":          `{"url":"http://example.com","method":"GET"}`,
-		"domain_id":       1,
+		"name":      "任务有执行器",
+		"type":      "http",
+		"config":    `{"url":"http://example.com","method":"GET"}`,
+		"domain_id": 1,
 	}
 
 	jsonBody, _ := json.Marshal(body)
@@ -765,8 +845,13 @@ func TestCreateTask_WithAvailableExecutor(t *testing.T) {
 
 	router.ServeHTTP(w, req)
 
-	if w.Code != 201 {
-		t.Errorf("expected status 201, got %d, body: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusOK {
+		t.Errorf("expected HTTP 200, got %d, body: %s", w.Code, w.Body.String())
+	}
+	var createResp Response
+	json.Unmarshal(w.Body.Bytes(), &createResp)
+	if createResp.Code != CodeSuccess {
+		t.Errorf("expected code 0, got %d, body: %s", createResp.Code, w.Body.String())
 	}
 
 	var resp map[string]interface{}
@@ -789,12 +874,12 @@ func TestCreateTask_ExecutorAtCapacity(t *testing.T) {
 		listExecutorsByDomainFunc: func(ctx context.Context, domainID int64) ([]*model.Executor, error) {
 			return []*model.Executor{
 				{
-					ID:          1,
-					Name:        "executor-1",
-					Status:      "online",
+					ID:            1,
+					Name:          "executor-1",
+					Status:        "online",
 					LastHeartbeat: rqlite.NullTime{Time: now.Add(-10 * time.Second), Valid: true},
-					Capacity:    10,
-					CurrentLoad: 10,
+					Capacity:      10,
+					CurrentLoad:   10,
 				},
 			}, nil
 		},
@@ -803,10 +888,10 @@ func TestCreateTask_ExecutorAtCapacity(t *testing.T) {
 	router := setupTestRouter(handler)
 
 	body := map[string]interface{}{
-		"name":            "任务执行器满载",
-		"type":            "http",
-		"config":          `{"url":"http://example.com","method":"GET"}`,
-		"domain_id":       1,
+		"name":      "任务执行器满载",
+		"type":      "http",
+		"config":    `{"url":"http://example.com","method":"GET"}`,
+		"domain_id": 1,
 	}
 
 	jsonBody, _ := json.Marshal(body)
@@ -816,8 +901,13 @@ func TestCreateTask_ExecutorAtCapacity(t *testing.T) {
 
 	router.ServeHTTP(w, req)
 
-	if w.Code != 201 {
-		t.Errorf("expected status 201, got %d, body: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusOK {
+		t.Errorf("expected HTTP 200, got %d, body: %s", w.Code, w.Body.String())
+	}
+	var createResp Response
+	json.Unmarshal(w.Body.Bytes(), &createResp)
+	if createResp.Code != CodeSuccess {
+		t.Errorf("expected code 0, got %d, body: %s", createResp.Code, w.Body.String())
 	}
 
 	var resp map[string]interface{}

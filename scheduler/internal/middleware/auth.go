@@ -10,7 +10,22 @@ import (
 	"github.com/lynnyq/bdopsflow/scheduler/internal/service"
 )
 
-var jwtSecret = []byte("bdopsflow-secret-key")
+type JWTConfig struct {
+	Secret      []byte
+	ExpiryHours int
+}
+
+var jwtConfig JWTConfig
+
+func InitJWT(secret string, expiryHours int) {
+	jwtConfig = JWTConfig{
+		Secret:      []byte(secret),
+		ExpiryHours: expiryHours,
+	}
+	if jwtConfig.ExpiryHours <= 0 {
+		jwtConfig.ExpiryHours = 24
+	}
+}
 
 type Claims struct {
 	UserID   int64  `json:"user_id"`
@@ -29,18 +44,19 @@ func GenerateToken(userID int64, username, realName, role string, domainID int64
 		Role:     role,
 		DomainID: domainID,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Duration(jwtConfig.ExpiryHours) * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			Issuer:    "bdopsflow",
 		},
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString(jwtSecret)
+	return token.SignedString(jwtConfig.Secret)
 }
 
 func ParseToken(tokenString string) (*Claims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
-		return jwtSecret, nil
+		return jwtConfig.Secret, nil
 	})
 
 	if err != nil {
@@ -57,8 +73,8 @@ func ParseToken(tokenString string) (*Claims, error) {
 func JWTAuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var tokenString string
-		
-		// 首先尝试从 Authorization header 中获取 token
+
+
 		authHeader := c.GetHeader("Authorization")
 		if authHeader != "" {
 			parts := strings.SplitN(authHeader, " ", 2)
@@ -66,12 +82,12 @@ func JWTAuthMiddleware() gin.HandlerFunc {
 				tokenString = parts[1]
 			}
 		}
-		
-		// 如果 header 中没有 token，尝试从查询参数中获取
+
+
 		if tokenString == "" {
 			tokenString = c.Query("token")
 		}
-		
+
 		if tokenString == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization required"})
 			c.Abort()
@@ -105,15 +121,15 @@ func RBACMiddleware(allowedRoles ...string) gin.HandlerFunc {
 		}
 
 		userRole := role.(string)
-		
-		// 如果检查 'admin'，同时允许 'system_admin'
-		// 如果检查 'system_admin'，同时允许 'admin'
+
+
+
 		for _, allowed := range allowedRoles {
 			if userRole == allowed {
 				c.Next()
 				return
 			}
-			if (allowed == "admin" && userRole == "system_admin") || 
+			if (allowed == "admin" && userRole == "system_admin") ||
 			   (allowed == "system_admin" && userRole == "admin") {
 				c.Next()
 				return

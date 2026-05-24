@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
@@ -57,7 +56,7 @@ func formatValidationError(err error) string {
 
 func getUserFriendlyError(err error, operation string) (string, int) {
 	if err == nil {
-		return "操作失败，请稍后重试", http.StatusInternalServerError
+		return "操作失败，请稍后重试", CodeInternalError
 	}
 
 	errStr := err.Error()
@@ -65,22 +64,22 @@ func getUserFriendlyError(err error, operation string) (string, int) {
 	switch {
 	case strings.Contains(errStr, "UNIQUE constraint failed"):
 		if strings.Contains(errStr, "username") {
-			return "用户名已存在", http.StatusBadRequest
+			return "用户名已存在", CodeBadRequest
 		}
 		if strings.Contains(errStr, "email") {
-			return "邮箱已被使用", http.StatusBadRequest
+			return "邮箱已被使用", CodeBadRequest
 		}
-		return "数据已存在，请检查后重试", http.StatusBadRequest
+		return "数据已存在，请检查后重试", CodeBadRequest
 
 	case strings.Contains(errStr, "FOREIGN KEY constraint failed"):
-		return "关联数据不存在，请检查输入", http.StatusBadRequest
+		return "关联数据不存在，请检查输入", CodeBadRequest
 
 	case strings.Contains(errStr, "NOT NULL constraint failed"):
-		return "缺少必填字段", http.StatusBadRequest
+		return "缺少必填字段", CodeBadRequest
 
 	default:
 		slog.Error("UserAdminHandler: "+operation+" failed", "error", err)
-		return "操作失败，请稍后重试", http.StatusInternalServerError
+		return "操作失败，请稍后重试", CodeInternalError
 	}
 }
 
@@ -122,14 +121,14 @@ func (h *UserAdminHandler) ListUsers(c *gin.Context) {
 	defer func() {
 		if r := recover(); r != nil {
 			slog.Error("UserAdminHandler.ListUsers: panic recovered", "panic", r)
-			Fail(c, 500, "服务异常，请稍后重试")
+			Fail(c, CodeInternalError, "服务异常，请稍后重试")
 		}
 	}()
 
 	users, err := h.svc.ListUsers(ctx)
 	if err != nil {
 		slog.Error("UserAdminHandler.ListUsers: failed to list users", "error", err)
-		Fail(c, 500, "加载用户列表失败，请稍后重试")
+		Fail(c, CodeInternalError, "加载用户列表失败，请稍后重试")
 		return
 	}
 
@@ -154,7 +153,7 @@ func (h *UserAdminHandler) GetUser(c *gin.Context) {
 	user, err := h.svc.GetUserByID(ctx, id)
 	if err != nil {
 		slog.Error("UserAdminHandler.GetUser: failed to get user", "user_id", id, "error", err)
-		Fail(c, 500, "获取用户信息失败，请稍后重试")
+		Fail(c, CodeInternalError, "获取用户信息失败，请稍后重试")
 		return
 	}
 
@@ -182,7 +181,7 @@ func (h *UserAdminHandler) CreateUser(c *gin.Context) {
 	defer func() {
 		if r := recover(); r != nil {
 			slog.Error("UserAdminHandler.CreateUser: panic recovered", "panic", r)
-			Fail(c, 500, "服务异常，请稍后重试")
+			Fail(c, CodeInternalError, "服务异常，请稍后重试")
 		}
 	}()
 
@@ -252,7 +251,7 @@ func (h *UserAdminHandler) UpdateUser(c *gin.Context) {
 	defer func() {
 		if r := recover(); r != nil {
 			slog.Error("UserAdminHandler.UpdateUser: panic recovered", "panic", r)
-			Fail(c, 500, "服务异常，请稍后重试")
+			Fail(c, CodeInternalError, "服务异常，请稍后重试")
 		}
 	}()
 
@@ -325,7 +324,7 @@ func (h *UserAdminHandler) DeleteUser(c *gin.Context) {
 	defer func() {
 		if r := recover(); r != nil {
 			slog.Error("UserAdminHandler.DeleteUser: panic recovered", "panic", r)
-			Fail(c, 500, "服务异常，请稍后重试")
+			Fail(c, CodeInternalError, "服务异常，请稍后重试")
 		}
 	}()
 
@@ -364,7 +363,7 @@ func (h *UserAdminHandler) GetUserRoles(c *gin.Context) {
 	roles, err := h.svc.GetUserRoles(ctx, id)
 	if err != nil {
 		slog.Error("UserAdminHandler.GetUserRoles: failed to get user roles", "user_id", id, "error", err)
-		Fail(c, 500, "获取用户角色失败，请稍后重试")
+		Fail(c, CodeInternalError, "获取用户角色失败，请稍后重试")
 		return
 	}
 
@@ -451,7 +450,7 @@ func (h *UserAdminHandler) ListUsersByDomain(c *gin.Context) {
 
 	if err != nil {
 		slog.Error("UserAdminHandler.ListUsersByDomain: failed to list users", "error", err)
-		Fail(c, 500, "加载用户列表失败，请稍后重试")
+		Fail(c, CodeInternalError, "加载用户列表失败，请稍后重试")
 		return
 	}
 
@@ -482,7 +481,7 @@ func (h *UserAdminHandler) GetCurrentUser(c *gin.Context) {
 	user, err := h.svc.GetCurrentUserInfo(ctx, id)
 	if err != nil {
 		slog.Error("UserAdminHandler.GetCurrentUser: failed to get user", "user_id", id, "error", err)
-		Fail(c, 500, "获取用户信息失败，请稍后重试")
+		Fail(c, CodeInternalError, "获取用户信息失败，请稍后重试")
 		return
 	}
 
@@ -584,7 +583,7 @@ func (h *UserAdminHandler) ResetUserPassword(c *gin.Context) {
 	defer func() {
 		if r := recover(); r != nil {
 			slog.Error("UserAdminHandler.ResetUserPassword: panic recovered", "panic", r)
-			Fail(c, 500, "服务异常，请稍后重试")
+			Fail(c, CodeInternalError, "服务异常，请稍后重试")
 		}
 	}()
 

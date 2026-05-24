@@ -69,7 +69,7 @@ func (h *WebhookHandler) Create(c *gin.Context) {
 	created, err := h.webhookSvc.Create(c.Request.Context(), webhook)
 	if err != nil {
 		slog.Error("WebhookHandler.Create: failed to create webhook", "error", err)
-		InternalServerError(c, "创建Webhook失败")
+		FailFromError(c, err)
 		return
 	}
 
@@ -92,7 +92,7 @@ func (h *WebhookHandler) List(c *gin.Context) {
 	webhooks, err := h.webhookSvc.List(c.Request.Context(), domainID)
 	if err != nil {
 		slog.Error("WebhookHandler.List: failed to list webhooks", "error", err, "domain_id", domainID)
-		InternalServerError(c, "查询Webhook列表失败")
+		FailFromError(c, err)
 		return
 	}
 
@@ -159,7 +159,7 @@ func (h *WebhookHandler) Update(c *gin.Context) {
 			NotFound(c, "Webhook不存在")
 			return
 		}
-		InternalServerError(c, "更新Webhook失败")
+		FailFromError(c, err)
 		return
 	}
 
@@ -180,7 +180,7 @@ func (h *WebhookHandler) Delete(c *gin.Context) {
 			NotFound(c, "Webhook不存在")
 			return
 		}
-		InternalServerError(c, "删除Webhook失败")
+		FailFromError(c, err)
 		return
 	}
 
@@ -202,12 +202,12 @@ func (h *WebhookHandler) Test(c *gin.Context) {
 			NotFound(c, "Webhook不存在")
 			return
 		}
-		Fail(c, 500, fmt.Sprintf("测试Webhook失败: %s", err.Error()))
+		Fail(c, CodeInternalError, fmt.Sprintf("测试Webhook失败: %s", err.Error()))
 		return
 	}
 
 	if result.Error != "" {
-		FailWithData(c, 500, "Webhook测试失败", result)
+		FailWithData(c, CodeInternalError, "Webhook测试失败", result)
 		return
 	}
 

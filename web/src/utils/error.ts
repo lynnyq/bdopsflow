@@ -11,6 +11,56 @@ export enum ErrorType {
   FORBIDDEN = '没有权限执行此操作',
 }
 
+export const ERROR_CODE_MAP: Record<number, string> = {
+  400: '请求参数错误',
+  401: '未登录或登录已过期',
+  403: '没有操作权限',
+  404: '请求的资源不存在',
+  409: '数据冲突，请刷新后重试',
+  500: '服务器内部错误',
+  10001: '任务正在运行中',
+  10002: '任务已被锁定',
+  10003: '任务不存在',
+  10004: '执行器不存在',
+  10005: '执行器不在线',
+  10006: '执行器容量已满',
+  10007: '没有可用的执行器',
+  10008: '任务分发失败',
+  11001: '用户不存在',
+  11002: '用户已存在',
+  11003: '用户名或密码错误',
+  11004: '用户已被禁用',
+  11005: '原密码错误',
+  11006: '密码强度不足，需包含字母和数字',
+  12001: '角色不存在',
+  12002: '角色已存在',
+  12003: '系统角色不可修改',
+  13001: '领域不存在',
+  13002: '领域下存在关联资源',
+  14001: '没有操作权限',
+  14002: '该权限已存在',
+  15001: '工作流不存在',
+  16001: '数据源不存在',
+  16002: '数据源已存在',
+  16003: '数据源连接失败',
+  16004: '数据源名称已存在',
+  17001: '查询执行失败',
+  17002: '查询并发数已达上限',
+  17003: '未选择数据源',
+  17004: '数据源已禁用',
+  17005: '数据源连接失败',
+  17006: '仅允许SELECT查询',
+  17007: '查询超时',
+  17008: '查询历史不存在',
+  17009: '保存的SQL不存在',
+  5001: '数据库错误',
+  5002: '缓存服务错误',
+}
+
+export const getErrorMessageByCode = (code: number): string | undefined => {
+  return ERROR_CODE_MAP[code]
+}
+
 // 英文化错误信息映射表
 const errorMessageMap: Record<string, string> = {
   'unauthorized': '未授权，请重新登录',
@@ -54,8 +104,13 @@ const errorMessageMap: Record<string, string> = {
   'invalid permission type': '无效的权限类型',
 }
 
-// 将英文错误信息转换为中文
-export const translateErrorMessage = (errorMsg: string): string => {
+export const translateErrorMessage = (errorMsg: string, errorCode?: number): string => {
+  if (!errorMsg && errorCode === undefined) return ErrorType.UNKNOWN
+
+  if (errorCode !== undefined && ERROR_CODE_MAP[errorCode]) {
+    return ERROR_CODE_MAP[errorCode]
+  }
+
   if (!errorMsg) return ErrorType.UNKNOWN
 
   const lowerMsg = errorMsg.toLowerCase().trim()

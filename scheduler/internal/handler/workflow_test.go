@@ -22,8 +22,13 @@ func TestWorkflowHandler_Get_InvalidID(t *testing.T) {
 
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected status 400 for invalid ID, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Errorf("expected HTTP 200, got %d", w.Code)
+	}
+	var resp Response
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Code != CodeBadRequest {
+		t.Errorf("expected code 400 for invalid ID, got %d", resp.Code)
 	}
 }
 
@@ -39,8 +44,13 @@ func TestWorkflowHandler_Get_NegativeID(t *testing.T) {
 
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected status 400 for negative ID, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Errorf("expected HTTP 200, got %d", w.Code)
+	}
+	var resp Response
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Code != CodeBadRequest {
+		t.Errorf("expected code 400 for negative ID, got %d", resp.Code)
 	}
 }
 
@@ -62,8 +72,13 @@ func TestWorkflowHandler_Create_MissingName(t *testing.T) {
 
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected status 400 for missing name, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Errorf("expected HTTP 200, got %d", w.Code)
+	}
+	var resp Response
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Code != CodeBadRequest {
+		t.Errorf("expected code 400 for missing name, got %d", resp.Code)
 	}
 }
 
@@ -86,8 +101,13 @@ func TestWorkflowHandler_Create_EmptyName(t *testing.T) {
 
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected status 400 for empty name, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Errorf("expected HTTP 200, got %d", w.Code)
+	}
+	var resp Response
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Code != CodeBadRequest {
+		t.Errorf("expected code 400 for empty name, got %d", resp.Code)
 	}
 }
 
@@ -103,8 +123,13 @@ func TestWorkflowHandler_TriggerWorkflow_InvalidID(t *testing.T) {
 
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected status 400 for invalid ID, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Errorf("expected HTTP 200, got %d", w.Code)
+	}
+	var resp Response
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Code != CodeBadRequest {
+		t.Errorf("expected code 400 for invalid ID, got %d", resp.Code)
 	}
 }
 
@@ -120,8 +145,13 @@ func TestWorkflowHandler_TriggerWorkflow_NegativeID(t *testing.T) {
 
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected status 400 for negative ID, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Errorf("expected HTTP 200, got %d", w.Code)
+	}
+	var resp Response
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Code != CodeBadRequest {
+		t.Errorf("expected code 400 for negative ID, got %d", resp.Code)
 	}
 }
 
@@ -137,8 +167,13 @@ func TestWorkflowHandler_Delete_InvalidID(t *testing.T) {
 
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected status 400 for invalid ID, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Errorf("expected HTTP 200, got %d", w.Code)
+	}
+	var resp Response
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Code != CodeBadRequest {
+		t.Errorf("expected code 400 for invalid ID, got %d", resp.Code)
 	}
 }
 
@@ -154,8 +189,13 @@ func TestWorkflowHandler_Delete_NegativeID(t *testing.T) {
 
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected status 400 for negative ID, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Errorf("expected HTTP 200, got %d", w.Code)
+	}
+	var resp Response
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Code != CodeBadRequest {
+		t.Errorf("expected code 400 for negative ID, got %d", resp.Code)
 	}
 }
 
@@ -176,7 +216,12 @@ func TestWorkflowHandler_Update_InvalidID(t *testing.T) {
 
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected status 400 for invalid ID, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Errorf("expected HTTP 200, got %d", w.Code)
+	}
+	var resp Response
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Code != CodeBadRequest {
+		t.Errorf("expected code 400 for invalid ID, got %d", resp.Code)
 	}
 }

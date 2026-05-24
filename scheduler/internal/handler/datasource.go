@@ -51,7 +51,7 @@ func (h *DatasourceHandler) List(c *gin.Context) {
 
 	datasources, total, err := h.dsService.Get(c.Request.Context(), queryDomainID, dsType, page, pageSize)
 	if err != nil {
-		Fail(c, 3050, "获取数据源列表失败")
+		Fail(c, CodeQueryError, "获取数据源列表失败")
 		return
 	}
 
@@ -175,7 +175,7 @@ func (h *DatasourceHandler) Create(c *gin.Context) {
 
 	role, _ := c.Get("role")
 	if allowWriteSQL && role != "system_admin" && role != "admin" {
-		Fail(c, 3003, "仅系统管理员可启用DML语句权限")
+		Fail(c, CodePermissionDenied, "仅系统管理员可启用DML语句权限")
 		return
 	}
 
@@ -197,7 +197,7 @@ func (h *DatasourceHandler) Create(c *gin.Context) {
 	testErr := h.manager.TestConnection(c.Request.Context(), ds)
 	if testErr != nil {
 		slog.Error("datasource test connection failed during create", "type", ds.Type, "host", ds.Host, "port", ds.Port, "error", testErr)
-		FailWithData(c, 3004, "连接测试失败，无法创建数据源", gin.H{
+		FailWithData(c, CodeDatasourceConnectFailed, "连接测试失败，无法创建数据源", gin.H{
 			"error": testErr.Error(),
 		})
 		return
@@ -209,11 +209,11 @@ func (h *DatasourceHandler) Create(c *gin.Context) {
 
 	if err := h.dsService.Create(c.Request.Context(), ds); err != nil {
 		if err == datasource.ErrDatasourceNameExists {
-			Fail(c, 3001, "该领域下已存在同名数据源")
+			Fail(c, CodeDatasourceNameExists, "该领域下已存在同名数据源")
 			return
 		}
 		slog.Error("failed to create datasource", "name", ds.Name, "type", ds.Type, "error", err)
-		Fail(c, 3050, "创建数据源失败")
+		Fail(c, CodeQueryError, "创建数据源失败")
 		return
 	}
 
@@ -307,7 +307,7 @@ func (h *DatasourceHandler) Update(c *gin.Context) {
 	if req.AllowWriteSQL != nil {
 		role, _ := c.Get("role")
 		if *req.AllowWriteSQL && role != "system_admin" && role != "admin" {
-			Fail(c, 3003, "仅系统管理员可启用DML语句权限")
+			Fail(c, CodePermissionDenied, "仅系统管理员可启用DML语句权限")
 			return
 		}
 		ds.AllowWriteSQL = *req.AllowWriteSQL
@@ -318,7 +318,7 @@ func (h *DatasourceHandler) Update(c *gin.Context) {
 
 	if err := h.dsService.Update(c.Request.Context(), ds); err != nil {
 		slog.Error("failed to update datasource", "id", id, "error", err)
-		Fail(c, 3050, "更新数据源失败")
+		Fail(c, CodeQueryError, "更新数据源失败")
 		return
 	}
 
@@ -341,7 +341,7 @@ func (h *DatasourceHandler) Delete(c *gin.Context) {
 
 	if err := h.dsService.Delete(c.Request.Context(), id); err != nil {
 		slog.Error("failed to delete datasource", "id", id, "error", err)
-		Fail(c, 3050, "删除数据源失败")
+		Fail(c, CodeQueryError, "删除数据源失败")
 		return
 	}
 
@@ -363,7 +363,7 @@ func (h *DatasourceHandler) TestConnection(c *gin.Context) {
 
 	if err := h.dsService.TestDatasource(c.Request.Context(), id); err != nil {
 		slog.Error("datasource test connection failed", "id", id, "error", err)
-		FailWithData(c, 3004, "连接测试失败", gin.H{
+		FailWithData(c, CodeDatasourceConnectFailed, "连接测试失败", gin.H{
 			"error": err.Error(),
 		})
 		return
@@ -418,7 +418,7 @@ func (h *DatasourceHandler) TestConnectionByParams(c *gin.Context) {
 
 	if err := h.manager.TestConnection(c.Request.Context(), ds); err != nil {
 		slog.Error("datasource test connection by params failed", "type", req.Type, "host", req.Host, "port", req.Port, "error", err)
-		FailWithData(c, 3004, "连接测试失败", gin.H{
+		FailWithData(c, CodeDatasourceConnectFailed, "连接测试失败", gin.H{
 			"error": err.Error(),
 		})
 		return
@@ -467,14 +467,14 @@ func (h *DatasourceHandler) GrantPermission(c *gin.Context) {
 
 	if err := h.dsService.GrantPermission(c.Request.Context(), perm); err != nil {
 		if err == datasource.ErrPermissionExists {
-			Fail(c, 3003, "该权限已存在，请勿重复添加")
+			Fail(c, CodePermissionExists, "该权限已存在，请勿重复添加")
 			return
 		}
 		if err == datasource.ErrInvalidPermissionType {
 			BadRequest(c, "无效的权限类型")
 			return
 		}
-		Fail(c, 3050, "添加权限失败")
+		Fail(c, CodeQueryError, "添加权限失败")
 		return
 	}
 
@@ -489,7 +489,7 @@ func (h *DatasourceHandler) RevokePermission(c *gin.Context) {
 	}
 
 	if err := h.dsService.RevokePermission(c.Request.Context(), permID); err != nil {
-		Fail(c, 3050, "撤销权限失败")
+		Fail(c, CodeQueryError, "撤销权限失败")
 		return
 	}
 
@@ -521,7 +521,7 @@ func (h *DatasourceHandler) UpdatePermission(c *gin.Context) {
 			NotFound(c, "权限记录不存在")
 			return
 		}
-		Fail(c, 3050, "修改权限失败")
+		Fail(c, CodeQueryError, "修改权限失败")
 		return
 	}
 
@@ -537,7 +537,7 @@ func (h *DatasourceHandler) GetPermissions(c *gin.Context) {
 
 	perms, err := h.dsService.GetPermissions(c.Request.Context(), dsID)
 	if err != nil {
-		Fail(c, 3050, "获取权限列表失败")
+		Fail(c, CodeQueryError, "获取权限列表失败")
 		return
 	}
 

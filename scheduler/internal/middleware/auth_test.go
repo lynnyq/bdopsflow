@@ -8,6 +8,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func init() {
+	InitJWT("test-secret-key-for-unit-tests", 24)
+}
+
 func TestGenerateToken(t *testing.T) {
 	token, err := GenerateToken(1, "testuser", "Test User", "admin", 1)
 	if err != nil {

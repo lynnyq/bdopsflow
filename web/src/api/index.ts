@@ -1,5 +1,5 @@
 import api from '@/utils/api'
-import type { Task, Workflow, TaskExecution, TaskExecutionListResponse, Executor, ExecutorWithDomains, Domain, LoginRequest, LoginResponse, WorkflowExecution, TaskLog, DashboardStats, TrendData, Datasource, DatasourcePermission, QueryResult, QueryHistory, SavedSQL, TableInfo, ColumnInfo, SystemConfigItem, Webhook } from '@/types'
+import type { Task, Workflow, TaskExecution, TaskExecutionListResponse, Executor, ExecutorWithDomains, Domain, LoginRequest, LoginResponse, WorkflowExecution, TaskLog, DashboardStats, TrendData, Datasource, DatasourcePermission, QueryResult, QueryHistory, SavedSQL, TableInfo, ColumnInfo, SystemConfigItem, Webhook, PaginatedResponse } from '@/types'
 import { userAdminAPI, roleAdminAPI, domainAdminAPI, permissionAPI } from './admin'
 import { datasourceAPI, queryAPI, systemConfigAPI } from './datasource'
 import { auditLogAPI } from './audit'
@@ -9,10 +9,6 @@ import type { AuditLog, AuditLogListResponse, AuditLogStats } from './audit'
 
 export { userAdminAPI, roleAdminAPI, domainAdminAPI, permissionAPI, datasourceAPI, queryAPI, systemConfigAPI, auditLogAPI, webhookAPI }
 export type { User, Role, Permission, AuditLog, AuditLogListResponse, AuditLogStats }
-
-interface TaskListResponse {
-  items: Task[]
-}
 
 interface UpdateProfileRequest {
   email: string
@@ -37,12 +33,12 @@ export const authAPI = {
 }
 
 export const adminAPI = {
-  resetUserPassword: (userId: number, data: ResetPasswordRequest) => 
+  resetUserPassword: (userId: number, data: ResetPasswordRequest) =>
     api.post(`/admin/users/${userId}/reset-password`, data),
 }
 
 export const taskAPI = {
-  list: () => api.get<TaskListResponse>('/tasks'),
+  list: (params?: { page?: number; page_size?: number }) => api.get<PaginatedResponse<Task>>('/tasks', { params }),
   get: (id: number) => api.get<Task>(`/tasks/${id}`),
   create: (data: Partial<Task>) => api.post<Task>('/tasks', data),
   update: (id: number, data: Partial<Task>) => api.put(`/tasks/${id}`, data),
@@ -53,7 +49,7 @@ export const taskAPI = {
 }
 
 export const workflowAPI = {
-  list: () => api.get<Workflow[]>('/workflows'),
+  list: (params?: { page?: number; page_size?: number }) => api.get<PaginatedResponse<Workflow>>('/workflows', { params }),
   get: (id: number) => api.get<Workflow>(`/workflows/${id}`),
   create: (data: Partial<Workflow>) => api.post<Workflow>('/workflows', data),
   update: (id: number, data: Partial<Workflow>) => api.put(`/workflows/${id}`, data),
@@ -66,7 +62,7 @@ export const workflowAPI = {
 }
 
 export const executorAPI = {
-	list: () => api.get<{ items: ExecutorWithDomains[] }>("/executors"),
+	list: (params?: { page?: number; page_size?: number }) => api.get<PaginatedResponse<ExecutorWithDomains>>("/executors", { params }),
 	get: (name: string) => api.get<Executor>(`/executors/${name}`),
 	delete: (name: string) => api.delete(`/executors/${name}`),
 	online: (name: string) => api.post(`/executors/${name}/online`),

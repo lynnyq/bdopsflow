@@ -128,10 +128,11 @@ export interface TaskExecutionListResponse {
 }
 
 export interface PaginatedResponse<T> {
-  data: T[]
+  items?: T[]
+  data?: T[]
   total: number
-  page: number
-  page_size: number
+  page?: number
+  page_size?: number
 }
 
 export interface Executor {

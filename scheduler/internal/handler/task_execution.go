@@ -35,7 +35,7 @@ func (h *TaskExecutionHandler) ListByTask(c *gin.Context) {
 	executions, err := h.svc.GetTaskExecutions(ctx, id)
 	if err != nil {
 		slog.Error("TaskExecutionHandler.ListByTask: failed to get executions", "task_id", id, "error", err)
-		Fail(c, 500, err.Error())
+		FailFromError(c, err)
 		return
 	}
 

@@ -25,7 +25,7 @@ func (h *RoleAdminHandler) ListRoles(c *gin.Context) {
 	defer func() {
 		if r := recover(); r != nil {
 			slog.Error("RoleAdminHandler.ListRoles: panic recovered", "panic", r)
-			Fail(c, 500, "internal server error")
+			Fail(c, CodeInternalError, "internal server error")
 		}
 	}()
 
@@ -34,7 +34,7 @@ func (h *RoleAdminHandler) ListRoles(c *gin.Context) {
 	bdopsflow_roles, err := h.svc.ListRoles(ctx)
 	if err != nil {
 		slog.Error("RoleAdminHandler.ListRoles: failed to list bdopsflow_roles", "error", err)
-		Fail(c, 500, err.Error())
+		FailFromError(c, err)
 		return
 	}
 
@@ -63,7 +63,7 @@ func (h *RoleAdminHandler) GetRole(c *gin.Context) {
 	role, err := h.svc.GetRole(ctx, id)
 	if err != nil {
 		slog.Error("RoleAdminHandler.GetRole: failed to get role", "role_id", id, "error", err)
-		Fail(c, 500, err.Error())
+		FailFromError(c, err)
 		return
 	}
 
@@ -105,7 +105,7 @@ func (h *RoleAdminHandler) CreateRole(c *gin.Context) {
 	role, err := h.svc.CreateRole(ctx, req.Name, req.Code, req.Description, domainID)
 	if err != nil {
 		slog.Error("RoleAdminHandler.CreateRole: failed to create role", "name", req.Name, "error", err)
-		Fail(c, 500, err.Error())
+		FailFromError(c, err)
 		return
 	}
 
@@ -151,7 +151,7 @@ func (h *RoleAdminHandler) UpdateRole(c *gin.Context) {
 			return
 		}
 		slog.Error("RoleAdminHandler.UpdateRole: failed to update role", "role_id", id, "error", err)
-		Fail(c, 500, err.Error())
+		FailFromError(c, err)
 		return
 	}
 
@@ -198,7 +198,7 @@ func (h *RoleAdminHandler) DeleteRole(c *gin.Context) {
 			return
 		}
 		slog.Error("RoleAdminHandler.DeleteRole: failed to delete role", "role_id", id, "error", err)
-		Fail(c, 500, err.Error())
+		FailFromError(c, err)
 		return
 	}
 
@@ -231,7 +231,7 @@ func (h *RoleAdminHandler) GetRolePermissions(c *gin.Context) {
 	bdopsflow_permissions, err := h.svc.GetRolePermissions(ctx, id)
 	if err != nil {
 		slog.Error("RoleAdminHandler.GetRolePermissions: failed to get role bdopsflow_permissions", "role_id", id, "error", err)
-		Fail(c, 500, err.Error())
+		FailFromError(c, err)
 		return
 	}
 
@@ -275,7 +275,7 @@ func (h *RoleAdminHandler) AssignPermissions(c *gin.Context) {
 			return
 		}
 		slog.Error("RoleAdminHandler.AssignPermissions: failed to assign bdopsflow_permissions", "role_id", id, "error", err)
-		Fail(c, 500, err.Error())
+		FailFromError(c, err)
 		return
 	}
 
@@ -291,7 +291,7 @@ func (h *RoleAdminHandler) GetAllPermissions(c *gin.Context) {
 	bdopsflow_permissions, err := h.svc.GetAllPermissions(ctx)
 	if err != nil {
 		slog.Error("RoleAdminHandler.GetAllPermissions: failed to get all bdopsflow_permissions", "error", err)
-		Fail(c, 500, err.Error())
+		FailFromError(c, err)
 		return
 	}
 

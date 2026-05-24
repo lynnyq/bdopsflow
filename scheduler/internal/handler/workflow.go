@@ -24,7 +24,7 @@ func (h *WorkflowHandler) List(c *gin.Context) {
 	defer func() {
 		if r := recover(); r != nil {
 			slog.Error("WorkflowHandler.List: panic recovered", "panic", r)
-			Fail(c, 500, "internal server error")
+			Fail(c, CodeInternalError, "internal server error")
 		}
 	}()
 
@@ -32,7 +32,7 @@ func (h *WorkflowHandler) List(c *gin.Context) {
 
 	domainID, _ := c.Get("domain_id")
 	userRole, _ := c.Get("role")
-	
+
 	var dID int64
 	var role string
 	if v, ok := domainID.(int64); ok {
@@ -42,14 +42,17 @@ func (h *WorkflowHandler) List(c *gin.Context) {
 		role = v
 	}
 
-	bdopsflow_workflows, err := h.svc.ListWorkflows(ctx, dID, role)
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+
+	bdopsflow_workflows, total, err := h.svc.ListWorkflows(ctx, dID, role, page, pageSize)
 	if err != nil {
 		slog.Error("WorkflowHandler.List: failed to list bdopsflow_workflows", "error", err)
-		Fail(c, 500, err.Error())
+		FailFromError(c, err)
 		return
 	}
 
-	Success(c, bdopsflow_workflows)
+	Success(c, gin.H{"items": bdopsflow_workflows, "total": total})
 }
 
 func (h *WorkflowHandler) Get(c *gin.Context) {
@@ -113,7 +116,7 @@ func (h *WorkflowHandler) Create(c *gin.Context) {
 	)
 	if err != nil {
 		slog.Error("WorkflowHandler.Create: failed to create workflow", "name", req.Name, "error", err)
-		Fail(c, 500, err.Error())
+		FailFromError(c, err)
 		return
 	}
 
@@ -147,7 +150,7 @@ func (h *WorkflowHandler) Update(c *gin.Context) {
 	err = h.svc.UpdateWorkflow(ctx, id, &wf)
 	if err != nil {
 		slog.Error("WorkflowHandler.Update: failed to update workflow", "id", id, "error", err)
-		Fail(c, 500, err.Error())
+		FailFromError(c, err)
 		return
 	}
 
@@ -175,7 +178,7 @@ func (h *WorkflowHandler) Delete(c *gin.Context) {
 	err = h.svc.DeleteWorkflow(ctx, id)
 	if err != nil {
 		slog.Error("WorkflowHandler.Delete: failed to delete workflow", "id", id, "error", err)
-		Fail(c, 500, err.Error())
+		FailFromError(c, err)
 		return
 	}
 
@@ -202,7 +205,7 @@ func (h *WorkflowHandler) TriggerWorkflow(c *gin.Context) {
 	we, err := h.svc.TriggerWorkflow(ctx, id)
 	if err != nil {
 		slog.Error("WorkflowHandler.TriggerWorkflow: failed to trigger workflow", "workflow_id", id, "error", err)
-		Fail(c, 500, err.Error())
+		FailFromError(c, err)
 		return
 	}
 
@@ -229,7 +232,7 @@ func (h *WorkflowHandler) GetWorkflowExecutions(c *gin.Context) {
 	executions, err := h.svc.ListWorkflowExecutions(ctx, id)
 	if err != nil {
 		slog.Error("WorkflowHandler.GetWorkflowExecutions: failed to list executions", "workflow_id", id, "error", err)
-		Fail(c, 500, err.Error())
+		FailFromError(c, err)
 		return
 	}
 
@@ -267,7 +270,7 @@ func (h *WorkflowHandler) GetExecutionLogs(c *gin.Context) {
 	logs, err := h.svc.GetTaskLogsByExecutionID(ctx, executionID)
 	if err != nil {
 		slog.Error("WorkflowHandler.GetExecutionLogs: failed to get logs", "execution_id", executionID, "error", err)
-		Fail(c, 500, err.Error())
+		FailFromError(c, err)
 		return
 	}
 

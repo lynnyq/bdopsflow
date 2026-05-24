@@ -33,7 +33,7 @@ func (h *DomainAdminHandler) ListDomains(c *gin.Context) {
 	bdopsflow_domains, err := h.svc.ListDomains(ctx)
 	if err != nil {
 		slog.Error("DomainAdminHandler.ListDomains: failed to list bdopsflow_domains", "error", err)
-		InternalServerError(c, err.Error())
+		FailFromError(c, err)
 		return
 	}
 
@@ -62,7 +62,7 @@ func (h *DomainAdminHandler) GetDomain(c *gin.Context) {
 	domain, err := h.svc.GetDomain(ctx, id)
 	if err != nil {
 		slog.Error("DomainAdminHandler.GetDomain: failed to get domain", "domain_id", id, "error", err)
-		InternalServerError(c, err.Error())
+		FailFromError(c, err)
 		return
 	}
 
@@ -94,7 +94,7 @@ func (h *DomainAdminHandler) CreateDomain(c *gin.Context) {
 	domain, err := h.svc.CreateDomain(ctx, req.Name, req.Description)
 	if err != nil {
 		slog.Error("DomainAdminHandler.CreateDomain: failed to create domain", "name", req.Name, "error", err)
-		InternalServerError(c, err.Error())
+		FailFromError(c, err)
 		return
 	}
 
@@ -134,7 +134,7 @@ func (h *DomainAdminHandler) UpdateDomain(c *gin.Context) {
 	domain, err := h.svc.UpdateDomain(ctx, id, req.Name, req.Description)
 	if err != nil {
 		slog.Error("DomainAdminHandler.UpdateDomain: failed to update domain", "domain_id", id, "error", err)
-		InternalServerError(c, err.Error())
+		FailFromError(c, err)
 		return
 	}
 
@@ -176,7 +176,7 @@ func (h *DomainAdminHandler) DeleteDomain(c *gin.Context) {
 			return
 		}
 		slog.Error("DomainAdminHandler.DeleteDomain: failed to delete domain", "domain_id", id, "error", err)
-		InternalServerError(c, err.Error())
+		FailFromError(c, err)
 		return
 	}
 

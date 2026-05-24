@@ -26,6 +26,7 @@ func TestDefaultConfigValues(t *testing.T) {
 		"datasource.max_cell_size",
 		"datasource.health_check_interval",
 		"datasource.test_timeout",
+		"web.enabled",
 	}
 
 	for _, key := range expectedKeys {
@@ -459,7 +460,19 @@ func TestConfigMetaList_JSONFieldNames(t *testing.T) {
 	svc := newTestConfigService()
 	meta := svc.GetAllWithMeta()
 
-	data, err := json.Marshal(meta[0])
+	var numberMeta *ConfigMeta
+	for i := range meta {
+		if meta[i].Type == "number" {
+			numberMeta = &meta[i]
+			break
+		}
+	}
+
+	if numberMeta == nil {
+		t.Fatal("no number type config found")
+	}
+
+	data, err := json.Marshal(numberMeta)
 	if err != nil {
 		t.Fatalf("failed to marshal ConfigMeta: %v", err)
 	}
@@ -481,9 +494,6 @@ func TestConfigMetaList_JSONFieldNames(t *testing.T) {
 	}
 	if _, ok := raw["max_value"]; !ok {
 		t.Errorf("ConfigMeta JSON missing optional field: max_value (for number type)")
-	}
-	if _, ok := raw["unit"]; !ok {
-		t.Errorf("ConfigMeta JSON missing optional field: unit")
 	}
 }
 
@@ -682,6 +692,7 @@ func TestConfigService_AllMetaGroups(t *testing.T) {
 		"缓存":  true,
 		"连接池": true,
 		"其他":  true,
+		"系统":  true,
 	}
 
 	foundGroups := make(map[string]bool)

@@ -63,7 +63,7 @@ func (h *TaskHandler) List(c *gin.Context) {
 	defer func() {
 		if r := recover(); r != nil {
 			slog.Error("TaskHandler.List: panic recovered", "panic", r)
-			Fail(c, 500, "internal server error")
+			Fail(c, CodeInternalError, "internal server error")
 		}
 	}()
 
@@ -71,7 +71,7 @@ func (h *TaskHandler) List(c *gin.Context) {
 
 	domainID, _ := c.Get("domain_id")
 	userRole, _ := c.Get("role")
-	
+
 	var dID int64
 	var role string
 	if v, ok := domainID.(int64); ok {
@@ -81,14 +81,17 @@ func (h *TaskHandler) List(c *gin.Context) {
 		role = v
 	}
 
-	bdopsflow_tasks, err := h.svc.ListTasks(ctx, dID, role)
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+
+	bdopsflow_tasks, total, err := h.svc.ListTasks(ctx, dID, role, page, pageSize)
 	if err != nil {
 		slog.Error("TaskHandler.List: failed to list bdopsflow_tasks", "error", err)
-		Fail(c, 500, err.Error())
+		FailFromError(c, err)
 		return
 	}
 
-	Success(c, gin.H{"items": bdopsflow_tasks})
+	Success(c, gin.H{"items": bdopsflow_tasks, "total": total})
 }
 
 func (h *TaskHandler) Get(c *gin.Context) {
@@ -264,12 +267,12 @@ func (h *TaskHandler) Create(c *gin.Context) {
 	task, err := h.svc.CreateTask(ctx, query, args...)
 	if err != nil {
 		slog.Error("TaskHandler.Create: failed to create task", "name", req.Name, "error", err)
-		Fail(c, 500, err.Error())
+		FailFromError(c, err)
 		return
 	}
 
 	slog.Info("TaskHandler.Create: task created", "task_id", task.ID, "name", task.Name)
-	
+
 	// 返回任务和是否有可用执行器的信息
 	Created(c, gin.H{
 		"task": task,
@@ -418,7 +421,7 @@ func (h *TaskHandler) Update(c *gin.Context) {
 	err = h.svc.UpdateTask(ctx, id, currentTask)
 	if err != nil {
 		slog.Error("TaskHandler.Update: failed to update task", "id", id, "error", err)
-		Fail(c, 500, err.Error())
+		FailFromError(c, err)
 		return
 	}
 
@@ -460,7 +463,7 @@ func (h *TaskHandler) Delete(c *gin.Context) {
 	err = h.svc.DeleteTask(ctx, id)
 	if err != nil {
 		slog.Error("TaskHandler.Delete: failed to delete task", "id", id, "error", err)
-		Fail(c, 500, err.Error())
+		FailFromError(c, err)
 		return
 	}
 
@@ -486,7 +489,7 @@ func (h *TaskHandler) Trigger(c *gin.Context) {
 	executionID, err := h.svc.TriggerTask(c.Request.Context(), id)
 	if err != nil {
 		slog.Error("TaskHandler.Trigger: failed to trigger task", "task_id", id, "error", err)
-		
+
 		// 始终尝试获取任务和领域信息来提供更好的错误提示
 		task, getErr := h.svc.GetTaskByID(c.Request.Context(), id)
 		if getErr == nil {
@@ -522,7 +525,7 @@ func (h *TaskHandler) Executions(c *gin.Context) {
 	executions, err := h.svc.GetTaskExecutions(ctx, id)
 	if err != nil {
 		slog.Error("TaskHandler.Executions: failed to get executions", "task_id", id, "error", err)
-		Fail(c, 500, err.Error())
+		FailFromError(c, err)
 		return
 	}
 
@@ -704,7 +707,7 @@ func (h *TaskHandler) ExecutionLogs(c *gin.Context) {
 	logs, err := h.svc.GetTaskLogs(ctx, executionID)
 	if err != nil {
 		slog.Error("TaskHandler.ExecutionLogs: failed to get logs", "execution_id", executionID, "error", err)
-		Fail(c, 500, err.Error())
+		FailFromError(c, err)
 		return
 	}
 

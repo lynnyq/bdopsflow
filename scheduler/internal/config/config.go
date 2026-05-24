@@ -23,6 +23,8 @@ type Config struct {
 	RedisSentinelPassword string
 	JWTSecret      string
 	JWTExpiry      int
+	AllowRegister  bool
+	CORSAllowOrigins []string
 	LogLevel       string
 	LogFormat      string
 	ConfigFile     string
@@ -45,7 +47,7 @@ type DatasourceCryptoConfig struct {
 
 func Load(configFile string) *Config {
 	slog.Info("attempting to load config file", "config_file", configFile)
-	
+
 	cfg, err := config.New(config.Options{
 		ConfigFile: configFile,
 	})
@@ -83,6 +85,8 @@ func Load(configFile string) *Config {
 		RedisSentinelPassword: cfg.GetString("redis.sentinel_password", ""),
 		JWTSecret:     cfg.GetString("jwt.secret", "your-secret-key-change-in-production"),
 		JWTExpiry:     cfg.GetInt("jwt.expiry_hours", 24),
+		AllowRegister: cfg.GetBool("app.allow_register", false),
+		CORSAllowOrigins: cfg.GetStringSlice("app.cors_allow_origins", []string{}),
 		LogLevel:      cfg.GetString("log.level", "info"),
 		LogFormat:     cfg.GetString("log.format", "json"),
 		ConfigFile:    configured,
@@ -120,6 +124,8 @@ func defaultConfig() *Config {
 		RedisSentinelPassword: "",
 		JWTSecret:     "your-secret-key-change-in-production",
 		JWTExpiry:     24,
+		AllowRegister: false,
+		CORSAllowOrigins: []string{},
 		LogLevel:      "info",
 		LogFormat:     "json",
 		DatasourceCrypto: DatasourceCryptoConfig{

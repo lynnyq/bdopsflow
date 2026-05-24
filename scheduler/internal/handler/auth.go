@@ -379,7 +379,7 @@ func (h *AuthHandler) SSOLogin(c *gin.Context) {
 	resp, err := httpClient.Do(httpReq)
 	if err != nil {
 		slog.Error("SSOLogin: failed to call SSO service", "error", err, "url", h.ssoUrl)
-		Fail(c, http.StatusBadGateway, "SSO登录失败，请稍后再试")
+		Fail(c, CodeInternalError, "SSO登录失败，请稍后再试")
 		return
 	}
 	defer resp.Body.Close()

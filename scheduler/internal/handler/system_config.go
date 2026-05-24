@@ -37,7 +37,7 @@ func (h *SystemConfigHandler) Update(c *gin.Context) {
 
 	userID, _ := c.Get("user_id")
 	if err := h.configService.Set(c.Request.Context(), key, req.Value, userID.(int64)); err != nil {
-		Fail(c, 400, err.Error())
+		Fail(c, CodeBadRequest, err.Error())
 		return
 	}
 

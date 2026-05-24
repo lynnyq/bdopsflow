@@ -54,7 +54,7 @@ func (h *QueryHandler) Execute(c *gin.Context) {
 	maxSQLLength := h.config.GetInt("datasource.max_sql_length")
 	if maxSQLLength > 0 && len(req.SQL) > maxSQLLength {
 		slog.Warn("sql exceeds max length", "datasource_id", req.DatasourceID, "sql_length", len(req.SQL), "max_length", maxSQLLength)
-		Fail(c, 3008, "SQL语句超过最大长度限制")
+		Fail(c, CodeQueryNoDatasource, "SQL语句超过最大长度限制")
 		return
 	}
 
@@ -66,13 +66,13 @@ func (h *QueryHandler) Execute(c *gin.Context) {
 	}
 	if !ds.IsEnabled {
 		slog.Warn("datasource is disabled", "datasource_id", req.DatasourceID, "name", ds.Name)
-		Fail(c, 3006, "数据源已被禁用，无法执行查询")
+		Fail(c, CodeQueryDisabled, "数据源已被禁用，无法执行查询")
 		return
 	}
 
 	if !h.isSelectOnly(req.SQL, ds.AllowWriteSQL) {
 		slog.Warn("sql type not allowed", "datasource_id", req.DatasourceID, "sql_preview", sqlPreview)
-		Fail(c, 3007, "仅允许执行SELECT查询，DML/DDL操作需要数据源管理员启用写入权限")
+		Fail(c, CodeQueryConnectFailed, "仅允许执行SELECT查询，DML/DDL操作需要数据源管理员启用写入权限")
 		return
 	}
 
@@ -101,11 +101,11 @@ func (h *QueryHandler) Execute(c *gin.Context) {
 		if err != nil {
 			if err == datasource.ErrConcurrentLimit {
 				slog.Warn("concurrent query limit reached", "user_id", userID, "datasource_id", req.DatasourceID)
-				Fail(c, 3010, "并发查询数量已达上限，请稍后重试")
+				Fail(c, CodeQuerySelectOnly, "并发查询数量已达上限，请稍后重试")
 				return
 			}
 			slog.Error("concurrent check failed", "user_id", userID, "datasource_id", req.DatasourceID, "error", err)
-			Fail(c, 3050, "并发检查失败，请稍后重试")
+			Fail(c, CodeQueryError, "并发检查失败，请稍后重试")
 			return
 		}
 		defer release()
@@ -121,14 +121,14 @@ func (h *QueryHandler) Execute(c *gin.Context) {
 	drv, err := h.manager.GetDriver(ctx, ds)
 	if err != nil {
 		slog.Error("failed to get datasource driver", "datasource_id", req.DatasourceID, "type", ds.Type, "error", err)
-		Fail(c, 3004, "连接数据源失败，请检查数据源配置")
+		Fail(c, CodeDatasourceNotFound, "连接数据源失败，请检查数据源配置")
 		return
 	}
 
 	if req.Database != "" {
 		if useErr := drv.UseDatabase(ctx, req.Database); useErr != nil {
 			slog.Error("failed to switch database", "datasource_id", req.DatasourceID, "database", req.Database, "error", useErr)
-			Fail(c, 3020, fmt.Sprintf("切换数据库失败: %v", useErr))
+			Fail(c, CodeConcurrentLimit, fmt.Sprintf("切换数据库失败: %v", useErr))
 			return
 		}
 		slog.Debug("switched database context", "datasource_id", req.DatasourceID, "database", req.Database)
@@ -163,7 +163,7 @@ func (h *QueryHandler) Execute(c *gin.Context) {
 		history.ErrorMessage = err.Error()
 		h.dsService.RecordQueryHistory(c.Request.Context(), history)
 		slog.Error("query execution failed", "datasource_id", req.DatasourceID, "datasource_name", ds.Name, "database", req.Database, "execution_time", execTime, "error", err)
-		FailWithData(c, 3020, "查询执行失败", gin.H{"execution_time": execTime})
+		FailWithData(c, CodeConcurrentLimit, "查询执行失败", gin.H{"execution_time": execTime})
 		return
 	}
 
@@ -205,7 +205,7 @@ func (h *QueryHandler) GetMetadata(c *gin.Context) {
 
 	drv, err := h.manager.GetDriver(c.Request.Context(), ds)
 	if err != nil {
-		Fail(c, 3004, "连接数据源失败，请检查数据源配置")
+		Fail(c, CodeDatasourceNotFound, "连接数据源失败，请检查数据源配置")
 		return
 	}
 
@@ -213,21 +213,21 @@ func (h *QueryHandler) GetMetadata(c *gin.Context) {
 	case "databases":
 		dbs, err := drv.GetDatabases(c.Request.Context())
 		if err != nil {
-			Fail(c, 3050, "获取数据库列表失败")
+			Fail(c, CodeQueryError, "获取数据库列表失败")
 			return
 		}
 		Success(c, dbs)
 	case "tables":
 		tables, err := drv.GetTables(c.Request.Context(), database)
 		if err != nil {
-			Fail(c, 3050, "获取数据表列表失败")
+			Fail(c, CodeQueryError, "获取数据表列表失败")
 			return
 		}
 		Success(c, tables)
 	case "columns":
 		columns, err := drv.GetColumns(c.Request.Context(), database, table)
 		if err != nil {
-			Fail(c, 3050, "获取字段列表失败")
+			Fail(c, CodeQueryError, "获取字段列表失败")
 			return
 		}
 		Success(c, columns)
@@ -260,7 +260,7 @@ func (h *QueryHandler) ExportCSV(c *gin.Context) {
 	}
 
 	if !h.isSelectOnly(req.SQL, ds.AllowWriteSQL) {
-		Fail(c, 3007, "仅允许执行SELECT查询，DML/DDL操作需要数据源管理员启用写入权限")
+		Fail(c, CodeQueryConnectFailed, "仅允许执行SELECT查询，DML/DDL操作需要数据源管理员启用写入权限")
 		return
 	}
 
@@ -286,21 +286,21 @@ func (h *QueryHandler) ExportCSV(c *gin.Context) {
 
 		drv, err := h.manager.GetDriver(ctx, ds)
 		if err != nil {
-			Fail(c, 3004, "连接数据源失败，请检查数据源配置")
+			Fail(c, CodeDatasourceNotFound, "连接数据源失败，请检查数据源配置")
 			return
 		}
 
 		if req.Database != "" {
 			if useErr := drv.UseDatabase(ctx, req.Database); useErr != nil {
 				slog.Error("export: failed to switch database", "datasource_id", req.DatasourceID, "database", req.Database, "error", useErr)
-				Fail(c, 3020, fmt.Sprintf("切换数据库失败: %v", useErr))
+				Fail(c, CodeConcurrentLimit, fmt.Sprintf("切换数据库失败: %v", useErr))
 				return
 			}
 		}
 
 		result, err = drv.Query(ctx, req.SQL)
 		if err != nil {
-			Fail(c, 3020, "查询执行失败")
+			Fail(c, CodeConcurrentLimit, "查询执行失败")
 			return
 		}
 
@@ -318,7 +318,7 @@ func (h *QueryHandler) ExportCSV(c *gin.Context) {
 	}
 
 	if int(result.RowCount) > maxExportRows {
-		FailWithData(c, 3011, "export row count exceeds maximum limit", gin.H{"max": maxExportRows})
+		FailWithData(c, CodeQueryTimeout, "export row count exceeds maximum limit", gin.H{"max": maxExportRows})
 		return
 	}
 
@@ -366,7 +366,7 @@ func (h *QueryHandler) GetHistory(c *gin.Context) {
 
 	histories, total, err := h.dsService.GetQueryHistory(c.Request.Context(), queryDomainID, page, pageSize)
 	if err != nil {
-		Fail(c, 3050, "获取查询历史失败")
+		Fail(c, CodeQueryError, "获取查询历史失败")
 		return
 	}
 
@@ -387,7 +387,7 @@ func (h *QueryHandler) DeleteQueryHistory(c *gin.Context) {
 	}
 
 	if err := h.dsService.DeleteQueryHistory(c.Request.Context(), id); err != nil {
-		Fail(c, 3051, "删除查询历史失败")
+		Fail(c, CodeQueryHistoryNotFound, "删除查询历史失败")
 		return
 	}
 
@@ -410,7 +410,7 @@ func (h *QueryHandler) BatchDeleteQueryHistory(c *gin.Context) {
 	}
 
 	if err := h.dsService.BatchDeleteQueryHistory(c.Request.Context(), req.IDs); err != nil {
-		Fail(c, 3052, "批量删除查询历史失败")
+		Fail(c, CodeSavedSQLNotFound, "批量删除查询历史失败")
 		return
 	}
 
@@ -445,7 +445,7 @@ func (h *QueryHandler) SaveSQL(c *gin.Context) {
 	}
 
 	if err := h.dsService.CreateSavedSQL(c.Request.Context(), saved); err != nil {
-		Fail(c, 3050, "保存SQL失败")
+		Fail(c, CodeQueryError, "保存SQL失败")
 		return
 	}
 
@@ -471,7 +471,7 @@ func (h *QueryHandler) ListSavedSQL(c *gin.Context) {
 
 	savedList, total, err := h.dsService.GetSavedSQL(c.Request.Context(), queryDomainID, userID.(int64), page, pageSize)
 	if err != nil {
-		Fail(c, 3050, "获取已保存SQL列表失败")
+		Fail(c, CodeQueryError, "获取已保存SQL列表失败")
 		return
 	}
 
@@ -491,7 +491,7 @@ func (h *QueryHandler) DeleteSavedSQL(c *gin.Context) {
 	}
 
 	if err := h.dsService.DeleteSavedSQL(c.Request.Context(), id); err != nil {
-		Fail(c, 3050, "删除SQL记录失败")
+		Fail(c, CodeQueryError, "删除SQL记录失败")
 		return
 	}
 
@@ -507,7 +507,7 @@ func (h *QueryHandler) Cancel(c *gin.Context) {
 
 	if h.concurrentService != nil {
 		if err := h.concurrentService.SetCancelSignal(c.Request.Context(), queryID, 5*time.Minute); err != nil {
-			Fail(c, 3050, "取消查询失败")
+			Fail(c, CodeQueryError, "取消查询失败")
 			return
 		}
 	}

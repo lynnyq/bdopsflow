@@ -1,152 +1,52 @@
-# Scheduler 服务配置 - 生产环境
-#
-# 多节点高可用部署说明：
-# 1. 部署至少 3 个 Scheduler 节点（推荐 3-5 个）
-# 2. 所有节点共享同一个 rqlite 和 Redis 集群
-# 3. 使用 Redis 实现主节点选举，确保同一时间只有一个主节点执行 Cron 调度
-# 4. 执行器可以配置多个调度器地址实现故障转移（见 executor 配置）
-# 5. 前端和 API 调用可以通过负载均衡器分发到所有调度器节点
-
 app:
-  # HTTP 服务端口
   http_port: "8080"
-  # gRPC 服务端口
   grpc_port: "50051"
-  # 节点ID，用于主节点选举（可选，会自动生成UUID，建议配置便于识别）
   node_id: ""
-  # 多节点部署时，其他节点配置不同的 node_id：
-  # node_id: "scheduler-2"
-  # node_id: "scheduler-3"
+  allow_register: false
+  cors_allow_origins:
+    - "https://bdopsflow.example.com"
 
-# RSA 密钥配置
-# 用于前端密码传输加密和配置文件敏感密码加密
-# 生成密钥对命令：./scheduler keygen
-# 加密密码命令：./scheduler encrypt-password --config config.yaml --password "your-password"
 rsa:
-  # PKCS#8 格式公钥（Base64编码，不含PEM头尾）
-  # 前端通过 /api/auth/public-key 接口获取此公钥加密用户密码
-  # 使用 ./scheduler keygen 生成，将输出的 public_key 填入此处
   public_key: ""
-  # PKCS#8 格式私钥（Base64编码，不含PEM头尾）
-  # 后端使用此私钥解密前端传输的密码和配置文件中的加密密码
-  # 使用 ./scheduler keygen 生成，将输出的 private_key 填入此处
-  # 生产环境务必注意配置文件权限（chmod 600），防止私钥泄露
   private_key: ""
 
-# SSO 第三方登录配置
-# 启用后，默认使用 SSO 登录，/login?isSso=false 时使用本地登录
 sso:
-  # 是否启用 SSO 登录
   enabled: true
-  # SSO 验证接口地址
-  url: "http://sso.com/account"
-  # SSO RSA 公钥（PKCS#8 格式，Base64编码，不含PEM头尾）
-  # 前端使用此公钥加密密码后传给后端，后端原样转发给 SSO 服务验证
-  # 注意：此公钥由 SSO 服务提供，与本项目的 RSA 密钥对无关
+  url: "http://sso.example.com/account"
   public_key: ""
-  # SSO 请求超时时间（秒）
   timeout: 10
 
-# 数据库配置 - 生产环境（3 节点集群）
 database:
-  # rqlite 多节点地址列表（生产环境建议 3 节点）
   rqlite_addrs:
     - "http://rqlite-node1:4001"
     - "http://rqlite-node2:4001"
     - "http://rqlite-node3:4001"
-  # rqlite 用户名（需要 rqlite 服务端配置认证）
-  rqlite_user: "admin"
-  # rqlite 密码，强烈建议使用 RSA 加密格式，避免明文存储
-  # 加密步骤：
-  #   1. 先使用 ./scheduler keygen 生成密钥对并填入上方 rsa 配置
-  #   2. 使用 ./scheduler encrypt-password --config config.yaml --password "实际密码" 加密
-  #   3. 将输出的 RSA_ENCRYPTED:xxx 填入此处
+  rqlite_user: ""
   rqlite_password: ""
-  # 是否使用 TLS 连接 rqlite（使用 https）
   rqlite_tls: false
 
-# Redis 配置 - 生产环境（哨兵模式）
-# 模式：single（单实例）或 sentinel（哨兵模式）
 redis:
   mode: "sentinel"
-
-  # 哨兵模式配置
+  password: ""
+  db: 0
   master_name: "mymaster"
-  # 哨兵节点地址列表
   sentinel_addrs:
     - "redis-sentinel1:26379"
     - "redis-sentinel2:26379"
     - "redis-sentinel3:26379"
-  # 哨兵密码，强烈建议使用 RSA 加密格式
-  # 使用 ./scheduler encrypt-password 加密后填入
   sentinel_password: ""
-  # Redis 数据节点密码，强烈建议使用 RSA 加密格式
-  # 使用 ./scheduler encrypt-password 加密后填入
-  password: ""
-  db: 0
 
-# JWT 配置
 jwt:
-  # JWT 签名密钥，生产环境务必更换为随机强密钥
-  secret: "your-secure-secret-key-change-in-production"
-  # JWT 令牌过期时间（小时）
+  secret: ""
   expiry_hours: 24
 
-# 日志配置
 log:
-  # 日志级别：debug / info / warn / error
-  level: "info"
-  # 日志格式：json / text
+  level: "warn"
   format: "json"
 
-# 数据源加密配置
-# 用于加密存储数据源密码等敏感信息（AES-256-GCM）
-# 生产环境强烈建议使用环境变量或密钥文件，避免密钥写入配置文件
 datasource:
-  # 加密密钥，必须为 32 字节（AES-256）
-  # 生产环境务必更换为随机生成的强密钥，可通过命令生成：
-  #   openssl rand -base64 32 | head -c 32
-  # 推荐使用 key_source=env 通过环境变量传入，避免密钥泄露
-  encryption_key: "CHANGE-ME-32byte-prod-key-here12"
-  # 密钥来源：direct（配置文件直接读取）、env（环境变量）、file（密钥文件）
-  # 生产环境推荐 env 或 file
+  encryption_key: ""
   key_source: "env"
-  # 当 key_source=env 时读取的环境变量名
   key_env_var: "BDOPSFLOW_ENCRYPTION_KEY"
-  # 当 key_source=file 时读取的密钥文件路径
   key_file: ""
-  # 密钥自动轮换天数（0 表示不自动轮换，生产环境建议 90）
   auto_rotate_days: 90
-
-# 多节点部署架构说明：
-#
-# ┌─────────────┐
-# │   User      │
-# │  /  Web UI  │
-# └──────┬──────┘
-#        │
-#   ┌────▼─────┐
-#   │ Load     │  ← 负载均衡器（Nginx/HAProxy）
-#   │ Balancer │
-#   └────┬─────┘
-#        │
-#   ┌────┼───────────────────────────┐
-#   │    │                           │
-#   │    │                           │
-# ┌─▼────▼──┐  ┌──────────┐  ┌──────────┐
-# │Scheduler│  │Scheduler │  │Scheduler │  ← 3个调度器节点
-# │  Node 1 │  │  Node 2  │  │  Node 3 │    (主节点选举，自动切换)
-# └────┬────┘  └────┬─────┘  └────┬─────┘
-#      │            │             │
-#      └────────────┼─────────────┘
-#                   │
-#   ┌───────────────┼───────────────┐
-#   │               │               │
-# ┌─▼──────┐   ┌────▼─────┐   ┌────▼─────┐
-# │ Redis  │   │  rqlite  │   │Executors │  ← 执行器连接多个调度器地址
-# │Cluster │   │ Cluster  │   │          │
-# └────────┘   └──────────┘   └──────────┘
-#
-# 执行器配置示例（多调度器连接）：
-# scheduler:
-#   addrs: "scheduler1:50051,scheduler2:50051,scheduler3:50051"

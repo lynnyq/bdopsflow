@@ -31,7 +31,7 @@ func parseAddrs(addrsStr string) []string {
 }
 
 func printExecutorHelp() {
-	fmt.Fprintln(os.Stderr, `BDopsFlow Executor - 任务执行引擎
+	fmt.Fprint(os.Stderr, `BDopsFlow Executor - 任务执行引擎
 
 用法:
   executor [选项]

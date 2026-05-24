@@ -524,7 +524,7 @@ const loadExecutions = async (page: number = currentPage.value) => {
     const response = await logAPI.list(params)
     console.log('Received response:', response.data)
     // 安全地赋值，默认为空数组
-    executions.value = response.data.data || []
+    executions.value = response.data.items || []
     total.value = response.data.total || 0
     currentPage.value = response.data.page || 1
     
