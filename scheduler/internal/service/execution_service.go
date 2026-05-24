@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"strconv"
 	"strings"
 	"time"
@@ -20,7 +21,7 @@ type TaskExecutionWithNames struct {
 }
 
 func (s *SchedulerService) UpdateExecutionResult(ctx context.Context, executionID, status, output, errorMsg string) error {
-	now := time.Now().Format("2006-01-02 15:04:05")
+	now := time.Now().Format(DateTimeFormat)
 	query := `
 		UPDATE bdopsflow_task_executions
 		SET status = ?, output = ?, error = ?,
@@ -53,8 +54,10 @@ func (s *SchedulerService) UpdateExecutionResult(ctx context.Context, executionI
 		row, _ := taskIDQr.Slice()
 		taskID := rowInt64(row[0])
 		lockKey := fmt.Sprintf("task:lock:%s", executionID)
-		s.redis.Del(ctx, lockKey)
-		slog.Debug("cleaned up task lock", "task_id", taskID, "execution_id", executionID)
+		renewKey := fmt.Sprintf("task:renew:%s", executionID)
+		failCountKey := fmt.Sprintf("task:renew:fail:count:%s", executionID)
+		s.redis.Del(ctx, lockKey, renewKey, failCountKey)
+		slog.Debug("cleaned up task lock and renewal keys", "task_id", taskID, "execution_id", executionID)
 	}
 
 	slog.Info("task execution finished",
@@ -74,7 +77,7 @@ func (s *SchedulerService) UpdateTaskProgress(ctx context.Context, executionID s
 
 	stmt := rqlite.ParameterizedStatement{
 		Query:     query,
-		Arguments: []interface{}{progress, progressMsg, time.Now(), executionID},
+		Arguments: []interface{}{progress, progressMsg, time.Now().Format(DateTimeFormat), executionID},
 	}
 
 	result, err := s.DB.WriteOneParameterized(stmt)
@@ -160,20 +163,28 @@ func (s *SchedulerService) GetAllExecutions(ctx context.Context, domainID int64,
 		args = append(args, filter["status"])
 	}
 	if filter["start_time_from"] != "" {
-		whereClause += " AND te.start_time >= ?"
-		args = append(args, filter["start_time_from"])
+		if t, err := parseTimeInLocalTimezone(filter["start_time_from"]); err == nil {
+			whereClause += " AND te.start_time >= ?"
+			args = append(args, t.Format(DateTimeFormat))
+		}
 	}
 	if filter["start_time_to"] != "" {
-		whereClause += " AND te.start_time <= ?"
-		args = append(args, filter["start_time_to"])
+		if t, err := parseTimeInLocalTimezone(filter["start_time_to"]); err == nil {
+			whereClause += " AND te.start_time <= ?"
+			args = append(args, t.Format(DateTimeFormat))
+		}
 	}
 	if filter["end_time_from"] != "" {
-		whereClause += " AND te.end_time >= ?"
-		args = append(args, filter["end_time_from"])
+		if t, err := parseTimeInLocalTimezone(filter["end_time_from"]); err == nil {
+			whereClause += " AND te.end_time >= ?"
+			args = append(args, t.Format(DateTimeFormat))
+		}
 	}
 	if filter["end_time_to"] != "" {
-		whereClause += " AND te.end_time <= ?"
-		args = append(args, filter["end_time_to"])
+		if t, err := parseTimeInLocalTimezone(filter["end_time_to"]); err == nil {
+			whereClause += " AND te.end_time <= ?"
+			args = append(args, t.Format(DateTimeFormat))
+		}
 	}
 	if filter["duration_min"] != "" || filter["duration_max"] != "" {
 		whereClause += " AND te.end_time IS NOT NULL"
@@ -281,7 +292,7 @@ func (s *SchedulerService) GetAllExecutions(ctx context.Context, domainID int64,
 		if t, ok := row[5].(time.Time); ok {
 			exec.StartTime = rqlite.NullTime{Time: t, Valid: true}
 		} else if s, ok := row[5].(string); ok && s != "" {
-			parsed, err := time.Parse("2006-01-02 15:04:05", s)
+			parsed, err := parseTimeInLocalTimezone(s)
 			if err == nil {
 				exec.StartTime = rqlite.NullTime{Time: parsed, Valid: true}
 			}
@@ -290,7 +301,7 @@ func (s *SchedulerService) GetAllExecutions(ctx context.Context, domainID int64,
 		if t, ok := row[6].(time.Time); ok {
 			exec.EndTime = rqlite.NullTime{Time: t, Valid: true}
 		} else if s, ok := row[6].(string); ok && s != "" {
-			parsed, err := time.Parse("2006-01-02 15:04:05", s)
+			parsed, err := parseTimeInLocalTimezone(s)
 			if err == nil {
 				exec.EndTime = rqlite.NullTime{Time: parsed, Valid: true}
 			}
@@ -303,7 +314,7 @@ func (s *SchedulerService) GetAllExecutions(ctx context.Context, domainID int64,
 		if t, ok := row[10].(time.Time); ok {
 			exec.CreatedAt = t
 		} else if s, ok := row[10].(string); ok && s != "" {
-			parsed, err := time.Parse("2006-01-02 15:04:05", s)
+			parsed, err := parseTimeInLocalTimezone(s)
 			if err == nil {
 				exec.CreatedAt = parsed
 			}
@@ -649,7 +660,7 @@ func (s *SchedulerService) AddTaskLog(ctx context.Context, executionID string, t
 		VALUES (?, ?, ?, ?, ?, ?, ?)
 	`
 
-	now := time.Now().Format("2006-01-02 15:04:05")
+	now := time.Now().Format(DateTimeFormat)
 	stmt := rqlite.ParameterizedStatement{
 		Query:     query,
 		Arguments: []interface{}{executionID, taskID, executorID, nodeID, logLevel, message, now},
@@ -702,14 +713,14 @@ func (s *SchedulerService) AddTaskLog(ctx context.Context, executionID string, t
 }
 
 func (s *SchedulerService) addRecoveryLogSafe(ctx context.Context, executionID string, taskID int64, logLevel string, message string) error {
-	dedupKey := fmt.Sprintf("task:log:dedup:%s:recovery", executionID)
+	dedupKey := fmt.Sprintf("task:log:dedup:%s:recovery:%d", executionID, time.Now().Unix()/300)
 	exists, err := s.redis.Exists(ctx, dedupKey).Result()
 	if err == nil && exists > 0 {
 		slog.Debug("Skipping duplicate recovery log", "execution_id", executionID)
 		return nil
 	}
 
-	s.redis.Set(ctx, dedupKey, "1", time.Hour)
+	s.redis.Set(ctx, dedupKey, "1", 10*time.Minute)
 
 	return s.AddTaskLog(ctx, executionID, taskID, "", logLevel, message)
 }
@@ -747,20 +758,28 @@ func (s *SchedulerService) GetExecutionStats(ctx context.Context, domainID int64
 		args = append(args, filter["status"])
 	}
 	if filter["start_time_from"] != "" {
-		whereClause += " AND te.start_time >= ?"
-		args = append(args, filter["start_time_from"])
+		if t, err := parseTimeInLocalTimezone(filter["start_time_from"]); err == nil {
+			whereClause += " AND te.start_time >= ?"
+			args = append(args, t.Format(DateTimeFormat))
+		}
 	}
 	if filter["start_time_to"] != "" {
-		whereClause += " AND te.start_time <= ?"
-		args = append(args, filter["start_time_to"])
+		if t, err := parseTimeInLocalTimezone(filter["start_time_to"]); err == nil {
+			whereClause += " AND te.start_time <= ?"
+			args = append(args, t.Format(DateTimeFormat))
+		}
 	}
 	if filter["end_time_from"] != "" {
-		whereClause += " AND te.end_time >= ?"
-		args = append(args, filter["end_time_from"])
+		if t, err := parseTimeInLocalTimezone(filter["end_time_from"]); err == nil {
+			whereClause += " AND te.end_time >= ?"
+			args = append(args, t.Format(DateTimeFormat))
+		}
 	}
 	if filter["end_time_to"] != "" {
-		whereClause += " AND te.end_time <= ?"
-		args = append(args, filter["end_time_to"])
+		if t, err := parseTimeInLocalTimezone(filter["end_time_to"]); err == nil {
+			whereClause += " AND te.end_time <= ?"
+			args = append(args, t.Format(DateTimeFormat))
+		}
 	}
 	if filter["duration_min"] != "" || filter["duration_max"] != "" {
 		whereClause += " AND te.end_time IS NOT NULL"
@@ -829,13 +848,19 @@ func (s *SchedulerService) GetExecutionStats(ctx context.Context, domainID int64
 func (s *SchedulerService) RecoverRunningTasksOnBecomeLeader(ctx context.Context) error {
 	slog.Info("recovering running tasks on becoming leader")
 
+	cutoffTime := time.Now().Add(-24 * time.Hour).Format(DateTimeFormat)
 	query := `
 		SELECT execution_id, task_id, executor_id, status, start_time, progress, progress_msg
 		FROM bdopsflow_task_executions
 		WHERE status = 'running'
+		AND created_at > ?
 	`
 
-	qr, err := s.DB.QueryOne(query)
+	stmt := rqlite.ParameterizedStatement{
+		Query:     query,
+		Arguments: []interface{}{cutoffTime},
+	}
+	qr, err := s.DB.QueryOneParameterized(stmt)
 	if err != nil {
 		return err
 	}
@@ -843,9 +868,17 @@ func (s *SchedulerService) RecoverRunningTasksOnBecomeLeader(ctx context.Context
 		return qr.Err
 	}
 
+	type recoveryDetail struct {
+		ExecutionID string
+		TaskID      int64
+		ExecutorID  int64
+		Action      string
+		Reason      string
+	}
+	var recoveryDetails []recoveryDetail
 	recoveredCount := 0
 	failedCount := 0
-	validatedCount := 0
+	errorCount := 0
 
 	for qr.Next() {
 		row, err := qr.Slice()
@@ -867,51 +900,117 @@ func (s *SchedulerService) RecoverRunningTasksOnBecomeLeader(ctx context.Context
 			"progress", progress,
 		)
 
-		executor, err := s.GetExecutorByID(ctx, executorID)
-		executorOnline := err == nil && executor.Status == "online"
-
-		lockKey := fmt.Sprintf("task:lock:%s", executionID)
-		lockExists, _ := s.redis.Exists(ctx, lockKey).Result()
+		task, taskErr := s.GetTaskByID(ctx, taskID)
+		timeoutSeconds := int64(300)
+		noTimeout := false
+		if taskErr == nil && task.TimeoutSeconds > 0 {
+			timeoutSeconds = int64(task.TimeoutSeconds)
+		} else if taskErr == nil && task.TimeoutSeconds <= 0 {
+			noTimeout = true
+		}
 
 		taskTimeout := false
-		if startTimeStr != "" {
-			if startTime, err := time.Parse("2006-01-02 15:04:05", startTimeStr); err == nil {
-				if time.Since(startTime) > 2*time.Hour {
+		if !noTimeout && startTimeStr != "" {
+			if startTime, parseErr := parseTimeInLocalTimezone(startTimeStr); parseErr == nil {
+				if time.Since(startTime) > time.Duration(timeoutSeconds)*time.Second {
 					taskTimeout = true
 				}
 			}
 		}
 
-		if !executorOnline || lockExists == 0 || taskTimeout {
+		executor, execErr := s.GetExecutorByID(ctx, executorID)
+		executorOnline := execErr == nil && executor.Status == "online"
+		executorRecentlyActive := false
+		if execErr == nil && executor.LastHeartbeat.Valid {
+			executorRecentlyActive = time.Since(executor.LastHeartbeat.Time) < 90*time.Second
+		}
+
+		executorReachable := false
+		if execErr == nil && executorOnline {
+			executorReachable = s.pingExecutor(ctx, executor)
+			if !executorReachable {
+				slog.Warn("task recovery: executor is online in DB but unreachable via ping",
+					"execution_id", executionID,
+					"task_id", taskID,
+					"executor_id", executorID,
+					"executor_name", executor.Name,
+					"executor_address", executor.Address,
+				)
+			}
+		}
+
+		if execErr != nil && executorID > 0 {
+			slog.Warn("task recovery: failed to get executor info, treating as offline",
+				"execution_id", executionID,
+				"task_id", taskID,
+				"executor_id", executorID,
+				"error", execErr,
+			)
+		}
+
+		renewKey := fmt.Sprintf("task:renew:%s", executionID)
+		lastRenewStr, renewErr := s.redis.Get(ctx, renewKey).Result()
+		noRenewal := renewErr != nil || lastRenewStr == ""
+
+		var lastRenewSecondsAgo int64 = 9999
+		if !noRenewal {
+			var lastRenew int64
+			fmt.Sscanf(lastRenewStr, "%d", &lastRenew)
+			lastRenewSecondsAgo = time.Now().Unix() - lastRenew
+		}
+
+		lockKey := fmt.Sprintf("task:lock:%s", executionID)
+		lockExists, _ := s.redis.Exists(ctx, lockKey).Result()
+
+		renewalExpired := !noTimeout && lastRenewSecondsAgo > timeoutSeconds
+		shouldFail := !executorOnline || !executorRecentlyActive || !executorReachable || noRenewal || renewalExpired || taskTimeout
+
+		if shouldFail {
 			slog.Warn("task recovery: marking task as failed",
 				"execution_id", executionID,
 				"task_id", taskID,
 				"executor_id", executorID,
 				"executor_online", executorOnline,
+				"executor_recently_active", executorRecentlyActive,
+				"executor_reachable", executorReachable,
 				"lock_exists", lockExists,
 				"task_timeout", taskTimeout,
+				"no_renewal", noRenewal,
+				"last_renew_seconds_ago", lastRenewSecondsAgo,
 			)
 
 			var reason string
 			if !executorOnline {
 				reason = "scheduler failover: executor is offline"
-			} else if lockExists == 0 {
-				reason = "scheduler failover: task lock not found"
+			} else if !executorRecentlyActive {
+				reason = "scheduler failover: executor heartbeat expired"
+			} else if !executorReachable {
+				reason = "scheduler failover: executor is unreachable (ping failed)"
+			} else if noRenewal {
+				reason = "scheduler failover: no renewal record found"
+			} else if renewalExpired {
+				reason = fmt.Sprintf("scheduler failover: renewal expired (%d seconds ago, timeout %d)", lastRenewSecondsAgo, timeoutSeconds)
 			} else {
 				reason = "scheduler failover: task execution timeout"
 			}
 
 			s.forceFailTask(ctx, executionID, taskID, reason)
 			failedCount++
+			recoveryDetails = append(recoveryDetails, recoveryDetail{
+				ExecutionID: executionID,
+				TaskID:      taskID,
+				ExecutorID:  executorID,
+				Action:      "failed",
+				Reason:      reason,
+			})
 			continue
 		}
 
-		lockTTL := 300
+		lockTTL := s.calculateLockTTL(taskErr, task)
 		if err := s.redis.Set(ctx, lockKey, "leader_recovered", time.Duration(lockTTL)*time.Second).Err(); err != nil {
 			slog.Warn("failed to set task lock during recovery", "execution_id", executionID, "error", err)
 		}
 
-		renewKey := fmt.Sprintf("task:renew:%s", executionID)
 		if err := s.redis.Set(ctx, renewKey, time.Now().Unix(), time.Duration(lockTTL)*time.Second).Err(); err != nil {
 			slog.Warn("failed to set task renew timestamp during recovery", "execution_id", executionID, "error", err)
 		}
@@ -923,13 +1022,78 @@ func (s *SchedulerService) RecoverRunningTasksOnBecomeLeader(ctx context.Context
 			fmt.Sprintf("Task recovered by new leader, progress: %d%%, message: %s", progress, progressMsg))
 
 		recoveredCount++
-		validatedCount++
+		recoveryDetails = append(recoveryDetails, recoveryDetail{
+			ExecutionID: executionID,
+			TaskID:      taskID,
+			ExecutorID:  executorID,
+			Action:      "recovered",
+			Reason:      fmt.Sprintf("progress: %d%%, message: %s", progress, progressMsg),
+		})
+	}
+
+	for _, detail := range recoveryDetails {
+		slog.Info("task recovery detail",
+			"execution_id", detail.ExecutionID,
+			"task_id", detail.TaskID,
+			"executor_id", detail.ExecutorID,
+			"action", detail.Action,
+			"reason", detail.Reason,
+		)
 	}
 
 	slog.Info("finished recovering running tasks",
 		"recovered_count", recoveredCount,
 		"failed_count", failedCount,
-		"validated_count", validatedCount,
+		"error_count", errorCount,
+		"total", recoveredCount+failedCount+errorCount,
 	)
 	return nil
+}
+
+func (s *SchedulerService) calculateLockTTL(taskErr error, task *model.Task) int64 {
+	lockTTL := int64(300)
+	if taskErr == nil && task.TimeoutSeconds > 0 {
+		lockTTL = int64(task.TimeoutSeconds) * 2
+	} else if taskErr == nil && task.TimeoutSeconds <= 0 {
+		lockTTL = 3600
+	}
+	if lockTTL < 60 {
+		lockTTL = 60
+	}
+	if lockTTL > 7200 {
+		lockTTL = 7200
+	}
+	return lockTTL
+}
+
+func (s *SchedulerService) pingExecutor(ctx context.Context, executor *model.Executor) bool {
+	if executor == nil {
+		return false
+	}
+
+	if s.connectivityChecker != nil && s.connectivityChecker.IsExecutorConnected(executor.Name) {
+		return true
+	}
+
+	if executor.Address == "" {
+		return false
+	}
+
+	addr := executor.Address
+	if !strings.Contains(addr, ":") {
+		addr = addr + ":50051"
+	}
+
+	dialer := net.Dialer{Timeout: 3 * time.Second}
+	conn, err := dialer.DialContext(ctx, "tcp", addr)
+	if err != nil {
+		slog.Debug("ping executor: TCP dial failed",
+			"executor_name", executor.Name,
+			"address", addr,
+			"error", err,
+		)
+		return false
+	}
+	conn.Close()
+	return true
 }

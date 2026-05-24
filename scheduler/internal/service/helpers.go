@@ -9,11 +9,11 @@ import (
 )
 
 const (
-	DateTimeFormat = "2006-01-02 15:04:05"
+	DateTimeFormat = time.RFC3339Nano
+	LegacyDateTimeFormat = "2006-01-02 15:04:05"
 )
 
 func nowUTC() string {
-	// 直接返回本地时间，不做UTC转换
 	return time.Now().Format(DateTimeFormat)
 }
 
@@ -22,8 +22,13 @@ func parseDateTime(v interface{}) time.Time {
 		return t
 	}
 	if s, ok := v.(string); ok && s != "" {
-		parsed, err := time.Parse(DateTimeFormat, s)
-		if err == nil {
+		if parsed, err := time.Parse(time.RFC3339Nano, s); err == nil {
+			return parsed
+		}
+		if parsed, err := time.Parse(time.RFC3339, s); err == nil {
+			return parsed
+		}
+		if parsed, err := time.Parse(LegacyDateTimeFormat, s); err == nil {
 			return parsed
 		}
 	}
@@ -31,8 +36,13 @@ func parseDateTime(v interface{}) time.Time {
 }
 
 func parseTimeInLocalTimezone(timeStr string) (time.Time, error) {
-	// 直接解析时间字符串，不需要时区转换
-	return time.Parse(DateTimeFormat, timeStr)
+	if parsed, err := time.Parse(time.RFC3339Nano, timeStr); err == nil {
+		return parsed, nil
+	}
+	if parsed, err := time.Parse(time.RFC3339, timeStr); err == nil {
+		return parsed, nil
+	}
+	return time.Parse(LegacyDateTimeFormat, timeStr)
 }
 
 func scanNullTime(row []interface{}, idx int) rqlite.NullTime {
@@ -44,6 +54,10 @@ func scanNullTime(row []interface{}, idx int) rqlite.NullTime {
 		}
 	}
 	return rqlite.NullTime{}
+}
+
+func ScanNullTime(row []interface{}, idx int) rqlite.NullTime {
+	return scanNullTime(row, idx)
 }
 
 func scanTime(row []interface{}, idx int) time.Time {
@@ -91,13 +105,10 @@ func handleQueryError(qr rqlite.QueryResult, operation string) error {
 	return nil
 }
 
-// ConvertToLocalTime 处理从数据库读取的时间，转换为本地时区
-// 解决 gorqlite 将本地时间字符串解析为 UTC 时区的问题
 func ConvertToLocalTime(t time.Time) time.Time {
 	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), time.Local)
 }
 
-// FormatTimeInLocal 格式化时间为本地时区字符串
 func FormatTimeInLocal(t time.Time) string {
 	return t.In(time.Local).Format(DateTimeFormat)
 }

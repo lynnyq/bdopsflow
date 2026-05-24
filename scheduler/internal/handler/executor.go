@@ -84,11 +84,11 @@ func executorToDTO(exec *model.Executor) *ExecutorDTO {
 	}
 
 	if !exec.CreatedAt.IsZero() {
-		dto.CreatedAt = exec.CreatedAt.Format("2006-01-02 15:04:05")
+		dto.CreatedAt = exec.CreatedAt.Format(TimeResponseFormat)
 	}
 
 	if !exec.UpdatedAt.IsZero() {
-		dto.UpdatedAt = exec.UpdatedAt.Format("2006-01-02 15:04:05")
+		dto.UpdatedAt = exec.UpdatedAt.Format(TimeResponseFormat)
 	}
 
 	return dto

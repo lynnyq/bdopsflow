@@ -296,10 +296,11 @@ func (s *ConfigService) Set(ctx context.Context, key, value string, changedBy in
 	oldValue := s.Get(key)
 
 	// 首先尝试更新
+	now := time.Now().Format(dsDateTimeFormat)
 	result, err := s.db.WriteOneParameterized(
 		rqlite.ParameterizedStatement{
-			Query:     "UPDATE bdopsflow_system_config SET config_value = ?, updated_at = datetime('now') WHERE config_key = ?",
-			Arguments: []interface{}{value, key},
+			Query:     "UPDATE bdopsflow_system_config SET config_value = ?, updated_at = ? WHERE config_key = ?",
+			Arguments: []interface{}{value, now, key},
 		},
 	)
 	if err != nil {
@@ -314,8 +315,8 @@ func (s *ConfigService) Set(ctx context.Context, key, value string, changedBy in
 		slog.Info("config not found, inserting new", "key", key, "value", value)
 		_, err = s.db.WriteOneParameterized(
 			rqlite.ParameterizedStatement{
-				Query:     "INSERT INTO bdopsflow_system_config (config_key, config_value, created_at, updated_at) VALUES (?, ?, datetime('now'), datetime('now'))",
-				Arguments: []interface{}{key, value},
+				Query:     "INSERT INTO bdopsflow_system_config (config_key, config_value, created_at, updated_at) VALUES (?, ?, ?, ?)",
+				Arguments: []interface{}{key, value, now, now},
 			},
 		)
 		if err != nil {
@@ -325,8 +326,8 @@ func (s *ConfigService) Set(ctx context.Context, key, value string, changedBy in
 
 	_, err = s.db.WriteOneParameterized(
 		rqlite.ParameterizedStatement{
-			Query:     "INSERT INTO bdopsflow_system_config_history (config_key, old_value, new_value, changed_by, changed_at) VALUES (?, ?, ?, ?, datetime('now'))",
-			Arguments: []interface{}{key, oldValue, value, changedBy},
+			Query:     "INSERT INTO bdopsflow_system_config_history (config_key, old_value, new_value, changed_by, changed_at) VALUES (?, ?, ?, ?, ?)",
+			Arguments: []interface{}{key, oldValue, value, changedBy, now},
 		},
 	)
 	if err != nil {

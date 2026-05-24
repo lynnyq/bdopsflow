@@ -6,6 +6,9 @@ import (
 	"log/slog"
 	"strings"
 	"time"
+
+	"github.com/redis/go-redis/v9"
+	rqlite "github.com/rqlite/gorqlite"
 )
 
 func (s *SchedulerService) StartCleanupRoutine() {
@@ -24,6 +27,10 @@ func (s *SchedulerService) cleanupStuckTasks() {
 			slog.Info("stuck task cleanup routine stopped")
 			return
 		case <-ticker.C:
+			if !s.IsLeader() {
+				continue
+			}
+			s.checkCronReload()
 			s.cleanupDeadTasks()
 			s.cleanupOfflineExecutors()
 			s.cleanupStaleTaskLocks()
@@ -34,15 +41,23 @@ func (s *SchedulerService) cleanupStuckTasks() {
 func (s *SchedulerService) cleanupDeadTasks() {
 	ctx := context.Background()
 
+	createdBefore := time.Now().Add(-5 * time.Minute).Format(DateTimeFormat)
 	query := `
-		SELECT id, task_id, execution_id, start_time, created_at
-		FROM bdopsflow_task_executions
-		WHERE status = 'running'
-		AND (start_time IS NOT NULL AND start_time != '')
-		AND created_at < datetime('now', '-5 minutes')
+		SELECT te.id, te.task_id, te.execution_id, te.start_time, te.created_at,
+		       COALESCE(t.timeout_seconds, 300) AS timeout_seconds,
+		       te.executor_id
+		FROM bdopsflow_task_executions te
+		JOIN bdopsflow_tasks t ON te.task_id = t.id
+		WHERE te.status = 'running'
+		AND (te.start_time IS NOT NULL AND te.start_time != '')
+		AND te.created_at < ?
 	`
 
-	qr, err := s.DB.QueryOne(query)
+	stmt := rqlite.ParameterizedStatement{
+		Query:     query,
+		Arguments: []interface{}{createdBefore},
+	}
+	qr, err := s.DB.QueryOneParameterized(stmt)
 	if err != nil {
 		slog.Error("cleanup: query stuck bdopsflow_tasks failed", "error", err)
 		return
@@ -52,28 +67,35 @@ func (s *SchedulerService) cleanupDeadTasks() {
 		return
 	}
 
-	var stuckExecutions []struct {
-		ID          int64
-		TaskID      int64
-		ExecutionID string
-		StartTime   string
+	type stuckExec struct {
+		ID             int64
+		TaskID         int64
+		ExecutionID    string
+		StartTime      string
+		TimeoutSeconds int64
+		ExecutorID     int64
+		NoTimeout      bool
 	}
+
+	var stuckExecutions []stuckExec
 
 	for qr.Next() {
 		row, err := qr.Slice()
 		if err != nil {
 			continue
 		}
-		stuck := struct {
-			ID          int64
-			TaskID      int64
-			ExecutionID string
-			StartTime   string
-		}{
-			ID:          rowInt64(row[0]),
-			TaskID:      rowInt64(row[1]),
-			ExecutionID: rowString(row[2]),
-			StartTime:   rowString(row[3]),
+		rawTimeout := rowInt64(row[5])
+		stuck := stuckExec{
+			ID:             rowInt64(row[0]),
+			TaskID:         rowInt64(row[1]),
+			ExecutionID:    rowString(row[2]),
+			StartTime:      rowString(row[3]),
+			TimeoutSeconds: rawTimeout,
+			ExecutorID:     rowInt64(row[6]),
+			NoTimeout:      rawTimeout <= 0,
+		}
+		if stuck.TimeoutSeconds <= 0 {
+			stuck.TimeoutSeconds = 300
 		}
 		stuckExecutions = append(stuckExecutions, stuck)
 	}
@@ -84,53 +106,122 @@ func (s *SchedulerService) cleanupDeadTasks() {
 
 	slog.Warn("found stuck bdopsflow_tasks", "count", len(stuckExecutions))
 
+	renewKeys := make([]string, 0, len(stuckExecutions))
 	for _, exec := range stuckExecutions {
+		renewKeys = append(renewKeys, fmt.Sprintf("task:renew:%s", exec.ExecutionID))
+	}
+
+	renewValues := make(map[string]string)
+	if len(renewKeys) > 0 {
+		pipe := s.redis.Pipeline()
+		cmds := make([]*redis.StringCmd, len(renewKeys))
+		for i, key := range renewKeys {
+			cmds[i] = pipe.Get(ctx, key)
+		}
+		_, _ = pipe.Exec(ctx)
+		for i, cmd := range cmds {
+			if val, err := cmd.Result(); err == nil {
+				renewValues[renewKeys[i]] = val
+			}
+		}
+	}
+
+	for _, exec := range stuckExecutions {
+		renewKey := fmt.Sprintf("task:renew:%s", exec.ExecutionID)
+		lastRenewStr, hasRenewal := renewValues[renewKey]
+		noRenewal := !hasRenewal || lastRenewStr == ""
+
+		var lastRenewSecondsAgo int64 = 9999
+		if !noRenewal {
+			var lastRenew int64
+			fmt.Sscanf(lastRenewStr, "%d", &lastRenew)
+			lastRenewSecondsAgo = time.Now().Unix() - lastRenew
+		}
+
+		executorOnline := true
+		executorReachable := true
+		if exec.ExecutorID > 0 {
+			executor, execErr := s.GetExecutorByID(ctx, exec.ExecutorID)
+			if execErr != nil || executor.Status != "online" {
+				executorOnline = false
+			} else {
+				executorReachable = s.pingExecutor(ctx, executor)
+				if !executorReachable {
+					slog.Warn("cleanup: executor is online in DB but unreachable via ping",
+						"execution_id", exec.ExecutionID,
+						"task_id", exec.TaskID,
+						"executor_id", exec.ExecutorID,
+						"executor_name", executor.Name,
+						"executor_address", executor.Address,
+					)
+				}
+			}
+		}
+
+		taskTimeout := false
+		if !exec.NoTimeout && exec.StartTime != "" {
+			if startTime, parseErr := parseTimeInLocalTimezone(exec.StartTime); parseErr == nil {
+				if time.Since(startTime) > time.Duration(exec.TimeoutSeconds)*time.Second {
+					taskTimeout = true
+				}
+			}
+		}
+
 		lockKey := fmt.Sprintf("task:lock:%s", exec.ExecutionID)
-		lockTTL, err := s.redis.TTL(ctx, lockKey).Result()
-		if err != nil {
-			slog.Warn("cleanup: get lock TTL failed, treating as stuck", "error", err, "execution_id", exec.ExecutionID)
-			lockTTL = -1
-		}
+		lockExists, _ := s.redis.Exists(ctx, lockKey).Result()
 
-		lockExists, err := s.redis.Exists(ctx, lockKey).Result()
-		if err != nil {
-			slog.Error("cleanup: check lock existence failed", "error", err, "execution_id", exec.ExecutionID)
-			continue
-		}
+		renewalExpired := !exec.NoTimeout && lastRenewSecondsAgo > exec.TimeoutSeconds
+		shouldFail := !executorOnline || !executorReachable || noRenewal || renewalExpired || taskTimeout
 
-		if lockExists == 0 || lockTTL < 0 {
+		if shouldFail {
+			var reason string
+			if !executorOnline {
+				reason = "executor is offline"
+			} else if !executorReachable {
+				reason = "executor is unreachable (ping failed)"
+			} else if noRenewal {
+				reason = "no renewal record found"
+			} else if renewalExpired {
+				reason = fmt.Sprintf("renewal expired (%d seconds ago, timeout %d)", lastRenewSecondsAgo, exec.TimeoutSeconds)
+			} else {
+				reason = "task execution timeout"
+			}
+
 			slog.Warn("cleanup: task is stuck, force updating status to failed",
 				"task_id", exec.TaskID,
 				"execution_id", exec.ExecutionID,
 				"start_time", exec.StartTime,
 				"lock_exists", lockExists,
-				"lock_ttl_seconds", lockTTL,
+				"no_renewal", noRenewal,
+				"executor_online", executorOnline,
+				"task_timeout", taskTimeout,
+				"last_renew_seconds_ago", lastRenewSecondsAgo,
+				"timeout_seconds", exec.TimeoutSeconds,
+				"reason", reason,
 			)
 
-			err := s.UpdateExecutionResult(ctx, exec.ExecutionID, "failed", "", "task execution timeout or executor crashed")
+			err := s.UpdateExecutionResult(ctx, exec.ExecutionID, "failed", "", fmt.Sprintf("task stuck: %s", reason))
 			if err != nil {
 				slog.Error("cleanup: failed to update execution result", "error", err, "execution_id", exec.ExecutionID)
 			}
 
-			if lockExists > 0 {
-				s.redis.Del(ctx, lockKey)
-				slog.Info("cleanup: removed stale lock", "execution_id", exec.ExecutionID)
-			}
+			failCountKey := fmt.Sprintf("task:renew:fail:count:%s", exec.ExecutionID)
+			s.redis.Del(ctx, lockKey, renewKey, failCountKey)
 
-			go func() {
-				if err := s.HandleTaskFailure(context.Background(), exec.TaskID, exec.ExecutionID, "", "task execution timeout or executor crashed"); err != nil {
+			go func(taskID int64, executionID string, failReason string) {
+				if err := s.HandleTaskFailure(context.Background(), taskID, executionID, "", failReason); err != nil {
 					slog.Error("cleanupDeadTasks: HandleTaskFailure failed",
-						"execution_id", exec.ExecutionID,
-						"task_id", exec.TaskID,
+						"execution_id", executionID,
+						"task_id", taskID,
 						"error", err,
 					)
 				}
-			}()
+			}(exec.TaskID, exec.ExecutionID, fmt.Sprintf("task stuck: %s", reason))
 		} else {
-			slog.Warn("cleanup: task has valid lock, skipping",
+			slog.Warn("cleanup: task has recent renewal, skipping",
 				"task_id", exec.TaskID,
 				"execution_id", exec.ExecutionID,
-				"lock_ttl_seconds", lockTTL,
+				"last_renew_seconds_ago", lastRenewSecondsAgo,
 			)
 		}
 	}
@@ -139,12 +230,17 @@ func (s *SchedulerService) cleanupDeadTasks() {
 func (s *SchedulerService) cleanupOfflineExecutors() {
 	ctx := context.Background()
 
-	result, err := s.DB.WriteOne(`
+	now := time.Now().Format(DateTimeFormat)
+	heartbeatCutoff := time.Now().Add(-45 * time.Second).Format(DateTimeFormat)
+	result, err := s.DB.WriteOneParameterized(rqlite.ParameterizedStatement{
+		Query: `
 		UPDATE bdopsflow_executors
-		SET status = 'offline', updated_at = datetime('now')
+		SET status = 'offline', updated_at = ?
 		WHERE status = 'online'
-		AND last_heartbeat < datetime('now', '-30 seconds')
-	`)
+		AND last_heartbeat < ?
+	`,
+		Arguments: []interface{}{now, heartbeatCutoff},
+	})
 	if err != nil {
 		slog.Error("cleanup: update offline bdopsflow_executors failed", "error", err)
 		return
@@ -156,20 +252,31 @@ func (s *SchedulerService) cleanupOfflineExecutors() {
 
 	if result.RowsAffected > 0 {
 		slog.Warn("marked bdopsflow_executors as offline", "count", result.RowsAffected)
-		s.cleanupTasksFromOfflineExecutors(ctx)
 	}
+
+	s.cleanupTasksFromOfflineExecutors(ctx)
 }
 
 func (s *SchedulerService) cleanupTasksFromOfflineExecutors(ctx context.Context) {
+	heartbeatCutoff := time.Now().Add(-45 * time.Second).Format(DateTimeFormat)
 	query := `
 		SELECT te.id, te.task_id, te.execution_id, te.start_time
 		FROM bdopsflow_task_executions te
-		JOIN bdopsflow_executors e ON te.executor_id = e.id
+		LEFT JOIN bdopsflow_executors e ON te.executor_id = e.id
 		WHERE te.status = 'running'
-		  AND (e.status = 'offline' OR e.last_heartbeat < datetime('now', '-30 seconds'))
+		  AND (
+		    e.status = 'offline'
+		    OR e.last_heartbeat < ?
+		    OR te.executor_id = 0
+		    OR te.executor_id IS NULL
+		  )
 	`
 
-	qr, err := s.DB.QueryOne(query)
+	stmt := rqlite.ParameterizedStatement{
+		Query:     query,
+		Arguments: []interface{}{heartbeatCutoff},
+	}
+	qr, err := s.DB.QueryOneParameterized(stmt)
 	if err != nil {
 		slog.Error("cleanup: query bdopsflow_tasks from offline bdopsflow_executors failed", "error", err)
 		return
@@ -199,17 +306,19 @@ func (s *SchedulerService) cleanupTasksFromOfflineExecutors(ctx context.Context)
 		}
 
 		lockKey := fmt.Sprintf("task:lock:%s", executionID)
-		s.redis.Del(ctx, lockKey)
+		renewKey := fmt.Sprintf("task:renew:%s", executionID)
+		failCountKey := fmt.Sprintf("task:renew:fail:count:%s", executionID)
+		s.redis.Del(ctx, lockKey, renewKey, failCountKey)
 
-		go func() {
-			if err := s.HandleTaskFailure(context.Background(), taskID, executionID, "", "executor went offline during task execution"); err != nil {
+		go func(tid int64, eid string) {
+			if err := s.HandleTaskFailure(context.Background(), tid, eid, "", "executor went offline during task execution"); err != nil {
 				slog.Error("cleanupTasksFromOfflineExecutors: HandleTaskFailure failed",
-					"execution_id", executionID,
-					"task_id", taskID,
+					"execution_id", eid,
+					"task_id", tid,
 					"error", err,
 				)
 			}
-		}()
+		}(taskID, executionID)
 	}
 }
 
@@ -221,9 +330,10 @@ func (s *SchedulerService) cleanupStaleTaskLocks() {
 	ctx := context.Background()
 
 	query := `
-		SELECT execution_id, task_id
-		FROM bdopsflow_task_executions
-		WHERE status = 'running'
+		SELECT te.execution_id, te.task_id, COALESCE(t.timeout_seconds, 300) AS timeout_seconds
+		FROM bdopsflow_task_executions te
+		JOIN bdopsflow_tasks t ON te.task_id = t.id
+		WHERE te.status = 'running'
 	`
 
 	qr, err := s.DB.QueryOne(query)
@@ -236,11 +346,6 @@ func (s *SchedulerService) cleanupStaleTaskLocks() {
 		return
 	}
 
-	now := time.Now().Unix()
-	lockTTLSeconds := int64(300)
-	maxInterval := lockTTLSeconds
-	requiredFailCount := int64(3)
-
 	runningExecutionIDs := make(map[string]bool)
 
 	for qr.Next() {
@@ -251,6 +356,11 @@ func (s *SchedulerService) cleanupStaleTaskLocks() {
 
 		executionID := rowString(row[0])
 		taskID := rowInt64(row[1])
+		timeoutSeconds := rowInt64(row[2])
+		noTimeout := timeoutSeconds <= 0
+		if timeoutSeconds <= 0 {
+			timeoutSeconds = 300
+		}
 
 		runningExecutionIDs[executionID] = true
 
@@ -259,63 +369,15 @@ func (s *SchedulerService) cleanupStaleTaskLocks() {
 
 		lastRenewStr, err := s.redis.Get(ctx, renewKey).Result()
 		if err != nil {
-			failCountStr, _ := s.redis.Get(ctx, failCountKey).Result()
-			var failCount int64 = 0
-			if failCountStr != "" {
-				fmt.Sscanf(failCountStr, "%d", &failCount)
-			}
-			failCount++
-
-			s.redis.Set(ctx, failCountKey, failCount, 0)
-
-			if failCount >= requiredFailCount {
-				slog.Warn("cleanup: consecutive renewal failures reached threshold, marking task as failed",
-					"execution_id", executionID,
-					"task_id", taskID,
-					"fail_count", failCount,
-				)
-				s.forceFailTask(ctx, executionID, taskID, fmt.Sprintf("executor heartbeat timeout after %d consecutive failures", failCount))
-			} else {
-				slog.Warn("cleanup: no renewal record found, incrementing fail count",
-					"execution_id", executionID,
-					"task_id", taskID,
-					"fail_count", failCount,
-				)
-			}
+			s.redis.Del(ctx, failCountKey)
 			continue
 		}
 
 		var lastRenew int64
 		fmt.Sscanf(lastRenewStr, "%d", &lastRenew)
 
-		interval := now - lastRenew
-		if interval > maxInterval {
-			failCountStr, _ := s.redis.Get(ctx, failCountKey).Result()
-			var failCount int64 = 0
-			if failCountStr != "" {
-				fmt.Sscanf(failCountStr, "%d", &failCount)
-			}
-			failCount++
-
-			s.redis.Set(ctx, failCountKey, failCount, 0)
-
-			if failCount >= requiredFailCount {
-				slog.Warn("cleanup: consecutive renewal failures reached threshold, marking task as failed",
-					"execution_id", executionID,
-					"task_id", taskID,
-					"fail_count", failCount,
-					"last_renew_seconds_ago", interval,
-				)
-				s.forceFailTask(ctx, executionID, taskID, fmt.Sprintf("task execution timeout, no heartbeat for %d seconds after %d consecutive failures", interval, failCount))
-			} else {
-				slog.Warn("cleanup: task lock renewal timeout, incrementing fail count",
-					"execution_id", executionID,
-					"task_id", taskID,
-					"fail_count", failCount,
-					"last_renew_seconds_ago", interval,
-				)
-			}
-		} else {
+		interval := time.Now().Unix() - lastRenew
+		if noTimeout || interval <= timeoutSeconds {
 			if failCountStr, _ := s.redis.Get(ctx, failCountKey).Result(); failCountStr != "" {
 				s.redis.Del(ctx, failCountKey)
 				slog.Debug("cleanup: renewal recovered, reset fail count",
@@ -384,20 +446,19 @@ func (s *SchedulerService) forceFailTask(ctx context.Context, executionID string
 	}
 
 	lockKey := fmt.Sprintf("task:lock:%s", executionID)
-	s.redis.Del(ctx, lockKey)
-
 	renewKey := fmt.Sprintf("task:renew:%s", executionID)
-	s.redis.Del(ctx, renewKey)
+	failCountKey := fmt.Sprintf("task:renew:fail:count:%s", executionID)
+	s.redis.Del(ctx, lockKey, renewKey, failCountKey)
 
-	go func() {
-		if err := s.HandleTaskFailure(context.Background(), taskID, executionID, "", reason); err != nil {
+	go func(tid int64, eid string, failReason string) {
+		if err := s.HandleTaskFailure(context.Background(), tid, eid, "", failReason); err != nil {
 			slog.Error("forceFailTask: HandleTaskFailure failed",
-				"execution_id", executionID,
-				"task_id", taskID,
+				"execution_id", eid,
+				"task_id", tid,
 				"error", err,
 			)
 		}
-	}()
+	}(taskID, executionID, reason)
 }
 
 func (s *SchedulerService) renewTaskLock(ctx context.Context, executionID string) error {
@@ -408,6 +469,31 @@ func (s *SchedulerService) renewTaskLock(ctx context.Context, executionID string
 	}
 
 	lockTTL := 300
+	noTimeout := false
+
+	execQuery := `SELECT t.timeout_seconds FROM bdopsflow_task_executions te JOIN bdopsflow_tasks t ON te.task_id = t.id WHERE te.execution_id = ?`
+	execStmt := rqlite.ParameterizedStatement{
+		Query:     execQuery,
+		Arguments: []interface{}{executionID},
+	}
+	if qr, qerr := s.DB.QueryOneParameterized(execStmt); qerr == nil && qr.Err == nil && qr.Next() {
+		row, _ := qr.Slice()
+		taskTimeout := rowInt64(row[0])
+		if taskTimeout > 0 {
+			lockTTL = int(taskTimeout) * 2
+		} else {
+			noTimeout = true
+		}
+	}
+	if noTimeout {
+		lockTTL = 3600
+	}
+	if lockTTL < 60 {
+		lockTTL = 60
+	}
+	if lockTTL > 7200 {
+		lockTTL = 7200
+	}
 
 	if exists == 0 {
 		slog.Warn("lock not found, recreating for executor reported running task", "execution_id", executionID)
@@ -428,4 +514,25 @@ func (s *SchedulerService) renewTaskLock(ctx context.Context, executionID string
 
 	slog.Debug("task lock renewed", "execution_id", executionID, "lock_ttl_seconds", lockTTL)
 	return nil
+}
+
+func (s *SchedulerService) checkCronReload() {
+	ctx := context.Background()
+	val, err := s.redis.Get(ctx, "cron:needs_reload").Int64()
+	if err != nil || val == 0 {
+		return
+	}
+
+	s.redis.Del(ctx, "cron:needs_reload")
+
+	if s.cronScheduler == nil {
+		return
+	}
+
+	slog.Info("detected cron reload flag, reloading all cron tasks")
+	go func() {
+		if s.cronScheduler != nil {
+			s.cronScheduler.LoadAndRegisterTasks()
+		}
+	}()
 }

@@ -10,17 +10,38 @@ import (
 	rqlite "github.com/rqlite/gorqlite"
 )
 
-func (s *SchedulerService) SelectAvailableExecutor(ctx context.Context) (*model.Executor, error) {
+func (s *SchedulerService) SelectAvailableExecutor(ctx context.Context, domainID ...int64) (*model.Executor, error) {
+	heartbeatCutoff := time.Now().Add(-45 * time.Second).Format(DateTimeFormat)
+
 	query := `
-		SELECT id, name, address, status, last_heartbeat, capacity, current_load, created_at, updated_at
-		FROM bdopsflow_executors
-		WHERE status = 'online' AND current_load < capacity
-		  AND last_heartbeat > datetime('now', '-30 seconds')
-		ORDER BY current_load ASC, RANDOM()
-		LIMIT 1
+		SELECT e.id, e.name, e.address, e.status, e.last_heartbeat, e.capacity, e.current_load, e.created_at, e.updated_at
+		FROM bdopsflow_executors e
+		WHERE e.status = 'online' AND e.current_load < e.capacity
+		  AND e.last_heartbeat > ?
 	`
 
-	qr, err := s.DB.QueryOne(query)
+	var args []interface{}
+	args = []interface{}{heartbeatCutoff}
+
+	if len(domainID) > 0 && domainID[0] > 0 {
+		query = `
+			SELECT e.id, e.name, e.address, e.status, e.last_heartbeat, e.capacity, e.current_load, e.created_at, e.updated_at
+			FROM bdopsflow_executors e
+			LEFT JOIN bdopsflow_domain_executors de ON e.id = de.executor_id
+			WHERE e.status = 'online' AND e.current_load < e.capacity
+			  AND e.last_heartbeat > ?
+			  AND (de.domain_id = ? OR e.is_global = 1)
+		`
+		args = []interface{}{heartbeatCutoff, domainID[0]}
+	}
+
+	query += " ORDER BY e.current_load ASC, RANDOM() LIMIT 1"
+
+	stmt := rqlite.ParameterizedStatement{
+		Query:     query,
+		Arguments: args,
+	}
+	qr, err := s.DB.QueryOneParameterized(stmt)
 	if err != nil {
 		return nil, err
 	}
@@ -42,7 +63,7 @@ func (s *SchedulerService) SelectAvailableExecutor(ctx context.Context) (*model.
 }
 
 func (s *SchedulerService) RegisterExecutor(ctx context.Context, name, address string, capacity int32) (string, error) {
-	now := time.Now().Format("2006-01-02 15:04:05")
+	now := time.Now().Format(DateTimeFormat)
 
 	existingExecutor, err := s.GetExecutorByName(ctx, name)
 	if err == nil && existingExecutor != nil {
@@ -143,7 +164,7 @@ func (s *SchedulerService) DeleteExecutorByName(ctx context.Context, name string
 
 func (s *SchedulerService) SetExecutorStatusByName(ctx context.Context, name string, status string) error {
 	query := `UPDATE bdopsflow_executors SET status = ?, updated_at = ? WHERE name = ?`
-	now := time.Now().Format("2006-01-02 15:04:05")
+	now := time.Now().Format(DateTimeFormat)
 	result, err := s.DB.WriteOneParameterized(rqlite.ParameterizedStatement{
 		Query:     query,
 		Arguments: []interface{}{status, now, name},
@@ -165,7 +186,7 @@ func (s *SchedulerService) UpdateExecutorCapacityByName(ctx context.Context, nam
 	}
 
 	query := `UPDATE bdopsflow_executors SET capacity = ?, updated_at = ? WHERE name = ?`
-	now := time.Now().Format("2006-01-02 15:04:05")
+	now := time.Now().Format(DateTimeFormat)
 	result, err := s.DB.WriteOneParameterized(rqlite.ParameterizedStatement{
 		Query:     query,
 		Arguments: []interface{}{capacity, now, name},
@@ -211,7 +232,7 @@ func (s *SchedulerService) UpdateExecutorHeartbeatWithRunningTasks(ctx context.C
 		WHERE name = ? AND status = 'online'
 	`
 
-	now := time.Now()
+	now := time.Now().Format(DateTimeFormat)
 	stmt := rqlite.ParameterizedStatement{
 		Query:     query,
 		Arguments: []interface{}{currentLoad, now, now, name},
@@ -237,7 +258,7 @@ func (s *SchedulerService) UpdateExecutorHeartbeatWithRunningTasks(ctx context.C
 
 func (s *SchedulerService) SetExecutorStatus(ctx context.Context, id int64, status string) error {
 	query := `UPDATE bdopsflow_executors SET status = ?, updated_at = ? WHERE id = ?`
-	now := time.Now().Format("2006-01-02 15:04:05")
+	now := time.Now().Format(DateTimeFormat)
 	result, err := s.DB.WriteOneParameterized(rqlite.ParameterizedStatement{
 		Query:     query,
 		Arguments: []interface{}{status, now, id},
@@ -259,7 +280,7 @@ func (s *SchedulerService) UpdateExecutorCapacity(ctx context.Context, id int64,
 	}
 
 	query := `UPDATE bdopsflow_executors SET capacity = ?, updated_at = ? WHERE id = ?`
-	now := time.Now().Format("2006-01-02 15:04:05")
+	now := time.Now().Format(DateTimeFormat)
 	result, err := s.DB.WriteOneParameterized(rqlite.ParameterizedStatement{
 		Query:     query,
 		Arguments: []interface{}{capacity, now, id},

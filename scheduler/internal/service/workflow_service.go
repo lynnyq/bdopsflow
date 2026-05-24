@@ -161,7 +161,7 @@ func (s *SchedulerService) UpdateWorkflow(ctx context.Context, id int64, wf *mod
 		Query: query,
 		Arguments: []interface{}{
 			wf.Name, wf.Description, wf.DAGConfig,
-			wf.CronExpression, wf.IsEnabled, time.Now().Format("2006-01-02 15:04:05"), id,
+			wf.CronExpression, wf.IsEnabled, time.Now().Format(DateTimeFormat), id,
 		},
 	}
 
@@ -201,7 +201,7 @@ func (s *SchedulerService) CreateWorkflowExecution(ctx context.Context, workflow
 		VALUES (?, ?, 'pending', ?, ?)
 	`
 
-	now := time.Now().Format("2006-01-02 15:04:05")
+	now := time.Now().Format(DateTimeFormat)
 	stmt := rqlite.ParameterizedStatement{
 		Query:     query,
 		Arguments: []interface{}{workflowID, executionID, nodeStates, now},
@@ -318,7 +318,7 @@ func (s *SchedulerService) UpdateWorkflowExecutionStatus(ctx context.Context, ex
 		WHERE execution_id = ?
 	`
 
-	now := time.Now().Format("2006-01-02 15:04:05")
+	now := time.Now().Format(DateTimeFormat)
 	stmt := rqlite.ParameterizedStatement{
 		Query:     query,
 		Arguments: []interface{}{status, now, status, now, executionID},

@@ -70,7 +70,7 @@ func (s *DatasourceService) Create(ctx context.Context, ds *model.Datasource) er
 		createdBy = *ds.CreatedBy
 	}
 
-	now := time.Now().Format("2006-01-02 15:04:05")
+	now := time.Now().Format(dsDateTimeFormat)
 
 	testStatus := ds.TestStatus
 	if testStatus == "" {
@@ -79,7 +79,7 @@ func (s *DatasourceService) Create(ctx context.Context, ds *model.Datasource) er
 
 	var lastTestAt interface{}
 	if ds.LastTestAt != nil {
-		lastTestAt = ds.LastTestAt.Format("2006-01-02 15:04:05")
+		lastTestAt = ds.LastTestAt.Format(dsDateTimeFormat)
 	}
 
 	insertStmt := rqlite.ParameterizedStatement{
@@ -224,7 +224,7 @@ func (s *DatasourceService) Update(ctx context.Context, ds *model.Datasource) er
 		updatedBy = *ds.UpdatedBy
 	}
 
-	now := time.Now().Format("2006-01-02 15:04:05")
+	now := time.Now().Format(dsDateTimeFormat)
 	updateStmt := rqlite.ParameterizedStatement{
 		Query: `UPDATE bdopsflow_datasources SET name = ?, type = ?, host = ?, port = ?, path = ?, database = ?, username = ?, password = ?, auth_type = ?, connection_mode = ?, zk_hosts = ?, zk_path = ?, rqlite_hosts = ?, config = ?, description = ?, domain_id = ?, is_enabled = ?, allow_write_sql = ?, updated_by = ?, updated_at = ? WHERE id = ?`,
 		Arguments: []interface{}{
@@ -280,7 +280,7 @@ func (s *DatasourceService) TestDatasource(ctx context.Context, id int64) error 
 		slog.Info("datasource test connection succeeded", "datasource_id", id, "name", ds.Name, "type", ds.Type)
 	}
 
-	now := time.Now().Format("2006-01-02 15:04:05")
+	now := time.Now().Format(dsDateTimeFormat)
 	updateStmt := rqlite.ParameterizedStatement{
 		Query:     "UPDATE bdopsflow_datasources SET test_status = ?, last_test_at = ?, updated_at = ? WHERE id = ?",
 		Arguments: []interface{}{testStatus, now, now, id},
@@ -348,7 +348,7 @@ func (s *DatasourceService) GrantPermission(ctx context.Context, perm *model.Dat
 		userIDVal = *perm.UserID
 	}
 
-	now := time.Now().Format("2006-01-02 15:04:05")
+	now := time.Now().Format(dsDateTimeFormat)
 	insertStmt := rqlite.ParameterizedStatement{
 		Query:     "INSERT INTO bdopsflow_datasource_permissions (datasource_id, role_id, user_id, permission_type, granted_by, granted_at) VALUES (?, ?, ?, ?, ?, ?)",
 		Arguments: []interface{}{perm.DatasourceID, roleIDVal, userIDVal, perm.PermissionType, grantedBy, now},
@@ -388,7 +388,7 @@ func (s *DatasourceService) UpdatePermission(ctx context.Context, id int64, perm
 		}
 	}
 
-	now := time.Now().Format("2006-01-02 15:04:05")
+	now := time.Now().Format(dsDateTimeFormat)
 	updateStmt := rqlite.ParameterizedStatement{
 		Query:     "UPDATE bdopsflow_datasource_permissions SET permission_type = ?, granted_at = ? WHERE id = ?",
 		Arguments: []interface{}{permissionType, now, id},
@@ -594,7 +594,7 @@ func scanDatasource(qr *rqlite.QueryResult) (*model.Datasource, error) {
 	} else if row[20] != nil {
 		lastTestAt := dsRowString(row[20])
 		if lastTestAt != "" {
-			if t, parseErr := time.Parse("2006-01-02 15:04:05", lastTestAt); parseErr == nil {
+			if t, parseErr := dsParseTimeInLocalTimezone(lastTestAt); parseErr == nil {
 				ds.LastTestAt = &t
 			}
 		}
@@ -617,7 +617,7 @@ func scanDatasource(qr *rqlite.QueryResult) (*model.Datasource, error) {
 	if t, ok := row[23].(time.Time); ok {
 		ds.CreatedAt = t
 	} else if s, ok := row[23].(string); ok && s != "" {
-		if parsed, parseErr := time.Parse("2006-01-02 15:04:05", s); parseErr == nil {
+		if parsed, parseErr := dsParseTimeInLocalTimezone(s); parseErr == nil {
 			ds.CreatedAt = parsed
 		}
 	}
@@ -625,12 +625,27 @@ func scanDatasource(qr *rqlite.QueryResult) (*model.Datasource, error) {
 	if t, ok := row[24].(time.Time); ok {
 		ds.UpdatedAt = t
 	} else if s, ok := row[24].(string); ok && s != "" {
-		if parsed, parseErr := time.Parse("2006-01-02 15:04:05", s); parseErr == nil {
+		if parsed, parseErr := dsParseTimeInLocalTimezone(s); parseErr == nil {
 			ds.UpdatedAt = parsed
 		}
 	}
 
 	return ds, nil
+}
+
+const (
+	dsDateTimeFormat       = time.RFC3339Nano
+	dsLegacyDateTimeFormat = "2006-01-02 15:04:05"
+)
+
+func dsParseTimeInLocalTimezone(timeStr string) (time.Time, error) {
+	if parsed, err := time.Parse(dsDateTimeFormat, timeStr); err == nil {
+		return parsed, nil
+	}
+	if parsed, err := time.Parse(time.RFC3339, timeStr); err == nil {
+		return parsed, nil
+	}
+	return time.Parse(dsLegacyDateTimeFormat, timeStr)
 }
 
 func dsRowInt64(v interface{}) int64 {
@@ -670,7 +685,7 @@ func (s *DatasourceService) RecordQueryHistory(ctx context.Context, history *mod
 		executedBy = *history.ExecutedBy
 	}
 
-	now := time.Now().Format("2006-01-02 15:04:05")
+	now := time.Now().Format(dsDateTimeFormat)
 	stmt := rqlite.ParameterizedStatement{
 		Query: `INSERT INTO bdopsflow_query_history (query_id, datasource_id, datasource_name, sql_text, database, execution_time, row_count, status, error_message, executed_by, domain_id, created_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -774,7 +789,7 @@ func (s *DatasourceService) GetQueryHistory(ctx context.Context, domainID int64,
 		if t, ok := row[12].(time.Time); ok {
 			h.CreatedAt = t
 		} else if s, ok := row[12].(string); ok && s != "" {
-			if parsed, parseErr := time.Parse("2006-01-02 15:04:05", s); parseErr == nil {
+			if parsed, parseErr := dsParseTimeInLocalTimezone(s); parseErr == nil {
 				h.CreatedAt = parsed
 			}
 		}
@@ -836,7 +851,7 @@ func (s *DatasourceService) CreateSavedSQL(ctx context.Context, saved *model.Sav
 		isPublic = 1
 	}
 
-	now := time.Now().Format("2006-01-02 15:04:05")
+	now := time.Now().Format(dsDateTimeFormat)
 	stmt := rqlite.ParameterizedStatement{
 		Query: `INSERT INTO bdopsflow_saved_sql (name, datasource_id, sql_text, description, created_by, updated_by, domain_id, is_public, created_at, updated_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -940,7 +955,7 @@ func (s *DatasourceService) GetSavedSQL(ctx context.Context, domainID int64, use
 		if t, ok := row[9].(time.Time); ok {
 			saved.CreatedAt = t
 		} else if s, ok := row[9].(string); ok && s != "" {
-			if parsed, parseErr := time.Parse("2006-01-02 15:04:05", s); parseErr == nil {
+			if parsed, parseErr := dsParseTimeInLocalTimezone(s); parseErr == nil {
 				saved.CreatedAt = parsed
 			}
 		}
@@ -948,7 +963,7 @@ func (s *DatasourceService) GetSavedSQL(ctx context.Context, domainID int64, use
 		if t, ok := row[10].(time.Time); ok {
 			saved.UpdatedAt = t
 		} else if s, ok := row[10].(string); ok && s != "" {
-			if parsed, parseErr := time.Parse("2006-01-02 15:04:05", s); parseErr == nil {
+			if parsed, parseErr := dsParseTimeInLocalTimezone(s); parseErr == nil {
 				saved.UpdatedAt = parsed
 			}
 		}

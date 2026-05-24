@@ -94,7 +94,7 @@ func (h *LogHandler) List(c *gin.Context) {
 	slog.Debug("LogHandler.List: returning response", "count", len(response), "total", total)
 
 	Success(c, gin.H{
-		"data":      response,
+		"items":     response,
 		"total":     total,
 		"page":      page,
 		"page_size": pageSize,

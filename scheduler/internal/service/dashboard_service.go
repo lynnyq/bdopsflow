@@ -93,6 +93,7 @@ func (s *SchedulerService) GetDashboardStats(ctx context.Context, domainID int64
 
 	var recentExecQuery string
 	args = []interface{}{}
+	sevenDaysAgo := time.Now().Add(-7 * 24 * time.Hour).Format(DateTimeFormat)
 	if isSystemAdmin {
 		recentExecQuery = `
 			SELECT
@@ -101,8 +102,9 @@ func (s *SchedulerService) GetDashboardStats(ctx context.Context, domainID int64
 				AVG(CASE WHEN end_time IS NOT NULL AND start_time IS NOT NULL
 					THEN julianday(end_time) - julianday(start_time) ELSE 0 END) * 86400 as avg_duration
 			FROM bdopsflow_task_executions
-			WHERE created_at > datetime('now', '-7 days')
+			WHERE created_at > ?
 		`
+		args = append(args, sevenDaysAgo)
 	} else {
 		recentExecQuery = `
 			SELECT
@@ -112,9 +114,9 @@ func (s *SchedulerService) GetDashboardStats(ctx context.Context, domainID int64
 					THEN julianday(te.end_time) - julianday(te.start_time) ELSE 0 END) * 86400 as avg_duration
 			FROM bdopsflow_task_executions te
 			JOIN bdopsflow_tasks t ON te.task_id = t.id
-			WHERE te.created_at > datetime('now', '-7 days') AND t.domain_id = ?
+			WHERE te.created_at > ? AND t.domain_id = ?
 		`
-		args = append(args, domainID)
+		args = append(args, sevenDaysAgo, domainID)
 	}
 	qr, err = s.executeQuery(recentExecQuery, args)
 	if err == nil && qr.Next() {
@@ -190,6 +192,7 @@ func (s *SchedulerService) GetTrendData(ctx context.Context, domainID int64, rol
 
 	var query string
 	var args []interface{}
+	sevenDaysAgo := time.Now().Add(-7 * 24 * time.Hour).Format(DateTimeFormat)
 	if isSystemAdmin {
 		query = `
 			SELECT
@@ -198,10 +201,11 @@ func (s *SchedulerService) GetTrendData(ctx context.Context, domainID int64, rol
 				SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success,
 				SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
 			FROM bdopsflow_task_executions
-			WHERE created_at > datetime('now', '-7 days')
+			WHERE created_at > ?
 			GROUP BY date(created_at)
 			ORDER BY exec_date DESC
 		`
+		args = append(args, sevenDaysAgo)
 	} else {
 		query = `
 			SELECT
@@ -211,11 +215,11 @@ func (s *SchedulerService) GetTrendData(ctx context.Context, domainID int64, rol
 				SUM(CASE WHEN te.status = 'failed' THEN 1 ELSE 0 END) as failed
 			FROM bdopsflow_task_executions te
 			JOIN bdopsflow_tasks t ON te.task_id = t.id
-			WHERE te.created_at > datetime('now', '-7 days') AND t.domain_id = ?
+			WHERE te.created_at > ? AND t.domain_id = ?
 			GROUP BY date(te.created_at)
 			ORDER BY exec_date DESC
 		`
-		args = append(args, domainID)
+		args = append(args, sevenDaysAgo, domainID)
 	}
 
 	qr, err := s.executeQuery(query, args)
@@ -289,7 +293,7 @@ var requiredTables = []string{
 
 func (s *SchedulerService) HealthCheck(ctx context.Context) *HealthCheckResult {
 	result := &HealthCheckResult{
-		Timestamp:  time.Now().Format("2006-01-02 15:04:05"),
+		Timestamp:  time.Now().Format(DateTimeFormat),
 		Components: make(map[string]ComponentCheck),
 	}
 

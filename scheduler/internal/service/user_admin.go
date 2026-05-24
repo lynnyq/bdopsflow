@@ -205,7 +205,7 @@ func (s *UserAdminService) UpdateLastLogin(ctx context.Context, userID int64) er
 	query := `UPDATE bdopsflow_users SET last_login_at = ? WHERE id = ?`
 	stmt := rqlite.ParameterizedStatement{
 		Query:     query,
-		Arguments: []interface{}{time.Now(), userID},
+		Arguments: []interface{}{time.Now().Format(DateTimeFormat), userID},
 	}
 	_, err := s.db.WriteOneParameterized(stmt)
 	return err
@@ -281,7 +281,7 @@ func (s *UserAdminService) ChangePassword(ctx context.Context, userID int64, old
 	query := `UPDATE bdopsflow_users SET password = ?, updated_at = ? WHERE id = ?`
 	stmt := rqlite.ParameterizedStatement{
 		Query:     query,
-		Arguments: []interface{}{string(hashedPassword), time.Now(), userID},
+		Arguments: []interface{}{string(hashedPassword), time.Now().Format(DateTimeFormat), userID},
 	}
 	_, err = s.db.WriteOneParameterized(stmt)
 	return err
@@ -305,7 +305,7 @@ func (s *UserAdminService) ResetPassword(ctx context.Context, userID int64, newP
 	query := `UPDATE bdopsflow_users SET password = ?, updated_at = ? WHERE id = ?`
 	stmt := rqlite.ParameterizedStatement{
 		Query:     query,
-		Arguments: []interface{}{string(hashedPassword), time.Now(), userID},
+		Arguments: []interface{}{string(hashedPassword), time.Now().Format(DateTimeFormat), userID},
 	}
 	_, err = s.db.WriteOneParameterized(stmt)
 	return err

@@ -68,11 +68,11 @@ func executorWithDomainsToDTO(exec *model.ExecutorWithDomains) *ExecutorWithDoma
 	}
 
 	if !exec.CreatedAt.IsZero() {
-		dto.CreatedAt = exec.CreatedAt.Format("2006-01-02 15:04:05")
+		dto.CreatedAt = exec.CreatedAt.Format(TimeResponseFormat)
 	}
 
 	if !exec.UpdatedAt.IsZero() {
-		dto.UpdatedAt = exec.UpdatedAt.Format("2006-01-02 15:04:05")
+		dto.UpdatedAt = exec.UpdatedAt.Format(TimeResponseFormat)
 	}
 
 	return dto
@@ -175,7 +175,7 @@ func (h *ExecutorDomainHandler) RemoveDomain(c *gin.Context) {
 		return
 	}
 
-	domainIDStr := c.Param("domainId")
+	domainIDStr := c.Param("domain_id")
 	domainID, err := parseInt64Param(domainIDStr)
 	if err != nil {
 		slog.Warn("ExecutorDomainHandler.RemoveDomain: invalid domain id", "domain_id_str", domainIDStr, "error", err)

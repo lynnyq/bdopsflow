@@ -30,8 +30,10 @@ func (s *SchedulerService) CreateTask(ctx context.Context, query string, args ..
 		return nil, err
 	}
 
-	if s.cronScheduler != nil && task.IsEnabled && task.CronExpression != "" {
+	if s.cronScheduler != nil && s.IsLeader() && task.IsEnabled && task.CronExpression != "" {
 		s.cronScheduler.RegisterTask(task.ID, task.CronExpression)
+	} else if s.cronScheduler != nil && !s.IsLeader() && s.redis != nil {
+		s.redis.Set(ctx, "cron:needs_reload", time.Now().Unix(), 5*time.Minute)
 	}
 
 	return task, nil
@@ -199,7 +201,7 @@ func (s *SchedulerService) UpdateTask(ctx context.Context, id int64, task *model
 		Arguments: []interface{}{
 			task.Name, task.Type, task.Config, task.CronExpression,
 			int64(task.TimeoutSeconds), int64(task.RetryCount), int64(task.RetryInterval),
-			isEnabled, webhookID, task.WebhookEvents, assignedExecutorID, time.Now().Format("2006-01-02 15:04:05"), id,
+			isEnabled, webhookID, task.WebhookEvents, assignedExecutorID, time.Now().Format(DateTimeFormat), id,
 		},
 	}
 
@@ -218,7 +220,7 @@ func (s *SchedulerService) UpdateTask(ctx context.Context, id int64, task *model
 		return err
 	}
 
-	if s.cronScheduler != nil {
+	if s.cronScheduler != nil && s.IsLeader() {
 		if updatedTask.IsEnabled && updatedTask.CronExpression != "" {
 			s.cronScheduler.RegisterTask(id, updatedTask.CronExpression)
 			slog.Info("UpdateTask: task registered to cron", "id", id, "cron", updatedTask.CronExpression)
@@ -226,6 +228,9 @@ func (s *SchedulerService) UpdateTask(ctx context.Context, id int64, task *model
 			s.cronScheduler.UnregisterTask(id)
 			slog.Info("UpdateTask: task unregistered from cron", "id", id)
 		}
+	} else if s.cronScheduler != nil && !s.IsLeader() && s.redis != nil {
+		s.redis.Set(ctx, "cron:needs_reload", time.Now().Unix(), 5*time.Minute)
+		slog.Info("UpdateTask: set cron reload flag for leader", "id", id)
 	}
 
 	return nil
@@ -248,14 +253,20 @@ func (s *SchedulerService) DeleteTask(ctx context.Context, id int64) error {
 		return result.Err
 	}
 
-	if s.cronScheduler != nil {
+	if s.cronScheduler != nil && s.IsLeader() {
 		s.cronScheduler.UnregisterTask(id)
+	} else if s.cronScheduler != nil && !s.IsLeader() && s.redis != nil {
+		s.redis.Set(ctx, "cron:needs_reload", time.Now().Unix(), 5*time.Minute)
 	}
 
 	return nil
 }
 
 func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (string, error) {
+	if !s.IsLeader() {
+		return "", fmt.Errorf("this node is not the leader, cannot trigger task")
+	}
+
 	checkRunningQuery := `
 		SELECT execution_id FROM bdopsflow_task_executions
 		WHERE task_id = ? AND status = 'running'
@@ -271,33 +282,74 @@ func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (strin
 		row, _ := checkQr.Slice()
 		runningExecID := rowString(row[0])
 
-		skippedExecutionID := fmt.Sprintf("exec-%d-%d", taskID, time.Now().UnixNano())
-		now := time.Now().Format("2006-01-02 15:04:05")
-		skippedReason := fmt.Sprintf("skipped: previous execution (id: %s) is still running", runningExecID)
-
-		var executorID interface{} = nil
-		insertQuery := `
-			INSERT INTO bdopsflow_task_executions (task_id, execution_id, executor_id, status, output, error, start_time, retry_times, created_at)
-			VALUES (?, ?, ?, 'skipped', '', ?, ?, 0, ?)
-		`
-		insertStmt := rqlite.ParameterizedStatement{
-			Query:     insertQuery,
-			Arguments: []interface{}{taskID, skippedExecutionID, executorID, skippedReason, now, now},
-		}
-
-		if _, dbErr := s.DB.WriteOneParameterized(insertStmt); dbErr != nil {
-			slog.Warn("failed to record skipped execution", "task_id", taskID, "error", dbErr)
-		} else {
-			slog.Warn("task skipped: previous execution still running",
+		renewKey := fmt.Sprintf("task:renew:%s", runningExecID)
+		lastRenewStr, renewErr := s.redis.Get(ctx, renewKey).Result()
+		if renewErr != nil || lastRenewStr == "" {
+			slog.Warn("found running task with no renewal, force failing stale execution",
 				"task_id", taskID,
-				"skipped_execution_id", skippedExecutionID,
-				"running_execution_id", runningExecID,
+				"execution_id", runningExecID,
 			)
+			s.UpdateExecutionResult(ctx, runningExecID, "failed", "", "stale execution cleaned up on new trigger")
+			s.HandleTaskFailure(ctx, taskID, runningExecID, "", "stale execution cleaned up on new trigger")
+			lockKey := fmt.Sprintf("task:lock:%s", runningExecID)
+			failCountKey := fmt.Sprintf("task:renew:fail:count:%s", runningExecID)
+			s.redis.Del(ctx, lockKey, renewKey, failCountKey)
+		} else {
+			var lastRenew int64
+			fmt.Sscanf(lastRenewStr, "%d", &lastRenew)
+			lastRenewSecondsAgo := time.Now().Unix() - lastRenew
 
-			s.SendWebhookNotification(ctx, taskID, skippedExecutionID, "skipped", "", skippedReason, 0)
+			task, taskErr := s.GetTaskByID(ctx, taskID)
+			timeoutSeconds := int64(300)
+			noTimeout := false
+			if taskErr == nil && task.TimeoutSeconds > 0 {
+				timeoutSeconds = int64(task.TimeoutSeconds)
+			} else if taskErr == nil && task.TimeoutSeconds <= 0 {
+				noTimeout = true
+			}
+
+			if !noTimeout && lastRenewSecondsAgo > timeoutSeconds {
+				slog.Warn("found running task with expired renewal, force failing stale execution",
+					"task_id", taskID,
+					"execution_id", runningExecID,
+					"last_renew_seconds_ago", lastRenewSecondsAgo,
+					"timeout_seconds", timeoutSeconds,
+				)
+				s.UpdateExecutionResult(ctx, runningExecID, "failed", "", "stale execution cleaned up on new trigger")
+				s.HandleTaskFailure(ctx, taskID, runningExecID, "", "stale execution cleaned up on new trigger")
+				lockKey := fmt.Sprintf("task:lock:%s", runningExecID)
+				failCountKey := fmt.Sprintf("task:renew:fail:count:%s", runningExecID)
+				s.redis.Del(ctx, lockKey, renewKey, failCountKey)
+			} else {
+				skippedExecutionID := fmt.Sprintf("exec-%d-%d", taskID, time.Now().UnixNano())
+				now := time.Now().Format(DateTimeFormat)
+				skippedReason := fmt.Sprintf("skipped: previous execution (id: %s) is still running", runningExecID)
+
+				var executorID interface{} = nil
+				insertQuery := `
+					INSERT INTO bdopsflow_task_executions (task_id, execution_id, executor_id, status, output, error, start_time, retry_times, created_at)
+					VALUES (?, ?, ?, 'skipped', '', ?, ?, 0, ?)
+				`
+				insertStmt := rqlite.ParameterizedStatement{
+					Query:     insertQuery,
+					Arguments: []interface{}{taskID, skippedExecutionID, executorID, skippedReason, now, now},
+				}
+
+				if _, dbErr := s.DB.WriteOneParameterized(insertStmt); dbErr != nil {
+					slog.Warn("failed to record skipped execution", "task_id", taskID, "error", dbErr)
+				} else {
+					slog.Warn("task skipped: previous execution still running",
+						"task_id", taskID,
+						"skipped_execution_id", skippedExecutionID,
+						"running_execution_id", runningExecID,
+					)
+
+					s.SendWebhookNotification(ctx, taskID, skippedExecutionID, "skipped", "", skippedReason, 0)
+				}
+
+				return "", fmt.Errorf("task %d is already running (execution_id: %s), skipped", taskID, runningExecID)
+			}
 		}
-
-		return "", fmt.Errorf("task %d is already running (execution_id: %s), skipped", taskID, runningExecID)
 	}
 
 	task, err := s.GetTaskByID(ctx, taskID)
@@ -314,11 +366,11 @@ func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (strin
 	if lockTTL < 60*time.Second {
 		lockTTL = 60 * time.Second
 	}
-	if lockTTL > 3600*time.Second {
-		lockTTL = 3600 * time.Second
+	if lockTTL > 7200*time.Second {
+		lockTTL = 7200 * time.Second
 	}
 	if task.TimeoutSeconds == 0 {
-		lockTTL = 600 * time.Second
+		lockTTL = 3600 * time.Second
 	}
 
 	lockSet, err := s.redis.SetNX(ctx, lockKey, lockValue, lockTTL).Result()
@@ -328,7 +380,7 @@ func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (strin
 		return "", fmt.Errorf("task %d is already being executed (lock conflict)", taskID)
 	}
 
-	now := time.Now().Format("2006-01-02 15:04:05")
+	now := time.Now().Format(DateTimeFormat)
 	var executorID interface{} = nil
 	insertQuery := `
 		INSERT INTO bdopsflow_task_executions (task_id, execution_id, executor_id, status, start_time, retry_times, created_at)
@@ -405,9 +457,9 @@ func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (strin
 			"executor_name", executor.Name,
 		)
 	} else {
-		executor, err = s.SelectAvailableExecutor(ctx)
+		executor, err = s.SelectAvailableExecutor(ctx, task.DomainID)
 		if err != nil {
-			slog.Error("no available executor", "task_id", taskID, "error", err)
+			slog.Error("no available executor", "task_id", taskID, "domain_id", task.DomainID, "error", err)
 			s.UpdateExecutionResult(ctx, executionID, "failed", "", fmt.Sprintf("no available executor: %v", err))
 			s.UpdateTaskStatusByID(ctx, taskID, "failed")
 			s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", fmt.Sprintf("no available executor: %v", err), 0)
@@ -486,11 +538,11 @@ func (s *SchedulerService) RetryTask(ctx context.Context, taskID int64, retryTim
 	if lockTTL < 60*time.Second {
 		lockTTL = 60 * time.Second
 	}
-	if lockTTL > 3600*time.Second {
-		lockTTL = 3600 * time.Second
+	if lockTTL > 7200*time.Second {
+		lockTTL = 7200 * time.Second
 	}
 	if task.TimeoutSeconds == 0 {
-		lockTTL = 600 * time.Second
+		lockTTL = 3600 * time.Second
 	}
 
 	lockSet, err := s.redis.SetNX(ctx, lockKey, lockValue, lockTTL).Result()
@@ -500,7 +552,7 @@ func (s *SchedulerService) RetryTask(ctx context.Context, taskID int64, retryTim
 		return "", fmt.Errorf("task %d is already being executed (lock conflict)", taskID)
 	}
 
-	now := time.Now().Format("2006-01-02 15:04:05")
+	now := time.Now().Format(DateTimeFormat)
 	var executorID interface{} = nil
 	insertQuery := `
 		INSERT INTO bdopsflow_task_executions (task_id, execution_id, executor_id, status, start_time, retry_times, created_at)
@@ -535,7 +587,7 @@ func (s *SchedulerService) RetryTask(ctx context.Context, taskID int64, retryTim
 			return executionID, fmt.Errorf("specified executor unavailable for retry")
 		}
 	} else {
-		executor, err = s.SelectAvailableExecutor(ctx)
+		executor, err = s.SelectAvailableExecutor(ctx, task.DomainID)
 		if err != nil {
 			s.UpdateExecutionResult(ctx, executionID, "failed", "", fmt.Sprintf("no available executor: %v", err))
 			s.UpdateTaskStatusByID(ctx, taskID, "failed")
@@ -603,25 +655,43 @@ func (s *SchedulerService) HandleTaskFailure(ctx context.Context, taskID int64, 
 		return err
 	}
 
-	executions, err := s.GetTaskExecutions(ctx, taskID)
+	maxRetries := int(task.RetryCount)
+	if maxRetries <= 0 {
+		slog.Info("HandleTaskFailure: no retries configured, marking as failed",
+			"task_id", taskID,
+			"failed_execution_id", failedExecutionID,
+		)
+		s.UpdateTaskStatusByID(ctx, taskID, "failed")
+		s.SendWebhookNotification(ctx, taskID, failedExecutionID, "failed", output, errorMsg, 0)
+		return nil
+	}
+
+	retryLockKey := fmt.Sprintf("task:retry:lock:%d", taskID)
+	retryLockSet, retryLockErr := s.redis.SetNX(ctx, retryLockKey, "locked", 30*time.Minute).Result()
+	if retryLockErr != nil {
+		slog.Warn("HandleTaskFailure: failed to acquire retry lock, proceeding anyway",
+			"task_id", taskID, "error", retryLockErr)
+		retryLockSet = true
+	}
+	if !retryLockSet {
+		slog.Warn("HandleTaskFailure: retry already in progress for task, skipping",
+			"task_id", taskID,
+			"failed_execution_id", failedExecutionID,
+		)
+		return nil
+	}
+
+	currentRetryTimes, err := s.getRetryTimesForExecution(ctx, taskID, failedExecutionID)
 	if err != nil {
-		slog.Error("HandleTaskFailure: failed to get task executions", "task_id", taskID, "error", err)
+		slog.Error("HandleTaskFailure: failed to get retry times",
+			"task_id", taskID,
+			"failed_execution_id", failedExecutionID,
+			"error", err,
+		)
+		s.redis.Del(ctx, retryLockKey)
 		s.UpdateTaskStatusByID(ctx, taskID, "failed")
 		s.SendWebhookNotification(ctx, taskID, failedExecutionID, "failed", output, errorMsg, 0)
 		return err
-	}
-
-	maxRetries := int(task.RetryCount)
-	if maxRetries <= 0 {
-		maxRetries = 0
-	}
-
-	currentRetryTimes := 0
-	for _, exec := range executions {
-		if exec.ExecutionID == failedExecutionID {
-			currentRetryTimes = int(exec.RetryTimes)
-			break
-		}
 	}
 
 	if currentRetryTimes < maxRetries {
@@ -635,22 +705,34 @@ func (s *SchedulerService) HandleTaskFailure(ctx context.Context, taskID int64, 
 		)
 
 		go func() {
+			defer s.redis.Del(context.Background(), retryLockKey)
+
 			select {
 			case <-time.After(time.Duration(task.RetryInterval) * time.Second):
+				if !s.IsLeader() {
+					slog.Warn("HandleTaskFailure: lost leadership before retry, aborting",
+						"task_id", taskID,
+						"retry_times", retryTimes,
+					)
+					s.UpdateTaskStatusByID(context.Background(), taskID, "failed")
+					s.SendWebhookNotification(context.Background(), taskID, failedExecutionID, "failed", output, fmt.Sprintf("retry %d aborted: lost leadership", retryTimes), 0)
+					return
+				}
+
 				slog.Info("HandleTaskFailure: executing retry",
 					"task_id", taskID,
 					"retry_times", retryTimes,
 				)
 
-				newExecutionID, err := s.RetryTask(ctx, taskID, retryTimes)
+				newExecutionID, err := s.RetryTask(context.Background(), taskID, retryTimes)
 				if err != nil {
 					slog.Error("HandleTaskFailure: retry failed",
 						"task_id", taskID,
 						"retry_times", retryTimes,
 						"error", err,
 					)
-					s.UpdateTaskStatusByID(ctx, taskID, "failed")
-					s.SendWebhookNotification(ctx, taskID, failedExecutionID, "failed", output, fmt.Sprintf("retry %d failed: %v", retryTimes, err), 0)
+					s.UpdateTaskStatusByID(context.Background(), taskID, "failed")
+					s.SendWebhookNotification(context.Background(), taskID, failedExecutionID, "failed", output, fmt.Sprintf("retry %d failed: %v", retryTimes, err), 0)
 				} else {
 					slog.Info("HandleTaskFailure: retry scheduled successfully",
 						"task_id", taskID,
@@ -665,12 +747,43 @@ func (s *SchedulerService) HandleTaskFailure(ctx context.Context, taskID int64, 
 			"task_id", taskID,
 			"failed_execution_id", failedExecutionID,
 			"retry_times", currentRetryTimes,
+			"max_retries", maxRetries,
 		)
+		s.redis.Del(ctx, retryLockKey)
 		s.UpdateTaskStatusByID(ctx, taskID, "failed")
 		s.SendWebhookNotification(ctx, taskID, failedExecutionID, "failed", output, errorMsg, 0)
 	}
 
 	return nil
+}
+
+func (s *SchedulerService) getRetryTimesForExecution(ctx context.Context, taskID int64, executionID string) (int, error) {
+	query := `
+		SELECT retry_times FROM bdopsflow_task_executions
+		WHERE execution_id = ?
+	`
+	stmt := rqlite.ParameterizedStatement{
+		Query:     query,
+		Arguments: []interface{}{executionID},
+	}
+	qr, err := s.DB.QueryOneParameterized(stmt)
+	if err != nil {
+		return 0, err
+	}
+	if qr.Err != nil {
+		return 0, qr.Err
+	}
+
+	if !qr.Next() {
+		return 0, fmt.Errorf("execution %s not found", executionID)
+	}
+
+	row, err := qr.Slice()
+	if err != nil {
+		return 0, err
+	}
+
+	return int(rowInt64(row[0])), nil
 }
 
 func (s *SchedulerService) UpdateTaskStatusByID(ctx context.Context, taskID int64, status string) error {
@@ -679,7 +792,7 @@ func (s *SchedulerService) UpdateTaskStatusByID(ctx context.Context, taskID int6
 		query := `UPDATE bdopsflow_tasks SET updated_at = ? WHERE id = ?`
 		stmt := rqlite.ParameterizedStatement{
 			Query:     query,
-			Arguments: []interface{}{time.Now().Format("2006-01-02 15:04:05"), taskID},
+			Arguments: []interface{}{time.Now().Format(DateTimeFormat), taskID},
 		}
 		result, err := s.DB.WriteOneParameterized(stmt)
 		if err != nil {
@@ -691,7 +804,7 @@ func (s *SchedulerService) UpdateTaskStatusByID(ctx context.Context, taskID int6
 	query := `UPDATE bdopsflow_tasks SET status = ?, updated_at = ? WHERE id = ?`
 	stmt := rqlite.ParameterizedStatement{
 		Query:     query,
-		Arguments: []interface{}{status, time.Now().Format("2006-01-02 15:04:05"), taskID},
+		Arguments: []interface{}{status, time.Now().Format(DateTimeFormat), taskID},
 	}
 
 	result, err := s.DB.WriteOneParameterized(stmt)

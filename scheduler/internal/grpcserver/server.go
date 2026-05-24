@@ -58,11 +58,18 @@ func (s *Server) MarkAsNewLeader() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.isNewLeader = true
-	s.isLeader = true // 同时设置当前是 leader
-	// 标记所有连接的执行器需要同步
+	s.isLeader = true
 	for name := range s.executors {
 		s.needExecSync[name] = true
 	}
+
+	go func() {
+		time.Sleep(30 * time.Second)
+		s.mu.Lock()
+		s.isNewLeader = false
+		s.mu.Unlock()
+		slog.Info("[gRPC] isNewLeader flag reset after timeout")
+	}()
 }
 
 // 设置当前是否是 leader
@@ -301,14 +308,12 @@ func (s *Server) Start() error {
 
 func (s *Server) Stop() {
 	if s.grpcServer != nil {
-		// 使用 goroutine 来执行 GracefulStop，有超时
 		done := make(chan struct{})
 		go func() {
 			s.grpcServer.GracefulStop()
 			close(done)
 		}()
 
-		// 等待最多 3 秒，之后强制停止
 		select {
 		case <-done:
 			slog.Info("gRPC server stopped gracefully")
@@ -317,4 +322,21 @@ func (s *Server) Stop() {
 			s.grpcServer.Stop()
 		}
 	}
+}
+
+func (s *Server) IsExecutorConnected(executorName string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	_, ok := s.executors[executorName]
+	return ok
+}
+
+func (s *Server) GetConnectedExecutorNames() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	names := make([]string, 0, len(s.executors))
+	for name := range s.executors {
+		names = append(names, name)
+	}
+	return names
 }

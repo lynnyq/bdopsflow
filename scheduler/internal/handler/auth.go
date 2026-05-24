@@ -137,14 +137,16 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	Success(c, gin.H{
 		"token": tokenString,
 		"user": map[string]interface{}{
-			"id":          userID,
-			"username":    username,
-			"real_name":   realName,
-			"phone":       phone,
-			"role":        role,
-			"email":       email,
-			"domain_id":   dID,
-			"permissions": permList,
+			"id":            userID,
+			"username":      username,
+			"real_name":     realName,
+			"phone":         phone,
+			"role":          role,
+			"email":         email,
+			"domain_id":     dID,
+			"is_active":     true,
+			"last_login_at": nil,
+			"permissions":   permList,
 		},
 	})
 }
@@ -243,18 +245,20 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 		return
 	}
 
-	query := "SELECT username, real_name, phone, role, email, domain_id FROM bdopsflow_users WHERE id = ?"
+	query := "SELECT username, real_name, phone, role, email, domain_id, is_active, last_login_at FROM bdopsflow_users WHERE id = ?"
 	stmt := rqlite.ParameterizedStatement{
 		Query:     query,
 		Arguments: []interface{}{userID},
 	}
 	qr, err := h.db.QueryOneParameterized(stmt)
 	if err != nil {
+		slog.Error("GetCurrentUser: query failed", "error", err, "user_id", userID)
 		InternalServerError(c, "服务器错误，请稍后重试")
 		return
 	}
 
 	if qr.Err != nil {
+		slog.Error("GetCurrentUser: query returned error", "error", qr.Err, "user_id", userID)
 		InternalServerError(c, "服务器错误，请稍后重试")
 		return
 	}
@@ -264,18 +268,21 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 		return
 	}
 
-	var username, realName, phone, role, email string
-	var domainID rqlite.NullInt64
-	err = qr.Scan(&username, &realName, &phone, &role, &email, &domainID)
+	row, err := qr.Slice()
 	if err != nil {
+		slog.Error("GetCurrentUser: slice failed", "error", err, "user_id", userID)
 		InternalServerError(c, "服务器错误，请稍后重试")
 		return
 	}
 
-	var dID int64
-	if domainID.Valid {
-		dID = domainID.Int64
-	}
+	username := service.RowString(row[0])
+	realName := service.RowString(row[1])
+	phone := service.RowString(row[2])
+	role := service.RowString(row[3])
+	email := service.RowString(row[4])
+	domainID := service.RowInt64(row[5])
+	isActive := service.RowBool(row[6])
+	lastLoginAt := service.ScanNullTime(row, 7)
 
 	if role == "" {
 		role = "admin"
@@ -291,15 +298,23 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 		})
 	}
 
+	var lastLoginAtStr *string
+	if lastLoginAt.Valid && !lastLoginAt.Time.IsZero() {
+		s := lastLoginAt.Time.Format(TimeResponseFormat)
+		lastLoginAtStr = &s
+	}
+
 	Success(c, gin.H{
-		"id":          userID,
-		"username":    username,
-		"real_name":   realName,
-		"phone":       phone,
-		"role":        role,
-		"email":       email,
-		"domain_id":   dID,
-		"permissions": permList,
+		"id":            userID,
+		"username":      username,
+		"real_name":     realName,
+		"phone":         phone,
+		"role":          role,
+		"email":         email,
+		"domain_id":     domainID,
+		"is_active":     isActive,
+		"last_login_at": lastLoginAtStr,
+		"permissions":   permList,
 	})
 }
 
@@ -500,14 +515,16 @@ func (h *AuthHandler) SSOLogin(c *gin.Context) {
 	Success(c, gin.H{
 		"token": tokenString,
 		"user": map[string]interface{}{
-			"id":          userID,
-			"username":    username,
-			"real_name":   realName,
-			"phone":       phone,
-			"role":        role,
-			"email":       email,
-			"domain_id":   dID,
-			"permissions": permList,
+			"id":            userID,
+			"username":      username,
+			"real_name":     realName,
+			"phone":         phone,
+			"role":          role,
+			"email":         email,
+			"domain_id":     dID,
+			"is_active":     true,
+			"last_login_at": nil,
+			"permissions":   permList,
 		},
 	})
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -27,6 +28,8 @@ type mockTaskService struct {
 	getTaskLogsFunc          func(ctx context.Context, executionID string) ([]*model.TaskLog, error)
 	listExecutorsByDomainFunc func(ctx context.Context, domainID int64) ([]*model.Executor, error)
 	getDomainNameFunc        func(ctx context.Context, domainID int64) string
+	isLeaderFunc             func() bool
+	forwardToLeaderFunc      func(ctx context.Context, method, path string, body io.Reader) ([]byte, int, error)
 
 	lastQuery string
 	lastArgs  []interface{}
@@ -102,6 +105,20 @@ func (m *mockTaskService) GetDomainName(ctx context.Context, domainID int64) str
 		return m.getDomainNameFunc(ctx, domainID)
 	}
 	return fmt.Sprintf("领域 %d", domainID)
+}
+
+func (m *mockTaskService) IsLeader() bool {
+	if m.isLeaderFunc != nil {
+		return m.isLeaderFunc()
+	}
+	return true
+}
+
+func (m *mockTaskService) ForwardToLeader(ctx context.Context, method, path string, body io.Reader) ([]byte, int, error) {
+	if m.forwardToLeaderFunc != nil {
+		return m.forwardToLeaderFunc(ctx, method, path, body)
+	}
+	return nil, 503, fmt.Errorf("not implemented")
 }
 
 func setupTestRouter(handler *TaskHandler) *gin.Engine {
@@ -306,8 +323,6 @@ func TestCreateTask_DefaultValues(t *testing.T) {
 		case int64:
 			if v == 0 {
 				defaultTimeoutFound = true
-			}
-			if v == 3 {
 				defaultRetryFound = true
 			}
 			if v == 1 {
@@ -320,7 +335,7 @@ func TestCreateTask_DefaultValues(t *testing.T) {
 		t.Errorf("timeout_seconds default 0 not applied, args: %v", mock.lastArgs)
 	}
 	if !defaultRetryFound {
-		t.Errorf("retry_count default 3 not applied, args: %v", mock.lastArgs)
+		t.Errorf("retry_count default 0 not applied, args: %v", mock.lastArgs)
 	}
 	if !defaultDomainFound {
 		t.Errorf("domain_id default 1 not applied, args: %v", mock.lastArgs)
@@ -921,5 +936,195 @@ func TestCreateTask_ExecutorAtCapacity(t *testing.T) {
 
 	if data["has_available_executors"] != false {
 		t.Errorf("expected has_available_executors to be false when executor at capacity, got %v", data["has_available_executors"])
+	}
+}
+
+func setupTestRouterWithAuth(handler *TaskHandler) *gin.Engine {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	authGroup := r.Group("/api/bdopsflow_tasks")
+	authGroup.Use(func(c *gin.Context) {
+		if domainID, exists := c.Get("inject_domain_id"); exists {
+			c.Set("domain_id", domainID)
+		}
+		if role, exists := c.Get("inject_role"); exists {
+			c.Set("role", role)
+		}
+		c.Next()
+	})
+	{
+		authGroup.POST("/:id/trigger", handler.Trigger)
+	}
+	return r
+}
+
+func TestTrigger_PermissionDenied_DifferentDomain(t *testing.T) {
+	mock := &mockTaskService{
+		getTaskByIDFunc: func(ctx context.Context, id int64) (*model.Task, error) {
+			return &model.Task{ID: id, Name: "test", DomainID: 2}, nil
+		},
+	}
+	handler := newTaskHandlerWithSvc(mock)
+	router := gin.New()
+	gin.SetMode(gin.TestMode)
+
+	router.POST("/api/bdopsflow_tasks/:id/trigger", func(c *gin.Context) {
+		c.Set("domain_id", int64(1))
+		c.Set("role", "user")
+		handler.Trigger(c)
+	})
+
+	req, _ := http.NewRequest("POST", "/api/bdopsflow_tasks/1/trigger", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	var resp Response
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Code != CodeForbidden {
+		t.Errorf("expected code %d for cross-domain access, got %d", CodeForbidden, resp.Code)
+	}
+}
+
+func TestTrigger_PermissionAllowed_SameDomain(t *testing.T) {
+	mock := &mockTaskService{
+		getTaskByIDFunc: func(ctx context.Context, id int64) (*model.Task, error) {
+			return &model.Task{ID: id, Name: "test", DomainID: 1}, nil
+		},
+	}
+	handler := newTaskHandlerWithSvc(mock)
+	router := gin.New()
+	gin.SetMode(gin.TestMode)
+
+	router.POST("/api/bdopsflow_tasks/:id/trigger", func(c *gin.Context) {
+		c.Set("domain_id", int64(1))
+		c.Set("role", "user")
+		handler.Trigger(c)
+	})
+
+	req, _ := http.NewRequest("POST", "/api/bdopsflow_tasks/1/trigger", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	var resp Response
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Code != CodeSuccess {
+		t.Errorf("expected code %d for same-domain access, got %d, body: %s", CodeSuccess, resp.Code, w.Body.String())
+	}
+}
+
+func TestTrigger_PermissionAllowed_SystemAdmin(t *testing.T) {
+	mock := &mockTaskService{
+		getTaskByIDFunc: func(ctx context.Context, id int64) (*model.Task, error) {
+			return &model.Task{ID: id, Name: "test", DomainID: 99}, nil
+		},
+	}
+	handler := newTaskHandlerWithSvc(mock)
+	router := gin.New()
+	gin.SetMode(gin.TestMode)
+
+	router.POST("/api/bdopsflow_tasks/:id/trigger", func(c *gin.Context) {
+		c.Set("domain_id", int64(1))
+		c.Set("role", "system_admin")
+		handler.Trigger(c)
+	})
+
+	req, _ := http.NewRequest("POST", "/api/bdopsflow_tasks/1/trigger", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	var resp Response
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Code != CodeSuccess {
+		t.Errorf("expected code %d for system_admin cross-domain access, got %d", CodeSuccess, resp.Code)
+	}
+}
+
+func TestTrigger_PermissionAllowed_AdminRole(t *testing.T) {
+	mock := &mockTaskService{
+		getTaskByIDFunc: func(ctx context.Context, id int64) (*model.Task, error) {
+			return &model.Task{ID: id, Name: "test", DomainID: 99}, nil
+		},
+	}
+	handler := newTaskHandlerWithSvc(mock)
+	router := gin.New()
+	gin.SetMode(gin.TestMode)
+
+	router.POST("/api/bdopsflow_tasks/:id/trigger", func(c *gin.Context) {
+		c.Set("domain_id", int64(1))
+		c.Set("role", "admin")
+		handler.Trigger(c)
+	})
+
+	req, _ := http.NewRequest("POST", "/api/bdopsflow_tasks/1/trigger", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	var resp Response
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Code != CodeSuccess {
+		t.Errorf("expected code %d for admin cross-domain access, got %d", CodeSuccess, resp.Code)
+	}
+}
+
+func TestTrigger_TaskNotFound(t *testing.T) {
+	mock := &mockTaskService{
+		getTaskByIDFunc: func(ctx context.Context, id int64) (*model.Task, error) {
+			return nil, fmt.Errorf("task not found")
+		},
+	}
+	handler := newTaskHandlerWithSvc(mock)
+	router := gin.New()
+	gin.SetMode(gin.TestMode)
+
+	router.POST("/api/bdopsflow_tasks/:id/trigger", func(c *gin.Context) {
+		c.Set("domain_id", int64(1))
+		c.Set("role", "user")
+		handler.Trigger(c)
+	})
+
+	req, _ := http.NewRequest("POST", "/api/bdopsflow_tasks/999/trigger", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	var resp Response
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Code != CodeBadRequest {
+		t.Errorf("expected code %d for task not found, got %d", CodeBadRequest, resp.Code)
+	}
+}
+
+func TestTrigger_NegativeID(t *testing.T) {
+	mock := &mockTaskService{}
+	handler := newTaskHandlerWithSvc(mock)
+	router := setupTestRouter(handler)
+
+	req, _ := http.NewRequest("POST", "/api/bdopsflow_tasks/-1/trigger", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	var resp Response
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Code != CodeBadRequest {
+		t.Errorf("expected code %d for negative ID, got %d", CodeBadRequest, resp.Code)
+	}
+}
+
+func TestTrigger_NoAuthContext(t *testing.T) {
+	mock := &mockTaskService{
+		getTaskByIDFunc: func(ctx context.Context, id int64) (*model.Task, error) {
+			return &model.Task{ID: id, Name: "test", DomainID: 0}, nil
+		},
+	}
+	handler := newTaskHandlerWithSvc(mock)
+	router := setupTestRouter(handler)
+
+	req, _ := http.NewRequest("POST", "/api/bdopsflow_tasks/1/trigger", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	var resp Response
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Code == CodeForbidden {
+		t.Errorf("should not be forbidden when no auth context (domain_id defaults to 0, task domain_id is 0)")
 	}
 }

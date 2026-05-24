@@ -85,6 +85,11 @@ func (cs *CronScheduler) recoverRunningTasks() {
 		return
 	}
 
+	if !cs.svc.IsLeader() {
+		slog.Warn("lost leadership before recovering tasks, aborting")
+		return
+	}
+
 	ctx := context.Background()
 	if err := cs.svc.RecoverRunningTasksOnBecomeLeader(ctx); err != nil {
 		slog.Error("failed to recover running tasks", "error", err)
@@ -95,13 +100,19 @@ func (cs *CronScheduler) recoverRunningTasks() {
 func (cs *CronScheduler) OnLoseLeader() {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
-	
+
 	if !cs.isLeader {
 		return
 	}
-	
+
 	cs.isLeader = false
 	slog.Info("node lost leadership, stopping cron scheduler")
+
+	for taskID, entryID := range cs.taskEntries {
+		cs.cron.Remove(entryID)
+		slog.Info("unregistered cron task on leadership loss", "task_id", taskID)
+	}
+	cs.taskEntries = make(map[int64]cron.EntryID)
 }
 
 // Pause 暂停调度器
@@ -151,9 +162,18 @@ func (cs *CronScheduler) Stop() {
 }
 
 // loadAndRegisterTasks 从数据库加载并注册所有任务
+func (cs *CronScheduler) LoadAndRegisterTasks() {
+	cs.loadAndRegisterTasks()
+}
+
 func (cs *CronScheduler) loadAndRegisterTasks() {
 	if cs.svc == nil {
 		slog.Debug("Scheduler service is nil, skipping task loading")
+		return
+	}
+
+	if !cs.svc.IsLeader() {
+		slog.Warn("lost leadership before loading tasks, aborting")
 		return
 	}
 
@@ -172,6 +192,10 @@ func (cs *CronScheduler) loadAndRegisterTasks() {
 	slog.Info("loading bdopsflow_tasks from database", "count", len(bdopsflow_tasks))
 
 	for _, task := range bdopsflow_tasks {
+		if !cs.svc.IsLeader() {
+			slog.Warn("lost leadership during task loading, aborting", "loaded", len(bdopsflow_tasks))
+			return
+		}
 		if task.CronExpression != "" && task.IsEnabled {
 			cs.RegisterTask(task.ID, task.CronExpression)
 		}
@@ -281,11 +305,10 @@ func (cs *CronScheduler) executeTask(taskID int64) {
 	if lockTTL < 60*time.Second {
 		lockTTL = 60 * time.Second
 	}
-	if lockTTL > 3600*time.Second {
-		lockTTL = 3600 * time.Second
+	if lockTTL > 7200*time.Second {
+		lockTTL = 7200 * time.Second
 	}
 	if task.TimeoutSeconds == 0 {
-		// 如果任务没有超时限制，锁超时设为10分钟
 		lockTTL = 600 * time.Second
 	}
 

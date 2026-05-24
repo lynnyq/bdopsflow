@@ -115,6 +115,10 @@ func InternalServerError(c *gin.Context, message string) {
 	Fail(c, CodeInternalError, message)
 }
 
+func ServiceUnavailable(c *gin.Context, message string) {
+	Fail(c, CodeServiceUnavailable, message)
+}
+
 func Created(c *gin.Context, data interface{}) {
 	c.JSON(http.StatusOK, Response{
 		Code:    CodeSuccess,

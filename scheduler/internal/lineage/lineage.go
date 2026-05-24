@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"time"
 )
 
 type Service struct {
@@ -202,12 +203,13 @@ func (s *Service) GetWorkflowLineage(ctx context.Context, workflowID int64) (*Li
 }
 
 func (s *Service) AddDependency(ctx context.Context, taskID, parentTaskID int64) error {
+	now := time.Now().Format(time.RFC3339Nano)
 	query := `
 		INSERT INTO bdopsflow_task_dependencies (task_id, parent_task_id, created_at)
-		VALUES (?, ?, datetime('now', 'localtime'))
+		VALUES (?, ?, ?)
 	`
 
-	_, err := s.db.ExecContext(ctx, query, taskID, parentTaskID)
+	_, err := s.db.ExecContext(ctx, query, taskID, parentTaskID, now)
 	if err != nil {
 		return fmt.Errorf("failed to add dependency: %w", err)
 	}

@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
+	"net/http"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -38,6 +41,14 @@ func CalculateNextExecutionTime(cronExpr string, isEnabled bool) string {
 
 type TaskDispatcher func(executorName string, task *pb.Task) error
 
+type ExecutorConnectivityChecker interface {
+	IsExecutorConnected(executorName string) bool
+}
+
+type LeaderAddrResolver interface {
+	GetLeaderHTTPAddr(ctx context.Context) (string, error)
+}
+
 type SchedulerService struct {
 	DB                   *rqlite.Connection
 	redis                *redis.Client
@@ -49,10 +60,16 @@ type SchedulerService struct {
 		Resume()
 		IsPaused() bool
 		GetUptime() time.Duration
+		LoadAndRegisterTasks()
 	}
 	webhookSvc            *WebhookService
 	stopCleanupCh         chan struct{}
 	ExecutorDomainService *ExecutorDomainService
+	isLeader              bool
+	leaderMu              sync.RWMutex
+	connectivityChecker   ExecutorConnectivityChecker
+	leaderAddrResolver    LeaderAddrResolver
+	httpClient            *http.Client
 }
 
 func NewSchedulerService(db *rqlite.Connection, redis *redis.Client) *SchedulerService {
@@ -60,6 +77,9 @@ func NewSchedulerService(db *rqlite.Connection, redis *redis.Client) *SchedulerS
 		DB:           db,
 		redis:        redis,
 		stopCleanupCh: make(chan struct{}),
+		httpClient: &http.Client{
+			Timeout: 30 * time.Second,
+		},
 	}
 }
 
@@ -70,6 +90,7 @@ func (s *SchedulerService) SetCronScheduler(cs interface {
 	Resume()
 	IsPaused() bool
 	GetUptime() time.Duration
+	LoadAndRegisterTasks()
 }) {
 	s.cronScheduler = cs
 }
@@ -80,6 +101,71 @@ func (s *SchedulerService) SetTaskDispatcher(dispatcher TaskDispatcher) {
 
 func (s *SchedulerService) SetWebhookService(webhookSvc *WebhookService) {
 	s.webhookSvc = webhookSvc
+}
+
+func (s *SchedulerService) SetConnectivityChecker(checker ExecutorConnectivityChecker) {
+	s.connectivityChecker = checker
+}
+
+func (s *SchedulerService) SetLeaderAddrResolver(resolver LeaderAddrResolver) {
+	s.leaderAddrResolver = resolver
+}
+
+func (s *SchedulerService) ForwardToLeader(ctx context.Context, method, path string, body io.Reader) ([]byte, int, error) {
+	if s.leaderAddrResolver == nil {
+		return nil, http.StatusServiceUnavailable, fmt.Errorf("leader address resolver not configured")
+	}
+
+	leaderAddr, err := s.leaderAddrResolver.GetLeaderHTTPAddr(ctx)
+	if err != nil {
+		return nil, http.StatusServiceUnavailable, fmt.Errorf("failed to resolve leader address: %w", err)
+	}
+	if leaderAddr == "" {
+		return nil, http.StatusServiceUnavailable, fmt.Errorf("leader address is empty")
+	}
+
+	targetURL := fmt.Sprintf("http://%s%s", leaderAddr, path)
+	slog.Info("forwarding request to leader", "method", method, "url", targetURL)
+
+	req, err := http.NewRequestWithContext(ctx, method, targetURL, body)
+	if err != nil {
+		return nil, http.StatusInternalServerError, fmt.Errorf("failed to create forwarded request: %w", err)
+	}
+
+	if contentType, ok := ctx.Value("content_type").(string); ok {
+		req.Header.Set("Content-Type", contentType)
+	} else {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	if authHeader, ok := ctx.Value("authorization").(string); ok && authHeader != "" {
+		req.Header.Set("Authorization", authHeader)
+	}
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return nil, http.StatusBadGateway, fmt.Errorf("failed to forward request to leader: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, http.StatusInternalServerError, fmt.Errorf("failed to read leader response: %w", err)
+	}
+
+	return respBody, resp.StatusCode, nil
+}
+
+func (s *SchedulerService) IsLeader() bool {
+	s.leaderMu.RLock()
+	defer s.leaderMu.RUnlock()
+	return s.isLeader
+}
+
+func (s *SchedulerService) SetLeader(leader bool) {
+	s.leaderMu.Lock()
+	defer s.leaderMu.Unlock()
+	s.isLeader = leader
 }
 
 func (s *SchedulerService) SendWebhookNotification(ctx context.Context, taskID int64, executionID, status, output, errorMsg string, durationMs int64) {

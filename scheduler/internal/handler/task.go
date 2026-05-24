@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -14,7 +16,7 @@ import (
 )
 
 const (
-	TimeResponseFormat     = "2006-01-02 15:04:05"
+	TimeResponseFormat     = time.RFC3339Nano
 	ExecutorHeartbeatTimeout = 30 // 心跳超时时间（秒）
 )
 
@@ -175,18 +177,18 @@ func (h *TaskHandler) Create(c *gin.Context) {
 
 	// 兼容新旧字段名
 	retryCount := req.RetryCount
-	if retryCount <= 0 {
+	if retryCount < 0 {
 		retryCount = req.RetryMax
 	}
-	if retryCount <= 0 {
-		retryCount = 3
+	if retryCount < 0 {
+		retryCount = 0
 	}
 
 	retryInterval := req.RetryInterval
-	if retryInterval <= 0 {
+	if retryInterval < 0 {
 		retryInterval = req.RetryDelaySeconds
 	}
-	if retryInterval <= 0 {
+	if retryInterval <= 0 && retryCount > 0 {
 		retryInterval = 5
 	}
 
@@ -370,6 +372,9 @@ func (h *TaskHandler) Update(c *gin.Context) {
 	} else if req.RetryDelaySeconds >= 0 {
 		currentTask.RetryInterval = req.RetryDelaySeconds
 	}
+	if currentTask.RetryCount > 0 && currentTask.RetryInterval <= 0 {
+		currentTask.RetryInterval = 5
+	}
 
 	// 布尔值总是更新（如果提供）
 	hasAvailableExecutors := true
@@ -486,24 +491,62 @@ func (h *TaskHandler) Trigger(c *gin.Context) {
 		return
 	}
 
+	if !h.svc.IsLeader() {
+		h.forwardToLeader(c, c.Request.Method, c.Request.URL.Path, c.Request.Body)
+		return
+	}
+
+	task, getErr := h.svc.GetTaskByID(c.Request.Context(), id)
+	if getErr != nil {
+		slog.Warn("TaskHandler.Trigger: task not found", "task_id", id, "error", getErr)
+		BadRequest(c, "task not found")
+		return
+	}
+
+	userDomainID, _ := c.Get("domain_id")
+	userRole, _ := c.Get("role")
+	domainID, _ := userDomainID.(int64)
+	role, _ := userRole.(string)
+	isSystemAdmin := role == "system_admin" || role == "admin"
+	if !isSystemAdmin && task.DomainID != domainID {
+		slog.Warn("TaskHandler.Trigger: permission denied",
+			"task_id", id,
+			"task_domain_id", task.DomainID,
+			"user_domain_id", domainID,
+		)
+		Forbidden(c, "permission denied")
+		return
+	}
+
 	executionID, err := h.svc.TriggerTask(c.Request.Context(), id)
 	if err != nil {
 		slog.Error("TaskHandler.Trigger: failed to trigger task", "task_id", id, "error", err)
 
-		// 始终尝试获取任务和领域信息来提供更好的错误提示
-		task, getErr := h.svc.GetTaskByID(c.Request.Context(), id)
-		if getErr == nil {
-			domainName := h.svc.GetDomainName(c.Request.Context(), task.DomainID)
-			BadRequest(c, fmt.Sprintf("%s 没有可用的执行器，请联系管理员为 %s 分配执行器", domainName, domainName))
-		} else {
-			// 如果无法获取任务信息，提供通用提示
-			BadRequest(c, "没有可用的执行器，请联系管理员分配执行器")
-		}
+		domainName := h.svc.GetDomainName(c.Request.Context(), task.DomainID)
+		BadRequest(c, fmt.Sprintf("%s 没有可用的执行器，请联系管理员为 %s 分配执行器", domainName, domainName))
 		return
 	}
 
 	slog.Info("TaskHandler.Trigger: task triggered", "task_id", id, "execution_id", executionID)
 	Success(c, gin.H{"message": "triggered", "execution_id": executionID})
+}
+
+func (h *TaskHandler) forwardToLeader(c *gin.Context, method, path string, body io.Reader) {
+	ctx := context.WithValue(c.Request.Context(), "authorization", c.GetHeader("Authorization"))
+	ctx = context.WithValue(ctx, "content_type", c.GetHeader("Content-Type"))
+
+	respBody, statusCode, err := h.svc.ForwardToLeader(ctx, method, path, body)
+	if err != nil {
+		slog.Error("TaskHandler: failed to forward request to leader",
+			"method", method,
+			"path", path,
+			"error", err,
+		)
+		ServiceUnavailable(c, fmt.Sprintf("当前节点非主节点，转发请求到主节点失败: %v", err))
+		return
+	}
+
+	c.Data(statusCode, "application/json", respBody)
 }
 
 func (h *TaskHandler) Executions(c *gin.Context) {
@@ -696,7 +739,7 @@ func toTaskLogResponse(tl *model.TaskLog) *TaskLogResponse {
 }
 
 func (h *TaskHandler) ExecutionLogs(c *gin.Context) {
-	executionID := c.Param("executionId")
+	executionID := c.Param("execution_id")
 	if safeString(executionID) == "" {
 		slog.Warn("TaskHandler.ExecutionLogs: executionId required")
 		BadRequest(c, "executionId required")

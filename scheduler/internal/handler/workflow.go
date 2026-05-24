@@ -240,7 +240,7 @@ func (h *WorkflowHandler) GetWorkflowExecutions(c *gin.Context) {
 }
 
 func (h *WorkflowHandler) GetWorkflowExecution(c *gin.Context) {
-	executionID := c.Param("executionId")
+	executionID := c.Param("execution_id")
 	if safeString(executionID) == "" {
 		slog.Warn("WorkflowHandler.GetWorkflowExecution: executionId required")
 		BadRequest(c, "executionId required")
@@ -259,7 +259,7 @@ func (h *WorkflowHandler) GetWorkflowExecution(c *gin.Context) {
 }
 
 func (h *WorkflowHandler) GetExecutionLogs(c *gin.Context) {
-	executionID := c.Param("executionId")
+	executionID := c.Param("execution_id")
 	if safeString(executionID) == "" {
 		slog.Warn("WorkflowHandler.GetExecutionLogs: executionId required")
 		BadRequest(c, "executionId required")

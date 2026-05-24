@@ -2,7 +2,6 @@ package service
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/lynnyq/bdopsflow/scheduler/internal/model"
 	rqlite "github.com/rqlite/gorqlite"
@@ -35,12 +34,8 @@ func scanTaskResult(qr *rqlite.QueryResult, task *model.Task) error {
 	task.WebhookEvents = rowString(row[13])
 	task.AssignedExecutorID = rowInt64(row[14])
 	task.CreatedBy = rowInt64(row[15])
-	if t, ok := row[16].(time.Time); ok {
-		task.CreatedAt = t
-	}
-	if t, ok := row[17].(time.Time); ok {
-		task.UpdatedAt = t
-	}
+	task.CreatedAt = parseDateTime(row[16])
+	task.UpdatedAt = parseDateTime(row[17])
 	return nil
 }
 
@@ -62,12 +57,8 @@ func scanWorkflowResult(qr *rqlite.QueryResult, wf *model.Workflow) error {
 		wf.CreatedBy = &v
 	}
 
-	if t, ok := row[8].(time.Time); ok {
-		wf.CreatedAt = t
-	}
-	if t, ok := row[9].(time.Time); ok {
-		wf.UpdatedAt = t
-	}
+	wf.CreatedAt = parseDateTime(row[8])
+	wf.UpdatedAt = parseDateTime(row[9])
 	return nil
 }
 
@@ -80,17 +71,13 @@ func scanExecutorResult(qr *rqlite.QueryResult, exec *model.Executor) error {
 	exec.Name = rowString(row[1])
 	exec.Address = rowString(row[2])
 	exec.Status = rowString(row[3])
-	if t, ok := row[4].(time.Time); ok {
+	if t := parseDateTime(row[4]); !t.IsZero() {
 		exec.LastHeartbeat = rqlite.NullTime{Time: t, Valid: true}
 	}
 	exec.Capacity = rowInt64(row[5])
 	exec.CurrentLoad = rowInt64(row[6])
-	if t, ok := row[7].(time.Time); ok {
-		exec.CreatedAt = t
-	}
-	if t, ok := row[8].(time.Time); ok {
-		exec.UpdatedAt = t
-	}
+	exec.CreatedAt = parseDateTime(row[7])
+	exec.UpdatedAt = parseDateTime(row[8])
 	return nil
 }
 
@@ -106,36 +93,19 @@ func scanExecutionResult(qr *rqlite.QueryResult, exec *model.TaskExecution) erro
 	exec.ExecutorID = rowInt64(row[3])
 	exec.Status = rowString(row[4])
 
-	if t, ok := row[5].(time.Time); ok {
+	if t := parseDateTime(row[5]); !t.IsZero() {
 		exec.StartTime = rqlite.NullTime{Time: t, Valid: true}
-	} else if s, ok := row[5].(string); ok && s != "" {
-		parsed, err := time.Parse("2006-01-02 15:04:05", s)
-		if err == nil {
-			exec.StartTime = rqlite.NullTime{Time: parsed, Valid: true}
-		}
 	}
 
-	if t, ok := row[6].(time.Time); ok {
+	if t := parseDateTime(row[6]); !t.IsZero() {
 		exec.EndTime = rqlite.NullTime{Time: t, Valid: true}
-	} else if s, ok := row[6].(string); ok && s != "" {
-		parsed, err := time.Parse("2006-01-02 15:04:05", s)
-		if err == nil {
-			exec.EndTime = rqlite.NullTime{Time: parsed, Valid: true}
-		}
 	}
 
 	exec.Output = rowString(row[7])
 	exec.Error = rowString(row[8])
 	exec.RetryTimes = int32(rowInt64(row[9]))
 
-	if t, ok := row[10].(time.Time); ok {
-		exec.CreatedAt = t
-	} else if s, ok := row[10].(string); ok && s != "" {
-		parsed, err := time.Parse("2006-01-02 15:04:05", s)
-		if err == nil {
-			exec.CreatedAt = parsed
-		}
-	}
+	exec.CreatedAt = parseDateTime(row[10])
 
 	if len(row) > 11 {
 		exec.Progress = int32(rowInt64(row[11]))
@@ -144,14 +114,7 @@ func scanExecutionResult(qr *rqlite.QueryResult, exec *model.TaskExecution) erro
 		exec.ProgressMsg = rowString(row[12])
 	}
 	if len(row) > 13 {
-		if t, ok := row[13].(time.Time); ok {
-			exec.UpdatedAt = t
-		} else if s, ok := row[13].(string); ok && s != "" {
-			parsed, err := time.Parse("2006-01-02 15:04:05", s)
-			if err == nil {
-				exec.UpdatedAt = parsed
-			}
-		}
+		exec.UpdatedAt = parseDateTime(row[13])
 	}
 
 	return nil
@@ -167,34 +130,16 @@ func scanWorkflowExecutionResult(qr *rqlite.QueryResult, we *model.WorkflowExecu
 	we.ExecutionID = rowString(row[2])
 	we.Status = rowString(row[3])
 
-	if t, ok := row[4].(time.Time); ok {
+	if t := parseDateTime(row[4]); !t.IsZero() {
 		we.StartTime = rqlite.NullTime{Time: t, Valid: true}
-	} else if s, ok := row[4].(string); ok && s != "" {
-		parsed, err := time.Parse("2006-01-02 15:04:05", s)
-		if err == nil {
-			we.StartTime = rqlite.NullTime{Time: parsed, Valid: true}
-		}
 	}
 
-	if t, ok := row[5].(time.Time); ok {
+	if t := parseDateTime(row[5]); !t.IsZero() {
 		we.EndTime = rqlite.NullTime{Time: t, Valid: true}
-	} else if s, ok := row[5].(string); ok && s != "" {
-		parsed, err := time.Parse("2006-01-02 15:04:05", s)
-		if err == nil {
-			we.EndTime = rqlite.NullTime{Time: parsed, Valid: true}
-		}
 	}
 
 	we.NodeStates = rowString(row[6])
-
-	if t, ok := row[7].(time.Time); ok {
-		we.CreatedAt = t
-	} else if s, ok := row[7].(string); ok && s != "" {
-		parsed, err := time.Parse("2006-01-02 15:04:05", s)
-		if err == nil {
-			we.CreatedAt = parsed
-		}
-	}
+	we.CreatedAt = parseDateTime(row[7])
 
 	return nil
 }
@@ -211,15 +156,7 @@ func scanTaskLogResult(qr *rqlite.QueryResult, tl *model.TaskLog) error {
 	tl.NodeID = rowString(row[4])
 	tl.LogLevel = rowString(row[5])
 	tl.Message = rowString(row[6])
-
-	if t, ok := row[7].(time.Time); ok {
-		tl.LogTime = t
-	} else if s, ok := row[7].(string); ok && s != "" {
-		parsed, err := time.Parse("2006-01-02 15:04:05", s)
-		if err == nil {
-			tl.LogTime = parsed
-		}
-	}
+	tl.LogTime = parseDateTime(row[7])
 
 	return nil
 }
@@ -241,6 +178,10 @@ func rowInt64(v interface{}) int64 {
 		return n
 	}
 	return 0
+}
+
+func RowInt64(v interface{}) int64 {
+	return rowInt64(v)
 }
 
 func rowInt(v interface{}) int {
@@ -269,6 +210,10 @@ func rowString(v interface{}) string {
 	return fmt.Sprintf("%v", v)
 }
 
+func RowString(v interface{}) string {
+	return rowString(v)
+}
+
 func rowBool(v interface{}) bool {
 	if v == nil {
 		return false
@@ -282,6 +227,10 @@ func rowBool(v interface{}) bool {
 		return val != 0
 	}
 	return false
+}
+
+func RowBool(v interface{}) bool {
+	return rowBool(v)
 }
 
 func rowFloat64(v interface{}) float64 {

@@ -14,7 +14,7 @@ func TestNewLeaderElection(t *testing.T) {
 	})
 	defer client.Close()
 
-	election := NewLeaderElection(client, "test-leader", "node-1", 10*time.Second)
+	election := NewLeaderElection(client, "test-leader", "node-1", "127.0.0.1:8080", 10*time.Second)
 	if election == nil {
 		t.Error("NewLeaderElection returned nil")
 	}
@@ -27,6 +27,9 @@ func TestNewLeaderElection(t *testing.T) {
 	if election.nodeID != "node-1" {
 		t.Errorf("expected nodeID 'node-1', got %q", election.nodeID)
 	}
+	if election.httpAddr != "127.0.0.1:8080" {
+		t.Errorf("expected httpAddr '127.0.0.1:8080', got %q", election.httpAddr)
+	}
 	if election.ttl != 10*time.Second {
 		t.Errorf("expected ttl 10s, got %v", election.ttl)
 	}
@@ -38,7 +41,7 @@ func TestIsLeader(t *testing.T) {
 	})
 	defer client.Close()
 
-	election := NewLeaderElection(client, "test-is-leader", "node-1", 10*time.Second)
+	election := NewLeaderElection(client, "test-is-leader", "node-1", "", 10*time.Second)
 	
 	if election.IsLeader() {
 		t.Error("expected not to be leader initially")
@@ -51,7 +54,7 @@ func TestOnAcquire(t *testing.T) {
 	})
 	defer client.Close()
 
-	election := NewLeaderElection(client, "test-on-acquire", "node-1", 10*time.Second)
+	election := NewLeaderElection(client, "test-on-acquire", "node-1", "", 10*time.Second)
 	
 	acquired := false
 	election.OnAcquire(func() {
@@ -78,7 +81,7 @@ func TestOnRelease(t *testing.T) {
 	})
 	defer client.Close()
 
-	election := NewLeaderElection(client, "test-on-release", "node-1", 10*time.Second)
+	election := NewLeaderElection(client, "test-on-release", "node-1", "", 10*time.Second)
 	
 	released := false
 	election.OnRelease(func() {
@@ -111,7 +114,7 @@ func TestStop_NotLeader(t *testing.T) {
 	})
 	defer client.Close()
 
-	election := NewLeaderElection(client, "test-stop-not-leader", "node-1", 10*time.Second)
+	election := NewLeaderElection(client, "test-stop-not-leader", "node-1", "", 10*time.Second)
 	
 	ctx := context.Background()
 	election.Stop(ctx)
@@ -127,7 +130,7 @@ func TestTryAcquire_Failure(t *testing.T) {
 	})
 	defer client.Close()
 
-	election := NewLeaderElection(client, "test-acquire-fail", "node-1", 10*time.Second)
+	election := NewLeaderElection(client, "test-acquire-fail", "node-1", "", 10*time.Second)
 	
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()

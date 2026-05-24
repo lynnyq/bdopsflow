@@ -340,7 +340,7 @@
               <!-- 执行器选择 -->
               <el-row :gutter="16">
                 <el-col :span="24">
-                  <el-form-item label="执行器" class="form-item">
+                  <el-form-item label="执行器" prop="assigned_executor_id" class="form-item">
                     <el-select
                       v-model="form.assigned_executor_id"
                       clearable
@@ -480,7 +480,7 @@
                       <el-input-number
                         v-model="form.timeout_seconds"
                         :min="0"
-                        :max="3600"
+                        :max="86400"
                         placeholder="秒"
                         class="form-input-number"
                         controls-position="right"
@@ -588,7 +588,7 @@
                       v-model="form.config.script"
                       type="textarea"
                       :rows="8"
-                      placeholder="echo 'Hello World'"
+                      placeholder=""
                       class="form-textarea script-textarea"
                     />
                   </div>
@@ -646,10 +646,12 @@
               <span>初始状态</span>
             </div>
             <div class="section-body">
-              <div class="switch-wrapper">
-                <el-switch v-model="form.is_enabled" size="large" />
-                <span class="switch-text">{{ form.is_enabled ? '任务将立即启用' : '任务将处于停用状态' }}</span>
-              </div>
+              <el-form-item label="初始状态" prop="is_enabled" class="form-item">
+                <div class="switch-wrapper">
+                  <el-switch v-model="form.is_enabled" size="large" />
+                  <span class="switch-text">{{ form.is_enabled ? '任务将立即启用' : '任务将处于停用状态' }}</span>
+                </div>
+              </el-form-item>
             </div>
           </div>
 
@@ -662,7 +664,7 @@
             <div class="section-body">
               <el-row :gutter="16">
                 <el-col :span="24">
-                  <el-form-item label="Webhook" class="form-item">
+                  <el-form-item label="Webhook" prop="webhook_id" class="form-item">
                     <el-select 
                       v-model="form.webhook_id" 
                       placeholder="选择Webhook"
@@ -682,7 +684,7 @@
               </el-row>
               <el-row :gutter="16" v-if="form.webhook_id">
                 <el-col :span="24">
-                  <el-form-item label="推送时机" class="form-item">
+                  <el-form-item label="推送时机" prop="webhook_events" class="form-item">
                     <el-select 
                       v-model="form.webhook_events" 
                       multiple
@@ -839,7 +841,7 @@ const setTaskCardRef = (el: any, taskId: number) => {
 const defaultForm = {
   name: '',
   type: 'shell' as const,
-  timeout_seconds: 0,
+  timeout_seconds: 3600,
   cron_expression: '',
   config: {
     url: '',

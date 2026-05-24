@@ -44,7 +44,7 @@ func (s *AuditLogService) Create(ctx context.Context, log *model.AuditLog) error
 			log.RequestMethod,
 			log.RequestPath,
 			log.Detail,
-			log.CreatedAt,
+			log.CreatedAt.Format(DateTimeFormat),
 		},
 	}
 
@@ -92,12 +92,16 @@ func (s *AuditLogService) List(ctx context.Context, filter model.AuditLogFilter)
 		args = append(args, filter.Status)
 	}
 	if filter.StartTime != "" {
-		conditions = append(conditions, "created_at >= ?")
-		args = append(args, filter.StartTime)
+		if t, err := parseTimeInLocalTimezone(filter.StartTime); err == nil {
+			conditions = append(conditions, "created_at >= ?")
+			args = append(args, t.Format(DateTimeFormat))
+		}
 	}
 	if filter.EndTime != "" {
-		conditions = append(conditions, "created_at <= ?")
-		args = append(args, filter.EndTime)
+		if t, err := parseTimeInLocalTimezone(filter.EndTime); err == nil {
+			conditions = append(conditions, "created_at <= ?")
+			args = append(args, t.Format(DateTimeFormat))
+		}
 	}
 
 	whereClause := ""

@@ -261,7 +261,7 @@ func NewApp(cfg *config.Config) *App {
 	db := rqliteClient.Connection()
 	app.db = db
 
-	leaderElection := election.NewLeaderElection(redisClient, "bdopsflow:leader", nodeID, 15*time.Second)
+	leaderElection := election.NewLeaderElection(redisClient, "bdopsflow:leader", nodeID, fmt.Sprintf("127.0.0.1:%s", cfg.HTTPPort), 15*time.Second)
 	app.leaderElection = leaderElection
 
 	schedulerService := service.NewSchedulerService(db, redisClient)
@@ -332,6 +332,8 @@ func NewApp(cfg *config.Config) *App {
 
 	grpcSrv := grpcserver.NewServer(cfg.GRPCPort, schedulerService)
 	grpcSrv.SetNodeId(nodeID)
+	schedulerService.SetConnectivityChecker(grpcSrv)
+	schedulerService.SetLeaderAddrResolver(leaderElection)
 	app.grpcSrv = grpcSrv
 
 	cronScheduler := cron.NewCronScheduler(schedulerService, redisClient)
@@ -347,11 +349,13 @@ func NewApp(cfg *config.Config) *App {
 		slog.Info("this node became the leader", "node_id", nodeID)
 		grpcSrv.MarkAsNewLeader()
 		grpcSrv.SetLeader(true)
+		schedulerService.SetLeader(true)
 		cronScheduler.OnBecomeLeader()
 	})
 	leaderElection.OnRelease(func() {
 		slog.Info("this node lost leadership", "node_id", nodeID)
 		grpcSrv.SetLeader(false)
+		schedulerService.SetLeader(false)
 		cronScheduler.OnLoseLeader()
 	})
 

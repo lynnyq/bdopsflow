@@ -129,13 +129,14 @@ func TestParseDateTime(t *testing.T) {
 
 func TestNowUTC(t *testing.T) {
 	result := nowUTC()
-	if len(result) != len("2024-01-01 12:00:00") {
-		t.Errorf("expected datetime string format, got %q", result)
+	_, err := time.Parse(time.RFC3339Nano, result)
+	if err != nil {
+		t.Errorf("expected RFC3339Nano format, got %q: %v", result, err)
 	}
 }
 
 func TestScanTime(t *testing.T) {
-	row := []interface{}{"2024-01-01 12:00:00"}
+	row := []interface{}{"2024-01-01T12:00:00+08:00"}
 	result := scanTime(row, 0)
 	if result.IsZero() {
 		t.Error("expected non-zero time")
