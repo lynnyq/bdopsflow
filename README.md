@@ -1,431 +1,133 @@
-# BDopsFlow 分布式工作流调度平台
+## BDopsFlow
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Go-1.24+-blue.svg" alt="Go">
-  <img src="https://img.shields.io/badge/Vue-3.4-green.svg" alt="Vue">
-  <img src="https://img.shields.io/badge/gRPC-Enabled-brightgreen.svg" alt="gRPC">
-  <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License">
-</p>
+> 分布式运维调度平台
 
-生产级、高可用、无单点、可集群、自动故障转移的分布式工作流调度平台，支持完整的 RBAC 权限管理和多租户隔离。
+### 核心特性
 
-## ✨ 核心特性
+- **Dify 风格工作流**：可视化 DAG 编排，9 种节点类型（Start/End/HTTP/Shell/IF-ELSE/Delay/Webhook/变量聚合/数据转换），条件分支，并行执行，变量引用 `{{node_id.field}}`
+- **X6 可视化画布**：基于 AntV X6 的流程编辑器，拖拽编排，条件分支多出口连线，运行态可视化
+- **分布式架构**：Scheduler + Executor 分离，gRPC 通信，Leader Election 高可用
+- **RBAC 多租户**：system_admin/domain_admin/user 三级角色，领域隔离，数据源权限控制
+- **数据源查询**：9 种数据库驱动，SQL 编辑器，查询缓存，并发控制，CSV 导出
+- **实时日志**：gRPC 流式传输 → Redis Pub/Sub → SSE 推送
+- **Webhook 回调**：HMAC-SHA256 签名验证，指数退避重试
+- **审计日志**：全操作审计，中间件+Handler 协作模式
+- **SSO 登录**：双模式登录（本地+SSO），自动创建用户
 
-- ✅ **分布式架构**：调度中心集群 + 执行器集群，完全解耦
-- ✅ **gRPC 通信**：调度中心与执行器 100% 使用 gRPC 通信
-- ✅ **工作流 DAG**：支持任务依赖和工作流编排
-- ✅ **高可用**：主节点选举、故障自动转移
-- ✅ **任务恢复**：调度器切换时自动恢复执行中的任务
-- ✅ **实时日志**：任务执行日志实时传输与展示
-- ✅ **幂等控制**：Redis 分布式锁 + 状态机，防止重复执行
-- ✅ **锁续期机制**：执行器心跳续期锁 TTL，防止任务卡死
-- ✅ **任务执行**：支持 HTTP、Shell 任务类型
-- ✅ **超时重试**：超时控制、可配置重试策略
-- ✅ **RBAC 权限管理**：完整的角色权限控制系统
-- ✅ **多租户**：领域级资源隔离
-- ✅ **可观测**：任务执行历史、日志记录
-- ✅ **Webhook 回调**：灵活的推送时机配置（成功/失败/全部）
-- ✅ **Cron 兼容**：支持 5 位分钟级和 6 位秒级 Cron 表达式
-- ✅ **前端**：Vue3 + Element Plus
+### 技术栈
 
-## 🛠️ 技术栈
+| 层 | 技术 |
+|---|------|
+| 后端 | Go 1.24+, Gin, gRPC, gorqlite |
+| 前端 | Vue 3, TypeScript, Element Plus, AntV X6 |
+| 存储 | rqlite (Raft SQL), Redis |
+| 通信 | HTTP REST, gRPC, SSE |
 
-### 后端
-
-- **语言**：Go 1.24+
-- **框架**：Gin (HTTP API), gRPC (通信)
-- **数据库**：rqlite (分布式 SQLite)
-- **缓存/锁**：Redis
-- **协议**：Protocol Buffers
-- **密码加密**：bcrypt
-
-### 前端
-
-- **框架**：Vue 3 + TypeScript
-- **构建**：Vite
-- **UI 组件库**：Element Plus
-- **状态管理**：Pinia
-
-## 📁 项目结构
+### 项目结构
 
 ```
 bdopsflow/
-├── docs/                             # 文档目录
-│   ├── DEVELOPMENT.md               # 开发、部署和使用指南
-│   ├── FEATURES.md                  # 核心功能参考（所有功能实现详解）
-│   ├── LOGGING.md                   # 任务日志系统文档
-│   ├── ARCHITECTURE.md              # 架构设计文档
-│   └── API.md                       # API 接口文档
-├── deploy/                          # 部署文件
-│   ├── Dockerfile.scheduler
-│   ├── Dockerfile.executor
-│   ├── Dockerfile.web
-│   ├── docker-compose.yml
-│   └── schema.sql                   # 数据库初始化脚本
-├── scheduler/                       # 调度中心
-│   ├── cmd/main.go
-│   ├── internal/
-│   │   ├── config/                  # 配置管理
-│   │   ├── model/                   # 数据模型
-│   │   ├── service/                 # 业务逻辑
-│   │   ├── handler/                 # HTTP 处理器
-│   │   ├── grpcserver/             # gRPC 服务端
-│   │   ├── middleware/             # 中间件（JWT/RBAC）
-│   │   ├── cron/                   # Cron 调度器
-│   │   ├── dag/                    # DAG 工作流
-│   │   ├── lineage/                # 血缘关系
-│   │   └── webhook/                # Webhook 服务
-│   └── pkg/
-│       ├── election/                # 主节点选举
-│       └── lock/                    # 分布式锁
-├── executor/                        # 执行器
-│   ├── cmd/main.go
+├── scheduler/          # 调度中心
+│   ├── cmd/           # 入口 + 路由
 │   └── internal/
-│       ├── config/
-│       ├── executor/                # 任务执行器
-│       ├── pool/                    # 协程池
-│       ├── grpcclient/              # gRPC 客户端
-│       └── logger/                  # 日志管理
-├── proto/                           # Protobuf 定义
-│   ├── executor.proto
-│   ├── executor.pb.go
-│   └── executor_grpc.pb.go
-├── web/                             # Vue3 前端
-│   ├── src/
-│   │   ├── api/                     # API 调用
-│   │   ├── components/              # 组件
-│   │   ├── views/                   # 页面组件
-│   │   ├── router/                  # 路由配置
-│   │   ├── stores/                  # Pinia 状态管理
-│   │   └── types/                   # TypeScript 类型
-│   └── package.json
-├── Makefile
-├── go.mod
-├── go.sum
-└── README.md
+│       ├── workflow/   # Dify 风格工作流引擎
+│       │   └── executors/  # 9 种节点执行器
+│       ├── dag/        # DAG 验证 + 拓扑排序
+│       ├── handler/    # HTTP 处理器
+│       ├── service/    # 业务逻辑
+│       ├── middleware/  # JWT/RBAC/审计/数据源权限
+│       ├── datasource/ # 数据源管理 + 查询
+│       ├── cron/       # Cron 调度器
+│       ├── webhook/    # Webhook 服务
+│       └── config/     # 配置
+├── executor/           # 执行器
+│   └── internal/
+│       ├── executor/   # 任务执行（HTTP/Shell）
+│       └── config/     # 配置
+├── web/                # 前端
+│   └── src/
+│       ├── components/workflow/  # X6 工作流编辑器
+│       ├── views/      # 页面
+│       └── api/        # API 接口
+└── deploy/             # 部署配置
+    └── schema.sql      # 数据库 Schema
 ```
 
-## 🚀 快速开始
+### 快速开始
 
-### 前置条件
+#### 环境要求
 
 - Go 1.24+
-- Redis 7.0+
-- rqlite 8.0+
-- Node.js 18+ (前端)
-- Git
+- Node.js 18+
+- rqlite
+- Redis
 
-### 1. 克隆项目
+#### Docker Compose 一键启动
 
 ```bash
 git clone https://github.com/lynnyq/bdopsflow.git
 cd bdopsflow
+docker-compose up -d
 ```
 
-### 2. 启动依赖服务
+访问 http://localhost:8080，默认账号 admin/admin123
 
-#### 启动 Redis
+#### 手动启动
 
-```bash
-# 使用 Docker（推荐）
-docker run -d --name bdopsflow-redis -p 6379:6379 redis:7-alpine
-```
-
-#### 启动 rqlite
-
-```bash
-# 使用 Docker（推荐）
-docker run -d --name bdopsflow-rqlite -p 4001:4001 rqlite/rqlite:latest
-
-# 等待几秒让 rqlite 启动
-sleep 3
-
-# 初始化数据库
-curl -XPOST 'http://localhost:4001/db/load?pretty' --data-binary @deploy/schema.sql
-```
-
-### 3. 编译并启动调度中心
-
+1. 启动 rqlite 和 Redis
+2. 启动调度中心：
 ```bash
 cd scheduler
-
-# 编译
-go build -o bin/scheduler ./cmd/main.go
-
-# 复制配置文件
 cp config.yaml.example config.yaml
-
-# 运行
-./bin/scheduler
+go run cmd/main.go
 ```
-
-预期输出：
-
-```
-Connected to Redis successfully
-Connected to rqlite successfully
-gRPC server listening on port 50051
-HTTP server listening on port 8080
-```
-
-### 4. 编译并启动执行器（新开终端）
-
+3. 启动执行器：
 ```bash
 cd executor
-
-# 编译
-go build -o bin/executor ./cmd/main.go
-
-# 复制配置文件
 cp config.yaml.example config.yaml
-
-# 运行
-./bin/executor
+go run cmd/main.go
 ```
-
-预期输出：
-
-```
-[Executor] Registered with scheduler successfully
-[Executor] Subscribed to tasks
-[Executor] Executor executor-1 started (capacity: 10)
-```
-
-### 5. 启动前端（新开终端）
-
+4. 启动前端：
 ```bash
 cd web
-
-# 安装依赖
 npm install
-
-# 启动开发服务器
 npm run dev
 ```
 
-访问 http://localhost:5173
+### 工作流节点类型
 
-### 6. 登录系统
+| 节点 | 说明 | 输出示例 |
+|------|------|---------|
+| Start | 工作流入口，定义输入变量 | variables |
+| End | 工作流出口，定义输出变量 | outputs |
+| HTTP | HTTP 请求 | status_code, response |
+| Shell | Shell 脚本执行 | stdout, stderr, exit_code |
+| IF/ELSE | 条件分支（true/false 双出口） | result, branch |
+| Delay | 延迟等待 | waited_seconds |
+| Webhook | Webhook 通知 | status_code, response |
+| 变量聚合 | 合并多个输入变量 | merged_variables |
+| 数据转换 | 表达式/脚本转换 | result |
 
-默认管理员账号：
+### RBAC 权限模型
 
-- 用户名：`admin`
-- 密码：`admin123`
+| 角色 | 权限范围 |
+|------|---------|
+| system_admin | 全局管理，跨域访问 |
+| domain_admin | 领域内管理 |
+| user | 领域内基本操作 |
 
-## 🏛️ 权限系统
+领域隔离规则：
+- 非管理员只能操作自己 domain_id 下的资源
+- 创建资源时，非管理员强制使用 JWT 中的 domain_id
+- 数据源支持 6 种权限级别：read/update/delete/query/download/manage
 
-### 预设角色
-
-| 角色 | 说明 |
-|------|------|
-| 系统管理员 | 系统最高权限，可管理所有资源 |
-| 领域管理员 | 领域级管理权限 |
-| 普通用户 | 基础查看和操作权限 |
-
-### 权限资源
-
-| 资源 | 说明 |
-|------|------|
-| user | 用户管理 |
-| role | 角色管理 |
-| permission | 权限查看 |
-| domain | 领域管理 |
-| executor | 执行器管理 |
-| task | 任务管理 |
-| log | 日志管理 |
-| workflow | 工作流管理 |
-
-### 领域隔离
-
-- 资源绑定到领域
-- 执行器可分配到领域
-- 用户可在不同领域拥有不同角色
-- 跨领域资源不可见
-
-## 📖 文档
+### 📖 文档
 
 | 文档 | 说明 |
 |------|------|
 | [使用指南](docs/GUIDE.md) | 完整的使用指南（架构、功能、API、错误码、部署、安全） |
 | [配置指南](docs/CONFIGURATION.md) | 配置项详解、示例配置、密钥管理、安全检查清单 |
 
-## 🐳 Docker 部署
+### License
 
-使用 Docker Compose 一键启动所有服务：
-
-```bash
-cd deploy
-docker-compose up -d
-```
-
-服务地址：
-
-- 前端：http://localhost:3000
-- 调度中心 HTTP API：http://localhost:8080
-- 调度中心 gRPC：localhost:50051
-- Redis：localhost:6379
-
-## ⚙️ 配置说明
-
-### 调度中心配置 (scheduler/config.yaml)
-
-#### 开发环境（单节点）
-```yaml
-app:
-  http_port: "8080"
-  grpc_port: "50051"
-
-database:
-  rqlite_addrs:
-    - "http://localhost:4001"
-  rqlite_user: ""
-  rqlite_password: ""
-  rqlite_tls: false
-
-redis:
-  mode: "single"
-  addr: "localhost:6379"
-  password: ""
-  db: 0
-
-jwt:
-  secret: "your-secret-key-change-in-production"
-  expiry_hours: 24
-
-log:
-  level: "info"
-  format: "json"
-```
-
-#### 生产环境（集群模式）
-```yaml
-app:
-  http_port: "8080"
-  grpc_port: "50051"
-
-database:
-  rqlite_addrs:
-    - "http://rqlite1:4001"
-    - "http://rqlite2:4001"
-    - "http://rqlite3:4001"
-  rqlite_user: "admin"
-  rqlite_password: "your-rqlite-password"
-  rqlite_tls: false
-
-redis:
-  mode: "sentinel"
-  master_name: "mymaster"
-  sentinel_addrs:
-    - "sentinel1:26379"
-    - "sentinel2:26379"
-    - "sentinel3:26379"
-  sentinel_password: ""
-  password: "your-redis-password"
-  db: 0
-
-jwt:
-  secret: "your-secure-secret-key-change-in-production"
-  expiry_hours: 24
-
-log:
-  level: "info"
-  format: "json"
-```
-
-### 执行器配置 (executor/config.yaml)
-
-执行器支持配置文件和命令行参数两种配置方式，命令行参数优先级高于配置文件。
-
-#### 配置文件示例
-
-```yaml
-app:
-  executor_name: "executor-1"  # 必需：执行器名称
-  capacity: 10                  # 可选：并发任务数，默认 10
-
-scheduler:
-  addr: "localhost:50051"       # 必需：调度中心 gRPC 地址
-  timeout: 30                   # 可选：超时时间，默认 30 秒
-
-log:
-  level: "info"                 # 可选：日志级别，默认 info
-  format: "json"                # 可选：日志格式，默认 json
-```
-
-#### 命令行参数（优先级高于配置文件）
-
-```bash
-# 必需参数
-./executor --executor-name "my-executor" --scheduler-addr "localhost:50051"
-
-# 可选参数
-./executor --executor-name "my-executor" \
-            --scheduler-addr "localhost:50051" \
-            --capacity 20 \
-            --timeout 60 \
-            --log-level debug
-
-# 使用配置文件 + 命令行覆盖
-./executor --config /path/to/config.yaml \
-            --executor-name "override-name" \
-            --capacity 30
-```
-
-#### 参数说明
-
-| 参数 | 配置文件字段 | 必需 | 默认值 | 说明 |
-|------|-------------|------|--------|------|
-| --executor-name | app.executor_name | 是 | - | 执行器唯一名称 |
-| --scheduler-addr | scheduler.addr | 是 | - | 调度中心 gRPC 地址 |
-| --capacity | app.capacity | 否 | 10 | 最大并发任务数 |
-| --timeout | scheduler.timeout | 否 | 30 | gRPC 超时时间（秒） |
-| --hostname | app.hostname | 否 | 系统主机名 | 执行器注册地址 |
-| --log-level | log.level | 否 | info | 日志级别 |
-| --log-format | log.format | 否 | json | 日志格式 |
-
-## 🔧 开发调试
-
-### 运行测试
-
-```bash
-# 后端测试
-cd scheduler
-go test -v ./...
-
-cd ../executor
-go test -v ./...
-```
-
-### 前端开发
-
-```bash
-cd web
-
-# 开发模式
-npm run dev
-
-# 类型检查
-npm run type-check
-
-# 构建生产版本
-npm run build
-```
-
-## 🔐 安全建议
-
-1. 生产环境必须修改默认密码
-2. 使用 HTTPS 加密通信
-3. 配置 Redis 密码认证
-4. 启用防火墙规则
-5. 遵循最小权限原则
-6. 定期备份数据
-7. 日志审计
-8. 使用强 JWT 密钥（至少 32 字符）
-
-## 📄 许可证
-
-MIT License
-
-***
-
-**享受使用 BDopsFlow！** 🎉
+MIT

@@ -135,7 +135,51 @@ datasource:
 | gRPC 端口 | `app.grpc_port` | string | 选填 | `"50051"` | gRPC 服务监听端口 |
 | 节点 ID | `app.node_id` | string | 选填 | `""` | 调度中心节点标识，集群部署时每个节点必须唯一 |
 | 允许注册 | `app.allow_register` | bool | 选填 | `false` | 是否允许用户自行注册 |
-| CORS 来源 | `app.cors_allow_origins` | []string | 选填 | `[]` | 允许的跨域来源列表 |
+| CORS 来源 | `app.cors_allow_origins` | []string | 选填 | `[]` | 允许的跨域来源列表，详见下方说明 |
+
+**CORS 来源配置说明**
+
+`app.cors_allow_origins` 控制浏览器跨域请求（CORS）的访问策略，根据配置值不同有以下行为：
+
+| 配置值 | 行为 | 适用场景 |
+|--------|------|---------|
+| `[]`（空数组/默认） | 允许所有来源，响应头设置 `Access-Control-Allow-Origin: *` | 开发环境、内网部署 |
+| 指定来源列表 | 仅允许列表中的来源访问，匹配请求 `Origin` 头 | 生产环境（推荐） |
+
+**配置示例**：
+
+```yaml
+app:
+  cors_allow_origins: []
+```
+
+```yaml
+app:
+  cors_allow_origins:
+    - "https://bdopsflow.example.com"
+    - "https://ops.example.com"
+```
+
+```yaml
+app:
+  cors_allow_origins:
+    - "http://localhost:3000"
+    - "http://localhost:5173"
+```
+
+**环境变量方式**（逗号分隔）：
+
+```bash
+export APP_CORS_ALLOW_ORIGINS="https://bdopsflow.example.com,https://ops.example.com"
+```
+
+**注意事项**：
+
+- 来源必须包含完整的协议和域名（如 `https://example.com`），可包含端口号（如 `http://localhost:3000`）
+- 当配置了指定来源时，系统会根据请求的 `Origin` 头进行精确匹配，未匹配的来源将被拒绝
+- 配置了指定来源时，响应头会设置 `Vary: Origin`，确保 CDN/代理正确缓存
+- 生产环境强烈建议配置为具体的域名列表，避免使用空数组（允许所有来源）
+- 内置 Web UI（`web.enabled: true`）不受此配置影响，前后端同源无需跨域
 
 #### rsa（RSA 密钥配置）
 
@@ -374,7 +418,13 @@ cfg.Merge(executorName, capacity, schedulerAddr, schedulerAddrs, timeout, hostna
 | `JWT_EXPIRY_HOURS` | `jwt.expiry_hours` | int | `24` |
 | `LOG_LEVEL` | `log.level` | string | `"info"` |
 | `LOG_FORMAT` | `log.format` | string | `"json"` |
-| `BDOPSFLOW_ENCRYPTION_KEY` | `datasource.encryption_key` | string | `"change-in-prod-32byte-key1-here1"` |
+| `DATASOURCE_ENCRYPTION_KEY` | `datasource.encryption_key` | string | `"change-in-prod-32byte-key1-here1"` |
+| `DATASOURCE_KEY_SOURCE` | `datasource.key_source` | string | `"direct"` |
+| `DATASOURCE_KEY_ENV_VAR` | `datasource.key_env_var` | string | `"BDOPSFLOW_ENCRYPTION_KEY"` |
+| `DATASOURCE_KEY_FILE` | `datasource.key_file` | string | `""` |
+| `DATASOURCE_AUTO_ROTATE_DAYS` | `datasource.auto_rotate_days` | int | `0` |
+
+> **注意**：`DATASOURCE_ENCRYPTION_KEY` 是通用环境变量覆盖机制，直接覆盖 `datasource.encryption_key` 配置值。而 `BDOPSFLOW_ENCRYPTION_KEY` 是 `datasource.key_env_var` 的默认值，当 `key_source: "env"` 时，系统会从该环境变量名读取加密密钥。两者是不同的机制：前者是配置框架的通用覆盖，后者是数据源加密的专用密钥来源。
 
 ### 3.2 执行器环境变量
 

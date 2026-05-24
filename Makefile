@@ -59,13 +59,13 @@ build-frontend:
 # Build scheduler (with embedded frontend)
 build-scheduler:
 	@echo "Building scheduler..."
-	@CGO_ENABLED=0 go build -ldflags "-s -w" -o scheduler/bin/scheduler ./scheduler/cmd/main.go
+	@CGO_ENABLED=0 go build -ldflags "-s -w" -o scheduler/bin/scheduler ./scheduler/cmd
 	@echo "✅ Scheduler built successfully!"
 
 # Build executor
 build-executor:
 	@echo "Building executor..."
-	@CGO_ENABLED=0 go build -ldflags "-s -w" -o executor/bin/executor ./executor/cmd/main.go
+	@CGO_ENABLED=0 go build -ldflags "-s -w" -o executor/bin/executor ./executor/cmd
 	@echo "✅ Executor built successfully!"
 
 # Build everything (scheduler with embedded frontend + executor)
@@ -94,9 +94,9 @@ run-dev: setup-config
 	@echo "=== Starting BDopsFlow Development Mode ==="
 	@echo ""
 	@echo "Building Scheduler..."
-	@cd scheduler && mkdir -p bin && CGO_ENABLED=0 go build -ldflags "-s -w" -o bin/scheduler ./cmd/main.go
+	@cd scheduler && mkdir -p bin && CGO_ENABLED=0 go build -ldflags "-s -w" -o bin/scheduler ./cmd
 	@echo "Building Executor..."
-	@cd executor && mkdir -p bin && CGO_ENABLED=0 go build -ldflags "-s -w" -o bin/executor ./cmd/main.go
+	@cd executor && mkdir -p bin && CGO_ENABLED=0 go build -ldflags "-s -w" -o bin/executor ./cmd
 	@echo ""
 	@echo "Installing Web Dependencies..."
 	@cd web && npm install
@@ -138,11 +138,11 @@ stop-dev:
 
 run-scheduler: setup-config
 	@echo "Starting Scheduler..."
-	@cd scheduler && go run ./cmd/main.go
+	@cd scheduler && go run ./cmd
 
 run-executor: setup-config
 	@echo "Starting Executor..."
-	@cd executor && go run ./cmd/main.go
+	@cd executor && go run ./cmd
 
 run-web:
 	@cd web && npm run dev
