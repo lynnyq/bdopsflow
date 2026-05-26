@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	pb "github.com/lynnyq/bdopsflow/proto"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/webhook"
+	"github.com/lynnyq/bdopsflow/scheduler/pkg/database"
 	"github.com/redis/go-redis/v9"
 	"github.com/robfig/cron/v3"
 	rqlite "github.com/rqlite/gorqlite"
@@ -50,7 +51,7 @@ type LeaderAddrResolver interface {
 }
 
 type SchedulerService struct {
-	DB                   *rqlite.Connection
+	DB                   database.DB
 	redis                *redis.Client
 	dispatcher           TaskDispatcher
 	cronScheduler        interface {
@@ -72,7 +73,7 @@ type SchedulerService struct {
 	httpClient            *http.Client
 }
 
-func NewSchedulerService(db *rqlite.Connection, redis *redis.Client) *SchedulerService {
+func NewSchedulerService(db database.DB, redis *redis.Client) *SchedulerService {
 	return &SchedulerService{
 		DB:           db,
 		redis:        redis,

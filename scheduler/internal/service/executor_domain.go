@@ -6,16 +6,17 @@ import (
 	"time"
 
 	"github.com/lynnyq/bdopsflow/scheduler/internal/model"
+	"github.com/lynnyq/bdopsflow/scheduler/pkg/database"
 	rqlite "github.com/rqlite/gorqlite"
 )
 
 // ExecutorDomainService 执行器领域分配服务
 type ExecutorDomainService struct {
-	db *rqlite.Connection
+	db database.DB
 }
 
 // NewExecutorDomainService 创建执行器领域分配服务
-func NewExecutorDomainService(db *rqlite.Connection) *ExecutorDomainService {
+func NewExecutorDomainService(db database.DB) *ExecutorDomainService {
 	return &ExecutorDomainService{db: db}
 }
 
@@ -334,11 +335,11 @@ func (s *ExecutorDomainService) GetAssignedTaskNamesForExecutor(ctx context.Cont
 }
 
 // GetExecutorsByUserRole 根据用户角色和领域获取执行器列表
-func (s *ExecutorDomainService) GetExecutorsByUserRole(ctx context.Context, userRole string, userDomainID int64) ([]*model.ExecutorWithDomains, error) {
+func (s *ExecutorDomainService) GetExecutorsByUserRole(ctx context.Context, isAdmin bool, userDomainID int64) ([]*model.ExecutorWithDomains, error) {
 	var query string
 	var args []interface{}
 
-	if userRole == "system_admin" || userRole == "admin" {
+	if isAdmin {
 		query = `
 			SELECT e.id, e.name, e.address, e.status, e.last_heartbeat, e.capacity, e.current_load, e.is_global, e.created_at, e.updated_at
 			FROM bdopsflow_executors e

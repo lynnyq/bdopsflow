@@ -113,7 +113,7 @@
             @keyup.enter="handleLogin"
           >
             <div class="form-group">
-              <label class="form-label">用户名</label>
+              <span class="form-label">用户名</span>
               <div class="input-wrapper">
                 <div class="input-icon">
                   <el-icon><User /></el-icon>
@@ -129,7 +129,7 @@
             </div>
 
             <div class="form-group">
-              <label class="form-label">密码</label>
+              <span class="form-label">密码</span>
               <div class="input-wrapper">
                 <div class="input-icon">
                   <el-icon><Lock /></el-icon>

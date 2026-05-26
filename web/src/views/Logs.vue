@@ -127,7 +127,7 @@
         <div v-if="showAdvancedFilters" class="advanced-filters">
           <div class="advanced-filters-row">
             <div class="filter-group">
-              <label class="filter-label">开始时间</label>
+              <span class="filter-label">开始时间</span>
               <div class="filter-range">
                 <el-date-picker
                   v-model="filters.start_time_from"
@@ -151,7 +151,7 @@
               </div>
             </div>
             <div class="filter-group">
-              <label class="filter-label">结束时间</label>
+              <span class="filter-label">结束时间</span>
               <div class="filter-range">
                 <el-date-picker
                   v-model="filters.end_time_from"
@@ -175,7 +175,7 @@
               </div>
             </div>
             <div class="filter-group">
-              <label class="filter-label">执行时长(秒)</label>
+              <span class="filter-label">执行时长(秒)</span>
               <div class="filter-range">
                 <el-input-number
                   v-model="filters.duration_min"
@@ -328,7 +328,7 @@ const route = useRoute()
 const authStore = useAuthStore()
 
 const canDelete = computed(() => {
-  return authStore.user?.role === 'admin' || authStore.user?.role === 'system_admin' || authStore.user?.role === 'domain_admin'
+  return authStore.hasPermission('log', 'delete') || authStore.hasPermission('log', 'manage')
 })
 const executions = ref<TaskExecutionListResponse[]>([])
 const executors = ref<Executor[]>([])

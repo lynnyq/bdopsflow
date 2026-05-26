@@ -1,6 +1,7 @@
 package service
 
 import (
+	"github.com/lynnyq/bdopsflow/scheduler/pkg/database"
 	rqlite "github.com/rqlite/gorqlite"
 )
 
@@ -14,18 +15,13 @@ func (m *MockDB) QueryOneParameterized(stmt rqlite.ParameterizedStatement) (rqli
 	return rqlite.QueryResult{}, nil
 }
 
-func (m *MockDB) WriteOne(query string) (rqlite.WriteResult, error) {
-	return rqlite.WriteResult{}, nil
-}
-
 func (m *MockDB) WriteOneParameterized(stmt rqlite.ParameterizedStatement) (rqlite.WriteResult, error) {
 	return rqlite.WriteResult{}, nil
 }
 
-func (m *MockDB) Execute(query string) error {
-	return nil
+func (m *MockDB) WriteParameterized(sqlStatements []rqlite.ParameterizedStatement) ([]rqlite.WriteResult, error) {
+	results := make([]rqlite.WriteResult, len(sqlStatements))
+	return results, nil
 }
 
-func (m *MockDB) Close() error {
-	return nil
-}
+var _ database.DB = (*MockDB)(nil)

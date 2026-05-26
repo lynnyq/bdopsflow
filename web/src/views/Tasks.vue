@@ -763,7 +763,7 @@ const authStore = useAuthStore()
 const webhookList = ref<Webhook[]>([])
 
 const loadWebhooks = async () => {
-  const domainId = authStore.user?.domain_id || 1
+  const domainId = authStore.currentDomainId || 1
   try {
     const response = await webhookAPI.list(domainId)
     webhookList.value = (response.data?.items || []).filter((w: Webhook) => w.is_enabled)
@@ -899,8 +899,7 @@ const filteredTasks = computed(() => {
 })
 
 const canManageTask = computed(() => {
-  const role = authStore.user?.role
-  return role === 'admin' || role === 'system_admin' || role === 'domain_admin'
+  return authStore.hasPermission('task', 'create') || authStore.hasPermission('task', 'manage')
 })
 
 const pagedTasks = computed(() => {
@@ -1001,7 +1000,7 @@ const loadTasks = async () => {
 
 const handleCreate = () => {
   editingTask.value = null
-  const userDomainId = authStore.user?.domain_id || 1
+  const userDomainId = authStore.currentDomainId || 1
   form.value = { ...defaultForm, domain_id: userDomainId }
   cronPreset.value = 'manual'
   loadWebhooks()
@@ -1068,7 +1067,7 @@ const handleSubmit = async () => {
     if (!valid) return
     submitting.value = true
     try {
-      const userDomainId = authStore.user?.domain_id || 1
+      const userDomainId = authStore.currentDomainId || 1
       const submitData = {
         ...form.value,
         config: stringifyConfig(form.value.config),

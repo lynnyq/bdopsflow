@@ -31,7 +31,27 @@ func (h *RoleAdminHandler) ListRoles(c *gin.Context) {
 
 	slog.Debug("RoleAdminHandler.ListRoles: handling request")
 
-	bdopsflow_roles, err := h.svc.ListRoles(ctx)
+	domainID, _ := c.Get("current_domain_id")
+	var dID int64
+	if v, ok := domainID.(int64); ok {
+		dID = v
+	}
+
+	userID, _ := c.Get("user_id")
+	var uid int64
+	if v, ok := userID.(int64); ok {
+		uid = v
+	}
+
+	isAdmin := false
+	if uid > 0 {
+		adminCheck, err := h.svc.IsSystemAdmin(ctx, uid)
+		if err == nil {
+			isAdmin = adminCheck
+		}
+	}
+
+	bdopsflow_roles, err := h.svc.ListRoles(ctx, dID, isAdmin)
 	if err != nil {
 		slog.Error("RoleAdminHandler.ListRoles: failed to list bdopsflow_roles", "error", err)
 		FailFromError(c, err)
@@ -102,7 +122,12 @@ func (h *RoleAdminHandler) CreateRole(c *gin.Context) {
 		domainID = req.DomainID
 	}
 
-	role, err := h.svc.CreateRole(ctx, req.Name, req.Code, req.Description, domainID)
+	var parentID *int64
+	if req.ParentID != nil && *req.ParentID > 0 {
+		parentID = req.ParentID
+	}
+
+	role, err := h.svc.CreateRole(ctx, req.Name, req.Code, req.Description, parentID, domainID)
 	if err != nil {
 		slog.Error("RoleAdminHandler.CreateRole: failed to create role", "name", req.Name, "error", err)
 		FailFromError(c, err)

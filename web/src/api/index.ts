@@ -1,13 +1,12 @@
 import api from '@/utils/api'
-import type { Task, Workflow, TaskExecution, TaskExecutionListResponse, Executor, ExecutorWithDomains, Domain, LoginRequest, LoginResponse, WorkflowExecution, TaskLog, DashboardStats, TrendData, Datasource, DatasourcePermission, QueryResult, QueryHistory, SavedSQL, TableInfo, ColumnInfo, SystemConfigItem, Webhook, PaginatedResponse } from '@/types'
-import { userAdminAPI, roleAdminAPI, domainAdminAPI, permissionAPI } from './admin'
+import type { Task, Workflow, TaskExecution, TaskExecutionListResponse, Executor, ExecutorWithDomains, Domain, LoginRequest, LoginResponse, WorkflowExecution, TaskLog, DashboardStats, TrendData, Datasource, DatasourcePermission, QueryResult, QueryHistory, SavedSQL, TableInfo, ColumnInfo, SystemConfigItem, Webhook, PaginatedResponse, User, Role, Permission, CurrentUserResponse, SwitchDomainResponse, AuditLog } from '@/types'
+import { userAdminAPI, roleAdminAPI, domainAdminAPI, permissionAPI, switchDomain } from './admin'
 import { datasourceAPI, queryAPI, systemConfigAPI } from './datasource'
 import { auditLogAPI } from './audit'
 import { webhookAPI } from './webhook'
-import type { User, Role, Permission } from './admin'
-import type { AuditLog, AuditLogListResponse, AuditLogStats } from './audit'
+import type { AuditLogListResponse, AuditLogStats } from './audit'
 
-export { userAdminAPI, roleAdminAPI, domainAdminAPI, permissionAPI, datasourceAPI, queryAPI, systemConfigAPI, auditLogAPI, webhookAPI }
+export { userAdminAPI, roleAdminAPI, domainAdminAPI, permissionAPI, switchDomain, datasourceAPI, queryAPI, systemConfigAPI, auditLogAPI, webhookAPI }
 export type { User, Role, Permission, AuditLog, AuditLogListResponse, AuditLogStats }
 
 interface UpdateProfileRequest {
@@ -26,7 +25,7 @@ interface ResetPasswordRequest {
 export const authAPI = {
   login: (data: LoginRequest) => api.post<LoginResponse>('/auth/login', data),
   ssoLogin: (data: LoginRequest) => api.post<LoginResponse>('/auth/sso-login', data),
-  getCurrentUser: () => api.get('/auth/current'),
+  getCurrentUser: () => api.get<CurrentUserResponse>('/auth/current'),
   updateProfile: (data: UpdateProfileRequest) => api.put('/auth/profile', data),
   changePassword: (data: ChangePasswordRequest) => api.post('/auth/change-password', data),
   getPublicKey: () => api.get<{ public_key: string; sso_public_key?: string; sso_enabled: boolean }>('/auth/public-key'),

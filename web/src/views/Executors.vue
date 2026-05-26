@@ -251,10 +251,9 @@ const filters = ref({
   status: ''
 })
 
-const isAdmin = computed(() => authStore.user?.role === 'admin' || authStore.user?.role === 'system_admin')
+const isAdmin = computed(() => authStore.isSystemAdmin)
 const canManageExecutor = computed(() => {
-  const role = authStore.user?.role
-  return role === 'admin' || role === 'system_admin' || role === 'domain_admin'
+  return authStore.hasPermission('executor', 'online') || authStore.hasPermission('executor', 'manage')
 })
 const showActions = computed(() => isAdmin.value || canManageExecutor.value)
 

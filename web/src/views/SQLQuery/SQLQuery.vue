@@ -19,7 +19,7 @@
         </div>
 
         <div class="panel-section">
-          <label class="section-label">数据源</label>
+          <span class="section-label">数据源</span>
           <el-select
             v-model="selectedDatasourceId"
             placeholder="选择数据源"
@@ -48,7 +48,7 @@
         </div>
 
         <div class="panel-section">
-          <label class="section-label">数据库</label>
+          <span class="section-label">数据库</span>
           <el-select
             v-model="selectedDatabase"
             placeholder="选择数据库"
@@ -67,7 +67,7 @@
         </div>
 
         <div class="panel-section">
-          <label class="section-label">表</label>
+          <span class="section-label">表</span>
           <el-select
             v-model="selectedTable"
             placeholder="选择表"
@@ -86,7 +86,7 @@
         </div>
 
         <div class="panel-section columns-section">
-          <label class="section-label">字段</label>
+          <span class="section-label">字段</span>
           <div class="columns-list">
             <div
               v-for="column in selectedTableColumns"
@@ -428,6 +428,28 @@ const saved = loadTabsFromStorage();
 const tabs = ref<SQLTab[]>(saved.tabs);
 const activeTabId = ref<string>(saved.activeTabId);
 
+watch(() => authStore.user?.id, (newUserId, oldUserId) => {
+  if (newUserId !== oldUserId && newUserId) {
+    syncCurrentTabData();
+    const loaded = loadTabsFromStorage();
+    tabs.value = loaded.tabs;
+    activeTabId.value = loaded.activeTabId;
+    sqlText.value = activeTab.value.sql;
+    selectedDatasourceId.value = activeTab.value.datasourceId;
+    selectedDatabase.value = activeTab.value.database;
+    selectedTable.value = '';
+    queryResult.value = null;
+    errorMessage.value = '';
+    nextTick(() => {
+      if (editorView) {
+        editorView.dispatch({
+          changes: { from: 0, to: editorView.state.doc.length, insert: sqlText.value }
+        });
+      }
+    });
+  }
+});
+
 const saveTabsToStorage = () => {
   try {
     localStorage.setItem(getStorageKey(), JSON.stringify({
@@ -442,7 +464,7 @@ const saveTabsToStorage = () => {
 const activeTab = computed(() => tabs.value.find(t => t.id === activeTabId.value) || tabs.value[0]);
 
 const editorRef = ref<HTMLElement>();
-const editorHeight = ref(350);
+const editorHeight = ref(200);
 const isResizing = ref(false);
 const sqlText = ref(activeTab.value.sql);
 const executing = ref(false);
@@ -699,7 +721,7 @@ const onResize = (e: MouseEvent) => {
   if (!container) return;
   const rect = container.getBoundingClientRect();
   const maxHeight = rect.height - 200;
-  const minHeight = 150;
+  const minHeight = 120;
   const deltaY = e.movementY;
   const newHeight = editorHeight.value + deltaY;
   editorHeight.value = Math.max(minHeight, Math.min(maxHeight, newHeight));
@@ -1281,8 +1303,10 @@ window.addEventListener('beforeunload', () => {
 .sql-query-page {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  height: calc(100vh - 112px);
   min-height: 0;
+  overflow: hidden;
+  margin: calc(-1 * var(--space-6));
 }
 
 .main-content {
@@ -1702,7 +1726,7 @@ window.addEventListener('beforeunload', () => {
   display: flex;
   flex-direction: column;
   flex: 1;
-  min-height: 200px;
+  min-height: 300px;
 }
 
 .result-header {

@@ -2,12 +2,13 @@ package model
 
 // CreateUserRequest 创建用户请求
 type CreateUserRequest struct {
-	Username string `json:"username" binding:"required,min=3,max=50,regexp=^[a-zA-Z0-9_ ]+$"`
-	RealName string `json:"real_name" binding:"max=50"`
-	Phone    string `json:"phone" binding:"max=20"`
-	Email    string `json:"email" binding:"required,email"`
-	Password string `json:"password" binding:"required,min=1,max=512"`
-	Role     string `json:"role" binding:"required,oneof=system_admin domain_admin user"`
+	Username  string  `json:"username" binding:"required,min=3,max=50,regexp=^[a-zA-Z0-9_ ]+$"`
+	RealName  string  `json:"real_name" binding:"max=50"`
+	Phone     string  `json:"phone" binding:"max=20"`
+	Email     string  `json:"email" binding:"required,email"`
+	Password  string  `json:"password" binding:"required,min=1,max=512"`
+	DomainIDs []int64 `json:"domain_ids" binding:"required,min=1"`
+	RoleIDs   []int64 `json:"role_ids" binding:"required,min=1"`
 }
 
 type UpdateUserRequest struct {
@@ -15,7 +16,6 @@ type UpdateUserRequest struct {
 	RealName string `json:"real_name" binding:"max=50"`
 	Phone    string `json:"phone" binding:"max=20"`
 	Email    string `json:"email" binding:"required,email"`
-	Role     string `json:"role" binding:"required,oneof=system_admin domain_admin user"`
 	IsActive bool   `json:"is_active"`
 }
 
@@ -41,14 +41,13 @@ type AdminUpdateUserRequest struct {
 	RealName string `json:"real_name" binding:"max=50"`
 	Phone    string `json:"phone" binding:"max=20"`
 	Email    string `json:"email" binding:"required,email"`
-	Role     string `json:"role" binding:"required,oneof=system_admin domain_admin user"`
 	IsActive bool   `json:"is_active"`
 }
 
 // CreateRoleRequest 创建角色请求
 type CreateRoleRequest struct {
 	Name        string `json:"name" binding:"required,min=2,max=100"`
-	Code        string `json:"code" binding:"required,min=2,max=50,alphanum"`
+	Code        string `json:"code" binding:"required,min=2,max=50,regexp=[a-z0-9_]+"`
 	Description string `json:"description" binding:"max=500"`
 }
 

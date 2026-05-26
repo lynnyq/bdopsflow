@@ -1,39 +1,39 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { User, UserPermission } from '@/types'
+import type { User, Permission, DomainInfo } from '@/types'
 import { authAPI } from '@/api'
+import { switchDomain as switchDomainAPI } from '@/api/admin'
 import { encryptPassword, encryptPasswordSSO, setPublicKey, setSSOPublicKey, getPublicKey, getSSOPublicKey } from '@/utils/password'
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null)
   const token = ref<string | null>(localStorage.getItem('token'))
-  const permissions = ref<UserPermission[]>([])
+  const permissions = ref<Permission[]>([])
+  const domains = ref<DomainInfo[]>([])
+  const currentDomainId = ref<number | null>(null)
+  const roleCodes = ref<string[]>([])
 
   const isAdmin = computed(() => {
-    return user.value?.role === 'admin' || user.value?.role === 'system_admin'
+    return roleCodes.value.includes('system_admin') || roleCodes.value.includes('domain_admin')
   })
 
   const isSystemAdmin = computed(() => {
-    return user.value?.role === 'system_admin' || user.value?.role === 'admin'
+    return roleCodes.value.includes('system_admin')
   })
 
   const isDomainAdmin = computed(() => {
-    return user.value?.role === 'domain_admin'
+    if (isSystemAdmin.value) return true
+    return roleCodes.value.includes('domain_admin')
   })
 
   const hasPermission = (resource: string, action: string): boolean => {
     if (isSystemAdmin.value) return true
-    return permissions.value.some(p => p.resource === resource && (p.action === action || p.action === 'manage'))
+    return permissions.value.some((p: Permission) => p.resource === resource && (p.action === action || p.action === 'manage'))
   }
 
   const hasAnyPermission = (resource: string): boolean => {
     if (isSystemAdmin.value) return true
-    return permissions.value.some(p => p.resource === resource)
-  }
-
-  const hasMenuPermission = (menuAction: string): boolean => {
-    if (isSystemAdmin.value) return true
-    return permissions.value.some(p => p.resource === 'menu' && (p.action === menuAction || p.action === 'manage'))
+    return permissions.value.some((p: Permission) => p.resource === resource)
   }
 
   const setToken = (newToken: string) => {
@@ -43,14 +43,51 @@ export const useAuthStore = defineStore('auth', () => {
 
   const setUser = (newUser: User) => {
     user.value = newUser
-    permissions.value = newUser.permissions || []
+  }
+
+  const setPermissions = (newPermissions: Permission[]) => {
+    permissions.value = newPermissions
+  }
+
+  const setDomains = (newDomains: DomainInfo[]) => {
+    domains.value = newDomains
+  }
+
+  const setCurrentDomainId = (domainId: number) => {
+    currentDomainId.value = domainId
+  }
+
+  const setRoleCodes = (codes: string[]) => {
+    roleCodes.value = codes
+  }
+
+  const switchDomain = async (domainId: number) => {
+    try {
+      const response = await switchDomainAPI(domainId)
+      const { token: newToken, permissions: newPermissions, current_domain_id, role_codes } = response.data
+      setToken(newToken)
+      setPermissions(newPermissions)
+      setCurrentDomainId(current_domain_id)
+      setRoleCodes(role_codes || [])
+    } catch (error) {
+      console.error('切换领域失败:', error)
+      throw error
+    }
   }
 
   const logout = () => {
+    const userId = user.value?.id
     user.value = null
     token.value = null
     permissions.value = []
+    domains.value = []
+    currentDomainId.value = null
+    roleCodes.value = []
     localStorage.removeItem('token')
+    if (userId) {
+      localStorage.removeItem(`bdopsflow_sql_tabs_${userId}`)
+    }
+    localStorage.removeItem('bdopsflow_sql_tabs_anonymous')
   }
 
   const ssoEnabled = ref(false)
@@ -73,9 +110,13 @@ export const useAuthStore = defineStore('auth', () => {
     await fetchPublicKey()
     const encryptedPassword = encryptPassword(password)
     const response = await authAPI.login({ username, password: encryptedPassword })
-    const { token: newToken, user: newUser } = response.data
+    const { token: newToken, user: newUser, permissions: newPermissions, domains: newDomains, current_domain_id, role_codes } = response.data
     setToken(newToken)
     setUser(newUser)
+    setPermissions(newPermissions)
+    setDomains(newDomains)
+    setCurrentDomainId(current_domain_id)
+    setRoleCodes(role_codes || [])
     return newUser
   }
 
@@ -86,9 +127,13 @@ export const useAuthStore = defineStore('auth', () => {
     }
     const encryptedPassword = encryptPasswordSSO(password)
     const response = await authAPI.ssoLogin({ username, password: encryptedPassword })
-    const { token: newToken, user: newUser } = response.data
+    const { token: newToken, user: newUser, permissions: newPermissions, domains: newDomains, current_domain_id, role_codes } = response.data
     setToken(newToken)
     setUser(newUser)
+    setPermissions(newPermissions)
+    setDomains(newDomains)
+    setCurrentDomainId(current_domain_id)
+    setRoleCodes(role_codes || [])
     return newUser
   }
 
@@ -96,12 +141,19 @@ export const useAuthStore = defineStore('auth', () => {
     if (!token.value) return null
     try {
       const response = await authAPI.getCurrentUser()
-      user.value = response.data
-      permissions.value = response.data.permissions || []
+      const { user: currentUser, permissions: currentPermissions, domains: currentDomains, current_domain_id, role_codes } = response.data
+      user.value = currentUser
+      permissions.value = currentPermissions
+      domains.value = currentDomains
+      currentDomainId.value = current_domain_id
+      roleCodes.value = role_codes || []
       await fetchPublicKey()
       return user.value
     } catch (error) {
       logout()
+      if (!window.location.pathname.includes('/login')) {
+        window.location.href = '/login'
+      }
       return null
     }
   }
@@ -110,15 +162,22 @@ export const useAuthStore = defineStore('auth', () => {
     user,
     token,
     permissions,
+    domains,
+    currentDomainId,
+    roleCodes,
     ssoEnabled,
     isAdmin,
     isSystemAdmin,
     isDomainAdmin,
     hasPermission,
     hasAnyPermission,
-    hasMenuPermission,
     setToken,
     setUser,
+    setPermissions,
+    setDomains,
+    setCurrentDomainId,
+    setRoleCodes,
+    switchDomain,
     logout,
     login,
     ssoLogin,

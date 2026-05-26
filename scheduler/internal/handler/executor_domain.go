@@ -217,13 +217,10 @@ func (h *ExecutorDomainHandler) GetExecutorsWithDomains(c *gin.Context) {
 		return
 	}
 
-	user, err := h.userAdminSvc.GetUserByID(ctx, uid)
-	if err != nil {
-		InternalServerError(c, "failed to get user")
-		return
-	}
+	isAdmin, _ := h.permissionSvc.IsSystemAdmin(ctx, uid)
+	defaultDomainID, _ := h.permissionSvc.GetUserDefaultDomain(ctx, uid)
 
-	executors, err := h.svc.GetExecutorsByUserRole(ctx, user.Role, user.DomainID)
+	executors, err := h.svc.GetExecutorsByUserRole(ctx, isAdmin, defaultDomainID)
 	if err != nil {
 		slog.Error("ExecutorDomainHandler.GetExecutorsWithDomains: failed to get executors", "error", err)
 		InternalServerError(c, err.Error())
@@ -296,11 +293,8 @@ func (h *ExecutorDomainHandler) CanDeleteExecutor(c *gin.Context) {
 		return
 	}
 
-	user, err := h.userAdminSvc.GetUserByID(ctx, uid)
-	if err != nil {
-		InternalServerError(c, "failed to get user")
-		return
-	}
+	isAdmin, _ := h.permissionSvc.IsSystemAdmin(ctx, uid)
+	defaultDomainID, _ := h.permissionSvc.GetUserDefaultDomain(ctx, uid)
 
 	executor, err := h.svc.GetExecutorByName(ctx, name)
 	if err != nil {
@@ -318,10 +312,10 @@ func (h *ExecutorDomainHandler) CanDeleteExecutor(c *gin.Context) {
 	var canDelete bool
 	var reason string
 
-	if user.Role == "system_admin" || user.Role == "admin" {
+	if isAdmin {
 		canDelete = true
 	} else {
-		canDelete, err = h.svc.CanDomainAdminDeleteExecutor(ctx, executor.ID, user.DomainID)
+		canDelete, err = h.svc.CanDomainAdminDeleteExecutor(ctx, executor.ID, defaultDomainID)
 		if err != nil {
 			InternalServerError(c, err.Error())
 			return

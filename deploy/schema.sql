@@ -1,10 +1,9 @@
 -- BDopsFlow 数据库初始化脚本
 -- rqlite 分布式数据库
--- 版本：v2.3
--- 日期：2026-05-22
--- 描述：新增Webhook管理模块
+-- 版本：v3.0
+-- 日期：2026-05-26
+-- 描述：权限体系完全重写 - 纯RBAC模型、多领域支持、角色继承、菜单自动推导
 
--- 启用外键约束
 PRAGMA foreign_keys = ON;
 
 -- ============================================================================
@@ -22,7 +21,7 @@ CREATE TABLE IF NOT EXISTS bdopsflow_domains (
 
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_domains_name ON bdopsflow_domains(name);
 
--- 2. 用户表
+-- 2. 用户表（移除 domain_id 和 role 字段，权限统一由 RBAC 管理）
 CREATE TABLE IF NOT EXISTS bdopsflow_users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT NOT NULL UNIQUE,
@@ -30,22 +29,32 @@ CREATE TABLE IF NOT EXISTS bdopsflow_users (
     phone TEXT DEFAULT '',
     password TEXT NOT NULL,
     email TEXT,
-    domain_id INTEGER,
-    role TEXT NOT NULL,
     is_active BOOLEAN DEFAULT 1,
     last_login_at DATETIME,
     created_by INTEGER,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (domain_id) REFERENCES bdopsflow_domains(id) ON DELETE SET NULL
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_users_username ON bdopsflow_users(username);
-CREATE INDEX IF NOT EXISTS idx_bdopsflow_users_domain_id ON bdopsflow_users(domain_id);
-CREATE INDEX IF NOT EXISTS idx_bdopsflow_users_role ON bdopsflow_users(role);
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_users_is_active ON bdopsflow_users(is_active);
 
--- 3. 工作流表
+-- 3. 用户-领域关联表（多对多，支持一个用户属于多个领域）
+CREATE TABLE IF NOT EXISTS bdopsflow_user_domains (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    domain_id INTEGER NOT NULL,
+    is_default BOOLEAN DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES bdopsflow_users(id) ON DELETE CASCADE,
+    FOREIGN KEY (domain_id) REFERENCES bdopsflow_domains(id) ON DELETE CASCADE,
+    UNIQUE(user_id, domain_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_bdopsflow_user_domains_user_id ON bdopsflow_user_domains(user_id);
+CREATE INDEX IF NOT EXISTS idx_bdopsflow_user_domains_domain_id ON bdopsflow_user_domains(domain_id);
+
+-- 4. 工作流表
 CREATE TABLE IF NOT EXISTS bdopsflow_workflows (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -64,7 +73,7 @@ CREATE INDEX IF NOT EXISTS idx_bdopsflow_workflows_name ON bdopsflow_workflows(n
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_workflows_domain_id ON bdopsflow_workflows(domain_id);
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_workflows_is_enabled ON bdopsflow_workflows(is_enabled);
 
--- 4. 任务表
+-- 5. 任务表
 CREATE TABLE IF NOT EXISTS bdopsflow_tasks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     workflow_id INTEGER,
@@ -98,7 +107,7 @@ CREATE INDEX IF NOT EXISTS idx_bdopsflow_tasks_status ON bdopsflow_tasks(status)
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_tasks_cron_enabled ON bdopsflow_tasks(is_enabled, cron_expression) WHERE cron_expression != '';
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_tasks_assigned_executor ON bdopsflow_tasks(assigned_executor_id);
 
--- 5. 任务执行记录表
+-- 6. 任务执行记录表
 CREATE TABLE IF NOT EXISTS bdopsflow_task_executions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     task_id INTEGER NOT NULL,
@@ -125,7 +134,7 @@ CREATE INDEX IF NOT EXISTS idx_bdopsflow_task_executions_status ON bdopsflow_tas
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_task_executions_created_at ON bdopsflow_task_executions(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_task_executions_status_time ON bdopsflow_task_executions(status, created_at);
 
--- 6. 执行器节点表 (使用 name 作为唯一标识)
+-- 7. 执行器节点表
 CREATE TABLE IF NOT EXISTS bdopsflow_executors (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE,
@@ -145,7 +154,7 @@ CREATE INDEX IF NOT EXISTS idx_bdopsflow_executors_last_heartbeat ON bdopsflow_e
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_executors_status_heartbeat ON bdopsflow_executors(status, last_heartbeat);
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_executors_is_global ON bdopsflow_executors(is_global);
 
--- 7. 工作流执行记录表
+-- 8. 工作流执行记录表
 CREATE TABLE IF NOT EXISTS bdopsflow_workflow_executions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     workflow_id INTEGER NOT NULL,
@@ -163,7 +172,7 @@ CREATE INDEX IF NOT EXISTS idx_bdopsflow_workflow_executions_workflow_id ON bdop
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_workflow_executions_status ON bdopsflow_workflow_executions(status);
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_workflow_executions_created_at ON bdopsflow_workflow_executions(created_at DESC);
 
--- 8. 任务依赖表（血缘关系）
+-- 9. 任务依赖表
 CREATE TABLE IF NOT EXISTS bdopsflow_task_dependencies (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     task_id INTEGER NOT NULL,
@@ -177,7 +186,7 @@ CREATE TABLE IF NOT EXISTS bdopsflow_task_dependencies (
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_task_dependencies_task_id ON bdopsflow_task_dependencies(task_id);
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_task_dependencies_parent_id ON bdopsflow_task_dependencies(parent_task_id);
 
--- 9. 任务执行日志表
+-- 10. 任务执行日志表
 CREATE TABLE IF NOT EXISTS bdopsflow_task_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     execution_id TEXT NOT NULL,
@@ -198,27 +207,30 @@ CREATE INDEX IF NOT EXISTS idx_bdopsflow_task_logs_log_time ON bdopsflow_task_lo
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_task_logs_level ON bdopsflow_task_logs(log_level);
 
 -- ============================================================================
--- 第二部分：权限管理系统表
+-- 第二部分：权限管理系统表（v3.0 重写）
 -- ============================================================================
 
--- 10. 角色表
+-- 11. 角色表（新增 parent_id 支持角色继承）
 CREATE TABLE IF NOT EXISTS bdopsflow_roles (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
-    code TEXT NOT NULL,
+    code TEXT NOT NULL UNIQUE,
     description TEXT,
     is_system BOOLEAN DEFAULT 0,
+    parent_id INTEGER,
     domain_id INTEGER,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (parent_id) REFERENCES bdopsflow_roles(id) ON DELETE SET NULL,
     FOREIGN KEY (domain_id) REFERENCES bdopsflow_domains(id) ON DELETE SET NULL
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_bdopsflow_roles_code ON bdopsflow_roles(code);
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_roles_domain_id ON bdopsflow_roles(domain_id);
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_roles_is_system ON bdopsflow_roles(is_system);
+CREATE INDEX IF NOT EXISTS idx_bdopsflow_roles_parent_id ON bdopsflow_roles(parent_id);
 
--- 11. 权限表
+-- 12. 权限表（移除 menu:* 权限，菜单由资源权限自动推导）
 CREATE TABLE IF NOT EXISTS bdopsflow_permissions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     resource TEXT NOT NULL,
@@ -230,7 +242,7 @@ CREATE TABLE IF NOT EXISTS bdopsflow_permissions (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_bdopsflow_permissions_resource_action ON bdopsflow_permissions(resource, action);
 
--- 12. 角色权限映射表
+-- 13. 角色权限映射表
 CREATE TABLE IF NOT EXISTS bdopsflow_role_permissions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     role_id INTEGER NOT NULL,
@@ -244,7 +256,7 @@ CREATE TABLE IF NOT EXISTS bdopsflow_role_permissions (
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_role_permissions_role_id ON bdopsflow_role_permissions(role_id);
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_role_permissions_permission_id ON bdopsflow_role_permissions(permission_id);
 
--- 13. 用户角色映射表
+-- 14. 用户角色映射表
 CREATE TABLE IF NOT EXISTS bdopsflow_user_roles (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
@@ -261,7 +273,7 @@ CREATE INDEX IF NOT EXISTS idx_bdopsflow_user_roles_user_id ON bdopsflow_user_ro
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_user_roles_role_id ON bdopsflow_user_roles(role_id);
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_user_roles_domain_id ON bdopsflow_user_roles(domain_id);
 
--- 14. 执行器领域分配表
+-- 15. 执行器领域分配表
 CREATE TABLE IF NOT EXISTS bdopsflow_domain_executors (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     domain_id INTEGER NOT NULL,
@@ -281,47 +293,53 @@ CREATE INDEX IF NOT EXISTS idx_bdopsflow_domain_executors_executor_id ON bdopsfl
 -- 第三部分：初始化数据
 -- ============================================================================
 
--- 插入默认领域
 INSERT OR IGNORE INTO bdopsflow_domains (name, description) VALUES ('default', '默认领域');
 
--- 插入预设角色
-INSERT OR IGNORE INTO bdopsflow_roles (name, code, description, is_system, domain_id) VALUES
-('系统管理员', 'system_admin', '系统最高权限，可管理所有资源', 1, NULL),
-('领域管理员', 'domain_admin', '领域级管理权限', 1, NULL),
-('普通用户', 'user', '基础查看和操作权限', 1, NULL);
+-- 预设角色（含继承层级：system_admin → domain_admin → user）
+INSERT OR IGNORE INTO bdopsflow_roles (name, code, description, is_system, parent_id, domain_id) VALUES
+('系统管理员', 'system_admin', '系统最高权限，可管理所有资源', 1, NULL, NULL),
+('领域管理员', 'domain_admin', '领域级管理权限，继承普通用户权限', 1, NULL, NULL),
+('普通用户', 'user', '基础查看和操作权限', 1, NULL, NULL);
 
--- 插入所有权限定义
+-- 权限定义（无 menu:* 权限，菜单由资源权限自动推导）
 INSERT OR IGNORE INTO bdopsflow_permissions (resource, action, description) VALUES
--- 用户管理权限
+-- 仪表盘
+('dashboard', 'read', '查看仪表盘'),
+
+-- 用户管理
 ('user', 'create', '创建用户'),
 ('user', 'read', '查看用户'),
 ('user', 'update', '更新用户'),
 ('user', 'delete', '删除用户'),
+('user', 'reset_password', '重置用户密码'),
 ('user', 'manage', '完整管理用户'),
 
--- 角色管理权限
+-- 角色管理
 ('role', 'create', '创建角色'),
 ('role', 'read', '查看角色'),
 ('role', 'update', '更新角色'),
 ('role', 'delete', '删除角色'),
 ('role', 'manage', '完整管理角色'),
 
--- 权限查看权限
+-- 权限查看
 ('permission', 'read', '查看权限列表'),
 
--- 领域管理权限
+-- 领域管理
 ('domain', 'create', '创建领域'),
 ('domain', 'read', '查看领域'),
 ('domain', 'update', '更新领域'),
 ('domain', 'delete', '删除领域'),
 ('domain', 'manage', '完整管理领域'),
 
--- 执行器管理权限
+-- 执行器管理
 ('executor', 'read', '查看执行器'),
-('executor', 'assign', '分配执行器'),
+('executor', 'assign', '分配执行器到领域'),
+('executor', 'online', '上线执行器'),
+('executor', 'offline', '下线执行器'),
+('executor', 'delete', '删除执行器'),
 ('executor', 'manage', '完整管理执行器'),
 
--- 任务管理权限
+-- 任务管理
 ('task', 'create', '创建任务'),
 ('task', 'read', '查看任务'),
 ('task', 'update', '更新任务'),
@@ -329,47 +347,93 @@ INSERT OR IGNORE INTO bdopsflow_permissions (resource, action, description) VALU
 ('task', 'trigger', '手动触发任务'),
 ('task', 'manage', '完整管理任务'),
 
--- 日志管理权限
+-- 日志管理
 ('log', 'read', '查看日志'),
 ('log', 'delete', '删除日志'),
 ('log', 'manage', '完整管理日志'),
 
--- 工作流管理权限
+-- 工作流管理
 ('workflow', 'create', '创建工作流'),
 ('workflow', 'read', '查看工作流'),
 ('workflow', 'update', '更新工作流'),
 ('workflow', 'delete', '删除工作流'),
+('workflow', 'trigger', '手动触发工作流'),
 ('workflow', 'manage', '完整管理工作流'),
 
--- Webhook管理权限
+-- 数据源管理
+('datasource', 'create', '创建数据源'),
+('datasource', 'read', '查看数据源'),
+('datasource', 'update', '更新数据源'),
+('datasource', 'delete', '删除数据源'),
+('datasource', 'query', '查询数据'),
+('datasource', 'download', '下载数据'),
+('datasource', 'manage', '完整管理数据源'),
+
+-- Webhook管理
 ('webhook', 'create', '创建Webhook'),
 ('webhook', 'read', '查看Webhook'),
 ('webhook', 'update', '更新Webhook'),
 ('webhook', 'delete', '删除Webhook'),
-('webhook', 'manage', '完整管理Webhook');
+('webhook', 'trigger', '手动触发Webhook'),
+('webhook', 'manage', '完整管理Webhook'),
 
--- 为系统管理员分配所有权限
+-- 审计日志
+('audit_log', 'read', '查看审计日志'),
+('audit_log', 'delete', '删除审计日志'),
+('audit_log', 'manage', '完整管理审计日志'),
+
+-- 系统配置
+('config', 'read', '查看系统配置'),
+('config', 'update', '更新系统配置'),
+('config', 'manage', '完整管理系统配置');
+
+-- 系统管理员：所有权限
 INSERT OR IGNORE INTO bdopsflow_role_permissions (role_id, permission_id)
 SELECT r.id, p.id FROM bdopsflow_roles r, bdopsflow_permissions p
 WHERE r.code = 'system_admin';
 
--- 为领域管理员分配任务、执行器、日志、工作流的全部权限
+-- 领域管理员：任务、执行器、日志、工作流、数据源、Webhook、权限查看、仪表盘、用户管理、角色管理、领域管理
 INSERT OR IGNORE INTO bdopsflow_role_permissions (role_id, permission_id)
 SELECT r.id, p.id FROM bdopsflow_roles r, bdopsflow_permissions p
 WHERE r.code = 'domain_admin'
-AND p.resource IN ('task', 'executor', 'log', 'workflow', 'permission');
+AND (
+    p.resource = 'dashboard'
+    OR (p.resource = 'task' AND p.action IN ('create', 'read', 'update', 'delete', 'trigger', 'manage'))
+    OR (p.resource = 'workflow' AND p.action IN ('create', 'read', 'update', 'delete', 'trigger', 'manage'))
+    OR (p.resource = 'executor' AND p.action IN ('read', 'assign', 'online', 'offline', 'manage'))
+    OR (p.resource = 'log' AND p.action IN ('read', 'delete', 'manage'))
+    OR (p.resource = 'datasource' AND p.action IN ('create', 'read', 'update', 'delete', 'query', 'download', 'manage'))
+    OR (p.resource = 'webhook' AND p.action IN ('create', 'read', 'update', 'delete', 'trigger', 'manage'))
+    OR (p.resource = 'user' AND p.action IN ('create', 'read', 'update', 'delete', 'reset_password', 'manage'))
+    OR (p.resource = 'role' AND p.action IN ('create', 'read', 'update', 'delete', 'manage'))
+    OR (p.resource = 'domain' AND p.action IN ('read', 'update', 'manage'))
+    OR (p.resource = 'permission' AND p.action IN ('read'))
+);
 
--- 为普通用户分配查看和手动触发权限
+-- 普通用户：查看、触发、查询
 INSERT OR IGNORE INTO bdopsflow_role_permissions (role_id, permission_id)
 SELECT r.id, p.id FROM bdopsflow_roles r, bdopsflow_permissions p
 WHERE r.code = 'user'
-AND p.action IN ('read', 'trigger');
+AND (
+    p.resource = 'dashboard'
+    OR (p.resource = 'task' AND p.action IN ('read', 'trigger'))
+    OR (p.resource = 'workflow' AND p.action IN ('read', 'trigger'))
+    OR (p.resource = 'executor' AND p.action IN ('read'))
+    OR (p.resource = 'log' AND p.action IN ('read'))
+    OR (p.resource = 'datasource' AND p.action IN ('read', 'query'))
+    OR (p.resource = 'webhook' AND p.action IN ('read'))
+);
 
--- 默认管理员用户 (密码: admin123, bcrypt hash)
-INSERT OR IGNORE INTO bdopsflow_users (username, real_name, phone, password, email, domain_id, role, is_active) 
-VALUES ('admin', '系统管理员', '', '$2a$10$V4DeC68lOaLwF6N1pAVR8ux7WzY9NOeuPgwrAkyF9XcpWOL9muEaG', 'admin@example.com', 1, 'system_admin', 1);
+-- 默认管理员用户 (密码: admin123)
+INSERT OR IGNORE INTO bdopsflow_users (username, real_name, phone, password, email, is_active)
+VALUES ('admin', '系统管理员', '', '$2a$10$V4DeC68lOaLwF6N1pAVR8ux7WzY9NOeuPgwrAkyF9XcpWOL9muEaG', 'admin@example.com', 1);
 
--- 将 admin 用户设置为系统管理员
+-- admin 用户关联默认领域
+INSERT OR IGNORE INTO bdopsflow_user_domains (user_id, domain_id, is_default)
+SELECT u.id, d.id, 1 FROM bdopsflow_users u, bdopsflow_domains d
+WHERE u.username = 'admin' AND d.name = 'default';
+
+-- admin 用户分配系统管理员角色（全局）
 INSERT OR IGNORE INTO bdopsflow_user_roles (user_id, role_id, domain_id)
 SELECT u.id, r.id, NULL FROM bdopsflow_users u, bdopsflow_roles r
 WHERE u.username = 'admin' AND r.code = 'system_admin';
@@ -378,7 +442,7 @@ WHERE u.username = 'admin' AND r.code = 'system_admin';
 -- 第四部分：数据查询模块表
 -- ============================================================================
 
--- 15. 数据源表
+-- 16. 数据源表
 CREATE TABLE IF NOT EXISTS bdopsflow_datasources (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -412,7 +476,28 @@ CREATE INDEX IF NOT EXISTS idx_bdopsflow_datasources_domain_id ON bdopsflow_data
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_datasources_type ON bdopsflow_datasources(type);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_bdopsflow_datasources_name_domain ON bdopsflow_datasources(name, domain_id);
 
--- 16. 保存的SQL表
+-- 17. 数据源实例权限表
+CREATE TABLE IF NOT EXISTS bdopsflow_datasource_permissions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    datasource_id INTEGER NOT NULL,
+    role_id INTEGER,
+    user_id INTEGER,
+    permission_type TEXT NOT NULL CHECK(permission_type IN ('query', 'read', 'update', 'delete', 'download', 'manage')),
+    granted_by INTEGER,
+    granted_at TEXT NOT NULL,
+    FOREIGN KEY (datasource_id) REFERENCES bdopsflow_datasources(id) ON DELETE CASCADE,
+    FOREIGN KEY (role_id) REFERENCES bdopsflow_roles(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES bdopsflow_users(id) ON DELETE CASCADE,
+    CHECK(role_id IS NOT NULL OR user_id IS NOT NULL),
+    UNIQUE(datasource_id, role_id, permission_type),
+    UNIQUE(datasource_id, user_id, permission_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_bdopsflow_ds_perms_datasource_id ON bdopsflow_datasource_permissions(datasource_id);
+CREATE INDEX IF NOT EXISTS idx_bdopsflow_ds_perms_role_id ON bdopsflow_datasource_permissions(role_id);
+CREATE INDEX IF NOT EXISTS idx_bdopsflow_ds_perms_user_id ON bdopsflow_datasource_permissions(user_id);
+
+-- 18. 保存的SQL表
 CREATE TABLE IF NOT EXISTS bdopsflow_saved_sql (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -432,28 +517,7 @@ CREATE TABLE IF NOT EXISTS bdopsflow_saved_sql (
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_saved_sql_datasource_id ON bdopsflow_saved_sql(datasource_id);
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_saved_sql_domain_id ON bdopsflow_saved_sql(domain_id);
 
--- 17. 数据源权限表（支持角色和用户两种授权方式）
-CREATE TABLE IF NOT EXISTS bdopsflow_datasource_permissions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    datasource_id INTEGER NOT NULL,
-    role_id INTEGER,
-    user_id INTEGER,
-    permission_type TEXT NOT NULL,
-    granted_by INTEGER,
-    granted_at TEXT NOT NULL,
-    FOREIGN KEY (datasource_id) REFERENCES bdopsflow_datasources(id) ON DELETE CASCADE,
-    FOREIGN KEY (role_id) REFERENCES bdopsflow_roles(id) ON DELETE CASCADE,
-    FOREIGN KEY (user_id) REFERENCES bdopsflow_users(id) ON DELETE CASCADE,
-    CHECK(role_id IS NOT NULL OR user_id IS NOT NULL),
-    UNIQUE(datasource_id, role_id, permission_type),
-    UNIQUE(datasource_id, user_id, permission_type)
-);
-
-CREATE INDEX IF NOT EXISTS idx_bdopsflow_ds_perms_datasource_id ON bdopsflow_datasource_permissions(datasource_id);
-CREATE INDEX IF NOT EXISTS idx_bdopsflow_ds_perms_role_id ON bdopsflow_datasource_permissions(role_id);
-CREATE INDEX IF NOT EXISTS idx_bdopsflow_ds_perms_user_id ON bdopsflow_datasource_permissions(user_id);
-
--- 18. 查询历史表
+-- 19. 查询历史表
 CREATE TABLE IF NOT EXISTS bdopsflow_query_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     query_id TEXT,
@@ -476,7 +540,7 @@ CREATE INDEX IF NOT EXISTS idx_bdopsflow_query_history_domain_id ON bdopsflow_qu
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_query_history_created_at ON bdopsflow_query_history(created_at);
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_query_history_query_id ON bdopsflow_query_history(query_id);
 
--- 19. 系统配置表
+-- 20. 系统配置表
 CREATE TABLE IF NOT EXISTS bdopsflow_system_config (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     config_key TEXT NOT NULL UNIQUE,
@@ -487,7 +551,7 @@ CREATE TABLE IF NOT EXISTS bdopsflow_system_config (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_bdopsflow_system_config_key ON bdopsflow_system_config(config_key);
 
--- 20. 配置变更历史表
+-- 21. 配置变更历史表
 CREATE TABLE IF NOT EXISTS bdopsflow_system_config_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     config_key TEXT NOT NULL,
@@ -501,62 +565,7 @@ CREATE TABLE IF NOT EXISTS bdopsflow_system_config_history (
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_config_history_key ON bdopsflow_system_config_history(config_key);
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_config_history_time ON bdopsflow_system_config_history(changed_at);
 
--- 数据源管理权限
-INSERT OR IGNORE INTO bdopsflow_permissions (resource, action, description) VALUES
-('datasource', 'create', '创建数据源'),
-('datasource', 'read', '查看数据源'),
-('datasource', 'update', '更新数据源'),
-('datasource', 'delete', '删除数据源'),
-('datasource', 'manage', '完整管理数据源'),
-('datasource', 'query', '查询数据'),
-('datasource', 'download', '下载数据');
-
--- 为系统管理员分配数据源所有权限
-INSERT OR IGNORE INTO bdopsflow_role_permissions (role_id, permission_id)
-SELECT r.id, p.id FROM bdopsflow_roles r, bdopsflow_permissions p
-WHERE r.code = 'system_admin' AND p.resource = 'datasource';
-
--- 为系统管理员分配Webhook所有权限
-INSERT OR IGNORE INTO bdopsflow_role_permissions (role_id, permission_id)
-SELECT r.id, p.id FROM bdopsflow_roles r, bdopsflow_permissions p
-WHERE r.code = 'system_admin' AND p.resource = 'webhook';
-
--- 为领域管理员分配数据源管理权限
-INSERT OR IGNORE INTO bdopsflow_role_permissions (role_id, permission_id)
-SELECT r.id, p.id FROM bdopsflow_roles r, bdopsflow_permissions p
-WHERE r.code = 'domain_admin' AND p.resource = 'datasource' AND p.action IN ('create', 'read', 'update', 'manage', 'query', 'download');
-
--- 为领域管理员分配Webhook管理权限
-INSERT OR IGNORE INTO bdopsflow_role_permissions (role_id, permission_id)
-SELECT r.id, p.id FROM bdopsflow_roles r, bdopsflow_permissions p
-WHERE r.code = 'domain_admin' AND p.resource = 'webhook' AND p.action IN ('create', 'read', 'update', 'manage');
-
--- 为普通用户分配数据源查看和查询权限
-INSERT OR IGNORE INTO bdopsflow_role_permissions (role_id, permission_id)
-SELECT r.id, p.id FROM bdopsflow_roles r, bdopsflow_permissions p
-WHERE r.code = 'user' AND p.resource = 'datasource' AND p.action IN ('read', 'query');
-
--- 初始化数据源系统配置
-INSERT OR IGNORE INTO bdopsflow_system_config (config_key, config_value, description, updated_at) VALUES
-('web.enabled', 'false', '是否启用内置Web UI，启用后可通过调度器端口直接访问', datetime('now')),
-('datasource.default_limit', '1000', 'SQL查询默认限制行数', datetime('now')),
-('datasource.max_export_rows', '1000', 'CSV导出最大行数', datetime('now')),
-('datasource.cache_ttl', '300', '查询结果缓存TTL(秒)', datetime('now')),
-('datasource.cache_max_size', '100', '缓存最大内存占用(MB)', datetime('now')),
-('datasource.query_timeout', '60', '查询超时时间(秒)', datetime('now')),
-('datasource.max_concurrent_per_user', '5', '单用户并发查询限制', datetime('now')),
-('datasource.max_concurrent_global', '50', '全局并发查询限制', datetime('now')),
-('datasource.allow_write_sql', 'false', '是否允许写操作SQL', datetime('now')),
-('datasource.history_retention_days', '30', '查询历史保留天数', datetime('now')),
-('datasource.connection_max_idle', '5', '连接池最大空闲连接数', datetime('now')),
-('datasource.connection_max_open', '10', '连接池最大打开连接数', datetime('now')),
-('datasource.connection_max_lifetime', '1800', '连接最大生命周期(秒)', datetime('now')),
-('datasource.max_sql_length', '65536', 'SQL文本最大长度(字节)', datetime('now')),
-('datasource.max_cell_size', '65536', '单个单元格值最大字节数', datetime('now')),
-('datasource.health_check_interval', '300', '健康检查间隔(秒),0为禁用', datetime('now')),
-('datasource.test_timeout', '10', '连接测试超时时间(秒)', datetime('now'));
-
--- 21. 审计日志表
+-- 22. 审计日志表
 CREATE TABLE IF NOT EXISTS bdopsflow_audit_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER,
@@ -584,53 +593,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_status ON bdopsflow_audit_logs(status)
 CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON bdopsflow_audit_logs(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_resource_action ON bdopsflow_audit_logs(resource, action);
 
--- 审计日志权限
-INSERT OR IGNORE INTO bdopsflow_permissions (resource, action, description) VALUES
-('audit_log', 'read', '查看审计日志'),
-('audit_log', 'delete', '删除审计日志'),
-('audit_log', 'manage', '完整管理审计日志');
-
--- 为系统管理员分配审计日志所有权限
-INSERT OR IGNORE INTO bdopsflow_role_permissions (role_id, permission_id)
-SELECT r.id, p.id FROM bdopsflow_roles r, bdopsflow_permissions p
-WHERE r.code = 'system_admin' AND p.resource = 'audit_log';
-
--- 审计日志系统配置
-INSERT OR IGNORE INTO bdopsflow_system_config (config_key, config_value, description, updated_at) VALUES
-('audit_log.retention_days', '90', '审计日志保留天数', datetime('now'));
-
--- 菜单访问权限
-INSERT OR IGNORE INTO bdopsflow_permissions (resource, action, description) VALUES
-('menu', 'dashboard', '仪表盘'),
-('menu', 'task', '任务管理'),
-('menu', 'log', '任务日志'),
-('menu', 'executor', '执行器'),
-('menu', 'datasource', '数据源管理'),
-('menu', 'sql_query', 'SQL查询'),
-('menu', 'query_history', '查询历史'),
-('menu', 'saved_sql', '已保存SQL'),
-('menu', 'user_management', '用户管理'),
-('menu', 'role_management', '角色管理'),
-('menu', 'domain_management', '领域管理'),
-('menu', 'system_config', '系统配置'),
-('menu', 'audit_log', '审计日志');
-
--- 为系统管理员分配所有菜单权限
-INSERT OR IGNORE INTO bdopsflow_role_permissions (role_id, permission_id)
-SELECT r.id, p.id FROM bdopsflow_roles r, bdopsflow_permissions p
-WHERE r.code = 'system_admin' AND p.resource = 'menu';
-
--- 为领域管理员分配菜单权限
-INSERT OR IGNORE INTO bdopsflow_role_permissions (role_id, permission_id)
-SELECT r.id, p.id FROM bdopsflow_roles r, bdopsflow_permissions p
-WHERE r.code = 'domain_admin' AND p.resource = 'menu' AND p.action IN ('dashboard', 'task', 'log', 'executor', 'datasource', 'sql_query', 'query_history', 'saved_sql', 'user_management', 'role_management', 'domain_management');
-
--- 为普通用户分配菜单权限
-INSERT OR IGNORE INTO bdopsflow_role_permissions (role_id, permission_id)
-SELECT r.id, p.id FROM bdopsflow_roles r, bdopsflow_permissions p
-WHERE r.code = 'user' AND p.resource = 'menu' AND p.action IN ('dashboard', 'task', 'log', 'executor', 'datasource', 'sql_query', 'query_history', 'saved_sql');
-
--- 22. Webhook配置表
+-- 23. Webhook配置表
 CREATE TABLE IF NOT EXISTS bdopsflow_webhooks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -650,6 +613,51 @@ CREATE TABLE IF NOT EXISTS bdopsflow_webhooks (
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_webhooks_domain_id ON bdopsflow_webhooks(domain_id);
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_webhooks_is_enabled ON bdopsflow_webhooks(is_enabled);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_bdopsflow_webhooks_name_domain ON bdopsflow_webhooks(name, domain_id);
+
+-- 24. Webhook实例权限表
+CREATE TABLE IF NOT EXISTS bdopsflow_webhook_permissions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    webhook_id INTEGER NOT NULL,
+    role_id INTEGER,
+    user_id INTEGER,
+    permission_type TEXT NOT NULL CHECK(permission_type IN ('read', 'update', 'delete', 'trigger', 'manage')),
+    granted_by INTEGER,
+    granted_at TEXT NOT NULL,
+    FOREIGN KEY (webhook_id) REFERENCES bdopsflow_webhooks(id) ON DELETE CASCADE,
+    FOREIGN KEY (role_id) REFERENCES bdopsflow_roles(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES bdopsflow_users(id) ON DELETE CASCADE,
+    CHECK(role_id IS NOT NULL OR user_id IS NOT NULL),
+    UNIQUE(webhook_id, role_id, permission_type),
+    UNIQUE(webhook_id, user_id, permission_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_bdopsflow_webhook_perms_webhook_id ON bdopsflow_webhook_permissions(webhook_id);
+CREATE INDEX IF NOT EXISTS idx_bdopsflow_webhook_perms_role_id ON bdopsflow_webhook_permissions(role_id);
+CREATE INDEX IF NOT EXISTS idx_bdopsflow_webhook_perms_user_id ON bdopsflow_webhook_permissions(user_id);
+
+-- ============================================================================
+-- 第五部分：系统配置初始化
+-- ============================================================================
+
+INSERT OR IGNORE INTO bdopsflow_system_config (config_key, config_value, description, updated_at) VALUES
+('web.enabled', 'false', '是否启用内置Web UI', datetime('now')),
+('datasource.default_limit', '1000', 'SQL查询默认限制行数', datetime('now')),
+('datasource.max_export_rows', '1000', 'CSV导出最大行数', datetime('now')),
+('datasource.cache_ttl', '300', '查询结果缓存TTL(秒)', datetime('now')),
+('datasource.cache_max_size', '100', '缓存最大内存占用(MB)', datetime('now')),
+('datasource.query_timeout', '60', '查询超时时间(秒)', datetime('now')),
+('datasource.max_concurrent_per_user', '5', '单用户并发查询限制', datetime('now')),
+('datasource.max_concurrent_global', '50', '全局并发查询限制', datetime('now')),
+('datasource.allow_write_sql', 'false', '是否允许写操作SQL', datetime('now')),
+('datasource.history_retention_days', '30', '查询历史保留天数', datetime('now')),
+('datasource.connection_max_idle', '5', '连接池最大空闲连接数', datetime('now')),
+('datasource.connection_max_open', '10', '连接池最大打开连接数', datetime('now')),
+('datasource.connection_max_lifetime', '1800', '连接最大生命周期(秒)', datetime('now')),
+('datasource.max_sql_length', '65536', 'SQL文本最大长度(字节)', datetime('now')),
+('datasource.max_cell_size', '65536', '单个单元格值最大字节数', datetime('now')),
+('datasource.health_check_interval', '300', '健康检查间隔(秒),0为禁用', datetime('now')),
+('datasource.test_timeout', '10', '连接测试超时时间(秒)', datetime('now')),
+('audit_log.retention_days', '90', '审计日志保留天数', datetime('now'));
 
 -- ============================================================================
 -- 初始化完成

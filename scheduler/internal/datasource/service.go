@@ -8,17 +8,18 @@ import (
 	"time"
 
 	"github.com/lynnyq/bdopsflow/scheduler/internal/model"
+	"github.com/lynnyq/bdopsflow/scheduler/pkg/database"
 	rqlite "github.com/rqlite/gorqlite"
 )
 
 type DatasourceService struct {
-	db      *rqlite.Connection
+	db      database.DB
 	crypto  *Crypto
 	config  *ConfigService
 	manager *Manager
 }
 
-func NewDatasourceService(db *rqlite.Connection, crypto *Crypto, config *ConfigService, manager *Manager) *DatasourceService {
+func NewDatasourceService(db database.DB, crypto *Crypto, config *ConfigService, manager *Manager) *DatasourceService {
 	return &DatasourceService{
 		db:      db,
 		crypto:  crypto,

@@ -14,7 +14,7 @@
       </div>
       <div class="toolbar-right">
         <el-button :icon="Refresh" @click="loadWebhooks" :loading="loading" class="refresh-btn">刷新</el-button>
-        <el-button :icon="Plus" @click="handleCreate" class="create-btn">创建Webhook</el-button>
+        <el-button v-if="canCreate" :icon="Plus" @click="handleCreate" class="create-btn">创建Webhook</el-button>
       </div>
     </div>
 
@@ -42,16 +42,16 @@
         </el-table-column>
         <el-table-column label="操作" width="240" align="center" fixed="right">
           <template #default="{ row }">
-            <el-button type="primary" link size="small" @click="handleEdit(row)">
+            <el-button v-if="canUpdate" type="primary" link size="small" @click="handleEdit(row)">
               <el-icon><Edit /></el-icon> 编辑
             </el-button>
-            <el-button type="success" link size="small" @click="handleTest(row)" :loading="row._testing">
+            <el-button v-if="canCreate" type="success" link size="small" @click="handleTest(row)" :loading="row._testing">
               <el-icon><Promotion /></el-icon> 测试
             </el-button>
-            <el-button type="warning" link size="small" @click="handleToggleEnabled(row)">
+            <el-button v-if="canUpdate" type="warning" link size="small" @click="handleToggleEnabled(row)">
               <el-icon><SwitchButton /></el-icon> {{ row.is_enabled ? '禁用' : '启用' }}
             </el-button>
-            <el-button type="danger" link size="small" @click="handleDelete(row)">
+            <el-button v-if="canDelete" type="danger" link size="small" @click="handleDelete(row)">
               <el-icon><Delete /></el-icon> 删除
             </el-button>
           </template>
@@ -122,6 +122,13 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Delete, Plus, Search, Refresh, Connection, Edit, SwitchButton, Promotion } from '@element-plus/icons-vue'
 import { webhookAPI } from '@/api'
 import type { Webhook } from '@/types'
+import { useAuthStore } from '@/stores/auth'
+
+const authStore = useAuthStore()
+
+const canCreate = computed(() => authStore.hasPermission('webhook', 'create'))
+const canUpdate = computed(() => authStore.hasPermission('webhook', 'update'))
+const canDelete = computed(() => authStore.hasPermission('webhook', 'delete'))
 
 const webhooks = ref<(Webhook & { _testing?: boolean })[]>([])
 const loading = ref(false)
@@ -140,7 +147,7 @@ const form = ref({
   headerList: [] as { key: string; value: string }[],
 })
 
-const currentDomainId = ref(1)
+const currentDomainId = computed(() => authStore.currentDomainId || 1)
 
 const filteredWebhooks = computed(() => {
   if (!searchQuery.value) return webhooks.value
@@ -319,20 +326,7 @@ const formatTime = (t: string) => {
   }
 }
 
-const loadDomainId = () => {
-  const userStr = localStorage.getItem('user')
-  if (userStr) {
-    try {
-      const user = JSON.parse(userStr)
-      if (user.domain_id) {
-        currentDomainId.value = user.domain_id
-      }
-    } catch { /* ignore */ }
-  }
-}
-
 onMounted(() => {
-  loadDomainId()
   loadWebhooks()
 })
 </script>

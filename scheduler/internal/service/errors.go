@@ -48,14 +48,18 @@ var (
 	// 领域相关错误
 	ErrDomainNotFound     = errors.New("domain not found")
 	ErrDomainHasResources = errors.New("domain has associated resources")
+	ErrDomainAccessDenied = errors.New("access to domain denied")
+	ErrUserDomainNotFound = errors.New("user domain not found")
 
 	// 执行器相关错误
 	ErrExecutorNotFound    = errors.New("executor not found")
 	ErrExecutorNotInDomain = errors.New("executor not in the specified domain")
 
 	// 权限相关错误
-	ErrPermissionDenied = errors.New("permission denied")
-	ErrUnauthorized     = errors.New("unauthorized")
+	ErrPermissionDenied          = errors.New("permission denied")
+	ErrUnauthorized              = errors.New("unauthorized")
+	ErrInstancePermissionDenied  = errors.New("instance permission denied")
+	ErrCannotDeleteRoleWithChildren = errors.New("cannot delete role with child roles")
 
 	// 任务相关错误
 	ErrTaskNotFound      = errors.New("task not found")
@@ -83,8 +87,12 @@ var errorCodeMap = map[error]int{
 	ErrSystemRoleCannotModify: 12003,
 	ErrDomainNotFound:         13001,
 	ErrDomainHasResources:     13002,
+	ErrDomainAccessDenied:     13003,
+	ErrUserDomainNotFound:     13004,
 	ErrPermissionDenied:       14001,
 	ErrUnauthorized:           14001,
+	ErrInstancePermissionDenied: 14002,
+	ErrCannotDeleteRoleWithChildren: 12004,
 	ErrTaskNotFound:           10003,
 	ErrTaskAlreadyExists:      10001,
 	ErrTaskRunning:            10001,

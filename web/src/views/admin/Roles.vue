@@ -124,7 +124,6 @@
             v-for="group in permissionGroupsDisplay"
             :key="group.resource"
             class="permission-group"
-            :class="{ 'menu-permission-group': group.resource === 'menu' }"
           >
             <div class="group-header">
               <div class="group-icon">
@@ -145,21 +144,7 @@
               </el-checkbox>
             </div>
             <el-checkbox-group v-model="selectedPermissionIds">
-              <div v-if="group.resource === 'menu'" class="menu-permission-grid">
-                <el-checkbox
-                  v-for="perm in group.permissions"
-                  :key="perm.id"
-                  :value="perm.id"
-                  :disabled="currentRole?.is_system"
-                  class="menu-permission-item"
-                >
-                  <div class="menu-permission-content">
-                    <el-icon class="menu-icon"><component :is="getMenuIcon(perm.action)" /></el-icon>
-                    <span>{{ perm.description }}</span>
-                  </div>
-                </el-checkbox>
-              </div>
-              <div v-else class="permission-list">
+              <div class="permission-list">
                 <el-checkbox
                   v-for="perm in group.permissions"
                   :key="perm.id"
@@ -199,7 +184,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Edit, Delete, Document, Search, Refresh, Key, User, Setting, Grid, Management, Monitor, Timer, DataAnalysis, List, Lock, Connection, Cpu, Operation, Notebook } from '@element-plus/icons-vue'
+import { Plus, Edit, Delete, Document, Search, Refresh, Key, User, Setting, Grid, Management, Timer, DataAnalysis, List, Lock, Connection, Monitor } from '@element-plus/icons-vue'
 import {
   roleAdminAPI,
   permissionAPI,
@@ -244,7 +229,7 @@ const roleRules = {
   name: [{ required: true, message: '请输入角色名称', trigger: 'blur' }],
   code: [
     { required: true, message: '请输入角色代码', trigger: 'blur' },
-    { pattern: /^[a-z_]+$/, message: '角色代码只能包含小写字母和下划线', trigger: 'blur' },
+    { pattern: /^[a-z0-9_]+$/, message: '角色代码只能包含小写字母、数字和下划线', trigger: 'blur' },
   ],
 }
 
@@ -386,25 +371,6 @@ const getResourceIcon = (resource: string) => {
     config: Setting,
   }
   return iconMap[resource] || Document
-}
-
-const getMenuIcon = (action: string) => {
-  const iconMap: Record<string, any> = {
-    dashboard: DataAnalysis,
-    task: Timer,
-    log: Document,
-    executor: Cpu,
-    datasource: Connection,
-    sql_query: Search,
-    query_history: List,
-    saved_sql: Document,
-    user_management: User,
-    role_management: Key,
-    domain_management: Grid,
-    system_config: Operation,
-    audit_log: Notebook,
-  }
-  return iconMap[action] || Document
 }
 
 const isGroupAllSelected = (group: PermissionGroup) => {
@@ -754,48 +720,5 @@ onMounted(() => {
 .permission-code {
   font-size: 11px;
   font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
-}
-
-.menu-permission-group {
-  border-color: var(--accent-primary) !important;
-  background: rgba(59, 130, 246, 0.02) !important;
-}
-
-.menu-permission-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: var(--space-2);
-  padding: var(--space-3) var(--space-4);
-}
-
-.menu-permission-item {
-  margin: 0 !important;
-  padding: 8px 12px !important;
-  background: var(--bg-card) !important;
-  border: 1px solid var(--border-subtle) !important;
-  border-radius: var(--radius-md) !important;
-  transition: all var(--duration-fast) var(--ease-out);
-}
-
-.menu-permission-item:hover {
-  border-color: var(--accent-primary) !important;
-  background: rgba(59, 130, 246, 0.04) !important;
-}
-
-.menu-permission-item.is-checked {
-  border-color: var(--accent-primary) !important;
-  background: rgba(59, 130, 246, 0.08) !important;
-}
-
-.menu-permission-content {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-}
-
-.menu-icon {
-  font-size: 16px;
-  color: var(--accent-primary);
 }
 </style>

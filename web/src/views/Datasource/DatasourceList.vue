@@ -136,7 +136,7 @@ import { useAuthStore } from '@/stores/auth'
 const router = useRouter()
 const authStore = useAuthStore()
 
-const canManage = computed(() => authStore.isAdmin || authStore.isDomainAdmin)
+const canManage = computed(() => authStore.hasPermission('datasource', 'create') || authStore.hasPermission('datasource', 'manage'))
 
 const dsTypeLabels: Record<string, string> = {
   mysql: 'MySQL',

@@ -33,14 +33,11 @@
           </template>
         </el-table-column>
         <el-table-column prop="email" label="邮箱" :minWidth="200" show-overflow-tooltip />
-        <el-table-column prop="domain_id" label="领域" width="120" align="center">
+        <el-table-column label="角色" width="200" align="center">
           <template #default="{ row }">
-            <el-tag type="info" effect="light">{{ getDomainName(row.domain_id) }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="role" label="角色" width="120" align="center">
-          <template #default="{ row }">
-            <el-tag :type="getRoleTagType(row.role)" effect="light">{{ getRoleLabel(row.role) }}</el-tag>
+            <el-tag v-for="roleCode in (row.role_codes || [])" :key="roleCode" :type="getRoleTagType(roleCode)" effect="light" style="margin: 2px;">
+              {{ getRoleLabel(roleCode) }}
+            </el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="is_active" label="状态" width="100" align="center">
@@ -70,7 +67,7 @@
                 <el-icon><Key /></el-icon> 重置密码
               </el-button>
             </template>
-            <el-button v-if="isSystemAdmin" type="danger" link size="small" @click="handleDelete(row)">
+            <el-button v-if="authStore.isSystemAdmin" type="danger" link size="small" @click="handleDelete(row)">
               <el-icon><Delete /></el-icon> 删除
             </el-button>
           </template>
@@ -183,20 +180,20 @@
 
         <el-row :gutter="16">
           <el-col :span="12">
-            <el-form-item label="角色" prop="role">
+            <el-form-item label="角色" prop="role_ids">
               <el-select
-                v-model="userForm.role"
+                v-model="userForm.role_ids"
                 placeholder="请选择用户角色"
                 class="full-width"
+                multiple
               >
                 <el-option
                   v-for="role in roles"
-                  :key="role.code"
+                  :key="role.id"
                   :label="role.name"
-                  :value="role.code"
+                  :value="role.id"
                 >
                   <div class="role-option">
-                    <el-icon><component :is="getRoleIcon(role.code)" /></el-icon>
                     <span>{{ role.name }}</span>
                     <el-tag v-if="role.is_system" size="small" type="danger" effect="plain" class="role-tag">系统</el-tag>
                     <span class="role-desc">{{ role.description }}</span>
@@ -206,11 +203,12 @@
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="所属领域" prop="domain_id">
+            <el-form-item label="所属领域" prop="domain_ids">
               <el-select
-                v-model="userForm.domain_id"
+                v-model="userForm.domain_ids"
                 placeholder="可选，不选则为全局用户"
                 clearable
+                multiple
                 class="full-width"
               >
                 <el-option
@@ -229,16 +227,6 @@
           </el-col>
         </el-row>
 
-        <el-alert
-          v-if="userForm.role === 'system_admin'"
-          title="系统管理员权限说明"
-          type="warning"
-          :closable="false"
-          show-icon
-          class="form-alert"
-        >
-          系统管理员拥有最高权限，可以管理所有用户、领域和执行器。请谨慎分配。
-        </el-alert>
       </el-form>
 
       <template #footer>
@@ -307,16 +295,15 @@
 
         <el-row :gutter="16">
           <el-col :span="12">
-            <el-form-item label="角色" prop="role">
-              <el-select v-model="userForm.role" placeholder="请选择用户角色" class="full-width">
+            <el-form-item label="角色" prop="role_ids">
+              <el-select v-model="userForm.role_ids" placeholder="请选择用户角色" class="full-width" multiple>
                 <el-option
                   v-for="role in roles"
-                  :key="role.code"
+                  :key="role.id"
                   :label="role.name"
-                  :value="role.code"
+                  :value="role.id"
                 >
                   <div class="role-option">
-                    <el-icon><component :is="getRoleIcon(role.code)" /></el-icon>
                     <span>{{ role.name }}</span>
                     <el-tag v-if="role.is_system" size="small" type="danger" effect="plain" class="role-tag">系统</el-tag>
                     <span class="role-desc">{{ role.description }}</span>
@@ -340,11 +327,12 @@
 
         <el-row :gutter="16">
           <el-col :span="12">
-            <el-form-item label="所属领域" prop="domain_id">
+            <el-form-item label="所属领域" prop="domain_ids">
               <el-select
-                v-model="userForm.domain_id"
+                v-model="userForm.domain_ids"
                 placeholder="可选，不选则为全局用户"
                 clearable
+                multiple
                 class="full-width"
               >
                 <el-option
@@ -449,14 +437,14 @@ import { ref, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Plus, Edit, Delete, Document, Search, Refresh, Key,
-  Message, Lock, UserFilled, Avatar, Grid, Phone,
+  Message, Lock, UserFilled, Grid, Phone,
   User as UserIcon
 } from '@element-plus/icons-vue'
 import { userAdminAPI, roleAdminAPI, domainAdminAPI, type User, type Role, type Domain } from '@/api/admin'
 import { adminAPI } from '@/api'
 import { encryptPassword, validatePassword, PASSWORD_RULES } from '@/utils/password'
 import { useAuthStore } from '@/stores/auth'
-import { handleError, formatValue } from '@/utils/error'
+import { handleError } from '@/utils/error'
 
 const authStore = useAuthStore()
 
@@ -470,10 +458,7 @@ const showEditDialog = ref(false)
 const showResetPasswordDialog = ref(false)
 const searchQuery = ref('')
 
-const isSystemAdmin = computed(() => authStore.isSystemAdmin)
-const isDomainAdmin = computed(() => authStore.isDomainAdmin)
-const currentDomainId = computed(() => authStore.user?.domain_id)
-const showActions = computed(() => isSystemAdmin.value || isDomainAdmin.value)
+const showActions = computed(() => authStore.isSystemAdmin || authStore.isDomainAdmin || authStore.hasPermission('user', 'update'))
 
 const filteredUsers = computed(() => {
   if (!searchQuery.value) return users.value
@@ -494,8 +479,8 @@ const userForm = ref({
   email: '',
   password: '',
   is_active: true,
-  role: 'user',
-  domain_id: undefined as number | undefined,
+  role_ids: [] as number[],
+  domain_ids: [] as number[],
   created_at: '',
 })
 
@@ -549,11 +534,11 @@ const userRules = {
   password: [
     { required: true, validator: validatePasswordStrength, trigger: 'blur' },
   ],
-  role: [
-    { required: true, message: '请选择用户角色', trigger: 'change' },
+  role_ids: [
+    { required: true, type: 'array', min: 1, message: '请选择用户角色', trigger: 'change' },
   ],
-  domain_id: [
-    { type: 'number', message: '领域ID必须是数字', trigger: 'change' },
+  domain_ids: [
+    { type: 'array', message: '领域ID必须是数字', trigger: 'change' },
   ],
 }
 
@@ -572,8 +557,8 @@ const editUserRules = {
     { required: true, message: '请输入邮箱', trigger: 'blur' },
     { type: 'email', message: '请输入正确的邮箱格式', trigger: 'blur' },
   ],
-  role: [
-    { required: true, message: '请选择用户角色', trigger: 'change' },
+  role_ids: [
+    { required: true, type: 'array', min: 1, message: '请选择用户角色', trigger: 'change' },
   ],
 }
 
@@ -599,8 +584,8 @@ const handleOpenCreate = () => {
     email: '',
     password: '',
     is_active: true,
-    role: 'user',
-    domain_id: undefined,
+    role_ids: [],
+    domain_ids: [],
     created_at: '',
   }
   showCreateDialog.value = true
@@ -617,19 +602,9 @@ const handleDialogClosed = (type: 'create' | 'edit' | 'reset') => {
 }
 
 const canManageUser = (user: User): boolean => {
-  if (isSystemAdmin.value) {
-    return true
-  }
-  if (isDomainAdmin.value && currentDomainId.value) {
-    return user.domain_id === currentDomainId.value && user.role !== 'system_admin'
-  }
-  return false
-}
-
-const getDomainName = (domainId: number | null | undefined): string => {
-  if (!domainId) return '-'
-  const domain = domains.value.find(d => d.id === domainId)
-  return domain?.name || `领域${domainId}`
+  if (authStore.isSystemAdmin) return true
+  if (authStore.isDomainAdmin) return true
+  return authStore.hasPermission('user', 'update')
 }
 
 const getRoleLabel = (role: string): string => {
@@ -637,24 +612,11 @@ const getRoleLabel = (role: string): string => {
   return found ? found.name : role
 }
 
-const getRoleIcon = (code: string) => {
-  const iconMap: Record<string, any> = {
-    system_admin: UserFilled,
-    domain_admin: Avatar,
-    user: UserIcon,
-  }
-  return iconMap[code] || UserIcon
-}
-
 const loadUsers = async () => {
   loading.value = true
   try {
     const response = await userAdminAPI.list()
-    let allUsers = response.data.items || []
-    if (isDomainAdmin.value && currentDomainId.value) {
-      allUsers = allUsers.filter(u => u.domain_id === currentDomainId.value)
-    }
-    users.value = allUsers
+    users.value = response.data.items || []
   } catch (error) {
     handleError(error, '加载用户列表失败')
   } finally {
@@ -665,7 +627,12 @@ const loadUsers = async () => {
 const loadRoles = async () => {
   try {
     const response = await roleAdminAPI.list()
-    roles.value = response.data.items || []
+    const allRoles = response.data.items || []
+    if (authStore.isSystemAdmin) {
+      roles.value = allRoles
+    } else {
+      roles.value = allRoles.filter((r: any) => r.code !== 'system_admin')
+    }
   } catch (error) {
     console.error('加载角色列表失败', error)
   }
@@ -674,7 +641,13 @@ const loadRoles = async () => {
 const loadDomains = async () => {
   try {
     const response = await domainAdminAPI.list()
-    domains.value = response.data.items || []
+    const allDomains = response.data.items || []
+    if (authStore.isSystemAdmin) {
+      domains.value = allDomains
+    } else {
+      const userDomainIds = authStore.domains.map((d: any) => d.domain_id)
+      domains.value = allDomains.filter((d: any) => userDomainIds.includes(d.id))
+    }
   } catch (error) {
     console.error('加载领域列表失败', error)
   }
@@ -701,8 +674,8 @@ const handleCreate = async () => {
         phone: userForm.value.phone,
         email: userForm.value.email,
         password: encryptPassword(userForm.value.password),
-        role: userForm.value.role,
-        domain_id: userForm.value.domain_id,
+        role_ids: userForm.value.role_ids,
+        domain_ids: userForm.value.domain_ids,
       })
       ElMessage.success('创建用户成功')
       showCreateDialog.value = false
@@ -724,8 +697,8 @@ const handleEdit = (row: User) => {
     email: row.email,
     password: '',
     is_active: row.is_active,
-    role: row.role,
-    domain_id: row.domain_id || undefined,
+    role_ids: row.role_ids || [],
+    domain_ids: row.domain_ids || [],
     created_at: row.created_at,
   }
   showEditDialog.value = true
@@ -745,9 +718,7 @@ const handleUpdate = async () => {
         real_name: userForm.value.real_name,
         phone: userForm.value.phone,
         email: userForm.value.email,
-        role: userForm.value.role,
         is_active: userForm.value.is_active,
-        domain_id: userForm.value.domain_id,
       })
       ElMessage.success('更新用户成功')
       showEditDialog.value = false

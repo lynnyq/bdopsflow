@@ -74,6 +74,9 @@ func formatError(e validator.FieldError) string {
 	case "alphanum":
 		return fmt.Sprintf("%s must contain only letters and numbers", field)
 	case "regexp":
+		if field == "code" {
+			return fmt.Sprintf("%s只能包含小写字母、数字和下划线", field)
+		}
 		return fmt.Sprintf("%s format is invalid", field)
 	default:
 		return fmt.Sprintf("%s failed validation on '%s'", field, tag)

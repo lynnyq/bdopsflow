@@ -1,22 +1,78 @@
-export interface UserPermission {
-  resource: string
-  action: string
-}
-
 export interface User {
   id: number
   username: string
   real_name: string
   phone: string
-  email?: string
-  role: string
-  domain_id: number
+  email: string
   is_active: boolean
   last_login_at: string | null
-  created_by: number
+  created_by?: number
   created_at: string
   updated_at: string
-  permissions?: UserPermission[]
+  role_codes?: string[]
+  role_ids?: number[]
+  domain_ids?: number[]
+}
+
+export interface Permission {
+  id: number
+  resource: string
+  action: string
+  description: string
+}
+
+export interface DomainInfo {
+  domain_id: number
+  domain_name: string
+  is_default: boolean
+}
+
+export interface LoginResponse {
+  token: string
+  user: User
+  permissions: Permission[]
+  domains: DomainInfo[]
+  current_domain_id: number
+}
+
+export interface CurrentUserResponse {
+  user: User
+  permissions: Permission[]
+  domains: DomainInfo[]
+  current_domain_id: number
+}
+
+export interface SwitchDomainResponse {
+  token: string
+  permissions: Permission[]
+  current_domain_id: number
+}
+
+export interface Role {
+  id: number
+  name: string
+  code: string
+  description: string
+  is_system: boolean
+  parent_id: number | null
+  domain_id: number | null
+  created_at: string
+  updated_at: string
+  permissions?: Permission[]
+}
+
+export interface Domain {
+  id: number
+  name: string
+  description: string
+  created_at: string
+  updated_at: string
+}
+
+export interface DomainWithStats extends Domain {
+  user_count: number
+  executor_count: number
+  task_count: number
 }
 
 export interface Task {
@@ -24,7 +80,7 @@ export interface Task {
   workflow_id: number | null
   name: string
   type: string
-  config: string | TaskConfig
+  config: string
   cron_expression: string
   timeout_seconds: number
   retry_count: number
@@ -36,11 +92,11 @@ export interface Task {
   webhook_events: string
   assigned_executor_id: number
   created_by: number
-  created_by_name?: string
+  created_by_name: string
   created_at: string
   updated_at: string
-  next_execution_time?: string
-  last_execution_status?: string
+  next_execution_time: string
+  last_execution_status: string
 }
 
 export interface TaskConfig {
@@ -60,7 +116,7 @@ export interface Workflow {
   dag_config: string
   cron_expression: string
   is_enabled: boolean
-  created_by: number
+  created_by: number | null
   created_at: string
   updated_at: string
 }
@@ -96,6 +152,19 @@ export interface WorkflowDAG {
   connections: WorkflowConnection[]
 }
 
+export interface Executor {
+  id: number
+  name: string
+  address: string
+  status: string
+  last_heartbeat: string | null
+  capacity: number
+  current_load: number
+  is_global: boolean
+  created_at: string
+  updated_at: string
+}
+
 export interface TaskExecution {
   id: number
   task_id: number
@@ -108,6 +177,9 @@ export interface TaskExecution {
   error: string
   retry_times: number
   created_at: string
+  progress: number
+  progress_msg: string
+  updated_at: string
 }
 
 export interface TaskExecutionListResponse {
@@ -127,33 +199,129 @@ export interface TaskExecutionListResponse {
   created_at: string
 }
 
+export interface TaskLog {
+  id: number
+  execution_id: string
+  task_id: number
+  executor_id: number
+  node_id: string
+  log_level: string
+  message: string
+  log_time: string
+}
+
+export interface Webhook {
+  id: number
+  name: string
+  url: string
+  method: string
+  headers: string
+  secret: string
+  domain_id: number
+  is_enabled: boolean
+  description: string
+  created_by: number | null
+  created_at: string
+  updated_at: string
+}
+
+export interface Datasource {
+  id: number
+  name: string
+  type: string
+  host: string
+  port: number
+  path: string
+  database: string
+  username: string
+  password: string
+  auth_type: string
+  connection_mode: string
+  zk_hosts: string
+  zk_path: string
+  rqlite_hosts: string
+  config: string
+  description: string
+  domain_id: number
+  is_enabled: boolean
+  allow_write_sql: boolean
+  test_status: string
+  last_test_at: string | null
+  created_by: number
+  updated_by: number
+  created_at: string
+  updated_at: string
+}
+
+export interface DatasourcePermission {
+  id: number
+  datasource_id: number
+  role_id: number | null
+  user_id: number | null
+  permission_type: string
+  granted_by: number | null
+  granted_at: string
+}
+
+export interface WebhookPermission {
+  id: number
+  webhook_id: number
+  role_id: number | null
+  user_id: number | null
+  permission_type: string
+  granted_by: number | null
+  granted_at: string
+}
+
+export interface PermissionGroup {
+  resource: string
+  resource_name: string
+  permissions: Permission[]
+}
+
+export interface AuditLog {
+  id: number
+  user_id: number
+  username: string
+  real_name: string
+  role: string
+  domain_id: number
+  action: string
+  resource: string
+  resource_id: string
+  resource_name: string
+  status: string
+  ip_address: string
+  user_agent: string
+  request_method: string
+  request_path: string
+  detail: string
+  created_at: string
+}
+
+export interface SystemConfig {
+  id: number
+  config_key: string
+  config_value: string
+  description: string
+  updated_at: string
+}
+
+export interface MenuPermissionDef {
+  key: string
+  label: string
+  icon: string
+  path: string
+  resources: string[]
+  children?: MenuPermissionDef[]
+}
+
 export interface PaginatedResponse<T> {
   items?: T[]
   data?: T[]
   total: number
   page?: number
   page_size?: number
-}
-
-export interface Executor {
-  id: number
-  name: string
-  address: string
-  status: string
-  last_heartbeat: string | null
-  capacity: number
-  current_load: number
-  is_global: boolean
-  created_at: string
-  updated_at: string
-}
-
-export interface Domain {
-  id: number
-  name: string
-  description?: string
-  created_at: string
-  updated_at: string
 }
 
 export interface ExecutorWithDomains extends Executor {
@@ -165,11 +333,6 @@ export interface LoginRequest {
   password: string
 }
 
-export interface LoginResponse {
-  token: string
-  user: User
-}
-
 export interface WorkflowExecution {
   id: number
   workflow_id: number
@@ -179,17 +342,6 @@ export interface WorkflowExecution {
   end_time: string | null
   node_states: string
   created_at: string
-}
-
-export interface TaskLog {
-  id: number
-  execution_id: string
-  task_id: number
-  executor_id: number
-  node_id: string
-  log_level: string
-  message: string
-  log_time: string
 }
 
 export interface DashboardStats {
@@ -222,40 +374,6 @@ export interface TrendData {
   total: number
   success: number
   failed: number
-}
-
-export interface Datasource {
-  id: number
-  name: string
-  type: string
-  host?: string
-  port?: number
-  path?: string
-  database?: string
-  username?: string
-  password?: string
-  auth_type: string
-  config?: string
-  description?: string
-  domain_id: number
-  is_enabled: boolean
-  allow_write_sql: boolean
-  test_status: string
-  last_test_at?: string
-  created_by?: number
-  updated_by?: number
-  created_at: string
-  updated_at: string
-}
-
-export interface DatasourcePermission {
-  id: number
-  datasource_id: number
-  role_id?: number
-  user_id?: number
-  permission_type: string
-  granted_by?: number
-  granted_at: string
 }
 
 export interface QueryResult {
@@ -320,19 +438,4 @@ export interface SystemConfigItem {
   max_value?: number | null
   unit?: string
   group: string
-}
-
-export interface Webhook {
-  id: number
-  name: string
-  url: string
-  method: string
-  headers: string
-  secret: string
-  domain_id: number
-  is_enabled: boolean
-  description: string
-  created_by?: number
-  created_at: string
-  updated_at: string
 }

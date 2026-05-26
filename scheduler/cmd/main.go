@@ -32,9 +32,10 @@ func main() {
 	configFile := flag.String("config", "", "path to config file (default: config.yaml in current directory)")
 	flag.Parse()
 
-	logger.Init()
+	logger.Init("info", "json")
 
 	cfg := config.Load(*configFile)
+	logger.Init(cfg.LogLevel, cfg.LogFormat)
 
 	app := NewApp(cfg)
 	app.Run()

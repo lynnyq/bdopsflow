@@ -563,7 +563,7 @@ const loadRoles = async () => {
     if (authStore.isSystemAdmin) {
       roles.value = allRoles
     } else {
-      const userDomainId = authStore.user?.domain_id
+      const userDomainId = authStore.currentDomainId
       roles.value = allRoles.filter((r: Role) => {
         if (r.is_system) return false
         if (r.domain_id == null || r.domain_id === undefined) return true
@@ -577,7 +577,12 @@ const loadRoles = async () => {
 
 const loadUsers = async () => {
   try {
-    const domainId = authStore.isSystemAdmin ? (datasourceDomainId.value || undefined) : undefined
+    let domainId: number | undefined
+    if (authStore.isSystemAdmin) {
+      domainId = 0
+    } else {
+      domainId = datasourceDomainId.value || authStore.currentDomainId || undefined
+    }
     const res = await userAdminAPI.listByDomain(domainId)
     users.value = res.data?.items || []
   } catch (err: any) {
@@ -678,8 +683,8 @@ const handleBack = () => {
   router.push({ name: 'Datasources' })
 }
 
-onMounted(() => {
-  loadDatasource()
+onMounted(async () => {
+  await loadDatasource()
   loadPermissions()
   loadRoles()
   loadUsers()

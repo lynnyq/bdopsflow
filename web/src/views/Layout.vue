@@ -32,70 +32,22 @@
         router
         class="sidebar-nav"
       >
-        <el-menu-item v-if="hasMenuPermission('dashboard')" index="/">
-          <el-icon><DataAnalysis /></el-icon>
-          <template #title>仪表盘</template>
-        </el-menu-item>
-        <el-menu-item v-if="hasMenuPermission('task')" index="/tasks">
-          <el-icon><List /></el-icon>
-          <template #title>任务管理</template>
-        </el-menu-item>
-        <el-menu-item v-if="hasMenuPermission('log')" index="/logs">
-          <el-icon><Document /></el-icon>
-          <template #title>任务日志</template>
-        </el-menu-item>
-        <el-menu-item v-if="hasMenuPermission('executor')" index="/executors">
-          <el-icon><Cpu /></el-icon>
-          <template #title>执行器</template>
-        </el-menu-item>
-        <el-sub-menu v-if="hasMenuPermission('datasource') || hasMenuPermission('sql_query')" index="data-query">
-          <template #title>
-            <el-icon><Search /></el-icon>
-            <span>数据查询</span>
-          </template>
-          <el-menu-item v-if="hasMenuPermission('datasource')" index="/datasources">
-            <template #title>数据源管理</template>
+        <template v-for="menu in visibleMenus" :key="menu.key">
+          <el-sub-menu v-if="menu.children && menu.children.length > 0" :index="menu.key">
+            <template #title>
+              <el-icon><component :is="menu.icon" /></el-icon>
+              <span>{{ menu.label }}</span>
+            </template>
+            <el-menu-item v-for="child in getVisibleChildren(menu)" :key="child.key" :index="child.path">
+              <el-icon><component :is="child.icon" /></el-icon>
+              <template #title>{{ child.label }}</template>
+            </el-menu-item>
+          </el-sub-menu>
+          <el-menu-item v-else :index="menu.path">
+            <el-icon><component :is="menu.icon" /></el-icon>
+            <template #title>{{ menu.label }}</template>
           </el-menu-item>
-          <el-menu-item v-if="hasMenuPermission('sql_query')" index="/sql-query">
-            <template #title>SQL 查询</template>
-          </el-menu-item>
-          <el-menu-item v-if="hasMenuPermission('query_history')" index="/query-history">
-            <template #title>查询历史</template>
-          </el-menu-item>
-          <el-menu-item v-if="hasMenuPermission('saved_sql')" index="/saved-sql">
-            <template #title>已保存 SQL</template>
-          </el-menu-item>
-        </el-sub-menu>
-        <el-sub-menu v-if="hasMenuPermission('user_management') || hasMenuPermission('role_management') || hasMenuPermission('domain_management') || hasMenuPermission('system_config') || hasMenuPermission('audit_log')" index="system-admin">
-          <template #title>
-            <el-icon><Setting /></el-icon>
-            <span>系统管理</span>
-          </template>
-          <el-menu-item v-if="hasMenuPermission('user_management')" index="/admin/users">
-            <el-icon><User /></el-icon>
-            <template #title>用户管理</template>
-          </el-menu-item>
-          <el-menu-item v-if="hasMenuPermission('role_management')" index="/admin/roles">
-            <el-icon><Key /></el-icon>
-            <template #title>角色管理</template>
-          </el-menu-item>
-          <el-menu-item v-if="hasMenuPermission('domain_management')" index="/admin/domains">
-            <el-icon><Grid /></el-icon>
-            <template #title>领域管理</template>
-          </el-menu-item>
-          <el-menu-item v-if="hasMenuPermission('system_config')" index="/admin/system-config">
-            <el-icon><Operation /></el-icon>
-            <template #title>系统配置</template>
-          </el-menu-item>
-          <el-menu-item v-if="hasMenuPermission('audit_log')" index="/admin/audit-logs">
-            <el-icon><Notebook /></el-icon>
-            <template #title>审计日志</template>
-          </el-menu-item>
-          <el-menu-item index="/admin/webhooks">
-            <el-icon><Connection /></el-icon>
-            <template #title>Webhook管理</template>
-          </el-menu-item>
-        </el-sub-menu>
+        </template>
       </el-menu>
 
       <div class="sidebar-footer">
@@ -123,6 +75,24 @@
         </div>
 
         <div class="header-right">
+          <el-dropdown v-if="authStore.domains.length > 1" @command="handleSwitchDomain" class="domain-switcher">
+            <span class="domain-switcher-trigger">
+              {{ currentDomainName }} <el-icon><ArrowDown /></el-icon>
+            </span>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item
+                  v-for="domain in authStore.domains"
+                  :key="domain.domain_id"
+                  :command="domain.domain_id"
+                  :disabled="domain.domain_id === authStore.currentDomainId"
+                >
+                  {{ domain.domain_name }}
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+
           <div class="header-actions">
             <el-button :icon="UserFilled" circle size="small" @click="$router.push('/profile')" />
           </div>
@@ -137,7 +107,6 @@
               <Transition name="fade">
                 <div v-if="true" class="user-info-header">
                   <div class="user-name">{{ user?.real_name || user?.username || '用户' }}</div>
-                  <div class="user-role">{{ getUserRoleDisplay(user?.role) }}</div>
                 </div>
               </Transition>
               <el-icon class="el-icon--right"><ArrowDown /></el-icon>
@@ -170,6 +139,8 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { dashboardAPI } from '@/api'
+import { menuPermissionMap } from '@/config/menuPermissionMap'
+import type { MenuPermissionDef } from '@/types'
 import {
   DataAnalysis,
   List,
@@ -199,11 +170,28 @@ const systemHealthy = ref(true)
 const openKeys = ref<string[]>([])
 
 const user = computed(() => authStore.user)
-const isAdmin = computed(() => authStore.isAdmin)
-const hasPermission = (resource: string, action: string) => authStore.hasPermission(resource, action)
-const hasAnyPermission = (resource: string) => authStore.hasAnyPermission(resource)
-const hasMenuPermission = (menuAction: string) => authStore.hasMenuPermission(menuAction)
 const activeMenu = computed(() => route.path)
+
+const currentDomainName = computed(() => {
+  const domain = authStore.domains.find(d => d.domain_id === authStore.currentDomainId)
+  return domain?.domain_name || ''
+})
+
+const visibleMenus = computed(() => {
+  return menuPermissionMap.filter(menu => deriveMenuVisibility(menu))
+})
+
+function getVisibleChildren(menu: MenuPermissionDef): MenuPermissionDef[] {
+  if (!menu.children) return []
+  return menu.children.filter(child => deriveMenuVisibility(child))
+}
+
+function deriveMenuVisibility(menu: MenuPermissionDef): boolean {
+  if (menu.children && menu.children.length > 0) {
+    return menu.children.some(child => deriveMenuVisibility(child))
+  }
+  return menu.resources.some(r => authStore.hasAnyPermission(r))
+}
 
 const updateOpenKeys = () => {
   const path = route.path
@@ -239,26 +227,20 @@ const pageTitle = computed(() => {
     '/admin/users': '用户管理',
     '/admin/roles': '角色管理',
     '/admin/domains': '领域管理',
+    '/admin/webhooks': 'Webhook管理',
     '/datasources': '数据源管理',
     '/datasources/create': '创建数据源',
     '/sql-query': 'SQL 查询',
     '/query-history': '查询历史',
     '/saved-sql': '已保存 SQL',
-    '/admin/system-config': '系统配置'
+    '/admin/system-config': '系统配置',
+    '/admin/audit-logs': '审计日志',
+    '/workflows': '工作流管理',
   }
   if (route.path.match(/\/datasources\/\d+\/edit/)) return '编辑数据源'
   if (route.path.match(/\/datasources\/\d+\/permissions/)) return '权限管理'
   return titles[route.path] || '仪表盘'
 })
-
-const getUserRoleDisplay = (role: string | undefined): string => {
-  const roleMap: Record<string, string> = {
-    'system_admin': '系统管理员',
-    'domain_admin': '领域管理员',
-    'user': '普通用户'
-  }
-  return roleMap[role || 'user'] || role || '普通用户'
-}
 
 const handleCommand = (command: string) => {
   if (command === 'logout') {
@@ -267,6 +249,10 @@ const handleCommand = (command: string) => {
   } else if (command === 'profile') {
     router.push('/profile')
   }
+}
+
+async function handleSwitchDomain(domainId: number) {
+  await authStore.switchDomain(domainId)
 }
 
 onMounted(() => {
@@ -493,6 +479,28 @@ onUnmounted(() => {
   gap: var(--space-4);
 }
 
+.domain-switcher {
+  cursor: pointer;
+}
+
+.domain-switcher-trigger {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-default);
+  transition: all 0.2s ease;
+}
+
+.domain-switcher-trigger:hover {
+  color: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+
 .header-actions {
   display: flex;
   gap: var(--space-2);
@@ -556,18 +564,11 @@ onUnmounted(() => {
   text-overflow: ellipsis;
 }
 
-.user-info-header .user-role {
-  font-family: var(--font-mono);
-  font-size: 0.65rem;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
 .main-content {
   flex: 1;
   padding: var(--space-6);
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   background: var(--bg-primary);
   background-image:
     radial-gradient(circle at 50% 0%, rgba(34, 211, 238, 0.03) 0%, transparent 50%),

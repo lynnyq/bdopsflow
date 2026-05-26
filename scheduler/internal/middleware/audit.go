@@ -90,7 +90,7 @@ func AuditMiddleware(auditService *service.AuditLogService) gin.HandlerFunc {
 	username, _ := c.Get("username")
 	realName, _ := c.Get("real_name")
 	role, _ := c.Get("role")
-	domainID, _ := c.Get("domain_id")
+	domainID, _ := c.Get("current_domain_id")
 
 		status := "success"
 		if c.Writer.Status() >= 400 {
@@ -130,9 +130,19 @@ func AuditMiddleware(auditService *service.AuditLogService) gin.HandlerFunc {
 		CreatedAt:     time.Now(),
 	}
 
+		slog.Debug("audit event captured",
+			"module", "middleware_audit",
+			"method", method,
+			"path", path,
+			"resource", resource,
+			"action", action,
+			"status", status,
+			"user_id", auditUserID,
+		)
+
 		go func() {
 			if err := auditService.Create(context.Background(), auditLog); err != nil {
-				slog.Error("failed to write audit log", "error", err, "action", action, "resource", resource)
+				slog.Error("failed to write audit log", "module", "middleware_audit", "error", err, "action", action, "resource", resource)
 			}
 		}()
 	}

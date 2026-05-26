@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lynnyq/bdopsflow/scheduler/internal/model"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/service"
 )
 
@@ -30,7 +31,29 @@ func (h *DomainAdminHandler) ListDomains(c *gin.Context) {
 
 	slog.Debug("DomainAdminHandler.ListDomains: handling request")
 
-	bdopsflow_domains, err := h.svc.ListDomains(ctx)
+	userID, _ := c.Get("user_id")
+	var uid int64
+	if v, ok := userID.(int64); ok {
+		uid = v
+	}
+
+	isAdmin := false
+	if uid > 0 {
+		adminCheck, err := h.svc.IsSystemAdmin(ctx, uid)
+		if err == nil {
+			isAdmin = adminCheck
+		}
+	}
+
+	var bdopsflow_domains []*model.DomainWithStats
+	var err error
+
+	if isAdmin {
+		bdopsflow_domains, err = h.svc.ListDomains(ctx)
+	} else {
+		bdopsflow_domains, err = h.svc.ListDomainsByUser(ctx, uid)
+	}
+
 	if err != nil {
 		slog.Error("DomainAdminHandler.ListDomains: failed to list bdopsflow_domains", "error", err)
 		FailFromError(c, err)

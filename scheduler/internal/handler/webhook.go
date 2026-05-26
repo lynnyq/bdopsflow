@@ -36,6 +36,8 @@ func (h *WebhookHandler) Create(c *gin.Context) {
 		return
 	}
 
+	slog.Debug("WebhookHandler.Create: entering", "module", "handler_webhook", "name", req.Name)
+
 	if req.Method == "" {
 		req.Method = "POST"
 	}
@@ -73,6 +75,7 @@ func (h *WebhookHandler) Create(c *gin.Context) {
 		return
 	}
 
+	slog.Info("WebhookHandler.Create: webhook created successfully", "module", "handler_webhook", "id", created.ID, "name", created.Name)
 	SuccessWithMessage(c, "webhook created", created)
 }
 
@@ -88,6 +91,8 @@ func (h *WebhookHandler) List(c *gin.Context) {
 		BadRequest(c, "domain_id格式错误")
 		return
 	}
+
+	slog.Debug("WebhookHandler.List: entering", "module", "handler_webhook", "domain_id", domainID)
 
 	webhooks, err := h.webhookSvc.List(c.Request.Context(), domainID)
 	if err != nil {
@@ -112,6 +117,8 @@ func (h *WebhookHandler) Update(c *gin.Context) {
 		BadRequest(c, "无效的Webhook ID")
 		return
 	}
+
+	slog.Debug("WebhookHandler.Update: entering", "module", "handler_webhook", "id", id)
 
 	var req struct {
 		Name        string `json:"name" binding:"required"`
@@ -163,6 +170,7 @@ func (h *WebhookHandler) Update(c *gin.Context) {
 		return
 	}
 
+	slog.Info("WebhookHandler.Update: webhook updated successfully", "module", "handler_webhook", "id", id)
 	SuccessWithMessage(c, "webhook updated", nil)
 }
 
@@ -174,6 +182,8 @@ func (h *WebhookHandler) Delete(c *gin.Context) {
 		return
 	}
 
+	slog.Debug("WebhookHandler.Delete: entering", "module", "handler_webhook", "id", id)
+
 	if err := h.webhookSvc.Delete(c.Request.Context(), id); err != nil {
 		slog.Error("WebhookHandler.Delete: failed to delete webhook", "error", err, "id", id)
 		if err.Error() == "webhook not found" {
@@ -184,6 +194,7 @@ func (h *WebhookHandler) Delete(c *gin.Context) {
 		return
 	}
 
+	slog.Info("WebhookHandler.Delete: webhook deleted successfully", "module", "handler_webhook", "id", id)
 	SuccessWithMessage(c, "webhook deleted", nil)
 }
 
@@ -194,6 +205,8 @@ func (h *WebhookHandler) Test(c *gin.Context) {
 		BadRequest(c, "无效的Webhook ID")
 		return
 	}
+
+	slog.Debug("WebhookHandler.Test: entering", "module", "handler_webhook", "id", id)
 
 	result, err := h.webhookSvc.Test(c.Request.Context(), id)
 	if err != nil {
@@ -211,5 +224,6 @@ func (h *WebhookHandler) Test(c *gin.Context) {
 		return
 	}
 
+	slog.Info("WebhookHandler.Test: webhook test sent successfully", "module", "handler_webhook", "id", id)
 	SuccessWithMessage(c, "test webhook sent successfully", result)
 }

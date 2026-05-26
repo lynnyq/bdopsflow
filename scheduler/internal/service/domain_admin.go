@@ -2,27 +2,80 @@ package service
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	"github.com/lynnyq/bdopsflow/scheduler/internal/model"
+	"github.com/lynnyq/bdopsflow/scheduler/pkg/database"
 	rqlite "github.com/rqlite/gorqlite"
 )
 
-// DomainAdminService 领域管理服务
 type DomainAdminService struct {
-	db *rqlite.Connection
+	db      database.DB
+	permSvc *PermissionService
 }
 
-// NewDomainAdminService 创建领域管理服务
-func NewDomainAdminService(db *rqlite.Connection) *DomainAdminService {
-	return &DomainAdminService{db: db}
+func NewDomainAdminService(db database.DB, permSvc *PermissionService) *DomainAdminService {
+	return &DomainAdminService{db: db, permSvc: permSvc}
 }
 
-// ListDomains 获取领域列表
+func (s *DomainAdminService) IsSystemAdmin(ctx context.Context, userID int64) (bool, error) {
+	return s.permSvc.IsSystemAdmin(ctx, userID)
+}
+
+func (s *DomainAdminService) ListDomainsByUser(ctx context.Context, userID int64) ([]*model.DomainWithStats, error) {
+	slog.Debug("ListDomainsByUser: fetching", "module", "domain_admin", "user_id", userID)
+	query := `
+		SELECT d.id, d.name, d.description, d.created_at,
+			(SELECT COUNT(*) FROM bdopsflow_user_domains WHERE domain_id = d.id) as user_count,
+			(SELECT COUNT(*) FROM bdopsflow_domain_executors WHERE domain_id = d.id) as executor_count,
+			(SELECT COUNT(*) FROM bdopsflow_tasks WHERE domain_id = d.id) as task_count
+		FROM bdopsflow_domains d
+		JOIN bdopsflow_user_domains ud ON d.id = ud.domain_id
+		WHERE ud.user_id = ?
+		ORDER BY d.id ASC
+	`
+
+	stmt := rqlite.ParameterizedStatement{
+		Query:     query,
+		Arguments: []interface{}{userID},
+	}
+	qr, err := s.db.QueryOneParameterized(stmt)
+	if err != nil {
+		return nil, err
+	}
+	if qr.Err != nil {
+		return nil, qr.Err
+	}
+
+	var bdopsflow_domains []*model.DomainWithStats
+	for qr.Next() {
+		row, err := qr.Slice()
+		if err != nil {
+			continue
+		}
+
+		domain := &model.DomainWithStats{
+			Domain: model.Domain{
+				ID:          rowInt64(row[0]),
+				Name:        rowString(row[1]),
+				Description: rowString(row[2]),
+			},
+			UserCount:     rowInt64(row[4]),
+			ExecutorCount: rowInt64(row[5]),
+			TaskCount:     rowInt64(row[6]),
+		}
+
+		bdopsflow_domains = append(bdopsflow_domains, domain)
+	}
+
+	return bdopsflow_domains, nil
+}
+
 func (s *DomainAdminService) ListDomains(ctx context.Context) ([]*model.DomainWithStats, error) {
 	query := `
 		SELECT d.id, d.name, d.description, d.created_at,
-			(SELECT COUNT(*) FROM bdopsflow_users WHERE domain_id = d.id) as user_count,
+			(SELECT COUNT(*) FROM bdopsflow_user_domains WHERE domain_id = d.id) as user_count,
 			(SELECT COUNT(*) FROM bdopsflow_domain_executors WHERE domain_id = d.id) as executor_count,
 			(SELECT COUNT(*) FROM bdopsflow_tasks WHERE domain_id = d.id) as task_count
 		FROM bdopsflow_domains d
@@ -61,11 +114,10 @@ func (s *DomainAdminService) ListDomains(ctx context.Context) ([]*model.DomainWi
 	return bdopsflow_domains, nil
 }
 
-// GetDomain 获取领域详情
 func (s *DomainAdminService) GetDomain(ctx context.Context, domainID int64) (*model.DomainWithStats, error) {
 	query := `
 		SELECT d.id, d.name, d.description, d.created_at,
-			(SELECT COUNT(*) FROM bdopsflow_users WHERE domain_id = d.id) as user_count,
+			(SELECT COUNT(*) FROM bdopsflow_user_domains WHERE domain_id = d.id) as user_count,
 			(SELECT COUNT(*) FROM bdopsflow_domain_executors WHERE domain_id = d.id) as executor_count,
 			(SELECT COUNT(*) FROM bdopsflow_tasks WHERE domain_id = d.id) as task_count
 		FROM bdopsflow_domains d
@@ -107,8 +159,8 @@ func (s *DomainAdminService) GetDomain(ctx context.Context, domainID int64) (*mo
 	return domain, nil
 }
 
-// CreateDomain 创建领域
 func (s *DomainAdminService) CreateDomain(ctx context.Context, name, description string) (*model.Domain, error) {
+	slog.Info("CreateDomain: creating", "module", "domain_admin", "name", name)
 	query := `
 		INSERT INTO bdopsflow_domains (name, description, created_at)
 		VALUES (?, ?, ?)
@@ -128,11 +180,12 @@ func (s *DomainAdminService) CreateDomain(ctx context.Context, name, description
 	}
 
 	domainID := result.LastInsertID
+	slog.Info("CreateDomain: success", "module", "domain_admin", "domain_id", domainID, "name", name)
 	return s.GetDomainByID(ctx, domainID)
 }
 
-// UpdateDomain 更新领域
 func (s *DomainAdminService) UpdateDomain(ctx context.Context, domainID int64, name, description string) (*model.Domain, error) {
+	slog.Info("UpdateDomain: updating", "module", "domain_admin", "domain_id", domainID)
 	query := `
 		UPDATE bdopsflow_domains
 		SET name = ?, description = ?
@@ -151,9 +204,8 @@ func (s *DomainAdminService) UpdateDomain(ctx context.Context, domainID int64, n
 	return s.GetDomainByID(ctx, domainID)
 }
 
-// DeleteDomain 删除领域
 func (s *DomainAdminService) DeleteDomain(ctx context.Context, domainID int64) error {
-	// 检查是否有资源
+	slog.Info("DeleteDomain: deleting", "module", "domain_admin", "domain_id", domainID)
 	domain, err := s.GetDomain(ctx, domainID)
 	if err != nil {
 		return err
@@ -166,7 +218,6 @@ func (s *DomainAdminService) DeleteDomain(ctx context.Context, domainID int64) e
 		return ErrDomainHasResources
 	}
 
-	// 删除领域
 	query := `DELETE FROM bdopsflow_domains WHERE id = ?`
 	stmt := rqlite.ParameterizedStatement{
 		Query:     query,
@@ -176,7 +227,6 @@ func (s *DomainAdminService) DeleteDomain(ctx context.Context, domainID int64) e
 	return err
 }
 
-// GetDomainByID 根据ID获取领域
 func (s *DomainAdminService) GetDomainByID(ctx context.Context, domainID int64) (*model.Domain, error) {
 	query := `SELECT id, name, description, created_at FROM bdopsflow_domains WHERE id = ?`
 

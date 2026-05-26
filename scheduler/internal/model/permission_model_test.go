@@ -64,6 +64,26 @@ func TestRoleModel(t *testing.T) {
 		}
 	})
 
+	t.Run("IsDomainAdmin 领域管理员", func(t *testing.T) {
+		role := &Role{
+			Code: "domain_admin",
+		}
+
+		if !role.IsDomainAdmin() {
+			t.Error("期望 Code 为 'domain_admin' 时 IsDomainAdmin() 返回 true")
+		}
+	})
+
+	t.Run("IsDomainAdmin 非领域管理员", func(t *testing.T) {
+		role := &Role{
+			Code: "user",
+		}
+
+		if role.IsDomainAdmin() {
+			t.Error("期望 Code 不为 'domain_admin' 时 IsDomainAdmin() 返回 false")
+		}
+	})
+
 	t.Run("GetCode 获取权限代码", func(t *testing.T) {
 		role := &Role{
 			Code: "test_role",
@@ -71,6 +91,47 @@ func TestRoleModel(t *testing.T) {
 
 		if role.GetCode() != "test_role" {
 			t.Errorf("期望 GetCode() 返回 'test_role'，实际为 '%s'", role.GetCode())
+		}
+	})
+
+	t.Run("角色带父角色", func(t *testing.T) {
+		parentID := int64(1)
+		role := &Role{
+			ID:       2,
+			Code:     "child_role",
+			ParentID: &parentID,
+		}
+
+		if role.ParentID == nil || *role.ParentID != 1 {
+			t.Error("期望 ParentID 为 1")
+		}
+	})
+
+	t.Run("角色带领域", func(t *testing.T) {
+		domainID := int64(5)
+		role := &Role{
+			ID:       3,
+			Code:     "domain_role",
+			DomainID: &domainID,
+		}
+
+		if role.DomainID == nil || *role.DomainID != 5 {
+			t.Error("期望 DomainID 为 5")
+		}
+	})
+
+	t.Run("角色带权限列表", func(t *testing.T) {
+		role := &Role{
+			ID:   1,
+			Code: "admin",
+			Permissions: []*Permission{
+				{ID: 1, Resource: "task", Action: "create"},
+				{ID: 2, Resource: "task", Action: "read"},
+			},
+		}
+
+		if len(role.Permissions) != 2 {
+			t.Errorf("期望 2 个权限，实际为 %d", len(role.Permissions))
 		}
 	})
 }
@@ -198,6 +259,21 @@ func TestPermissionModel(t *testing.T) {
 			t.Errorf("期望第三个分组为 'workflow'，实际为 '%s'", groups[2].Resource)
 		}
 	})
+
+	t.Run("BuildPermissionGroups 不包含 menu 资源", func(t *testing.T) {
+		permissions := []*Permission{
+			{ID: 1, Resource: "task", Action: "create", Description: "创建任务"},
+			{ID: 2, Resource: "user", Action: "read", Description: "查看用户"},
+		}
+
+		groups := BuildPermissionGroups(permissions)
+
+		for _, group := range groups {
+			if group.Resource == "menu" {
+				t.Error("权限分组不应包含 menu 资源")
+			}
+		}
+	})
 }
 
 func TestUserRoleModel(t *testing.T) {
@@ -234,6 +310,171 @@ func TestUserRoleModel(t *testing.T) {
 		}
 		if *userRole.DomainID != 2 {
 			t.Errorf("期望 DomainID 为 2，实际为 %d", *userRole.DomainID)
+		}
+	})
+
+	t.Run("用户角色带关联角色信息", func(t *testing.T) {
+		userRole := &UserRole{
+			ID:     1,
+			UserID: 1,
+			RoleID: 1,
+			Role: &Role{
+				ID:   1,
+				Code: "system_admin",
+			},
+		}
+
+		if userRole.Role == nil {
+			t.Error("期望 Role 不为 nil")
+		}
+		if userRole.Role.Code != "system_admin" {
+			t.Errorf("期望 Role.Code 为 'system_admin'，实际为 '%s'", userRole.Role.Code)
+		}
+	})
+}
+
+func TestUserDomainInfoModel(t *testing.T) {
+	t.Run("创建用户领域信息", func(t *testing.T) {
+		info := &UserDomainInfo{
+			DomainID:   1,
+			DomainName: "production",
+			IsDefault:  true,
+		}
+
+		if info.DomainID != 1 {
+			t.Errorf("期望 DomainID 为 1，实际为 %d", info.DomainID)
+		}
+		if info.DomainName != "production" {
+			t.Errorf("期望 DomainName 为 'production'，实际为 '%s'", info.DomainName)
+		}
+		if !info.IsDefault {
+			t.Error("期望 IsDefault 为 true")
+		}
+	})
+
+	t.Run("非默认领域", func(t *testing.T) {
+		info := &UserDomainInfo{
+			DomainID:   2,
+			DomainName: "staging",
+			IsDefault:  false,
+		}
+
+		if info.IsDefault {
+			t.Error("期望 IsDefault 为 false")
+		}
+	})
+}
+
+func TestUserDomainModel(t *testing.T) {
+	t.Run("创建用户领域映射", func(t *testing.T) {
+		ud := &UserDomain{
+			ID:        1,
+			UserID:    1,
+			DomainID:  1,
+			IsDefault: true,
+		}
+
+		if ud.UserID != 1 {
+			t.Errorf("期望 UserID 为 1，实际为 %d", ud.UserID)
+		}
+		if ud.DomainID != 1 {
+			t.Errorf("期望 DomainID 为 1，实际为 %d", ud.DomainID)
+		}
+		if !ud.IsDefault {
+			t.Error("期望 IsDefault 为 true")
+		}
+	})
+}
+
+func TestDatasourcePermissionModel(t *testing.T) {
+	t.Run("创建数据源权限-角色级别", func(t *testing.T) {
+		roleID := int64(1)
+		grantedBy := int64(10)
+		perm := &DatasourcePermission{
+			ID:             1,
+			DatasourceID:   100,
+			RoleID:         &roleID,
+			PermissionType: "read",
+			GrantedBy:      &grantedBy,
+			GrantedAt:      "2024-01-01 00:00:00",
+		}
+
+		if perm.DatasourceID != 100 {
+			t.Errorf("期望 DatasourceID 为 100，实际为 %d", perm.DatasourceID)
+		}
+		if perm.RoleID == nil || *perm.RoleID != 1 {
+			t.Error("期望 RoleID 为 1")
+		}
+		if perm.UserID != nil {
+			t.Error("期望 UserID 为 nil")
+		}
+		if perm.PermissionType != "read" {
+			t.Errorf("期望 PermissionType 为 'read'，实际为 '%s'", perm.PermissionType)
+		}
+	})
+
+	t.Run("创建数据源权限-用户级别", func(t *testing.T) {
+		userID := int64(5)
+		perm := &DatasourcePermission{
+			ID:             2,
+			DatasourceID:   200,
+			UserID:         &userID,
+			PermissionType: "manage",
+		}
+
+		if perm.UserID == nil || *perm.UserID != 5 {
+			t.Error("期望 UserID 为 5")
+		}
+		if perm.RoleID != nil {
+			t.Error("期望 RoleID 为 nil")
+		}
+		if perm.PermissionType != "manage" {
+			t.Errorf("期望 PermissionType 为 'manage'，实际为 '%s'", perm.PermissionType)
+		}
+	})
+}
+
+func TestWebhookPermissionModel(t *testing.T) {
+	t.Run("创建Webhook权限-角色级别", func(t *testing.T) {
+		roleID := int64(1)
+		grantedBy := int64(10)
+		perm := &WebhookPermission{
+			ID:             1,
+			WebhookID:      100,
+			RoleID:         &roleID,
+			PermissionType: "read",
+			GrantedBy:      &grantedBy,
+			GrantedAt:      "2024-01-01 00:00:00",
+		}
+
+		if perm.WebhookID != 100 {
+			t.Errorf("期望 WebhookID 为 100，实际为 %d", perm.WebhookID)
+		}
+		if perm.RoleID == nil || *perm.RoleID != 1 {
+			t.Error("期望 RoleID 为 1")
+		}
+		if perm.UserID != nil {
+			t.Error("期望 UserID 为 nil")
+		}
+		if perm.PermissionType != "read" {
+			t.Errorf("期望 PermissionType 为 'read'，实际为 '%s'", perm.PermissionType)
+		}
+	})
+
+	t.Run("创建Webhook权限-用户级别", func(t *testing.T) {
+		userID := int64(5)
+		perm := &WebhookPermission{
+			ID:             2,
+			WebhookID:      200,
+			UserID:         &userID,
+			PermissionType: "manage",
+		}
+
+		if perm.UserID == nil || *perm.UserID != 5 {
+			t.Error("期望 UserID 为 5")
+		}
+		if perm.RoleID != nil {
+			t.Error("期望 RoleID 为 nil")
 		}
 	})
 }
@@ -331,6 +572,101 @@ func TestDomainWithStatsModel(t *testing.T) {
 		}
 		if domain.TaskCount != 100 {
 			t.Errorf("期望 TaskCount 为 100，实际为 %d", domain.TaskCount)
+		}
+	})
+}
+
+func TestSwitchDomainRequestModel(t *testing.T) {
+	t.Run("创建领域切换请求", func(t *testing.T) {
+		req := &SwitchDomainRequest{
+			DomainID: 5,
+		}
+
+		if req.DomainID != 5 {
+			t.Errorf("期望 DomainID 为 5，实际为 %d", req.DomainID)
+		}
+	})
+}
+
+func TestRoleRequestModel(t *testing.T) {
+	t.Run("创建角色请求", func(t *testing.T) {
+		parentID := int64(1)
+		domainID := int64(2)
+		req := &RoleRequest{
+			Name:        "测试角色",
+			Code:        "test_role",
+			Description: "测试用角色",
+			ParentID:    &parentID,
+			DomainID:    &domainID,
+		}
+
+		if req.Name != "测试角色" {
+			t.Errorf("期望 Name 为 '测试角色'，实际为 '%s'", req.Name)
+		}
+		if req.Code != "test_role" {
+			t.Errorf("期望 Code 为 'test_role'，实际为 '%s'", req.Code)
+		}
+		if req.ParentID == nil || *req.ParentID != 1 {
+			t.Error("期望 ParentID 为 1")
+		}
+		if req.DomainID == nil || *req.DomainID != 2 {
+			t.Error("期望 DomainID 为 2")
+		}
+	})
+
+	t.Run("全局角色请求无领域", func(t *testing.T) {
+		req := &RoleRequest{
+			Name:        "全局角色",
+			Code:        "global_role",
+			Description: "全局角色",
+			ParentID:    nil,
+			DomainID:    nil,
+		}
+
+		if req.ParentID != nil {
+			t.Error("期望 ParentID 为 nil")
+		}
+		if req.DomainID != nil {
+			t.Error("期望 DomainID 为 nil")
+		}
+	})
+}
+
+func TestUserRoleDetailModel(t *testing.T) {
+	t.Run("创建用户角色详情", func(t *testing.T) {
+		domainID := int64(1)
+		detail := &UserRoleDetail{
+			RoleID:     1,
+			RoleName:   "系统管理员",
+			RoleCode:   "system_admin",
+			DomainID:   &domainID,
+			DomainName: "默认领域",
+		}
+
+		if detail.RoleID != 1 {
+			t.Errorf("期望 RoleID 为 1，实际为 %d", detail.RoleID)
+		}
+		if detail.RoleCode != "system_admin" {
+			t.Errorf("期望 RoleCode 为 'system_admin'，实际为 '%s'", detail.RoleCode)
+		}
+		if detail.DomainID == nil || *detail.DomainID != 1 {
+			t.Error("期望 DomainID 为 1")
+		}
+		if detail.DomainName != "默认领域" {
+			t.Errorf("期望 DomainName 为 '默认领域'，实际为 '%s'", detail.DomainName)
+		}
+	})
+
+	t.Run("全局角色详情无领域", func(t *testing.T) {
+		detail := &UserRoleDetail{
+			RoleID:   1,
+			RoleName: "系统管理员",
+			RoleCode: "system_admin",
+			DomainID: nil,
+		}
+
+		if detail.DomainID != nil {
+			t.Error("期望 DomainID 为 nil")
 		}
 	})
 }

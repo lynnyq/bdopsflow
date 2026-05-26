@@ -21,7 +21,7 @@
 
     <div v-else class="custom-fields">
       <div class="cron-field-row">
-        <label class="field-label">秒</label>
+        <span class="field-label">秒</span>
         <el-select v-model="cronFields.second" size="small" class="field-select" @change="buildCustomCron">
           <el-option v-for="opt in secondOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
         </el-select>
@@ -29,7 +29,7 @@
       </div>
 
       <div class="cron-field-row">
-        <label class="field-label">分钟</label>
+        <span class="field-label">分钟</span>
         <el-select v-model="cronFields.minute" size="small" class="field-select" @change="buildCustomCron">
           <el-option v-for="opt in minuteOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
         </el-select>
@@ -37,7 +37,7 @@
       </div>
 
       <div class="cron-field-row">
-        <label class="field-label">小时</label>
+        <span class="field-label">小时</span>
         <el-select v-model="cronFields.hour" size="small" class="field-select" @change="buildCustomCron">
           <el-option v-for="opt in hourOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
         </el-select>
@@ -45,7 +45,7 @@
       </div>
 
       <div class="cron-field-row">
-        <label class="field-label">日</label>
+        <span class="field-label">日</span>
         <el-select v-model="cronFields.day" size="small" class="field-select" @change="buildCustomCron">
           <el-option v-for="opt in dayOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
         </el-select>
@@ -61,7 +61,7 @@
       </div>
 
       <div class="cron-field-row">
-        <label class="field-label">周</label>
+        <span class="field-label">周</span>
         <el-select v-model="cronFields.week" size="small" class="field-select" @change="buildCustomCron">
           <el-option v-for="opt in weekOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
         </el-select>

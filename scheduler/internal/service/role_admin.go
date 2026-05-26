@@ -2,44 +2,56 @@ package service
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	"github.com/lynnyq/bdopsflow/scheduler/internal/model"
+	"github.com/lynnyq/bdopsflow/scheduler/pkg/database"
 	rqlite "github.com/rqlite/gorqlite"
 )
 
-// RoleAdminService 角色管理服务
 type RoleAdminService struct {
-	db      *rqlite.Connection
+	db      database.DB
 	permSvc *PermissionService
 }
 
-// NewRoleAdminService 创建角色管理服务
-func NewRoleAdminService(db *rqlite.Connection, permSvc *PermissionService) *RoleAdminService {
+func NewRoleAdminService(db database.DB, permSvc *PermissionService) *RoleAdminService {
 	return &RoleAdminService{
 		db:      db,
 		permSvc: permSvc,
 	}
 }
 
-// ListRoles 获取角色列表
-func (s *RoleAdminService) ListRoles(ctx context.Context) ([]*model.Role, error) {
-	return s.permSvc.GetAllRoles(ctx)
+func (s *RoleAdminService) IsSystemAdmin(ctx context.Context, userID int64) (bool, error) {
+	return s.permSvc.IsSystemAdmin(ctx, userID)
 }
 
-// GetRole 获取角色详情
+func (s *RoleAdminService) ListRoles(ctx context.Context, domainID int64, isSystemAdmin bool) ([]*model.Role, error) {
+	if isSystemAdmin {
+		return s.permSvc.GetAllRoles(ctx)
+	}
+	return s.permSvc.GetRolesByDomain(ctx, domainID)
+}
+
 func (s *RoleAdminService) GetRole(ctx context.Context, roleID int64) (*model.Role, error) {
 	return s.permSvc.GetRoleByID(ctx, roleID)
 }
 
-// CreateRole 创建角色
-func (s *RoleAdminService) CreateRole(ctx context.Context, name, code, description string, domainID *int64) (*model.Role, error) {
+func (s *RoleAdminService) CreateRole(ctx context.Context, name, code, description string, parentID *int64, domainID *int64) (*model.Role, error) {
+	slog.Info("CreateRole: creating", "module", "role_admin", "name", name, "code", code)
 	query := `
-		INSERT INTO bdopsflow_roles (name, code, description, is_system, domain_id, created_at, updated_at)
-		VALUES (?, ?, ?, 0, ?, ?, ?)
+		INSERT INTO bdopsflow_roles (name, code, description, is_system, parent_id, domain_id, created_at, updated_at)
+		VALUES (?, ?, ?, 0, ?, ?, ?, ?)
 	`
 
 	now := time.Now()
+	var parentIDValue interface{}
+	if parentID != nil {
+		parentIDValue = *parentID
+	} else {
+		parentIDValue = nil
+	}
+
 	var domainIDValue interface{}
 	if domainID != nil {
 		domainIDValue = *domainID
@@ -49,7 +61,7 @@ func (s *RoleAdminService) CreateRole(ctx context.Context, name, code, descripti
 
 	stmt := rqlite.ParameterizedStatement{
 		Query:     query,
-		Arguments: []interface{}{name, code, description, domainIDValue, now, now},
+		Arguments: []interface{}{name, code, description, parentIDValue, domainIDValue, now, now},
 	}
 	result, err := s.db.WriteOneParameterized(stmt)
 	if err != nil {
@@ -60,12 +72,12 @@ func (s *RoleAdminService) CreateRole(ctx context.Context, name, code, descripti
 	}
 
 	roleID := result.LastInsertID
+	slog.Info("CreateRole: success", "module", "role_admin", "role_id", roleID, "code", code)
 	return s.permSvc.GetRoleByID(ctx, roleID)
 }
 
-// UpdateRole 更新角色
 func (s *RoleAdminService) UpdateRole(ctx context.Context, roleID int64, name, description string) (*model.Role, error) {
-	// 检查是否为系统角色
+	slog.Info("UpdateRole: updating", "module", "role_admin", "role_id", roleID)
 	role, err := s.permSvc.GetRoleByID(ctx, roleID)
 	if err != nil {
 		return nil, err
@@ -96,9 +108,8 @@ func (s *RoleAdminService) UpdateRole(ctx context.Context, roleID int64, name, d
 	return s.permSvc.GetRoleByID(ctx, roleID)
 }
 
-// DeleteRole 删除角色
 func (s *RoleAdminService) DeleteRole(ctx context.Context, roleID int64) error {
-	// 检查是否为系统角色
+	slog.Info("DeleteRole: deleting", "module", "role_admin", "role_id", roleID)
 	role, err := s.permSvc.GetRoleByID(ctx, roleID)
 	if err != nil {
 		return err
@@ -110,7 +121,26 @@ func (s *RoleAdminService) DeleteRole(ctx context.Context, roleID int64) error {
 		return ErrSystemRoleCannotDelete
 	}
 
-	// 删除角色权限关联
+	childCountQuery := `SELECT COUNT(*) FROM bdopsflow_roles WHERE parent_id = ?`
+	childCountStmt := rqlite.ParameterizedStatement{
+		Query:     childCountQuery,
+		Arguments: []interface{}{roleID},
+	}
+	qr, err := s.db.QueryOneParameterized(childCountStmt)
+	if err != nil {
+		return err
+	}
+	if qr.Err != nil {
+		return qr.Err
+	}
+	if qr.Next() {
+		row, err := qr.Slice()
+		if err == nil && rowInt64(row[0]) > 0 {
+			slog.Warn("DeleteRole: has child roles", "module", "role_admin", "role_id", roleID)
+			return ErrCannotDeleteRoleWithChildren
+		}
+	}
+
 	deletePermQuery := `DELETE FROM bdopsflow_role_permissions WHERE role_id = ?`
 	deletePermStmt := rqlite.ParameterizedStatement{
 		Query:     deletePermQuery,
@@ -121,7 +151,6 @@ func (s *RoleAdminService) DeleteRole(ctx context.Context, roleID int64) error {
 		return err
 	}
 
-	// 删除用户角色关联
 	deleteUserQuery := `DELETE FROM bdopsflow_user_roles WHERE role_id = ?`
 	deleteUserStmt := rqlite.ParameterizedStatement{
 		Query:     deleteUserQuery,
@@ -132,7 +161,6 @@ func (s *RoleAdminService) DeleteRole(ctx context.Context, roleID int64) error {
 		return err
 	}
 
-	// 删除角色
 	deleteRoleQuery := `DELETE FROM bdopsflow_roles WHERE id = ? AND is_system = 0`
 	deleteRoleStmt := rqlite.ParameterizedStatement{
 		Query:     deleteRoleQuery,
@@ -146,14 +174,11 @@ func (s *RoleAdminService) DeleteRole(ctx context.Context, roleID int64) error {
 	return nil
 }
 
-// GetRolePermissions 获取角色权限
 func (s *RoleAdminService) GetRolePermissions(ctx context.Context, roleID int64) ([]*model.Permission, error) {
 	return s.permSvc.GetRolePermissions(ctx, roleID)
 }
 
-// AssignPermissionsToRole 分配权限给角色
 func (s *RoleAdminService) AssignPermissionsToRole(ctx context.Context, roleID int64, permissionIDs []int64) error {
-	// 检查是否为系统角色
 	role, err := s.permSvc.GetRoleByID(ctx, roleID)
 	if err != nil {
 		return err
@@ -168,7 +193,6 @@ func (s *RoleAdminService) AssignPermissionsToRole(ctx context.Context, roleID i
 	return s.permSvc.AssignPermissionsToRole(ctx, roleID, permissionIDs)
 }
 
-// GetAllPermissions 获取所有权限
 func (s *RoleAdminService) GetAllPermissions(ctx context.Context) ([]*model.Permission, error) {
 	return s.permSvc.GetAllPermissions(ctx)
 }

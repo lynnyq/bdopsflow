@@ -24,23 +24,24 @@ type PermissionGroup struct {
 }
 
 var resourceNameMap = map[string]string{
-	"menu":       "菜单权限",
+	"dashboard":  "仪表盘",
 	"user":       "用户管理",
 	"role":       "角色管理",
 	"permission": "权限管理",
 	"domain":     "领域管理",
 	"executor":   "执行器管理",
 	"task":       "任务管理",
-	"log":        "日志管理",
 	"workflow":   "工作流管理",
+	"log":        "日志管理",
 	"datasource": "数据源管理",
+	"webhook":    "Webhook管理",
 	"audit_log":  "审计日志",
 	"config":     "系统配置",
 }
 
 var resourceOrder = []string{
-	"menu", "user", "role", "permission", "domain", "executor",
-	"task", "workflow", "log", "datasource", "audit_log", "config",
+	"dashboard", "user", "role", "permission", "domain", "executor",
+	"task", "workflow", "log", "datasource", "webhook", "audit_log", "config",
 }
 
 // BuildPermissionGroups 从数据库权限列表构建分组

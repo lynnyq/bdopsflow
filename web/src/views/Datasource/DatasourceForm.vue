@@ -449,7 +449,7 @@ const buildSubmitData = () => {
     description: form.value.description,
     is_enabled: form.value.is_enabled,
     allow_write_sql: form.value.allow_write_sql,
-    domain_id: form.value.domain_id || authStore.user?.domain_id || 1,
+    domain_id: form.value.domain_id || authStore.currentDomainId || 1,
   }
 
   if (form.value.type === 'sqlite') {

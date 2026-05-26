@@ -15,14 +15,15 @@ import (
 	"github.com/google/uuid"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/model"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/webhook"
+	"github.com/lynnyq/bdopsflow/scheduler/pkg/database"
 	rqlite "github.com/rqlite/gorqlite"
 )
 
 type WebhookService struct {
-	db *rqlite.Connection
+	db database.DB
 }
 
-func NewWebhookService(db *rqlite.Connection) *WebhookService {
+func NewWebhookService(db database.DB) *WebhookService {
 	return &WebhookService{db: db}
 }
 

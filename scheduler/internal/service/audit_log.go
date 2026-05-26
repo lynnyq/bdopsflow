@@ -9,14 +9,15 @@ import (
 	"time"
 
 	"github.com/lynnyq/bdopsflow/scheduler/internal/model"
+	"github.com/lynnyq/bdopsflow/scheduler/pkg/database"
 	rqlite "github.com/rqlite/gorqlite"
 )
 
 type AuditLogService struct {
-	db *rqlite.Connection
+	db database.DB
 }
 
-func NewAuditLogService(db *rqlite.Connection) *AuditLogService {
+func NewAuditLogService(db database.DB) *AuditLogService {
 	return &AuditLogService{db: db}
 }
 

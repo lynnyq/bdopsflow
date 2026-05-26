@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -216,7 +217,7 @@ func (m *MetricsCollector) StartBackgroundCollection(ctx context.Context) {
 				return
 			case <-ticker.C:
 				if err := m.SaveToRedis(ctx); err != nil {
-					fmt.Printf("Failed to save metrics: %v\n", err)
+				slog.Error("Failed to save metrics", "error", err)
 				}
 			}
 		}

@@ -13,13 +13,14 @@ type User struct {
 	RealName      string     `db:"real_name" json:"real_name"`
 	Phone         string     `db:"phone" json:"phone"`
 	Email         string     `db:"email" json:"email"`
-	DomainID      int64      `db:"domain_id" json:"domain_id"`
-	Role          string     `db:"role" json:"role"`
 	IsActive      bool       `db:"is_active" json:"is_active"`
 	LastLoginAt   *time.Time `db:"last_login_at" json:"last_login_at"`
 	CreatedBy     *int64     `db:"created_by" json:"created_by,omitempty"`
 	CreatedAt     time.Time  `db:"created_at" json:"created_at"`
 	UpdatedAt     time.Time  `db:"updated_at" json:"updated_at"`
+	RoleIDs       []int64    `db:"-" json:"role_ids,omitempty"`
+	DomainIDs     []int64    `db:"-" json:"domain_ids,omitempty"`
+	RoleCodes     []string   `db:"-" json:"role_codes,omitempty"`
 }
 
 type Domain struct {

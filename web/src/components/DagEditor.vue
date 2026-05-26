@@ -175,7 +175,7 @@
 
           <div class="panel-content">
             <div class="property-section">
-              <label class="property-label">节点名称</label>
+              <span class="property-label">节点名称</span>
               <el-input
                 v-model="selectedNode.name"
                 size="small"
@@ -185,7 +185,7 @@
             </div>
 
             <div class="property-section">
-              <label class="property-label">类型</label>
+              <span class="property-label">类型</span>
               <div class="property-value">
                 <el-tag :type="getTypeTagType(selectedNode.type)" size="small">
                   {{ selectedNode.type.toUpperCase() }}
@@ -194,7 +194,7 @@
             </div>
 
             <div class="property-section">
-              <label class="property-label">状态</label>
+              <span class="property-label">状态</span>
               <el-select v-model="selectedNode.status" size="small" @change="notifyUpdate">
                 <el-option label="待执行" value="pending" />
                 <el-option label="运行中" value="running" />
@@ -213,7 +213,7 @@
 
               <template v-if="selectedNode.type === 'http'">
                 <div class="property-section">
-                  <label class="property-label">URL</label>
+                  <span class="property-label">URL</span>
                   <el-input
                     v-model="selectedNode.config!.url"
                     size="small"
@@ -222,7 +222,7 @@
                   />
                 </div>
                 <div class="property-section">
-                  <label class="property-label">方法</label>
+                  <span class="property-label">方法</span>
                   <el-select v-model="selectedNode.config!.method" size="small" @change="notifyUpdate">
                     <el-option label="GET" value="GET" />
                     <el-option label="POST" value="POST" />
@@ -234,7 +234,7 @@
 
               <template v-else-if="selectedNode.type === 'shell'">
                 <div class="property-section">
-                  <label class="property-label">脚本</label>
+                  <span class="property-label">脚本</span>
                   <el-input
                     v-model="selectedNode.config!.script"
                     type="textarea"
@@ -249,7 +249,7 @@
 
               <template v-else-if="selectedNode.type === 'delay'">
                 <div class="property-section">
-                  <label class="property-label">延迟(毫秒)</label>
+                  <span class="property-label">延迟(毫秒)</span>
                   <el-input-number
                     v-model="selectedNode.config!.delay"
                     :min="100"

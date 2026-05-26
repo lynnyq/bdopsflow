@@ -294,8 +294,7 @@ const filteredWorkflows = computed(() => {
 })
 
 const canManageWorkflow = computed(() => {
-  const role = authStore.user?.role
-  return role === 'admin' || role === 'system_admin' || role === 'domain_admin'
+  return authStore.hasPermission('workflow', 'create') || authStore.hasPermission('workflow', 'manage')
 })
 
 const showCardActions = computed(() => canManageWorkflow.value)
@@ -416,7 +415,7 @@ const openCreateDialog = () => {
   workflowForm.name = ''
   workflowForm.description = ''
   workflowForm.cron_expression = ''
-  workflowForm.domain_id = authStore.user?.domain_id || 1
+  workflowForm.domain_id = authStore.currentDomainId || 1
   formErrors.name = ''
   showCreateDialog.value = true
 }
@@ -436,7 +435,7 @@ const closeDialog = () => {
   workflowForm.name = ''
   workflowForm.description = ''
   workflowForm.cron_expression = ''
-  workflowForm.domain_id = authStore.user?.domain_id || 1
+  workflowForm.domain_id = authStore.currentDomainId || 1
   formErrors.name = ''
 }
 

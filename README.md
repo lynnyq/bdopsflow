@@ -7,7 +7,7 @@
 - **Dify 风格工作流**：可视化 DAG 编排，9 种节点类型（Start/End/HTTP/Shell/IF-ELSE/Delay/Webhook/变量聚合/数据转换），条件分支，并行执行，变量引用 `{{node_id.field}}`
 - **X6 可视化画布**：基于 AntV X6 的流程编辑器，拖拽编排，条件分支多出口连线，运行态可视化
 - **分布式架构**：Scheduler + Executor 分离，gRPC 通信，Leader Election 高可用
-- **RBAC 多租户**：system_admin/domain_admin/user 三级角色，领域隔离，数据源权限控制
+- **RBAC 多租户**：纯 RBAC 权限模型，角色继承，多领域支持，数据源/Webhook 实例级权限控制，菜单权限自动推导
 - **数据源查询**：9 种数据库驱动，SQL 编辑器，查询缓存，并发控制，CSV 导出
 - **实时日志**：gRPC 流式传输 → Redis Pub/Sub → SSE 推送
 - **Webhook 回调**：HMAC-SHA256 签名验证，指数退避重试
@@ -110,16 +110,21 @@ npm run dev
 
 ### RBAC 权限模型
 
+采用纯 RBAC 权限模型，用户与角色通过 `user_roles` 表关联，权限通过 `role_permissions` 表管理，支持角色继承和多领域切换。
+
 | 角色 | 权限范围 |
 |------|---------|
-| system_admin | 全局管理，跨域访问 |
-| domain_admin | 领域内管理 |
-| user | 领域内基本操作 |
+| system_admin | 全局管理，所有资源权限 |
+| domain_admin | 领域内管理，继承普通用户权限 |
+| user | 领域内基本操作（查看、触发、查询） |
 
-领域隔离规则：
-- 非管理员只能操作自己 domain_id 下的资源
-- 创建资源时，非管理员强制使用 JWT 中的 domain_id
-- 数据源支持 6 种权限级别：read/update/delete/query/download/manage
+核心特性：
+- 角色继承：子角色自动继承父角色的所有权限
+- 多领域支持：用户可属于多个领域，通过领域切换器切换
+- 菜单自动推导：前端菜单根据资源权限自动显示/隐藏
+- 实例级权限：数据源和 Webhook 支持细粒度的实例权限控制
+- 数据源支持 6 种权限级别：query/read/update/delete/download/manage
+- Webhook 支持 5 种权限级别：read/update/delete/trigger/manage
 
 ### 📖 文档
 

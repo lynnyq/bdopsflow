@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lynnyq/bdopsflow/scheduler/pkg/database"
 	rqlite "github.com/rqlite/gorqlite"
 )
 
@@ -154,12 +155,12 @@ func intPtr(v int) *int {
 }
 
 type ConfigService struct {
-	db    *rqlite.Connection
+	db    database.DB
 	cache map[string]string
 	mu    sync.RWMutex
 }
 
-func NewConfigService(db *rqlite.Connection) *ConfigService {
+func NewConfigService(db database.DB) *ConfigService {
 	s := &ConfigService{
 		db:    db,
 		cache: make(map[string]string),

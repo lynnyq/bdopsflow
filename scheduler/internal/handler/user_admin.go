@@ -1,8 +1,6 @@
 package handler
 
 import (
-	"context"
-	"fmt"
 	"log/slog"
 	"regexp"
 	"strconv"
@@ -21,13 +19,14 @@ func formatValidationError(err error) string {
 	errStr := err.Error()
 
 	fieldMap := map[string]string{
-		"Username": "用户名",
-		"RealName": "姓名",
-		"Phone":    "手机号",
-		"Email":    "邮箱",
-		"Password": "密码",
-		"Role":     "角色",
-		"DomainID": "领域",
+		"Username":    "用户名",
+		"RealName":    "姓名",
+		"Phone":       "手机号",
+		"Email":       "邮箱",
+		"Password":    "密码",
+		"Code":        "角色代码",
+		"Name":        "名称",
+		"Description": "描述",
 	}
 
 	for eng, chn := range fieldMap {
@@ -45,7 +44,12 @@ func formatValidationError(err error) string {
 	errStr = strings.ReplaceAll(errStr, "max", "最大长度为")
 	errStr = strings.ReplaceAll(errStr, "email", "邮箱格式不正确")
 	errStr = strings.ReplaceAll(errStr, "alphanum", "只能包含字母和数字")
-	errStr = strings.ReplaceAll(errStr, "regexp", "格式不正确")
+	if strings.Contains(errStr, "Code") && strings.Contains(errStr, "regexp") {
+		errStr = strings.ReplaceAll(errStr, "regexp=[a-z0-9_]+", "只能包含小写字母、数字和下划线")
+		errStr = strings.ReplaceAll(errStr, "regexp", "只能包含小写字母、数字和下划线")
+	} else {
+		errStr = strings.ReplaceAll(errStr, "regexp", "格式不正确")
+	}
 	errStr = strings.ReplaceAll(errStr, "oneof", "可选值为")
 
 	errStr = strings.TrimSpace(errStr)
@@ -91,33 +95,9 @@ func NewUserAdminHandler(svc *service.UserAdminService) *UserAdminHandler {
 	return &UserAdminHandler{svc: svc}
 }
 
-func (h *UserAdminHandler) validateRoleCode(ctx context.Context, roleCode string) error {
-	validRoles := map[string]bool{
-		"system_admin": true,
-		"domain_admin": true,
-		"user":         true,
-	}
-
-	if validRoles[roleCode] {
-		return nil
-	}
-
-	roles, err := h.svc.GetAllRoles(ctx)
-	if err != nil {
-		return fmt.Errorf("验证角色失败")
-	}
-
-	for _, role := range roles {
-		if role.Code == roleCode {
-			return nil
-		}
-	}
-
-	return fmt.Errorf("无效的角色代码: %s", roleCode)
-}
-
 func (h *UserAdminHandler) ListUsers(c *gin.Context) {
 	ctx := c.Request.Context()
+	slog.Debug("ListUsers: entry", "module", "handler_user_admin")
 	defer func() {
 		if r := recover(); r != nil {
 			slog.Error("UserAdminHandler.ListUsers: panic recovered", "panic", r)
@@ -125,7 +105,37 @@ func (h *UserAdminHandler) ListUsers(c *gin.Context) {
 		}
 	}()
 
-	users, err := h.svc.ListUsers(ctx)
+	domainID, _ := c.Get("current_domain_id")
+	var dID int64
+	if v, ok := domainID.(int64); ok {
+		dID = v
+	}
+
+	userID, _ := c.Get("user_id")
+	var uid int64
+	if v, ok := userID.(int64); ok {
+		uid = v
+	}
+
+	isAdmin := false
+	if uid > 0 {
+		adminCheck, err := h.svc.IsSystemAdminCheck(ctx, uid)
+		if err == nil {
+			isAdmin = adminCheck
+		}
+	}
+
+	var users []*model.User
+	var err error
+
+	if isAdmin {
+		users, err = h.svc.ListUsers(ctx)
+	} else if dID > 0 {
+		users, err = h.svc.GetUsersByDomain(ctx, dID)
+	} else {
+		users, err = h.svc.ListUsers(ctx)
+	}
+
 	if err != nil {
 		slog.Error("UserAdminHandler.ListUsers: failed to list users", "error", err)
 		Fail(c, CodeInternalError, "加载用户列表失败，请稍后重试")
@@ -138,6 +148,8 @@ func (h *UserAdminHandler) ListUsers(c *gin.Context) {
 		}
 	}
 
+	h.svc.EnrichUsersWithRolesAndDomains(ctx, users)
+
 	Success(c, gin.H{"items": users})
 }
 
@@ -149,6 +161,8 @@ func (h *UserAdminHandler) GetUser(c *gin.Context) {
 		BadRequest(c, "无效的用户ID")
 		return
 	}
+
+	slog.Debug("GetUser: entry", "module", "handler_user_admin", "user_id", id)
 
 	user, err := h.svc.GetUserByID(ctx, id)
 	if err != nil {
@@ -185,15 +199,7 @@ func (h *UserAdminHandler) CreateUser(c *gin.Context) {
 		}
 	}()
 
-	var req struct {
-		Username string `json:"username" binding:"required,min=3,max=50,regexp=^[a-zA-Z0-9_ ]+$"`
-		RealName string `json:"real_name" binding:"max=50"`
-		Phone    string `json:"phone" binding:"max=20"`
-		Email    string `json:"email" binding:"required,email"`
-		Password string `json:"password" binding:"required,min=1,max=512"`
-		Role     string `json:"role" binding:"required,min=1,max=100"`
-		DomainID *int64 `json:"domain_id"`
-	}
+	var req model.CreateUserRequest
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		slog.Warn("UserAdminHandler.CreateUser: invalid request", "error", err)
@@ -201,10 +207,7 @@ func (h *UserAdminHandler) CreateUser(c *gin.Context) {
 		return
 	}
 
-	if err := h.validateRoleCode(ctx, req.Role); err != nil {
-		BadRequest(c, err.Error())
-		return
-	}
+	slog.Debug("CreateUser: entry", "module", "handler_user_admin", "username", req.Username)
 
 	userID, exists := c.Get("user_id")
 	if !exists {
@@ -218,7 +221,37 @@ func (h *UserAdminHandler) CreateUser(c *gin.Context) {
 		return
 	}
 
-	user, err := h.svc.CreateUser(ctx, req.Username, req.RealName, req.Phone, req.Email, req.Password, req.Role, req.DomainID, createdBy)
+	operatorRole, _ := c.Get("role")
+	var role string
+	if v, ok := operatorRole.(string); ok {
+		role = v
+	}
+
+	if role != "system_admin" && role != "admin" {
+		isSystemRole, checkErr := h.svc.AreRolesSystemOnly(ctx, req.RoleIDs)
+		if checkErr != nil {
+			slog.Error("CreateUser: failed to check role codes", "error", checkErr)
+			Fail(c, CodeInternalError, "检查角色失败")
+			return
+		}
+		if isSystemRole {
+			Forbidden(c, "领域管理员不能分配系统管理员角色")
+			return
+		}
+
+		allowed, domainCheckErr := h.svc.AreDomainsAccessibleByUser(ctx, createdBy, req.DomainIDs)
+		if domainCheckErr != nil {
+			slog.Error("CreateUser: failed to check domain access", "error", domainCheckErr)
+			Fail(c, CodeInternalError, "检查领域权限失败")
+			return
+		}
+		if !allowed {
+			Forbidden(c, "只能分配自己所属的领域")
+			return
+		}
+	}
+
+	user, err := h.svc.CreateUser(ctx, req.Username, req.RealName, req.Phone, req.Email, req.Password, req.RoleIDs, req.DomainIDs, createdBy)
 	if err != nil {
 		if err == service.ErrPasswordTooShort {
 			BadRequest(c, "密码长度至少为6位")
@@ -240,6 +273,8 @@ func (h *UserAdminHandler) CreateUser(c *gin.Context) {
 	if user != nil {
 		user.Password = ""
 	}
+
+	slog.Info("CreateUser: success", "module", "handler_user_admin", "user_id", user.ID, "username", req.Username)
 
 	c.Set("audit_resource_id", strconv.FormatInt(user.ID, 10))
 	c.Set("audit_resource_name", req.Username)
@@ -274,15 +309,9 @@ func (h *UserAdminHandler) UpdateUser(c *gin.Context) {
 		return
 	}
 
-	var req struct {
-		Username string `json:"username" binding:"required,min=3,max=50,regexp=^[a-zA-Z0-9_ ]+$"`
-		RealName string `json:"real_name" binding:"max=50"`
-		Phone    string `json:"phone" binding:"max=20"`
-		Email    string `json:"email" binding:"required,email"`
-		Role     string `json:"role" binding:"required,min=1,max=100"`
-		IsActive bool   `json:"is_active"`
-		DomainID *int64 `json:"domain_id"`
-	}
+	slog.Debug("UpdateUser: entry", "module", "handler_user_admin", "user_id", id)
+
+	var req model.UpdateUserRequest
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		slog.Warn("UserAdminHandler.UpdateUser: invalid request", "error", err)
@@ -290,12 +319,7 @@ func (h *UserAdminHandler) UpdateUser(c *gin.Context) {
 		return
 	}
 
-	if err := h.validateRoleCode(ctx, req.Role); err != nil {
-		BadRequest(c, err.Error())
-		return
-	}
-
-	user, err := h.svc.UpdateUserWithDomainCheck(ctx, adminID, id, req.Username, req.RealName, req.Phone, req.Email, req.Role, req.IsActive, req.DomainID)
+	user, err := h.svc.UpdateUserWithDomainCheck(ctx, adminID, id, req.Username, req.RealName, req.Phone, req.Email, req.IsActive)
 	if err != nil {
 		if err == service.ErrPermissionDenied {
 			Forbidden(c, "权限不足，无法修改此用户")
@@ -313,6 +337,8 @@ func (h *UserAdminHandler) UpdateUser(c *gin.Context) {
 	if user != nil {
 		user.Password = ""
 	}
+
+	slog.Info("UpdateUser: success", "module", "handler_user_admin", "user_id", id)
 
 	c.Set("audit_resource_id", strconv.FormatInt(id, 10))
 	c.Set("audit_resource_name", req.Username)
@@ -335,6 +361,8 @@ func (h *UserAdminHandler) DeleteUser(c *gin.Context) {
 		return
 	}
 
+	slog.Debug("DeleteUser: entry", "module", "handler_user_admin", "user_id", id)
+
 	// 先获取用户信息用于审计日志
 	user, _ := h.svc.GetUserByID(ctx, id)
 
@@ -348,6 +376,9 @@ func (h *UserAdminHandler) DeleteUser(c *gin.Context) {
 	if user != nil {
 		c.Set("audit_resource_name", user.Username)
 	}
+
+	slog.Info("DeleteUser: success", "module", "handler_user_admin", "user_id", id)
+
 	Success(c, nil)
 }
 
@@ -359,6 +390,8 @@ func (h *UserAdminHandler) GetUserRoles(c *gin.Context) {
 		BadRequest(c, "无效的用户ID")
 		return
 	}
+
+	slog.Debug("GetUserRoles: entry", "module", "handler_user_admin", "user_id", id)
 
 	roles, err := h.svc.GetUserRoles(ctx, id)
 	if err != nil {
@@ -379,11 +412,40 @@ func (h *UserAdminHandler) AssignUserRoles(c *gin.Context) {
 		return
 	}
 
+	slog.Debug("AssignUserRoles: entry", "module", "handler_user_admin", "user_id", id)
+
 	var req model.UserRoleRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		slog.Warn("UserAdminHandler.AssignUserRoles: invalid request", "error", err)
 		BadRequest(c, formatValidationError(err))
 		return
+	}
+
+	operatorID, _ := c.Get("user_id")
+	var opID int64
+	if v, ok := operatorID.(int64); ok {
+		opID = v
+	}
+
+	_ = opID
+
+	operatorRole, _ := c.Get("role")
+	var role string
+	if v, ok := operatorRole.(string); ok {
+		role = v
+	}
+
+	if role != "system_admin" && role != "admin" {
+		isSystemRole, checkErr := h.svc.AreRolesSystemOnly(ctx, req.RoleIDs)
+		if checkErr != nil {
+			slog.Error("AssignUserRoles: failed to check role codes", "error", checkErr)
+			Fail(c, CodeInternalError, "检查角色失败")
+			return
+		}
+		if isSystemRole {
+			Forbidden(c, "领域管理员不能分配系统管理员角色")
+			return
+		}
 	}
 
 	if err := h.svc.AssignUserRoles(ctx, id, req.RoleIDs, req.DomainIDs); err != nil {
@@ -394,6 +456,9 @@ func (h *UserAdminHandler) AssignUserRoles(c *gin.Context) {
 
 	c.Set("audit_resource_id", strconv.FormatInt(id, 10))
 	c.Set("audit_action", "assign")
+
+	slog.Info("AssignUserRoles: success", "module", "handler_user_admin", "user_id", id, "role_count", len(req.RoleIDs))
+
 	SuccessWithMessage(c, "角色分配成功", nil)
 }
 
@@ -406,6 +471,8 @@ func (h *UserAdminHandler) AssignUserDomains(c *gin.Context) {
 		return
 	}
 
+	slog.Debug("AssignUserDomains: entry", "module", "handler_user_admin", "user_id", id)
+
 	var req struct {
 		DomainIDs []int64 `json:"domain_ids" binding:"required,min=1"`
 	}
@@ -416,36 +483,88 @@ func (h *UserAdminHandler) AssignUserDomains(c *gin.Context) {
 		return
 	}
 
+	operatorRole, _ := c.Get("role")
+	var role string
+	if v, ok := operatorRole.(string); ok {
+		role = v
+	}
+
+	if role != "system_admin" && role != "admin" {
+		operatorID, _ := c.Get("user_id")
+		var opID int64
+		if v, ok := operatorID.(int64); ok {
+			opID = v
+		}
+
+		allowed, checkErr := h.svc.AreDomainsAccessibleByUser(ctx, opID, req.DomainIDs)
+		if checkErr != nil {
+			slog.Error("AssignUserDomains: failed to check domain access", "error", checkErr)
+			Fail(c, CodeInternalError, "检查领域权限失败")
+			return
+		}
+		if !allowed {
+			Forbidden(c, "只能分配自己所属的领域")
+			return
+		}
+	}
+
 	if err := h.svc.AssignUserDomains(ctx, id, req.DomainIDs); err != nil {
 		errMsg, statusCode := getUserFriendlyError(err, "AssignUserDomains")
 		Fail(c, statusCode, errMsg)
 		return
 	}
 
+	slog.Info("AssignUserDomains: success", "module", "handler_user_admin", "user_id", id, "domain_count", len(req.DomainIDs))
+
 	SuccessWithMessage(c, "领域分配成功", nil)
 }
 
 func (h *UserAdminHandler) ListUsersByDomain(c *gin.Context) {
 	ctx := c.Request.Context()
-	role, _ := c.Get("role")
-	domainID, _ := c.Get("domain_id")
+
+	userID, _ := c.Get("user_id")
+	var uid int64
+	if v, ok := userID.(int64); ok {
+		uid = v
+	}
+
+	isAdmin := false
+	if uid > 0 {
+		adminCheck, err := h.svc.IsSystemAdminCheck(ctx, uid)
+		if err == nil {
+			isAdmin = adminCheck
+		}
+	}
+
+	currentDomainID, _ := c.Get("current_domain_id")
+	domainID := int64(0)
+	if v, ok := currentDomainID.(int64); ok {
+		domainID = v
+	}
+
+	queryAll := false
+	if d := c.Query("domain_id"); d != "" {
+		did, parseErr := strconv.ParseInt(d, 10, 64)
+		if parseErr == nil {
+			if did == 0 && isAdmin {
+				queryAll = true
+			} else if did > 0 {
+				domainID = did
+			}
+		}
+	}
+
+	slog.Debug("ListUsersByDomain: entry", "module", "handler_user_admin", "domain_id", domainID, "query_all", queryAll)
 
 	var users []*model.User
 	var err error
 
-	if role == "system_admin" || role == "admin" {
-		if d := c.Query("domain_id"); d != "" {
-			did, parseErr := strconv.ParseInt(d, 10, 64)
-			if parseErr == nil && did > 0 {
-				users, err = h.svc.GetUsersByDomain(ctx, did)
-			} else {
-				users, err = h.svc.ListUsers(ctx)
-			}
-		} else {
-			users, err = h.svc.ListUsers(ctx)
-		}
+	if queryAll {
+		users, err = h.svc.ListUsers(ctx)
+	} else if domainID > 0 {
+		users, err = h.svc.GetUsersByDomain(ctx, domainID)
 	} else {
-		users, err = h.svc.GetUsersByDomain(ctx, domainID.(int64))
+		users, err = h.svc.ListUsers(ctx)
 	}
 
 	if err != nil {
@@ -459,6 +578,8 @@ func (h *UserAdminHandler) ListUsersByDomain(c *gin.Context) {
 			users[i].Password = ""
 		}
 	}
+
+	h.svc.EnrichUsersWithRolesAndDomains(ctx, users)
 
 	Success(c, gin.H{"items": users})
 }
@@ -477,6 +598,8 @@ func (h *UserAdminHandler) GetCurrentUser(c *gin.Context) {
 		Unauthorized(c, "用户信息无效，请重新登录")
 		return
 	}
+
+	slog.Debug("GetCurrentUser: entry", "module", "handler_user_admin", "user_id", id)
 
 	user, err := h.svc.GetCurrentUserInfo(ctx, id)
 	if err != nil {
@@ -510,6 +633,8 @@ func (h *UserAdminHandler) UpdateCurrentUser(c *gin.Context) {
 		return
 	}
 
+	slog.Debug("UpdateCurrentUser: entry", "module", "handler_user_admin", "user_id", id)
+
 	var req model.UpdateCurrentUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		slog.Warn("UserAdminHandler.UpdateCurrentUser: invalid request", "error", err)
@@ -528,6 +653,8 @@ func (h *UserAdminHandler) UpdateCurrentUser(c *gin.Context) {
 		user.Password = ""
 	}
 
+	slog.Info("UpdateCurrentUser: success", "module", "handler_user_admin", "user_id", id)
+
 	Success(c, user)
 }
 
@@ -545,6 +672,8 @@ func (h *UserAdminHandler) ChangePassword(c *gin.Context) {
 		Unauthorized(c, "用户信息无效，请重新登录")
 		return
 	}
+
+	slog.Debug("ChangePassword: entry", "module", "handler_user_admin", "user_id", id)
 
 	var req model.ChangePasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -574,6 +703,8 @@ func (h *UserAdminHandler) ChangePassword(c *gin.Context) {
 		Fail(c, statusCode, errMsg)
 		return
 	}
+
+	slog.Info("ChangePassword: success", "module", "handler_user_admin", "user_id", id)
 
 	SuccessWithMessage(c, "密码修改成功", nil)
 }
@@ -605,6 +736,8 @@ func (h *UserAdminHandler) ResetUserPassword(c *gin.Context) {
 		BadRequest(c, "无效的用户ID")
 		return
 	}
+
+	slog.Debug("ResetUserPassword: entry", "module", "handler_user_admin", "target_user_id", targetUserID)
 
 	var req model.ResetPasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -638,6 +771,8 @@ func (h *UserAdminHandler) ResetUserPassword(c *gin.Context) {
 		Fail(c, statusCode, errMsg)
 		return
 	}
+
+	slog.Info("ResetUserPassword: success", "module", "handler_user_admin", "target_user_id", targetUserID)
 
 	SuccessWithMessage(c, "密码重置成功", nil)
 	c.Set("audit_resource_id", strconv.FormatInt(targetUserID, 10))

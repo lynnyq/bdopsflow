@@ -140,18 +140,18 @@ service ExecutorService {
 请求通过以下中间件链依次处理：
 
 ```
-请求 → CORS → JWT认证 → 审计中间件 → RBAC中间件 → Handler
+请求 → CORS → JWT认证 → 审计中间件 → 权限中间件 → Handler
 ```
 
 **中间件类型**：
 
 | 中间件 | 说明 |
 |--------|------|
-| **JWTAuthMiddleware** | JWT认证，解析Token提取user\_id/username/real\_name/role/domain\_id到gin.Context |
-| **RBACMiddleware(roles...)** | 角色检查，允许指定角色列表，用户角色需在列表中方可通过 |
-| **RequireSystemAdmin** | 要求system\_admin角色，等价于RBACMiddleware("system\_admin") |
-| **RequireAdminOrDomainAdmin** | 要求admin或domain\_admin角色，等价于RBACMiddleware("admin", "domain\_admin") |
-| **DatasourcePermissionMiddleware(dsService, permission)** | 数据源权限检查，支持read/update/delete/query/download/manage六种权限 |
+| **JWTAuthMiddleware** | JWT认证，解析Token提取user_id/username/real_name/current_domain_id到gin.Context |
+| **RequirePermission(permSvc, resource, action)** | 权限检查，基于RBAC角色链判断用户是否有指定资源的操作权限 |
+| **RequireSystemAdmin(permChecker)** | 要求系统管理员权限，通过PermissionService.IsSystemAdmin()判断 |
+| **RequireInstancePermission(instPermSvc, resourceType, getID, permType)** | 实例级权限检查，检查用户对数据源/Webhook实例的操作权限 |
+| **DatasourcePermissionMiddleware(instPermChecker, permission)** | 数据源权限检查，支持query/read/update/delete/download/manage六种权限 |
 | **AuditMiddleware(auditService)** | 审计日志记录，自动记录所有POST/PUT/DELETE操作，Handler通过c.Set()补充业务信息 |
 
 ### 2.5 JWT Claims 结构
@@ -161,8 +161,7 @@ service ExecutorService {
   "user_id": 1,
   "username": "admin",
   "real_name": "管理员",
-  "role": "system_admin",
-  "domain_id": 1,
+  "current_domain_id": 1,
   "iss": "bdopsflow",
   "exp": 1716422400,
   "iat": 1716336000
@@ -570,51 +569,70 @@ Renew(ctx) - 续期锁TTL
 
 ### 4.8 RBAC 权限管理
 
-基于角色的访问控制系统，支持细粒度权限管理和领域隔离。
+基于纯 RBAC 模型的访问控制系统，支持角色继承、多领域切换和实例级权限控制。
 
 **核心概念**：
 
 | 概念             | 说明          |
 | -------------- | ----------- |
 | 用户（User）       | 系统使用者       |
-| 角色（Role）       | 权限集合        |
+| 角色（Role）       | 权限集合，支持继承   |
 | 权限（Permission） | 资源+操作的组合    |
 | 领域（Domain）     | 资源隔离单位（多租户） |
+| 用户领域（UserDomain） | 用户与领域的多对多关系 |
+| 实例权限（InstancePermission） | 数据源/Webhook的细粒度权限 |
 
 **系统预置角色**：
 
-| 角色                   | 说明             | 范围   |
-| -------------------- | -------------- | ---- |
-| 系统管理员（system\_admin） | 系统最高权限，可管理所有资源 | 全局   |
-| 领域管理员（domain\_admin） | 领域级管理权限        | 指定领域 |
-| 普通用户（user）           | 基础查看和操作权限      | 指定领域 |
+| 角色                   | 说明             | 范围   | 继承 |
+| -------------------- | -------------- | ---- | --- |
+| 系统管理员（system\_admin） | 系统最高权限，可管理所有资源 | 全局   | 无   |
+| 领域管理员（domain\_admin） | 领域级管理权限        | 指定领域 | 无   |
+| 普通用户（user）           | 基础查看和操作权限      | 指定领域 | 无   |
 
 **权限检查流程**：
 
 ```
-1. 解析 JWT Token，获取用户信息
-2. 检查用户是否活跃
-3. 获取用户在请求资源领域的角色
-4. 检查用户是否有请求操作的权限
-5. 特殊规则：系统管理员拥有所有权限
+1. 解析 JWT Token，获取 user_id 和 current_domain_id
+2. 通过 user_roles 表查询用户角色（含角色继承链）
+3. 通过 role_permissions 表查询角色权限
+4. 检查用户是否有请求资源的操作权限
+5. 实例级权限：额外检查 datasource_permissions/webhook_permissions 表
+6. 特殊规则：system_admin 拥有所有权限，domain_admin 拥有本领域所有权限
 ```
 
 **资源与操作**：
 
 | 资源         | 支持的操作                                                    |
 | ---------- | -------------------------------------------------------- |
-| user       | create, read, update, delete, manage                     |
+| dashboard  | read                                                     |
+| user       | create, read, update, delete, reset\_password, manage    |
 | role       | create, read, update, delete, manage                     |
 | permission | read                                                     |
 | domain     | create, read, update, delete, manage                     |
-| executor   | read, assign, manage                                     |
+| executor   | read, assign, online, offline, manage                    |
 | task       | create, read, update, delete, trigger, manage            |
 | log        | read, delete, manage                                     |
-| workflow   | create, read, update, delete, manage                     |
-| datasource | create, read, update, delete, manage, query, download    |
-| webhook    | create, read, update, delete, manage                     |
+| workflow   | create, read, update, delete, trigger, manage            |
+| datasource | create, read, update, delete, query, download, manage    |
+| webhook    | create, read, update, delete, trigger, manage            |
 | audit\_log | read, delete, manage                                     |
-| menu       | dashboard, task, log, executor, datasource, sql\_query 等 |
+| config     | read, update, manage                                     |
+
+**菜单权限自动推导**：
+
+前端菜单可见性由用户拥有的资源权限自动推导，无需单独维护 menu 权限：
+
+- 用户对某资源有任意权限 → 显示对应菜单
+- 子菜单组：任一子菜单可见则父菜单可见
+- 页面内按钮：通过 `hasPermission(resource, action)` 控制显隐
+
+**多领域支持**：
+
+- 用户可属于多个领域（通过 `user_domains` 表关联）
+- 登录后自动选中默认领域
+- 前端提供领域切换器，切换时刷新权限和新 Token
+- 同一用户在不同领域可拥有不同角色
 
 ### 4.9 领域隔离
 
@@ -630,6 +648,13 @@ Renew(ctx) - 续期锁TTL
 1. 优先使用分配给任务领域的执行器
 2. 使用全局可用的执行器
 3. 选择当前负载最低的执行器
+
+**多领域切换**：
+
+- 用户通过 `user_domains` 表关联多个领域
+- 每个用户有一个默认领域（`is_default = true`）
+- 前端提供领域切换器（Dropdown），切换时调用 `/api/auth/switch-domain`
+- 切换领域后，后端返回新领域下的权限列表和新 Token
 
 ### 4.10 数据源查询系统
 
@@ -1083,6 +1108,7 @@ Authorization: Bearer <token>
 | GET  | `/api/auth/current`         | 获取当前用户   | 已登录 |
 | PUT  | `/api/auth/profile`         | 更新当前用户信息 | 已登录 |
 | POST | `/api/auth/change-password` | 修改当前用户密码 | 已登录 |
+| POST | `/api/auth/switch-domain` | 切换领域     | 已登录 |
 
 > 注册接口仅在配置 `app.allow_register: true` 时可用，生产环境默认关闭。
 
@@ -1336,6 +1362,7 @@ Authorization: Bearer <token>
 | 12001 | `CodeRoleNotFound`        | 角色不存在           |
 | 12002 | `CodeRoleExists`          | 角色已存在           |
 | 12003 | `CodeRoleSystemProtected` | 系统角色受保护，不可删除/修改 |
+| 12004 | `CodeCannotDeleteRoleWithChildren` | 角色有子角色引用，不可删除 |
 
 ### 6.6 领域相关错误码
 
@@ -1343,13 +1370,16 @@ Authorization: Bearer <token>
 | ----- | ------------------------ | ------------ |
 | 13001 | `CodeDomainNotFound`     | 领域不存在        |
 | 13002 | `CodeDomainHasResources` | 领域下仍有资源，无法删除 |
+| 13003 | `CodeDomainAccessDenied` | 无权访问该领域      |
+| 13004 | `CodeUserDomainNotFound` | 用户领域关联不存在    |
 
 ### 6.7 权限相关错误码
 
 | 错误码   | 常量名                    | 说明    |
 | ----- | ---------------------- | ----- |
 | 14001 | `CodePermissionDenied` | 权限不足  |
-| 14002 | `CodePermissionExists` | 权限已存在 |
+| 14002 | `CodeInstancePermissionDenied` | 实例级权限不足 |
+| 14003 | `CodePermissionExists` | 权限已存在 |
 
 ### 6.8 工作流相关错误码
 
@@ -1403,15 +1433,17 @@ BDopsFlow 使用 rqlite 分布式数据库，所有表名使用 `bdopsflow_` 前
 | 11 | bdopsflow\_permissions             | 权限表         |
 | 12 | bdopsflow\_role\_permissions       | 角色权限映射表     |
 | 13 | bdopsflow\_user\_roles             | 用户角色映射表     |
-| 14 | bdopsflow\_domain\_executors       | 执行器领域分配表    |
-| 15 | bdopsflow\_datasources             | 数据源表        |
-| 16 | bdopsflow\_saved\_sql              | 保存的SQL表     |
-| 17 | bdopsflow\_datasource\_permissions | 数据源权限表      |
-| 18 | bdopsflow\_query\_history          | 查询历史表       |
-| 19 | bdopsflow\_system\_config          | 系统配置表       |
-| 20 | bdopsflow\_system\_config\_history | 配置变更历史表     |
-| 21 | bdopsflow\_audit\_logs             | 审计日志表       |
-| 22 | bdopsflow\_webhooks                | Webhook配置表  |
+| 14 | bdopsflow\_user\_domains           | 用户领域关联表    |
+| 15 | bdopsflow\_domain\_executors       | 执行器领域分配表    |
+| 16 | bdopsflow\_datasources             | 数据源表        |
+| 17 | bdopsflow\_saved\_sql              | 保存的SQL表     |
+| 18 | bdopsflow\_datasource\_permissions | 数据源权限表      |
+| 19 | bdopsflow\_query\_history          | 查询历史表       |
+| 20 | bdopsflow\_system\_config          | 系统配置表       |
+| 21 | bdopsflow\_system\_config\_history | 配置变更历史表     |
+| 22 | bdopsflow\_audit\_logs             | 审计日志表       |
+| 23 | bdopsflow\_webhooks                | Webhook配置表  |
+| 24 | bdopsflow\_webhook\_permissions    | Webhook权限表 |
 
 ### 7.2 基础功能表
 
@@ -1435,13 +1467,25 @@ BDopsFlow 使用 rqlite 分布式数据库，所有表名使用 `bdopsflow_` 前
 | phone           | TEXT        | 手机号        |
 | password        | TEXT        | 密码（bcrypt） |
 | email           | TEXT        | 邮箱         |
-| domain\_id      | INTEGER FK  | 所属领域       |
-| role            | TEXT        | 角色         |
 | is\_active      | BOOLEAN     | 是否激活       |
 | last\_login\_at | DATETIME    | 最后登录时间     |
 | created\_by     | INTEGER     | 创建人        |
 | created\_at     | DATETIME    | 创建时间       |
 | updated\_at     | DATETIME    | 更新时间       |
+
+> 用户与领域的关系通过 `bdopsflow_user_domains` 表管理，用户与角色的关系通过 `bdopsflow_user_roles` 表管理。
+
+#### bdopsflow\_user\_domains（用户领域关联表）
+
+| 字段          | 类型         | 说明                |
+| ----------- | ---------- | ----------------- |
+| id          | INTEGER PK | 自增主键              |
+| user\_id    | INTEGER FK | 用户 ID             |
+| domain\_id  | INTEGER FK | 领域 ID             |
+| is\_default | BOOLEAN    | 是否为默认领域           |
+| created\_at | DATETIME   | 创建时间              |
+
+约束：`UNIQUE(user_id, domain_id)`
 
 #### bdopsflow\_workflows（工作流表）
 
@@ -1564,6 +1608,7 @@ BDopsFlow 使用 rqlite 分布式数据库，所有表名使用 `bdopsflow_` 前
 | code        | TEXT UNIQUE | 角色编码        |
 | description | TEXT        | 描述          |
 | is\_system  | BOOLEAN     | 是否系统角色，默认 0 |
+| parent\_id  | INTEGER FK | 父角色 ID（角色继承） |
 | domain\_id  | INTEGER FK  | 所属领域        |
 | created\_at | DATETIME    | 创建时间        |
 | updated\_at | DATETIME    | 更新时间        |
@@ -2069,11 +2114,12 @@ type Driver interface {
 
 ### 9.4 添加新权限资源
 
-1. 在 `permission.go` 模型中定义新资源常量
-2. 在数据库初始化 SQL 中添加相应权限记录
-3. 在前端添加权限配置界面
-4. 在 RBAC 中间件中添加解析逻辑
+1. 在 `deploy/schema.sql` 的 `bdopsflow_permissions` 表中添加新的 INSERT 记录
+2. 在 `permission.go` 模型的 `resourceNameMap` 和 `resourceOrder` 中添加新资源
+3. 在前端 `menuPermissionMap.ts` 中添加菜单映射（如需在侧边栏显示）
+4. 在路由 `routes.go` 中使用 `RequirePermission(permSvc, resource, action)` 保护新接口
 5. 在审计中间件路由规则中添加路由规则
+6. 为需要实例级权限的资源，在 `instance_permission.go` 中添加对应逻辑
 
 ### 9.5 测试指南
 

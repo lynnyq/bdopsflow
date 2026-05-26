@@ -31,6 +31,8 @@ func (h *TaskExecutionHandler) ListByTask(c *gin.Context) {
 		return
 	}
 
+	slog.Debug("TaskExecutionHandler.ListByTask: entering", "module", "handler_task_execution", "task_id", id)
+
 	ctx := c.Request.Context()
 	executions, err := h.svc.GetTaskExecutions(ctx, id)
 	if err != nil {
@@ -44,5 +46,6 @@ func (h *TaskExecutionHandler) ListByTask(c *gin.Context) {
 		response = append(response, toTaskExecutionResponse(exec))
 	}
 
+	slog.Info("TaskExecutionHandler.ListByTask: executions retrieved successfully", "module", "handler_task_execution", "task_id", id, "count", len(response))
 	Success(c, response)
 }

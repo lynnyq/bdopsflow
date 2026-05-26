@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"time"
 )
@@ -76,7 +76,7 @@ func (s *Service) Send(ctx context.Context, config WebhookConfig, payload Webhoo
 		return fmt.Errorf("webhook returned non-2xx status: %d", resp.StatusCode)
 	}
 
-	log.Printf("[Webhook] Sent %s event to %s, status: %d", payload.Event, config.URL, resp.StatusCode)
+	slog.Info("[Webhook] Sent event", "event", payload.Event, "url", config.URL, "status", resp.StatusCode)
 	return nil
 }
 
@@ -160,7 +160,7 @@ func (s *Service) SendWithRetry(ctx context.Context, config WebhookConfig, paylo
 	for i := 0; i <= maxRetries; i++ {
 		if i > 0 {
 			backoff := time.Duration(i*i) * time.Second
-			log.Printf("[Webhook] Retrying after %v (attempt %d/%d)", backoff, i, maxRetries)
+			slog.Info("[Webhook] Retrying", "backoff", backoff, "attempt", i, "max_retries", maxRetries)
 			time.Sleep(backoff)
 		}
 
@@ -170,26 +170,26 @@ func (s *Service) SendWithRetry(ctx context.Context, config WebhookConfig, paylo
 		}
 
 		lastErr = err
-		log.Printf("[Webhook] Attempt %d failed: %v", i+1, err)
+		slog.Warn("[Webhook] Attempt failed", "attempt", i+1, "error", err)
 	}
 
 	return fmt.Errorf("webhook failed after %d retries: %w", maxRetries, lastErr)
 }
 
 func shouldSendForEvent(configuredEvents []string, event string) bool {
-	log.Printf("[Webhook] shouldSendForEvent: configuredEvents=%v, event=%s", configuredEvents, event)
+	slog.Debug("[Webhook] shouldSendForEvent", "configured_events", configuredEvents, "event", event)
 	if len(configuredEvents) == 0 {
 		return true
 	}
 
 	for _, e := range configuredEvents {
 		if e == event || e == "*" {
-			log.Printf("[Webhook] shouldSendForEvent: match found, e=%s, event=%s, returning true", e, event)
+			slog.Debug("[Webhook] event matched", "configured_event", e, "event", event)
 			return true
 		}
 	}
 
-	log.Printf("[Webhook] shouldSendForEvent: no match found, returning false")
+	slog.Debug("[Webhook] no matching event found")
 	return false
 }
 

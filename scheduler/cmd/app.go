@@ -26,6 +26,7 @@ import (
 	"github.com/lynnyq/bdopsflow/scheduler/internal/grpcserver"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/middleware"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/service"
+	"github.com/lynnyq/bdopsflow/scheduler/pkg/database"
 	"github.com/lynnyq/bdopsflow/scheduler/pkg/election"
 	"github.com/lynnyq/bdopsflow/scheduler/pkg/rsautil"
 )
@@ -117,13 +118,14 @@ func (c *RQLiteClient) buildURL(addr string) string {
 }
 
 type App struct {
-	cfg         *config.Config
-	db          *rqlite.Connection
-	redisClient *redis.Client
+	cfg          *config.Config
+	db           *rqlite.Connection
+	logDB        database.DB
+	redisClient  *redis.Client
 	rqliteClient *RQLiteClient
-	rsaUtil     *rsautil.RSAUtil
-	ssoRsaUtil  *rsautil.RSAUtil
-	nodeID      string
+	rsaUtil      *rsautil.RSAUtil
+	ssoRsaUtil   *rsautil.RSAUtil
+	nodeID       string
 
 	schedulerService      *service.SchedulerService
 	permissionService     *service.PermissionService
@@ -133,6 +135,7 @@ type App struct {
 	executorDomainService *service.ExecutorDomainService
 	auditLogService       *service.AuditLogService
 	webhookSvc            *service.WebhookService
+	instancePermSvc       *service.InstancePermissionService
 
 	dsCrypto             *datasource.Crypto
 	dsConfigService      *datasource.ConfigService
@@ -260,29 +263,31 @@ func NewApp(cfg *config.Config) *App {
 
 	db := rqliteClient.Connection()
 	app.db = db
+	logDB := database.NewLogDB(db)
+	app.logDB = logDB
 
 	leaderElection := election.NewLeaderElection(redisClient, "bdopsflow:leader", nodeID, fmt.Sprintf("127.0.0.1:%s", cfg.HTTPPort), 15*time.Second)
 	app.leaderElection = leaderElection
 
-	schedulerService := service.NewSchedulerService(db, redisClient)
+	schedulerService := service.NewSchedulerService(logDB, redisClient)
 	app.schedulerService = schedulerService
 
-	permissionService := service.NewPermissionService(db, redisClient)
+	permissionService := service.NewPermissionService(logDB, redisClient)
 	app.permissionService = permissionService
 
-	userAdminService := service.NewUserAdminService(db, permissionService, rsaUtil)
+	userAdminService := service.NewUserAdminService(logDB, permissionService, rsaUtil)
 	app.userAdminService = userAdminService
 
-	roleAdminService := service.NewRoleAdminService(db, permissionService)
+	roleAdminService := service.NewRoleAdminService(logDB, permissionService)
 	app.roleAdminService = roleAdminService
 
-	domainAdminService := service.NewDomainAdminService(db)
+	domainAdminService := service.NewDomainAdminService(logDB, permissionService)
 	app.domainAdminService = domainAdminService
 
-	executorDomainService := service.NewExecutorDomainService(db)
+	executorDomainService := service.NewExecutorDomainService(logDB)
 	app.executorDomainService = executorDomainService
 
-	auditLogService := service.NewAuditLogService(db)
+	auditLogService := service.NewAuditLogService(logDB)
 	app.auditLogService = auditLogService
 
 	schedulerService.ExecutorDomainService = executorDomainService
@@ -294,14 +299,14 @@ func NewApp(cfg *config.Config) *App {
 	}
 	app.dsCrypto = dsCrypto
 
-	dsConfigService := datasource.NewConfigService(db)
+	dsConfigService := datasource.NewConfigService(logDB)
 	dsConfigService.StartReloadTicker(5 * time.Minute)
 	app.dsConfigService = dsConfigService
 
 	dsManager := datasource.NewManager(dsCrypto, dsConfigService)
 	app.dsManager = dsManager
 
-	dsService := datasource.NewDatasourceService(db, dsCrypto, dsConfigService, dsManager)
+	dsService := datasource.NewDatasourceService(logDB, dsCrypto, dsConfigService, dsManager)
 	app.dsService = dsService
 
 	dsCacheService := datasource.NewCacheService(redisClient, dsConfigService)
@@ -326,9 +331,12 @@ func NewApp(cfg *config.Config) *App {
 		}
 	}()
 
-	webhookSvc := service.NewWebhookService(db)
+	webhookSvc := service.NewWebhookService(logDB)
 	app.webhookSvc = webhookSvc
 	schedulerService.SetWebhookService(webhookSvc)
+
+	instancePermSvc := service.NewInstancePermissionService(logDB, permissionService)
+	app.instancePermSvc = instancePermSvc
 
 	grpcSrv := grpcserver.NewServer(cfg.GRPCPort, schedulerService)
 	grpcSrv.SetNodeId(nodeID)
@@ -379,7 +387,9 @@ func NewApp(cfg *config.Config) *App {
 		})
 	}
 
-	router := gin.Default()
+	router := gin.New()
+	router.Use(gin.Recovery())
+	router.Use(slogGinLogger())
 	router.Use(corsMiddleware(cfg.CORSAllowOrigins))
 
 	setupRoutes(router, app)
@@ -473,6 +483,43 @@ func corsMiddleware(allowOrigins []string) gin.HandlerFunc {
 		}
 
 		c.Next()
+	}
+}
+
+func slogGinLogger() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		start := time.Now()
+		path := c.Request.URL.Path
+		query := c.Request.URL.RawQuery
+
+		c.Next()
+
+		elapsed := time.Since(start)
+		status := c.Writer.Status()
+
+		attrs := []any{
+			"status", status,
+			"method", c.Request.Method,
+			"path", path,
+			"latency", elapsed.String(),
+			"ip", c.ClientIP(),
+		}
+		if query != "" {
+			attrs = append(attrs, "query", query)
+		}
+		if len(c.Errors) > 0 {
+			attrs = append(attrs, "errors", c.Errors.String())
+		}
+
+		msg := c.Request.Method + " " + path
+		switch {
+		case status >= 500:
+			slog.Error(msg, attrs...)
+		case status >= 400:
+			slog.Warn(msg, attrs...)
+		default:
+			slog.Info(msg, attrs...)
+		}
 	}
 }
 

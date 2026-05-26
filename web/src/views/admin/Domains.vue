@@ -13,7 +13,7 @@
       </div>
       <div class="toolbar-right">
         <el-button :icon="Refresh" @click="loadDomains" :loading="loading" class="refresh-btn">刷新</el-button>
-        <el-button :icon="Plus" @click="showCreateDialog = true" class="create-btn">
+        <el-button v-if="authStore.isSystemAdmin" :icon="Plus" @click="showCreateDialog = true" class="create-btn">
           创建领域
         </el-button>
       </div>
@@ -50,7 +50,7 @@
             <el-button type="primary" link size="small" @click="handleEdit(row)">
               <el-icon><Edit /></el-icon> 编辑
             </el-button>
-            <el-button type="danger" link size="small" @click="handleDelete(row)">
+            <el-button v-if="authStore.isSystemAdmin" type="danger" link size="small" @click="handleDelete(row)">
               <el-icon><Delete /></el-icon> 删除
             </el-button>
           </template>
@@ -116,6 +116,9 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Edit, Delete, Document, Search, Refresh } from '@element-plus/icons-vue'
 import { domainAdminAPI, type Domain } from '@/api/admin'
 import { handleError, handleSuccess, formatValue, formatNumber } from '@/utils/error'
+import { useAuthStore } from '@/stores/auth'
+
+const authStore = useAuthStore()
 
 const domains = ref<Domain[]>([])
 const loading = ref(false)
