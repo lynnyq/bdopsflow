@@ -95,9 +95,13 @@ func (h *QueryHandler) Execute(c *gin.Context) {
 	}
 
 	userID, _ := c.Get("user_id")
+	var uid int64
+	if v, ok := userID.(int64); ok {
+		uid = v
+	}
 
 	if h.concurrentService != nil {
-		release, err := h.concurrentService.Acquire(c.Request.Context(), userID.(int64))
+		release, err := h.concurrentService.Acquire(c.Request.Context(), uid)
 		if err != nil {
 			if err == datasource.ErrConcurrentLimit {
 				slog.Warn("concurrent query limit reached", "user_id", userID, "datasource_id", req.DatasourceID)
@@ -145,7 +149,11 @@ func (h *QueryHandler) Execute(c *gin.Context) {
 		}
 	}
 
-	domainID, _ := c.Get("domain_id")
+	domainID, _ := c.Get("current_domain_id")
+	var dID int64
+	if v, ok := domainID.(int64); ok {
+		dID = v
+	}
 
 	history := &model.QueryHistory{
 		QueryID:        "q_" + time.Now().Format("20060102") + "_" + uuid.New().String()[:8],
@@ -154,8 +162,8 @@ func (h *QueryHandler) Execute(c *gin.Context) {
 		SQLText:        req.SQL,
 		Database:       req.Database,
 		ExecutionTime:  execTime,
-		ExecutedBy:     int64Ptr(userID.(int64)),
-		DomainID:       domainID.(int64),
+		ExecutedBy:     int64Ptr(uid),
+		DomainID:       dID,
 	}
 
 	if err != nil {
@@ -343,16 +351,26 @@ func (h *QueryHandler) ExportCSV(c *gin.Context) {
 }
 
 func (h *QueryHandler) GetHistory(c *gin.Context) {
-	domainID, _ := c.Get("domain_id")
+	domainID, _ := c.Get("current_domain_id")
 	role, _ := c.Get("role")
 
+	var userRole string
+	if v, ok := role.(string); ok {
+		userRole = v
+	}
+
+	var currentDomainID int64
+	if v, ok := domainID.(int64); ok {
+		currentDomainID = v
+	}
+
 	var queryDomainID int64
-	if role == "system_admin" || role == "admin" {
+	if userRole == "system_admin" || userRole == "admin" {
 		if d := c.Query("domain_id"); d != "" {
 			queryDomainID, _ = strconv.ParseInt(d, 10, 64)
 		}
 	} else {
-		queryDomainID = domainID.(int64)
+		queryDomainID = currentDomainID
 	}
 
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
@@ -431,17 +449,26 @@ func (h *QueryHandler) SaveSQL(c *gin.Context) {
 	}
 
 	userID, _ := c.Get("user_id")
-	domainID, _ := c.Get("domain_id")
+	domainID, _ := c.Get("current_domain_id")
 	isPublic := false
 	if req.IsPublic != nil {
 		isPublic = *req.IsPublic
 	}
 
+	var saveUID int64
+	if v, ok := userID.(int64); ok {
+		saveUID = v
+	}
+	var saveDomainID int64
+	if v, ok := domainID.(int64); ok {
+		saveDomainID = v
+	}
+
 	saved := &model.SavedSQL{
 		Name: req.Name, DatasourceID: req.DatasourceID,
 		SQLText: req.SQLText, Description: req.Description,
-		CreatedBy: int64Ptr(userID.(int64)), UpdatedBy: int64Ptr(userID.(int64)),
-		DomainID: domainID.(int64), IsPublic: isPublic,
+		CreatedBy: int64Ptr(saveUID), UpdatedBy: int64Ptr(saveUID),
+		DomainID: saveDomainID, IsPublic: isPublic,
 	}
 
 	if err := h.dsService.CreateSavedSQL(c.Request.Context(), saved); err != nil {
@@ -453,23 +480,38 @@ func (h *QueryHandler) SaveSQL(c *gin.Context) {
 }
 
 func (h *QueryHandler) ListSavedSQL(c *gin.Context) {
-	domainID, _ := c.Get("domain_id")
+	domainID, _ := c.Get("current_domain_id")
 	userID, _ := c.Get("user_id")
 	role, _ := c.Get("role")
 
+	var userRole string
+	if v, ok := role.(string); ok {
+		userRole = v
+	}
+
+	var currentDomainID int64
+	if v, ok := domainID.(int64); ok {
+		currentDomainID = v
+	}
+
+	var listUID int64
+	if v, ok := userID.(int64); ok {
+		listUID = v
+	}
+
 	var queryDomainID int64
-	if role == "system_admin" || role == "admin" {
+	if userRole == "system_admin" || userRole == "admin" {
 		if d := c.Query("domain_id"); d != "" {
 			queryDomainID, _ = strconv.ParseInt(d, 10, 64)
 		}
 	} else {
-		queryDomainID = domainID.(int64)
+		queryDomainID = currentDomainID
 	}
 
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 
-	savedList, total, err := h.dsService.GetSavedSQL(c.Request.Context(), queryDomainID, userID.(int64), page, pageSize)
+	savedList, total, err := h.dsService.GetSavedSQL(c.Request.Context(), queryDomainID, listUID, page, pageSize)
 	if err != nil {
 		Fail(c, CodeQueryError, "获取已保存SQL列表失败")
 		return

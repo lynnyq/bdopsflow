@@ -30,7 +30,7 @@ func (h *WorkflowHandler) List(c *gin.Context) {
 
 	slog.Debug("WorkflowHandler.List: handling request")
 
-	domainID, _ := c.Get("domain_id")
+	domainID, _ := c.Get("current_domain_id")
 	userRole, _ := c.Get("role")
 
 	var dID int64
@@ -102,6 +102,13 @@ func (h *WorkflowHandler) Create(c *gin.Context) {
 		return
 	}
 
+	if req.DomainID <= 0 {
+		if jwtDomainID, ok := c.Get("current_domain_id"); ok {
+			if v, typeOk := jwtDomainID.(int64); typeOk && v > 0 {
+				req.DomainID = v
+			}
+		}
+	}
 	if req.DomainID <= 0 {
 		req.DomainID = 1
 	}

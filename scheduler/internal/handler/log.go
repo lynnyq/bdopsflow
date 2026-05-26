@@ -29,7 +29,7 @@ func (h *LogHandler) List(c *gin.Context) {
 
 	slog.Debug("LogHandler.List: handling request", "query", c.Request.URL.RawQuery)
 
-	domainID, _ := c.Get("domain_id")
+	domainID, _ := c.Get("current_domain_id")
 	userRole, _ := c.Get("role")
 
 	var dID int64
@@ -118,7 +118,7 @@ func (h *LogHandler) Delete(c *gin.Context) {
 
 	ctx := c.Request.Context()
 
-	domainID, _ := c.Get("domain_id")
+	domainID, _ := c.Get("current_domain_id")
 	userRole, _ := c.Get("role")
 
 	var dID int64
@@ -151,7 +151,7 @@ func (h *LogHandler) BatchDelete(c *gin.Context) {
 		}
 	}()
 
-	domainID, _ := c.Get("domain_id")
+	domainID, _ := c.Get("current_domain_id")
 	userRole, _ := c.Get("role")
 
 	var dID int64
@@ -209,7 +209,7 @@ func (h *LogHandler) GetStats(c *gin.Context) {
 
 	slog.Debug("LogHandler.GetStats: handling request")
 
-	domainID, _ := c.Get("domain_id")
+	domainID, _ := c.Get("current_domain_id")
 	userRole, _ := c.Get("role")
 
 	var dID int64

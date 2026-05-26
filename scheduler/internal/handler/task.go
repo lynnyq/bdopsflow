@@ -71,7 +71,7 @@ func (h *TaskHandler) List(c *gin.Context) {
 
 	slog.Debug("TaskHandler.List: handling request")
 
-	domainID, _ := c.Get("domain_id")
+	domainID, _ := c.Get("current_domain_id")
 	userRole, _ := c.Get("role")
 
 	var dID int64
@@ -198,6 +198,13 @@ func (h *TaskHandler) Create(c *gin.Context) {
 	}
 
 	domainID := req.DomainID
+	if domainID <= 0 {
+		if jwtDomainID, ok := c.Get("current_domain_id"); ok {
+			if v, typeOk := jwtDomainID.(int64); typeOk && v > 0 {
+				domainID = v
+			}
+		}
+	}
 	if domainID <= 0 {
 		domainID = 1
 	}
@@ -503,7 +510,7 @@ func (h *TaskHandler) Trigger(c *gin.Context) {
 		return
 	}
 
-	userDomainID, _ := c.Get("domain_id")
+	userDomainID, _ := c.Get("current_domain_id")
 	userRole, _ := c.Get("role")
 	domainID, _ := userDomainID.(int64)
 	role, _ := userRole.(string)

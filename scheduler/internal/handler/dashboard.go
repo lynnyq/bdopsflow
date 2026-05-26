@@ -27,7 +27,7 @@ func (h *DashboardHandler) GetStats(c *gin.Context) {
 
 	slog.Debug("DashboardHandler.GetStats: handling request")
 
-	domainID, _ := c.Get("domain_id")
+	domainID, _ := c.Get("current_domain_id")
 	userRole, _ := c.Get("role")
 
 	var dID int64
@@ -61,7 +61,7 @@ func (h *DashboardHandler) GetTrends(c *gin.Context) {
 
 	slog.Debug("DashboardHandler.GetTrends: handling request")
 
-	domainID, _ := c.Get("domain_id")
+	domainID, _ := c.Get("current_domain_id")
 	userRole, _ := c.Get("role")
 
 	var dID int64

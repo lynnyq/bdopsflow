@@ -25,16 +25,16 @@ api.interceptors.request.use((config) => {
 
 api.interceptors.response.use(
   (response) => {
-    // 处理统一响应格式
     const data = response.data as ApiResponse
 
-    // 如果响应符合统一格式
     if (data && typeof data === 'object' && 'code' in data && 'status' in data) {
-      // 业务错误（code !== 0）
       if (data.code !== 0) {
-        const friendlyMessage = ERROR_CODE_MAP[data.code] || data.message || '请求失败'
-        ElMessage.error(friendlyMessage)
-        const error = new Error(friendlyMessage)
+        const isAuthEndpoint = response.config.url?.includes('/auth/login') || response.config.url?.includes('/auth/sso-login')
+        if (!isAuthEndpoint) {
+          const friendlyMessage = ERROR_CODE_MAP[data.code] || data.message || '请求失败'
+          ElMessage.error(friendlyMessage)
+        }
+        const error = new Error(data.message || '请求失败')
         ;(error as any).code = data.code
         ;(error as any).response = {
           data: { error: data.message, code: data.code },
@@ -42,7 +42,6 @@ api.interceptors.response.use(
         }
         return Promise.reject(error)
       }
-      // 成功时，将 data.data 作为实际数据返回
       response.data = data.data
     }
 

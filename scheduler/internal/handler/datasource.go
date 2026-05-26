@@ -9,35 +9,44 @@ import (
 	"github.com/lynnyq/bdopsflow/scheduler/internal/datasource"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/datasource/driver"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/model"
+	"github.com/lynnyq/bdopsflow/scheduler/internal/service"
 )
 
 type DatasourceHandler struct {
-	dsService *datasource.DatasourceService
-	manager   *datasource.Manager
-	config    *datasource.ConfigService
+	dsService      *datasource.DatasourceService
+	manager        *datasource.Manager
+	config         *datasource.ConfigService
+	instancePermSvc *service.InstancePermissionService
+	permSvc        *service.PermissionService
 }
 
-func NewDatasourceHandler(dsService *datasource.DatasourceService, manager *datasource.Manager, config *datasource.ConfigService) *DatasourceHandler {
+func NewDatasourceHandler(dsService *datasource.DatasourceService, manager *datasource.Manager, config *datasource.ConfigService, instancePermSvc *service.InstancePermissionService, permSvc *service.PermissionService) *DatasourceHandler {
 	return &DatasourceHandler{
-		dsService: dsService,
-		manager:   manager,
-		config:    config,
+		dsService:      dsService,
+		manager:        manager,
+		config:         config,
+		instancePermSvc: instancePermSvc,
+		permSvc:        permSvc,
 	}
 }
 
 func (h *DatasourceHandler) List(c *gin.Context) {
-	role, _ := c.Get("role")
-	domainID, _ := c.Get("domain_id")
 	userID, _ := c.Get("user_id")
 
-	var queryDomainID int64
-	if role == "system_admin" || role == "admin" {
-		if d := c.Query("domain_id"); d != "" {
-			queryDomainID, _ = strconv.ParseInt(d, 10, 64)
-		}
-	} else {
-		queryDomainID = domainID.(int64)
+	var uID int64
+	if v, ok := userID.(int64); ok {
+		uID = v
 	}
+
+	isAdmin := false
+	if uID > 0 {
+		adminCheck, err := h.permSvc.IsSystemAdmin(c.Request.Context(), uID)
+		if err == nil {
+			isAdmin = adminCheck
+		}
+	}
+
+	slog.Debug("Datasource.List: permission check", "module", "datasource", "user_id", uID, "is_admin", isAdmin)
 
 	dsType := c.Query("type")
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
@@ -49,43 +58,64 @@ func (h *DatasourceHandler) List(c *gin.Context) {
 		pageSize = 20
 	}
 
-	datasources, total, err := h.dsService.Get(c.Request.Context(), queryDomainID, dsType, page, pageSize)
+	if isAdmin {
+		var queryDomainID int64
+		if d := c.Query("domain_id"); d != "" {
+			queryDomainID, _ = strconv.ParseInt(d, 10, 64)
+		}
+		datasources, total, err := h.dsService.Get(c.Request.Context(), queryDomainID, dsType, page, pageSize)
+		if err != nil {
+			Fail(c, CodeQueryError, "获取数据源列表失败")
+			return
+		}
+
+		slog.Debug("Datasource.List: admin result", "module", "datasource", "user_id", uID, "query_domain_id", queryDomainID, "total", total)
+
+		items := make([]gin.H, 0, len(datasources))
+		for _, ds := range datasources {
+			item := h.datasourceToMap(ds)
+			items = append(items, item)
+		}
+
+		Success(c, gin.H{
+			"items":     items,
+			"total":     total,
+			"page":      page,
+			"page_size": pageSize,
+		})
+		return
+	}
+
+	allDatasources, _, err := h.dsService.Get(c.Request.Context(), 0, dsType, 1, 10000)
 	if err != nil {
 		Fail(c, CodeQueryError, "获取数据源列表失败")
 		return
 	}
 
-	r := role.(string)
-	if r == "user" {
-		uID := userID.(int64)
-		var filtered []*model.Datasource
-		for _, ds := range datasources {
-			hasPerm, err := h.dsService.CheckPermission(c.Request.Context(), uID, ds.ID, "query")
-			if err == nil && hasPerm {
-				filtered = append(filtered, ds)
-			}
+	var filtered []*model.Datasource
+	for _, ds := range allDatasources {
+		hasPerm, permErr := h.instancePermSvc.HasDatasourcePermission(c.Request.Context(), uID, ds.ID, "read")
+		if permErr == nil && hasPerm {
+			filtered = append(filtered, ds)
 		}
-		datasources = filtered
-		total = int64(len(filtered))
 	}
 
-	items := make([]gin.H, 0, len(datasources))
-	for _, ds := range datasources {
-		item := gin.H{
-			"id": ds.ID, "name": ds.Name, "type": ds.Type,
-			"host": ds.Host, "port": ds.Port, "path": ds.Path,
-			"database": ds.Database, "username": ds.Username,
-			"auth_type": ds.AuthType, "description": ds.Description,
-			"domain_id": ds.DomainID, "is_enabled": ds.IsEnabled,
-			"allow_write_sql": ds.AllowWriteSQL,
-			"test_status": ds.TestStatus, "last_test_at": formatTimePtr(ds.LastTestAt),
-			"created_by": ds.CreatedBy, "updated_by": ds.UpdatedBy,
-			"created_at": ds.CreatedAt, "updated_at": ds.UpdatedAt,
-			"connection_mode": ds.ConnectionMode,
-			"zk_hosts": ds.ZkHosts,
-			"zk_path": ds.ZkPath,
-			"rqlite_hosts": ds.RqliteHosts,
-		}
+	total := int64(len(filtered))
+	start := (page - 1) * pageSize
+	end := start + pageSize
+	if start > len(filtered) {
+		start = len(filtered)
+	}
+	if end > len(filtered) {
+		end = len(filtered)
+	}
+	paged := filtered[start:end]
+
+	slog.Debug("Datasource.List: filtered result", "module", "datasource", "user_id", uID, "total_all", len(allDatasources), "total_filtered", len(filtered), "page_items", len(paged))
+
+	items := make([]gin.H, 0, len(paged))
+	for _, ds := range paged {
+		item := h.datasourceToMap(ds)
 		items = append(items, item)
 	}
 
@@ -174,12 +204,20 @@ func (h *DatasourceHandler) Create(c *gin.Context) {
 	}
 
 	role, _ := c.Get("role")
-	if allowWriteSQL && role != "system_admin" && role != "admin" {
+	var createRole string
+	if v, ok := role.(string); ok {
+		createRole = v
+	}
+	if allowWriteSQL && createRole != "system_admin" && createRole != "admin" {
 		Fail(c, CodePermissionDenied, "仅系统管理员可启用DML语句权限")
 		return
 	}
 
 	userID, _ := c.Get("user_id")
+	var uid int64
+	if v, ok := userID.(int64); ok {
+		uid = v
+	}
 	ds := &model.Datasource{
 		Name: req.Name, Type: req.Type, Host: req.Host, Port: req.Port,
 		Path: req.Path, Database: req.Database, Username: req.Username,
@@ -190,8 +228,8 @@ func (h *DatasourceHandler) Create(c *gin.Context) {
 		ZkHosts:        req.ZkHosts,
 		ZkPath:         req.ZkPath,
 		RqliteHosts:    req.RqliteHosts,
-		CreatedBy: int64Ptr(userID.(int64)),
-		UpdatedBy: int64Ptr(userID.(int64)),
+		CreatedBy: int64Ptr(uid),
+		UpdatedBy: int64Ptr(uid),
 	}
 
 	testErr := h.manager.TestConnection(c.Request.Context(), ds)
@@ -306,7 +344,11 @@ func (h *DatasourceHandler) Update(c *gin.Context) {
 	}
 	if req.AllowWriteSQL != nil {
 		role, _ := c.Get("role")
-		if *req.AllowWriteSQL && role != "system_admin" && role != "admin" {
+		var updateRole string
+		if v, ok := role.(string); ok {
+			updateRole = v
+		}
+		if *req.AllowWriteSQL && updateRole != "system_admin" && updateRole != "admin" {
 			Fail(c, CodePermissionDenied, "仅系统管理员可启用DML语句权限")
 			return
 		}
@@ -314,7 +356,11 @@ func (h *DatasourceHandler) Update(c *gin.Context) {
 	}
 
 	userID, _ := c.Get("user_id")
-	ds.UpdatedBy = int64Ptr(userID.(int64))
+	var updateUID int64
+	if v, ok := userID.(int64); ok {
+		updateUID = v
+	}
+	ds.UpdatedBy = int64Ptr(updateUID)
 
 	if err := h.dsService.Update(c.Request.Context(), ds); err != nil {
 		slog.Error("failed to update datasource", "id", id, "error", err)
@@ -456,12 +502,16 @@ func (h *DatasourceHandler) GrantPermission(c *gin.Context) {
 	}
 
 	userID, _ := c.Get("user_id")
+	var grantUID int64
+	if v, ok := userID.(int64); ok {
+		grantUID = v
+	}
 	perm := &model.DatasourcePermission{
 		DatasourceID:   dsID,
 		RoleID:         req.RoleID,
 		UserID:         req.UserID,
 		PermissionType: req.PermissionType,
-		GrantedBy:      int64Ptr(userID.(int64)),
+		GrantedBy:      int64Ptr(grantUID),
 		GrantedAt:      "",
 	}
 
@@ -550,6 +600,24 @@ func (h *DatasourceHandler) GetPermissions(c *gin.Context) {
 func (h *DatasourceHandler) SupportedTypes(c *gin.Context) {
 	types := driver.SupportedTypes()
 	Success(c, types)
+}
+
+func (h *DatasourceHandler) datasourceToMap(ds *model.Datasource) gin.H {
+	return gin.H{
+		"id": ds.ID, "name": ds.Name, "type": ds.Type,
+		"host": ds.Host, "port": ds.Port, "path": ds.Path,
+		"database": ds.Database, "username": ds.Username,
+		"auth_type": ds.AuthType, "description": ds.Description,
+		"domain_id": ds.DomainID, "is_enabled": ds.IsEnabled,
+		"allow_write_sql": ds.AllowWriteSQL,
+		"test_status": ds.TestStatus, "last_test_at": formatTimePtr(ds.LastTestAt),
+		"created_by": ds.CreatedBy, "updated_by": ds.UpdatedBy,
+		"created_at": ds.CreatedAt, "updated_at": ds.UpdatedAt,
+		"connection_mode": ds.ConnectionMode,
+		"zk_hosts": ds.ZkHosts,
+		"zk_path": ds.ZkPath,
+		"rqlite_hosts": ds.RqliteHosts,
+	}
 }
 
 func int64Ptr(v int64) *int64 {

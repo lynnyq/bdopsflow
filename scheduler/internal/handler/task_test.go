@@ -945,7 +945,7 @@ func setupTestRouterWithAuth(handler *TaskHandler) *gin.Engine {
 	authGroup := r.Group("/api/bdopsflow_tasks")
 	authGroup.Use(func(c *gin.Context) {
 		if domainID, exists := c.Get("inject_domain_id"); exists {
-			c.Set("domain_id", domainID)
+			c.Set("current_domain_id", domainID)
 		}
 		if role, exists := c.Get("inject_role"); exists {
 			c.Set("role", role)
@@ -969,7 +969,7 @@ func TestTrigger_PermissionDenied_DifferentDomain(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	router.POST("/api/bdopsflow_tasks/:id/trigger", func(c *gin.Context) {
-		c.Set("domain_id", int64(1))
+		c.Set("current_domain_id", int64(1))
 		c.Set("role", "user")
 		handler.Trigger(c)
 	})
@@ -996,7 +996,7 @@ func TestTrigger_PermissionAllowed_SameDomain(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	router.POST("/api/bdopsflow_tasks/:id/trigger", func(c *gin.Context) {
-		c.Set("domain_id", int64(1))
+		c.Set("current_domain_id", int64(1))
 		c.Set("role", "user")
 		handler.Trigger(c)
 	})
@@ -1023,7 +1023,7 @@ func TestTrigger_PermissionAllowed_SystemAdmin(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	router.POST("/api/bdopsflow_tasks/:id/trigger", func(c *gin.Context) {
-		c.Set("domain_id", int64(1))
+		c.Set("current_domain_id", int64(1))
 		c.Set("role", "system_admin")
 		handler.Trigger(c)
 	})
@@ -1050,7 +1050,7 @@ func TestTrigger_PermissionAllowed_AdminRole(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	router.POST("/api/bdopsflow_tasks/:id/trigger", func(c *gin.Context) {
-		c.Set("domain_id", int64(1))
+		c.Set("current_domain_id", int64(1))
 		c.Set("role", "admin")
 		handler.Trigger(c)
 	})
@@ -1077,7 +1077,7 @@ func TestTrigger_TaskNotFound(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	router.POST("/api/bdopsflow_tasks/:id/trigger", func(c *gin.Context) {
-		c.Set("domain_id", int64(1))
+		c.Set("current_domain_id", int64(1))
 		c.Set("role", "user")
 		handler.Trigger(c)
 	})

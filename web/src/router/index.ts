@@ -1,6 +1,8 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { menuPermissionMap } from '@/config/menuPermissionMap'
+import type { MenuPermissionDef } from '@/types'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -12,12 +14,12 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/',
     component: () => import('@/views/Layout.vue'),
-    meta: { requiresAuth: true },
     children: [
       {
         path: '',
         name: 'Dashboard',
         component: () => import('@/views/Dashboard.vue'),
+        meta: { menuPermission: 'dashboard' },
       },
       {
         path: 'tasks',
@@ -70,55 +72,61 @@ const routes: RouteRecordRaw[] = [
         path: 'sql-query',
         name: 'SQLQuery',
         component: () => import('@/views/SQLQuery/SQLQuery.vue'),
-        meta: { menuPermission: 'sql_query' },
+        meta: { menuPermission: 'sql-query' },
       },
       {
         path: 'saved-sql',
         name: 'SavedSQL',
         component: () => import('@/views/SQLQuery/SavedSQLList.vue'),
-        meta: { menuPermission: 'saved_sql' },
+        meta: { menuPermission: 'saved-sql' },
       },
       {
         path: 'query-history',
         name: 'QueryHistory',
         component: () => import('@/views/SQLQuery/QueryHistory.vue'),
-        meta: { menuPermission: 'query_history' },
+        meta: { menuPermission: 'query-history' },
+      },
+      {
+        path: 'workflows',
+        name: 'Workflows',
+        component: () => import('@/views/Workflows.vue'),
+        meta: { menuPermission: 'task' },
       },
       {
         path: 'admin/users',
         name: 'AdminUsers',
         component: () => import('@/views/admin/Users.vue'),
-        meta: { menuPermission: 'user_management' },
+        meta: { menuPermission: 'user-management' },
       },
       {
         path: 'admin/roles',
         name: 'AdminRoles',
         component: () => import('@/views/admin/Roles.vue'),
-        meta: { menuPermission: 'role_management' },
+        meta: { menuPermission: 'role-management' },
       },
       {
         path: 'admin/domains',
         name: 'AdminDomains',
         component: () => import('@/views/admin/Domains.vue'),
-        meta: { menuPermission: 'domain_management' },
-      },
-      {
-        path: 'admin/system-config',
-        name: 'SystemConfig',
-        component: () => import('@/views/admin/SystemConfig.vue'),
-        meta: { menuPermission: 'system_config' },
-      },
-      {
-        path: 'admin/audit-logs',
-        name: 'AuditLogs',
-        component: () => import('@/views/admin/AuditLogs.vue'),
-        meta: { menuPermission: 'audit_log' },
+        meta: { menuPermission: 'domain-management' },
       },
       {
         path: 'admin/webhooks',
         name: 'WebhookManagement',
         component: () => import('@/views/admin/WebhookManagement.vue'),
-        meta: { requiresAdmin: true },
+        meta: { menuPermission: 'webhook-management' },
+      },
+      {
+        path: 'admin/system-config',
+        name: 'SystemConfig',
+        component: () => import('@/views/admin/SystemConfig.vue'),
+        meta: { menuPermission: 'system-config' },
+      },
+      {
+        path: 'admin/audit-logs',
+        name: 'AuditLogs',
+        component: () => import('@/views/admin/AuditLogs.vue'),
+        meta: { menuPermission: 'audit-log' },
       },
     ],
   },
@@ -129,33 +137,70 @@ const router = createRouter({
   routes,
 })
 
-router.beforeEach(async (to, from, next) => {
+function findMenuDefByKey(key: string): MenuPermissionDef | undefined {
+  for (const menu of menuPermissionMap) {
+    if (menu.key === key) return menu
+    if (menu.children) {
+      for (const child of menu.children) {
+        if (child.key === key) return child
+      }
+    }
+  }
+  return undefined
+}
+
+function deriveMenuVisibility(menu: MenuPermissionDef, hasAnyPermission: (resource: string) => boolean): boolean {
+  if (menu.children && menu.children.length > 0) {
+    return menu.children.some(child => deriveMenuVisibility(child, hasAnyPermission))
+  }
+  return menu.resources.some(r => hasAnyPermission(r))
+}
+
+router.beforeEach(async (to, _from, next) => {
+  if (to.meta.requiresAuth === false) {
+    next()
+    return
+  }
+
+  const authStore = useAuthStore()
   const token = localStorage.getItem('token')
-  if (to.meta.requiresAuth !== false && !token) {
+
+  if (!token) {
     next('/login')
     return
   }
 
-  if (to.meta.menuPermission || to.meta.permission) {
-    const authStore = useAuthStore()
-    if (!authStore.user && token) {
-      await authStore.fetchCurrentUser()
-    }
+  if (!authStore.user) {
+    await authStore.fetchCurrentUser()
+  }
 
-    if (to.meta.menuPermission) {
-      const menuAction = to.meta.menuPermission as string
-      if (!authStore.hasMenuPermission(menuAction)) {
-        next('/')
+  if (!authStore.token) {
+    next('/login')
+    return
+  }
+
+  const menuPermission = to.meta.menuPermission as string | undefined
+  if (menuPermission) {
+    const menuDef = findMenuDefByKey(menuPermission)
+    if (menuDef && !deriveMenuVisibility(menuDef, authStore.hasAnyPermission.bind(authStore))) {
+      if (to.path === '/') {
+        next({ name: 'Profile' })
         return
       }
+      next('/')
+      return
     }
+  }
 
-    if (to.meta.permission) {
-      const { resource, action } = to.meta.permission as { resource: string; action: string }
-      if (!authStore.hasPermission(resource, action)) {
-        next('/')
+  const permission = to.meta.permission as { resource: string; action: string } | undefined
+  if (permission) {
+    if (!authStore.hasPermission(permission.resource, permission.action)) {
+      if (to.path === '/') {
+        next({ name: 'Profile' })
         return
       }
+      next('/')
+      return
     }
   }
 

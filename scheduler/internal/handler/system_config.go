@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"log/slog"
+
 	"github.com/gin-gonic/gin"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/datasource"
 )
@@ -16,6 +18,7 @@ func NewSystemConfigHandler(configService *datasource.ConfigService) *SystemConf
 }
 
 func (h *SystemConfigHandler) List(c *gin.Context) {
+	slog.Debug("SystemConfigHandler.List: entering", "module", "handler_system_config")
 	configs := h.configService.GetAllWithMeta()
 	Success(c, configs)
 }
@@ -27,6 +30,8 @@ func (h *SystemConfigHandler) Update(c *gin.Context) {
 		return
 	}
 
+	slog.Debug("SystemConfigHandler.Update: entering", "module", "handler_system_config", "key", key)
+
 	var req struct {
 		Value string `json:"value" binding:"required"`
 	}
@@ -36,10 +41,16 @@ func (h *SystemConfigHandler) Update(c *gin.Context) {
 	}
 
 	userID, _ := c.Get("user_id")
-	if err := h.configService.Set(c.Request.Context(), key, req.Value, userID.(int64)); err != nil {
+	var configUID int64
+	if v, ok := userID.(int64); ok {
+		configUID = v
+	}
+	if err := h.configService.Set(c.Request.Context(), key, req.Value, configUID); err != nil {
+		slog.Error("SystemConfigHandler.Update: failed to update config", "module", "handler_system_config", "key", key, "error", err)
 		Fail(c, CodeBadRequest, err.Error())
 		return
 	}
 
+	slog.Info("SystemConfigHandler.Update: config updated successfully", "module", "handler_system_config", "key", key, "user_id", userID)
 	Success(c, nil)
 }

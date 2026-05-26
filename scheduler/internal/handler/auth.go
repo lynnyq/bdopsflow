@@ -3,29 +3,32 @@ package handler
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/middleware"
+	"github.com/lynnyq/bdopsflow/scheduler/internal/model"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/service"
+	"github.com/lynnyq/bdopsflow/scheduler/pkg/database"
 	"github.com/lynnyq/bdopsflow/scheduler/pkg/rsautil"
 	rqlite "github.com/rqlite/gorqlite"
 	"golang.org/x/crypto/bcrypt"
 )
 
 type AuthHandler struct {
-	db            *rqlite.Connection
-	permSvc       *service.PermissionService
-	rsaUtil       *rsautil.RSAUtil
-	ssoEnabled    bool
-	ssoUrl        string
-	ssoRsaUtil    *rsautil.RSAUtil
-	ssoTimeout    time.Duration
+	db         database.DB
+	permSvc    *service.PermissionService
+	rsaUtil    *rsautil.RSAUtil
+	ssoEnabled bool
+	ssoUrl     string
+	ssoRsaUtil *rsautil.RSAUtil
+	ssoTimeout time.Duration
 }
 
-func NewAuthHandler(db *rqlite.Connection, permSvc *service.PermissionService, rsaUtil *rsautil.RSAUtil, ssoEnabled bool, ssoUrl string, ssoRsaUtil *rsautil.RSAUtil, ssoTimeout int) *AuthHandler {
+func NewAuthHandler(db database.DB, permSvc *service.PermissionService, rsaUtil *rsautil.RSAUtil, ssoEnabled bool, ssoUrl string, ssoRsaUtil *rsautil.RSAUtil, ssoTimeout int) *AuthHandler {
 	timeout := time.Duration(ssoTimeout) * time.Second
 	if timeout <= 0 {
 		timeout = 10 * time.Second
@@ -60,58 +63,82 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	c.Set("audit_resource_name", req.Username)
 	c.Set("username", req.Username)
 
-	query := "SELECT id, username, real_name, phone, password, role, email, domain_id FROM bdopsflow_users WHERE username = ?"
+	slog.Debug("Login: request entry", "module", "handler_auth", "username", req.Username)
+
+	query := "SELECT id, username, real_name, phone, password, email, is_active FROM bdopsflow_users WHERE username = ?"
 	stmt := rqlite.ParameterizedStatement{
 		Query:     query,
 		Arguments: []interface{}{req.Username},
 	}
 	qr, err := h.db.QueryOneParameterized(stmt)
 	if err != nil {
+		slog.Error("Login: query user failed", "error", err, "username", req.Username)
 		InternalServerError(c, "服务器错误，请稍后重试")
 		return
 	}
 
 	if qr.Err != nil {
+		slog.Error("Login: query result error", "error", qr.Err, "username", req.Username)
 		InternalServerError(c, "服务器错误，请稍后重试")
 		return
 	}
 
 	if !qr.Next() {
-		Unauthorized(c, "用户名或密码错误")
+		slog.Warn("Login: user not found", "module", "handler_auth", "username", req.Username)
+		Fail(c, CodeInvalidCredentials, "用户名或密码错误")
 		return
 	}
 
-	var userID int64
-	var username, realName, phone, role, email, hashedPassword string
-	var domainID rqlite.NullInt64
-	err = qr.Scan(&userID, &username, &realName, &phone, &hashedPassword, &role, &email, &domainID)
+	row, err := qr.Slice()
 	if err != nil {
+		slog.Error("Login: slice user failed", "error", err, "username", req.Username)
 		InternalServerError(c, "服务器错误，请稍后重试")
 		return
 	}
 
+	userID := service.RowInt64(row[0])
+	username := service.RowString(row[1])
+	realName := service.RowString(row[2])
+	phone := service.RowString(row[3])
+	hashedPassword := service.RowString(row[4])
+	email := service.RowString(row[5])
+	isActive := service.RowBool(row[6])
+
 	decryptedPassword, err := h.rsaUtil.Decrypt(req.Password)
 	if err != nil {
-		Unauthorized(c, "用户名或密码错误")
+		slog.Warn("Login: password decryption failed", "module", "handler_auth", "username", req.Username, "error", err)
+		Fail(c, CodeInvalidCredentials, "用户名或密码错误")
 		return
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(decryptedPassword)); err != nil {
-		Unauthorized(c, "用户名或密码错误")
+		slog.Warn("Login: password comparison failed", "module", "handler_auth", "username", req.Username, "error", err)
+		Fail(c, CodeInvalidCredentials, "用户名或密码错误")
 		return
 	}
 
-	var dID int64
-	if domainID.Valid {
-		dID = domainID.Int64
+	if !isActive {
+		slog.Warn("Login: user is inactive", "module", "handler_auth", "user_id", userID, "username", username)
 	}
 
-	if role == "" {
-		role = "admin"
+	domains, domainErr := h.permSvc.GetUserDomainInfos(c.Request.Context(), userID)
+	if domainErr != nil {
+		slog.Error("Login: get user domain infos failed", "error", domainErr, "user_id", userID)
+	}
+	var currentDomainID int64
+	defaultDomainID, defaultErr := h.permSvc.GetUserDefaultDomain(c.Request.Context(), userID)
+	if defaultErr != nil {
+		slog.Error("Login: get user default domain failed", "error", defaultErr, "user_id", userID)
+	}
+	if defaultDomainID > 0 {
+		currentDomainID = defaultDomainID
+	} else if len(domains) > 0 {
+		currentDomainID = domains[0].DomainID
 	}
 
-	tokenString, err := middleware.GenerateToken(userID, username, realName, role, dID)
+	tokenString, err := middleware.GenerateToken(userID, username, realName, currentDomainID)
 	if err != nil {
+		slog.Error("Login: generate token failed", "error", err, "user_id", userID)
 		InternalServerError(c, "服务器错误，请稍后重试")
 		return
 	}
@@ -125,29 +152,41 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		h.db.WriteOneParameterized(updateStmt)
 	}()
 
-	permissions, _ := h.permSvc.GetUserPermissions(c.Request.Context(), userID)
-	permList := make([]map[string]string, 0, len(permissions))
-	for _, p := range permissions {
-		permList = append(permList, map[string]string{
-			"resource": p.Resource,
-			"action":   p.Action,
-		})
+	permissions, permErr := h.permSvc.GetUserPermissions(c.Request.Context(), userID)
+	if permErr != nil {
+		slog.Error("Login: get user permissions failed", "error", permErr, "user_id", userID)
 	}
+	if permissions == nil {
+		permissions = []*model.Permission{}
+	}
+	if domains == nil {
+		domains = []*model.UserDomainInfo{}
+	}
+
+	roleCodes, roleErr := h.permSvc.GetUserRoleCodes(c.Request.Context(), userID)
+	if roleErr != nil {
+		slog.Error("Login: get user role codes failed", "error", roleErr, "user_id", userID)
+	}
+	if roleCodes == nil {
+		roleCodes = []string{}
+	}
+
+	slog.Info("Login: success", "user_id", userID, "username", username, "domain_id", currentDomainID, "permissions_count", len(permissions), "domains_count", len(domains))
 
 	Success(c, gin.H{
 		"token": tokenString,
 		"user": map[string]interface{}{
-			"id":            userID,
-			"username":      username,
-			"real_name":     realName,
-			"phone":         phone,
-			"role":          role,
-			"email":         email,
-			"domain_id":     dID,
-			"is_active":     true,
-			"last_login_at": nil,
-			"permissions":   permList,
+			"id":        userID,
+			"username":  username,
+			"real_name": realName,
+			"phone":     phone,
+			"email":     email,
+			"is_active": isActive,
 		},
+		"permissions":       permissions,
+		"domains":           domains,
+		"current_domain_id": currentDomainID,
+		"role_codes":        roleCodes,
 	})
 }
 
@@ -155,7 +194,6 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	var req struct {
 		Username string `json:"username" binding:"required"`
 		Password string `json:"password" binding:"required,min=1,max=512"`
-		Role     string `json:"role"`
 		Email    string `json:"email" binding:"omitempty,email"`
 	}
 
@@ -201,39 +239,59 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	c.Set("audit_resource_name", req.Username)
 	c.Set("username", req.Username)
 
-	role := req.Role
-	if role == "" {
-		role = "operator"
-	}
+	slog.Debug("Register: request entry", "module", "handler_auth", "username", req.Username)
 
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(decryptedPassword), bcrypt.DefaultCost)
 	if err != nil {
+		slog.Error("Register: bcrypt generate failed", "module", "handler_auth", "username", req.Username, "error", err)
 		InternalServerError(c, "服务器错误，请稍后重试")
 		return
 	}
 
-	query := "INSERT INTO bdopsflow_users (username, real_name, phone, password, role, email, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+	query := "INSERT INTO bdopsflow_users (username, real_name, phone, password, email, is_active, created_at) VALUES (?, ?, ?, ?, ?, 1, ?)"
 	stmt := rqlite.ParameterizedStatement{
 		Query:     query,
-		Arguments: []interface{}{req.Username, "", "", string(hashedPassword), role, req.Email, time.Now()},
+		Arguments: []interface{}{req.Username, "", "", string(hashedPassword), req.Email, time.Now()},
 	}
 	result, err := h.db.WriteOneParameterized(stmt)
 	if err != nil {
+		slog.Error("Register: db write failed", "module", "handler_auth", "username", req.Username, "error", err)
 		InternalServerError(c, "服务器错误，请稍后重试")
 		return
 	}
 
 	if result.Err != nil {
+		slog.Error("Register: db write result error", "module", "handler_auth", "username", req.Username, "error", result.Err)
 		InternalServerError(c, "服务器错误，请稍后重试")
 		return
 	}
 
 	userID := result.LastInsertID
 
+	slog.Info("Register: success", "module", "handler_auth", "user_id", userID, "username", req.Username)
+
+	roleQuery := "SELECT id FROM bdopsflow_roles WHERE code = 'user' LIMIT 1"
+	roleStmt := rqlite.ParameterizedStatement{
+		Query: roleQuery,
+	}
+	roleQr, roleErr := h.db.QueryOneParameterized(roleStmt)
+	if roleErr == nil && roleQr.Err == nil && roleQr.Next() {
+		roleRow, _ := roleQr.Slice()
+		if len(roleRow) > 0 {
+			roleID := service.RowInt64(roleRow[0])
+			if roleID > 0 {
+				assignStmt := rqlite.ParameterizedStatement{
+					Query:     "INSERT INTO bdopsflow_user_roles (user_id, role_id, created_at) VALUES (?, ?, ?)",
+					Arguments: []interface{}{userID, roleID, time.Now()},
+				}
+				h.db.WriteOneParameterized(assignStmt)
+			}
+		}
+	}
+
 	Created(c, gin.H{
 		"id":       userID,
 		"username": req.Username,
-		"role":     role,
 		"email":    req.Email,
 	})
 }
@@ -245,7 +303,9 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 		return
 	}
 
-	query := "SELECT username, real_name, phone, role, email, domain_id, is_active, last_login_at FROM bdopsflow_users WHERE id = ?"
+	slog.Debug("GetCurrentUser: request entry", "module", "handler_auth", "user_id", userID)
+
+	query := "SELECT username, real_name, phone, email, is_active, last_login_at FROM bdopsflow_users WHERE id = ?"
 	stmt := rqlite.ParameterizedStatement{
 		Query:     query,
 		Arguments: []interface{}{userID},
@@ -278,24 +338,30 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 	username := service.RowString(row[0])
 	realName := service.RowString(row[1])
 	phone := service.RowString(row[2])
-	role := service.RowString(row[3])
-	email := service.RowString(row[4])
-	domainID := service.RowInt64(row[5])
-	isActive := service.RowBool(row[6])
-	lastLoginAt := service.ScanNullTime(row, 7)
-
-	if role == "" {
-		role = "admin"
-	}
+	email := service.RowString(row[3])
+	isActive := service.RowBool(row[4])
+	lastLoginAt := service.ScanNullTime(row, 5)
 
 	uid, _ := userID.(int64)
-	permissions, _ := h.permSvc.GetUserPermissions(c.Request.Context(), uid)
-	permList := make([]map[string]string, 0, len(permissions))
-	for _, p := range permissions {
-		permList = append(permList, map[string]string{
-			"resource": p.Resource,
-			"action":   p.Action,
-		})
+	permissions, permErr := h.permSvc.GetUserPermissions(c.Request.Context(), uid)
+	if permErr != nil {
+		slog.Error("GetCurrentUser: get permissions failed", "error", permErr, "user_id", uid)
+	}
+	if permissions == nil {
+		permissions = []*model.Permission{}
+	}
+
+	domains, domainErr := h.permSvc.GetUserDomainInfos(c.Request.Context(), uid)
+	if domainErr != nil {
+		slog.Error("GetCurrentUser: get domains failed", "error", domainErr, "user_id", uid)
+	}
+	if domains == nil {
+		domains = []*model.UserDomainInfo{}
+	}
+	var currentDomainID int64
+	domainIDVal, _ := c.Get("current_domain_id")
+	if v, ok := domainIDVal.(int64); ok {
+		currentDomainID = v
 	}
 
 	var lastLoginAtStr *string
@@ -304,23 +370,94 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 		lastLoginAtStr = &s
 	}
 
+	roleCodes, roleErr := h.permSvc.GetUserRoleCodes(c.Request.Context(), uid)
+	if roleErr != nil {
+		slog.Error("GetCurrentUser: get role codes failed", "error", roleErr, "user_id", uid)
+	}
+	if roleCodes == nil {
+		roleCodes = []string{}
+	}
+
 	Success(c, gin.H{
-		"id":            userID,
-		"username":      username,
-		"real_name":     realName,
-		"phone":         phone,
-		"role":          role,
-		"email":         email,
-		"domain_id":     domainID,
-		"is_active":     isActive,
-		"last_login_at": lastLoginAtStr,
-		"permissions":   permList,
+		"user": map[string]interface{}{
+			"id":            userID,
+			"username":      username,
+			"real_name":     realName,
+			"phone":         phone,
+			"email":         email,
+			"is_active":     isActive,
+			"last_login_at": lastLoginAtStr,
+		},
+		"permissions":       permissions,
+		"domains":           domains,
+		"current_domain_id": currentDomainID,
+		"role_codes":        roleCodes,
+	})
+}
+
+func (h *AuthHandler) SwitchDomain(c *gin.Context) {
+	var req struct {
+		DomainID int64 `json:"domain_id" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		BadRequest(c, "领域ID不能为空")
+		return
+	}
+
+	userID, _ := c.Get("user_id")
+	var uid int64
+	if v, ok := userID.(int64); ok {
+		uid = v
+	}
+
+	slog.Debug("SwitchDomain: request entry", "module", "handler_auth", "user_id", uid, "domain_id", req.DomainID)
+
+	permissions, err := h.permSvc.SwitchDomain(c.Request.Context(), uid, req.DomainID)
+	if err != nil {
+		if errors.Is(err, service.ErrDomainAccessDenied) {
+			slog.Warn("SwitchDomain: domain access denied", "module", "handler_auth", "user_id", uid, "domain_id", req.DomainID)
+			Forbidden(c, "无权访问该领域")
+			return
+		}
+		InternalServerError(c, "切换领域失败")
+		return
+	}
+
+	username, _ := c.Get("username")
+	realName, _ := c.Get("real_name")
+	var uname, rname string
+	if v, ok := username.(string); ok {
+		uname = v
+	}
+	if v, ok := realName.(string); ok {
+		rname = v
+	}
+	tokenString, err := middleware.GenerateToken(uid, uname, rname, req.DomainID)
+	if err != nil {
+		slog.Error("SwitchDomain: generate token failed", "module", "handler_auth", "user_id", uid, "domain_id", req.DomainID, "error", err)
+		InternalServerError(c, "生成Token失败")
+		return
+	}
+
+	roleCodes, roleErr := h.permSvc.GetUserRoleCodes(c.Request.Context(), uid)
+	if roleErr != nil {
+		slog.Error("SwitchDomain: get role codes failed", "error", roleErr, "user_id", uid)
+	}
+	if roleCodes == nil {
+		roleCodes = []string{}
+	}
+
+	Success(c, gin.H{
+		"token":             tokenString,
+		"permissions":       permissions,
+		"current_domain_id": req.DomainID,
+		"role_codes":        roleCodes,
 	})
 }
 
 func (h *AuthHandler) GetPublicKey(c *gin.Context) {
 	result := gin.H{
-		"public_key": h.rsaUtil.PublicKeyB64(),
+		"public_key":  h.rsaUtil.PublicKeyB64(),
 		"sso_enabled": h.ssoEnabled,
 	}
 	if h.ssoEnabled && h.ssoRsaUtil != nil {
@@ -335,20 +472,20 @@ type ssoRequest struct {
 }
 
 type ssoContent struct {
-	ID            int64  `json:"id"`
-	LoginName     string `json:"loginName"`
-	IDCardName    string `json:"idCardName"`
-	MobileNo      string `json:"mobileNo"`
-	Email         string `json:"email"`
-	DeptNo        string `json:"deptNo"`
-	WorkID        string `json:"workId"`
-	Gender        string `json:"gender"`
-	OfficePhone   string `json:"officePhone"`
+	ID          int64  `json:"id"`
+	LoginName   string `json:"loginName"`
+	IDCardName  string `json:"idCardName"`
+	MobileNo    string `json:"mobileNo"`
+	Email       string `json:"email"`
+	DeptNo      string `json:"deptNo"`
+	WorkID      string `json:"workId"`
+	Gender      string `json:"gender"`
+	OfficePhone string `json:"officePhone"`
 }
 
 type ssoResponse struct {
-	Code    string     `json:"code"`
-	Message string     `json:"message"`
+	Code    string      `json:"code"`
+	Message string      `json:"message"`
 	Content *ssoContent `json:"content"`
 }
 
@@ -370,6 +507,8 @@ func (h *AuthHandler) SSOLogin(c *gin.Context) {
 
 	c.Set("audit_resource_name", req.Username)
 	c.Set("username", req.Username)
+
+	slog.Debug("SSOLogin: request entry", "module", "handler_auth", "username", req.Username)
 
 	ssoReq := ssoRequest{
 		LoginName: req.Username,
@@ -412,7 +551,7 @@ func (h *AuthHandler) SSOLogin(c *gin.Context) {
 			errMsg = "SSO登录失败"
 		}
 		slog.Warn("SSOLogin: SSO authentication failed", "code", ssoResp.Code, "message", errMsg)
-		Unauthorized(c, errMsg)
+		Fail(c, CodeInvalidCredentials, errMsg)
 		return
 	}
 
@@ -422,7 +561,7 @@ func (h *AuthHandler) SSOLogin(c *gin.Context) {
 		loginName = req.Username
 	}
 
-	query := "SELECT id, username, real_name, phone, password, role, email, domain_id FROM bdopsflow_users WHERE username = ?"
+	query := "SELECT id, username, real_name, phone, email, is_active FROM bdopsflow_users WHERE username = ?"
 	stmt := rqlite.ParameterizedStatement{
 		Query:     query,
 		Arguments: []interface{}{loginName},
@@ -440,16 +579,22 @@ func (h *AuthHandler) SSOLogin(c *gin.Context) {
 	}
 
 	var userID int64
-	var username, realName, phone, role, email string
-	var domainID rqlite.NullInt64
+	var username, realName, phone, email string
+	var isActive bool
 
 	if qr.Next() {
-		err = qr.Scan(&userID, &username, &realName, &phone, new(string), &role, &email, &domainID)
-		if err != nil {
-			slog.Error("SSOLogin: failed to scan user", "error", err)
+		row, sliceErr := qr.Slice()
+		if sliceErr != nil {
+			slog.Error("SSOLogin: failed to slice user", "error", sliceErr)
 			InternalServerError(c, "服务器错误，请稍后重试")
 			return
 		}
+		userID = service.RowInt64(row[0])
+		username = service.RowString(row[1])
+		realName = service.RowString(row[2])
+		phone = service.RowString(row[3])
+		email = service.RowString(row[4])
+		isActive = service.RowBool(row[5])
 
 		go func() {
 			updateQuery := "UPDATE bdopsflow_users SET last_login_at = ? WHERE id = ?"
@@ -459,16 +604,18 @@ func (h *AuthHandler) SSOLogin(c *gin.Context) {
 			}
 			h.db.WriteOneParameterized(updateStmt)
 		}()
+
+		slog.Info("SSOLogin: existing user login success", "module", "handler_auth", "user_id", userID, "username", username)
 	} else {
 		realName = ssoUser.IDCardName
 		phone = ssoUser.MobileNo
 		email = ssoUser.Email
-		role = "user"
+		isActive = true
 
-		insertQuery := "INSERT INTO bdopsflow_users (username, real_name, phone, password, role, email, is_active, created_at) VALUES (?, ?, ?, '', ?, ?, 1, ?)"
+		insertQuery := "INSERT INTO bdopsflow_users (username, real_name, phone, password, email, is_active, created_at) VALUES (?, ?, ?, '', ?, 1, ?)"
 		insertStmt := rqlite.ParameterizedStatement{
 			Query:     insertQuery,
-			Arguments: []interface{}{loginName, realName, phone, role, email, time.Now()},
+			Arguments: []interface{}{loginName, realName, phone, email, time.Now()},
 		}
 		result, err := h.db.WriteOneParameterized(insertStmt)
 		if err != nil {
@@ -484,47 +631,82 @@ func (h *AuthHandler) SSOLogin(c *gin.Context) {
 		userID = result.LastInsertID
 		username = loginName
 
+		roleQuery := "SELECT id FROM bdopsflow_roles WHERE code = 'user' LIMIT 1"
+		roleStmt := rqlite.ParameterizedStatement{
+			Query: roleQuery,
+		}
+		roleQr, roleErr := h.db.QueryOneParameterized(roleStmt)
+		if roleErr == nil && roleQr.Err == nil && roleQr.Next() {
+			roleRow, _ := roleQr.Slice()
+			if len(roleRow) > 0 {
+				roleID := service.RowInt64(roleRow[0])
+				if roleID > 0 {
+					assignStmt := rqlite.ParameterizedStatement{
+						Query:     "INSERT INTO bdopsflow_user_roles (user_id, role_id, created_at) VALUES (?, ?, ?)",
+						Arguments: []interface{}{userID, roleID, time.Now()},
+					}
+					h.db.WriteOneParameterized(assignStmt)
+				}
+			}
+		}
+
 		slog.Info("SSOLogin: auto created user from SSO", "username", loginName, "user_id", userID)
 	}
 
-	var dID int64
-	if domainID.Valid {
-		dID = domainID.Int64
+	domains, domainErr := h.permSvc.GetUserDomainInfos(c.Request.Context(), userID)
+	if domainErr != nil {
+		slog.Error("SSOLogin: get user domain infos failed", "error", domainErr, "user_id", userID)
+	}
+	if domains == nil {
+		domains = []*model.UserDomainInfo{}
+	}
+	var currentDomainID int64
+	defaultDomainID, defaultErr := h.permSvc.GetUserDefaultDomain(c.Request.Context(), userID)
+	if defaultErr != nil {
+		slog.Error("SSOLogin: get user default domain failed", "error", defaultErr, "user_id", userID)
+	}
+	if defaultDomainID > 0 {
+		currentDomainID = defaultDomainID
+	} else if len(domains) > 0 {
+		currentDomainID = domains[0].DomainID
 	}
 
-	if role == "" {
-		role = "user"
-	}
-
-	tokenString, err := middleware.GenerateToken(userID, username, realName, role, dID)
+	tokenString, err := middleware.GenerateToken(userID, username, realName, currentDomainID)
 	if err != nil {
 		slog.Error("SSOLogin: failed to generate token", "error", err)
 		InternalServerError(c, "服务器错误，请稍后重试")
 		return
 	}
 
-	permissions, _ := h.permSvc.GetUserPermissions(c.Request.Context(), userID)
-	permList := make([]map[string]string, 0, len(permissions))
-	for _, p := range permissions {
-		permList = append(permList, map[string]string{
-			"resource": p.Resource,
-			"action":   p.Action,
-		})
+	permissions, permErr := h.permSvc.GetUserPermissions(c.Request.Context(), userID)
+	if permErr != nil {
+		slog.Error("SSOLogin: get user permissions failed", "error", permErr, "user_id", userID)
+	}
+	if permissions == nil {
+		permissions = []*model.Permission{}
+	}
+
+	roleCodes, roleErr := h.permSvc.GetUserRoleCodes(c.Request.Context(), userID)
+	if roleErr != nil {
+		slog.Error("SSOLogin: get user role codes failed", "error", roleErr, "user_id", userID)
+	}
+	if roleCodes == nil {
+		roleCodes = []string{}
 	}
 
 	Success(c, gin.H{
 		"token": tokenString,
 		"user": map[string]interface{}{
-			"id":            userID,
-			"username":      username,
-			"real_name":     realName,
-			"phone":         phone,
-			"role":          role,
-			"email":         email,
-			"domain_id":     dID,
-			"is_active":     true,
-			"last_login_at": nil,
-			"permissions":   permList,
+			"id":        userID,
+			"username":  username,
+			"real_name": realName,
+			"phone":     phone,
+			"email":     email,
+			"is_active": isActive,
 		},
+		"permissions":       permissions,
+		"domains":           domains,
+		"current_domain_id": currentDomainID,
+		"role_codes":        roleCodes,
 	})
 }
