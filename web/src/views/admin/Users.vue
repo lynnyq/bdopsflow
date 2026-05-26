@@ -719,6 +719,8 @@ const handleUpdate = async () => {
         phone: userForm.value.phone,
         email: userForm.value.email,
         is_active: userForm.value.is_active,
+        role_ids: userForm.value.role_ids,
+        domain_ids: userForm.value.domain_ids,
       })
       ElMessage.success('更新用户成功')
       showEditDialog.value = false

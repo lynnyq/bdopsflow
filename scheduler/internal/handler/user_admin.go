@@ -334,6 +334,32 @@ func (h *UserAdminHandler) UpdateUser(c *gin.Context) {
 		return
 	}
 
+	if len(req.RoleIDs) > 0 {
+		operatorRole, _ := c.Get("role")
+		var opRole string
+		if v, ok := operatorRole.(string); ok {
+			opRole = v
+		}
+		if opRole != "system_admin" && opRole != "admin" {
+			isSystemRole, checkErr := h.svc.AreRolesSystemOnly(ctx, req.RoleIDs)
+			if checkErr != nil {
+				slog.Error("UpdateUser: failed to check role codes", "error", checkErr)
+				Fail(c, CodeInternalError, "检查角色失败")
+				return
+			}
+			if isSystemRole {
+				Forbidden(c, "领域管理员不能分配系统管理员角色")
+				return
+			}
+		}
+
+		if err := h.svc.AssignUserRoles(ctx, id, req.RoleIDs, req.DomainIDs); err != nil {
+			slog.Error("UpdateUser: failed to assign roles", "error", err)
+			Fail(c, CodeInternalError, "更新用户角色失败")
+			return
+		}
+	}
+
 	if user != nil {
 		user.Password = ""
 	}

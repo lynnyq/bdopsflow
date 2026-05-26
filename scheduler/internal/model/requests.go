@@ -12,11 +12,13 @@ type CreateUserRequest struct {
 }
 
 type UpdateUserRequest struct {
-	Username string `json:"username" binding:"required,min=3,max=50,regexp=^[a-zA-Z0-9_ ]+$"`
-	RealName string `json:"real_name" binding:"max=50"`
-	Phone    string `json:"phone" binding:"max=20"`
-	Email    string `json:"email" binding:"required,email"`
-	IsActive bool   `json:"is_active"`
+	Username  string  `json:"username" binding:"required,min=3,max=50,regexp=^[a-zA-Z0-9_ ]+$"`
+	RealName  string  `json:"real_name" binding:"max=50"`
+	Phone     string  `json:"phone" binding:"max=20"`
+	Email     string  `json:"email" binding:"required,email"`
+	IsActive  bool    `json:"is_active"`
+	RoleIDs   []int64 `json:"role_ids"`
+	DomainIDs []int64 `json:"domain_ids"`
 }
 
 // UpdateCurrentUserRequest 更新当前用户信息请求（不包含密码）
@@ -37,11 +39,13 @@ type ResetPasswordRequest struct {
 
 // AdminUpdateUserRequest 管理员更新用户信息请求
 type AdminUpdateUserRequest struct {
-	Username string `json:"username" binding:"required,min=3,max=50,regexp=^[a-zA-Z0-9_ ]+$"`
-	RealName string `json:"real_name" binding:"max=50"`
-	Phone    string `json:"phone" binding:"max=20"`
-	Email    string `json:"email" binding:"required,email"`
-	IsActive bool   `json:"is_active"`
+	Username  string  `json:"username" binding:"required,min=3,max=50,regexp=^[a-zA-Z0-9_ ]+$"`
+	RealName  string  `json:"real_name" binding:"max=50"`
+	Phone     string  `json:"phone" binding:"max=20"`
+	Email     string  `json:"email" binding:"required,email"`
+	IsActive  bool    `json:"is_active"`
+	RoleIDs   []int64 `json:"role_ids"`
+	DomainIDs []int64 `json:"domain_ids"`
 }
 
 // CreateRoleRequest 创建角色请求
