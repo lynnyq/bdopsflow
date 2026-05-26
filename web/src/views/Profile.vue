@@ -168,6 +168,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, FormInstance, FormRules } from 'element-plus'
 import { User, UserFilled, Phone, Message, Key, CircleCheck, CircleClose, Refresh } from '@element-plus/icons-vue'
 import { authAPI } from '@/api'
+import { isHandledError } from '@/utils/api'
 import { encryptPassword, validatePassword, PASSWORD_RULES } from '@/utils/password'
 import { useAuthStore } from '@/stores/auth'
 
@@ -261,7 +262,9 @@ const loadCurrentUser = async () => {
     profileForm.role = user.role || ''
     profileForm.is_active = user.is_active ?? true
   } catch (error: any) {
-    ElMessage.error('加载用户信息失败：' + (error.message || '未知错误'))
+    if (!isHandledError(error)) {
+      ElMessage.error('加载用户信息失败：' + (error.message || '未知错误'))
+    }
   }
 }
 
@@ -275,7 +278,9 @@ const handleUpdateProfile = async () => {
     })
     ElMessage.success('个人信息更新成功')
   } catch (error: any) {
-    ElMessage.error('更新失败：' + (error.message || '未知错误'))
+    if (!isHandledError(error)) {
+      ElMessage.error('更新失败：' + (error.message || '未知错误'))
+    }
   } finally {
     updateProfileLoading.value = false
   }
@@ -306,8 +311,10 @@ const handleChangePassword = async () => {
     ElMessage.success('密码修改成功')
     handleResetPasswordForm()
   } catch (error: any) {
-    const errorMsg = error.response?.data?.error || error.message || '未知错误'
-    ElMessage.error('密码修改失败：' + errorMsg)
+    if (!isHandledError(error)) {
+      const errorMsg = error.response?.data?.error || error.message || '未知错误'
+      ElMessage.error('密码修改失败：' + errorMsg)
+    }
   } finally {
     changePasswordLoading.value = false
   }

@@ -230,6 +230,7 @@ import { Refresh, Delete, Document, List, CircleCheck, CircleClose, DataLine, Sw
 import { executorAPI, domainAdminAPI } from '@/api'
 import type { ExecutorWithDomains, Domain } from '@/types'
 import { useAuthStore } from '@/stores/auth'
+import { isHandledError } from '@/utils/api'
 
 const authStore = useAuthStore()
 const executors = ref<ExecutorWithDomains[]>([])
@@ -323,7 +324,9 @@ const loadExecutors = async () => {
     const response = await executorAPI.list()
     executors.value = response.data.items || []
   } catch (error) {
-    ElMessage.error('加载执行器失败')
+    if (!isHandledError(error)) {
+      ElMessage.error('加载执行器失败')
+    }
   } finally {
     loading.value = false
   }
@@ -358,7 +361,7 @@ const handleChangeStatus = async (row: ExecutorWithDomains, status: string) => {
     }
     loadExecutors()
   } catch (error: any) {
-    if (error !== 'cancel') {
+    if (error !== 'cancel' && !isHandledError(error)) {
       ElMessage.error('状态变更失败')
     }
   }
@@ -394,7 +397,7 @@ const handleDelete = async (row: ExecutorWithDomains) => {
     ElMessage.success('删除成功')
     loadExecutors()
   } catch (error: any) {
-    if (error !== 'cancel') {
+    if (error !== 'cancel' && !isHandledError(error)) {
       ElMessage.error(error?.response?.data?.error || '删除失败')
     }
   }
@@ -422,7 +425,9 @@ const handleSaveCapacity = async (row: ExecutorWithDomains) => {
     row.capacity = newCapacity
     ElMessage.success('容量更新成功')
   } catch (error) {
-    ElMessage.error('容量更新失败')
+    if (!isHandledError(error)) {
+      ElMessage.error('容量更新失败')
+    }
   } finally {
     editingRow.value = null
   }
@@ -452,7 +457,9 @@ const handleSaveAssignDomains = async () => {
     assignDialogVisible.value = false
     loadExecutors()
   } catch (error) {
-    ElMessage.error('分配失败')
+    if (!isHandledError(error)) {
+      ElMessage.error('分配失败')
+    }
   } finally {
     assignLoading.value = false
   }

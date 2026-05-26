@@ -132,7 +132,7 @@ func (h *QueryHandler) Execute(c *gin.Context) {
 	if req.Database != "" {
 		if useErr := drv.UseDatabase(ctx, req.Database); useErr != nil {
 			slog.Error("failed to switch database", "datasource_id", req.DatasourceID, "database", req.Database, "error", useErr)
-			Fail(c, CodeConcurrentLimit, fmt.Sprintf("切换数据库失败: %v", useErr))
+			Fail(c, CodeQueryError, fmt.Sprintf("切换数据库失败: %v", useErr))
 			return
 		}
 		slog.Debug("switched database context", "datasource_id", req.DatasourceID, "database", req.Database)
@@ -171,7 +171,7 @@ func (h *QueryHandler) Execute(c *gin.Context) {
 		history.ErrorMessage = err.Error()
 		h.dsService.RecordQueryHistory(c.Request.Context(), history)
 		slog.Error("query execution failed", "datasource_id", req.DatasourceID, "datasource_name", ds.Name, "database", req.Database, "execution_time", execTime, "error", err)
-		FailWithData(c, CodeConcurrentLimit, "查询执行失败", gin.H{"execution_time": execTime})
+		FailWithData(c, CodeQueryError, fmt.Sprintf("查询执行失败: %v", err), gin.H{"execution_time": execTime})
 		return
 	}
 
@@ -320,14 +320,14 @@ func (h *QueryHandler) ExportCSV(c *gin.Context) {
 		if req.Database != "" {
 			if useErr := drv.UseDatabase(ctx, req.Database); useErr != nil {
 				slog.Error("export: failed to switch database", "datasource_id", req.DatasourceID, "database", req.Database, "error", useErr)
-				Fail(c, CodeConcurrentLimit, fmt.Sprintf("切换数据库失败: %v", useErr))
+				Fail(c, CodeQueryError, fmt.Sprintf("切换数据库失败: %v", useErr))
 				return
 			}
 		}
 
 		result, err = drv.Query(ctx, req.SQL)
 		if err != nil {
-			Fail(c, CodeConcurrentLimit, "查询执行失败")
+			Fail(c, CodeQueryError, fmt.Sprintf("查询执行失败: %v", err))
 			return
 		}
 
@@ -529,6 +529,12 @@ func (h *QueryHandler) ListSavedSQL(c *gin.Context) {
 
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
 
 	savedList, total, err := h.dsService.GetSavedSQL(c.Request.Context(), queryDomainID, listUID, page, pageSize)
 	if err != nil {

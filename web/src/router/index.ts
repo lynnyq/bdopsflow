@@ -163,7 +163,7 @@ router.beforeEach(async (to, _from, next) => {
   }
 
   const authStore = useAuthStore()
-  const token = localStorage.getItem('token')
+  const token = sessionStorage.getItem('token')
 
   if (!token) {
     next('/login')

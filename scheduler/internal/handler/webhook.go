@@ -81,18 +81,25 @@ func (h *WebhookHandler) Create(c *gin.Context) {
 
 func (h *WebhookHandler) List(c *gin.Context) {
 	domainIDStr := c.Query("domain_id")
-	if domainIDStr == "" {
-		BadRequest(c, "domain_id为必填项")
-		return
-	}
 
-	domainID, err := strconv.ParseInt(domainIDStr, 10, 64)
-	if err != nil {
-		BadRequest(c, "domain_id格式错误")
-		return
+	var domainID int64
+	if domainIDStr != "" {
+		var err error
+		domainID, err = strconv.ParseInt(domainIDStr, 10, 64)
+		if err != nil {
+			BadRequest(c, "domain_id格式错误")
+			return
+		}
 	}
 
 	slog.Debug("WebhookHandler.List: entering", "module", "handler_webhook", "domain_id", domainID)
+
+	if h.webhookSvc == nil {
+		Success(c, gin.H{
+			"items": []model.Webhook{},
+		})
+		return
+	}
 
 	webhooks, err := h.webhookSvc.List(c.Request.Context(), domainID)
 	if err != nil {

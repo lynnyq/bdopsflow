@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
+	"math/rand"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -282,140 +284,200 @@ func (c *MultiClient) ReportLog(req *pb.ReportTaskLogRequest) error {
 func (c *MultiClient) Subscribe(name, address string, capacity int32, runner TaskRunner) error {
 	c.taskRunner.Store(taskRunnerWrapper{runner: runner.(TaskRunnerStats)})
 
-	ticker := time.NewTicker(3 * time.Second)
-	defer ticker.Stop()
+	const (
+		baseDelay    = 3 * time.Second
+		maxDelay     = 60 * time.Second
+		maxJitter    = 500 * time.Millisecond
+	)
 
 	currentCapacity := capacity
+	retryCount := 0
 
 	for {
 		select {
 		case <-c.stopCh:
 			return nil
-		case <-ticker.C:
-			if err := c.ensureConnected(); err != nil {
-				slog.Warn("failed to connect to any scheduler, retrying", "error", err)
-				c.reconnect()
-				continue
-			}
+		default:
+		}
 
-			ctx := context.Background()
-
-			var client pb.ExecutorServiceClient
-			loadedWrapper := c.client.Load()
-			if wrapper, ok := loadedWrapper.(clientWrapper); ok {
-				client = wrapper.client
-			}
-
-			if client == nil {
-				c.reconnect()
-				continue
-			}
-
-			regResp, err := client.Register(ctx, &pb.RegisterRequest{
-				Name:     name,
-				Address:  address,
-				Capacity: currentCapacity,
-			})
-			if err != nil {
-				slog.Warn("register failed, reconnecting", "error", err)
-				c.reconnect()
-				continue
-			}
-
-			if !regResp.Success {
-				if regResp.Duplicate {
-					slog.Error("register rejected: duplicate executor already online", "message", regResp.Message)
-					return fmt.Errorf("duplicate executor registration rejected: %s", regResp.Message)
-				}
-				slog.Warn("register failed from server", "message", regResp.Message)
-				c.reconnect()
-				continue
-			}
-
-			executorName := regResp.ExecutorName
-			c.executorName.Store(nameWrapper{name: executorName})
-
-			slog.Info("executor registered",
-				"executor_name", executorName,
-				"success", regResp.Success,
-				"message", regResp.Message,
-				"scheduler", c.getCurrentAddr(),
+		if err := c.ensureConnected(); err != nil {
+			delay := c.backoffDelay(retryCount, baseDelay, maxDelay, maxJitter)
+			slog.Warn("failed to connect to any scheduler, retrying",
+				"error", err,
+				"retry_count", retryCount,
+				"delay", delay,
 			)
+			retryCount++
+			c.reconnect()
+			c.sleepOrStop(delay)
+			continue
+		}
 
-			stream, err := client.SubscribeTask(ctx, &pb.SubscribeTaskRequest{
-				ExecutorName: executorName,
-			})
+		ctx := context.Background()
 
-			if err != nil {
-				slog.Warn("subscribe failed, reconnecting", "error", err)
-				c.reconnect()
-				continue
+		var client pb.ExecutorServiceClient
+		loadedWrapper := c.client.Load()
+		if wrapper, ok := loadedWrapper.(clientWrapper); ok {
+			client = wrapper.client
+		}
+
+		if client == nil {
+			delay := c.backoffDelay(retryCount, baseDelay, maxDelay, maxJitter)
+			slog.Warn("no client available, reconnecting",
+				"retry_count", retryCount,
+				"delay", delay,
+			)
+			retryCount++
+			c.reconnect()
+			c.sleepOrStop(delay)
+			continue
+		}
+
+		regResp, err := client.Register(ctx, &pb.RegisterRequest{
+			Name:     name,
+			Address:  address,
+			Capacity: currentCapacity,
+		})
+		if err != nil {
+			delay := c.backoffDelay(retryCount, baseDelay, maxDelay, maxJitter)
+			slog.Warn("register failed, reconnecting",
+				"error", err,
+				"retry_count", retryCount,
+				"delay", delay,
+			)
+			retryCount++
+			c.reconnect()
+			c.sleepOrStop(delay)
+			continue
+		}
+
+		if !regResp.Success {
+			if regResp.Duplicate {
+				slog.Error("register rejected: duplicate executor already online", "message", regResp.Message)
+				return fmt.Errorf("duplicate executor registration rejected: %s", regResp.Message)
 			}
-			c.stream.Store(streamWrapper{stream: stream})
+			delay := c.backoffDelay(retryCount, baseDelay, maxDelay, maxJitter)
+			slog.Warn("register failed from server",
+				"message", regResp.Message,
+				"retry_count", retryCount,
+				"delay", delay,
+			)
+			retryCount++
+			c.reconnect()
+			c.sleepOrStop(delay)
+			continue
+		}
 
-			go c.heartbeatLoop(executorName, currentCapacity)
+		executorName := regResp.ExecutorName
+		c.executorName.Store(nameWrapper{name: executorName})
 
-			slog.Info("task subscription started, waiting for tasks")
-			
-			// 启动一个 goroutine 来接收任务
-			taskCh := make(chan *pb.Task, 10)
-			errCh := make(chan error, 1)
-			go func() {
-				for {
-					var recvStream pb.ExecutorService_SubscribeTaskClient
-					loadedStreamWrapper := c.stream.Load()
-					if wrapper, ok := loadedStreamWrapper.(streamWrapper); ok {
-						recvStream = wrapper.stream
-					}
+		slog.Info("executor registered",
+			"executor_name", executorName,
+			"success", regResp.Success,
+			"message", regResp.Message,
+			"scheduler", c.getCurrentAddr(),
+		)
 
-					if recvStream == nil {
-						slog.Warn("stream lost in receiver goroutine")
-						errCh <- nil
-						return
-					}
+		stream, err := client.SubscribeTask(ctx, &pb.SubscribeTaskRequest{
+			ExecutorName: executorName,
+		})
 
-					task, err := recvStream.Recv()
-					if err != nil {
-						slog.Error("stream receive error", "error", err)
-						errCh <- err
-						return
-					}
+		if err != nil {
+			delay := c.backoffDelay(retryCount, baseDelay, maxDelay, maxJitter)
+			slog.Warn("subscribe failed, reconnecting",
+				"error", err,
+				"retry_count", retryCount,
+				"delay", delay,
+			)
+			retryCount++
+			c.reconnect()
+			c.sleepOrStop(delay)
+			continue
+		}
+		c.stream.Store(streamWrapper{stream: stream})
 
-					select {
-					case taskCh <- task:
-					case <-c.stopCh:
-						return
-					}
-				}
-			}()
+		retryCount = 0
 
-			// 内部循环处理消息和重连信号
-			innerLoop:
+		go c.heartbeatLoop(executorName, currentCapacity)
+
+		slog.Info("task subscription started, waiting for tasks")
+		
+		taskCh := make(chan *pb.Task, 10)
+		errCh := make(chan error, 1)
+		go func() {
 			for {
-				select {
-				case <-c.reconnectCh:
-					slog.Info("received reconnect signal, reconnecting")
-					c.reconnect()
-					break innerLoop
-
-				case err := <-errCh:
-					slog.Error("stream error, reconnecting", "error", err)
-					c.reconnect()
-					break innerLoop
-
-				case task := <-taskCh:
-					slog.Info("task received",
-						"task_id", task.TaskId,
-						"execution_id", task.ExecutionId,
-						"type", task.Type,
-					)
-					go runner.Execute(context.Background(), task, c)
-
-				case <-c.stopCh:
-					break innerLoop
+				var recvStream pb.ExecutorService_SubscribeTaskClient
+				loadedStreamWrapper := c.stream.Load()
+				if wrapper, ok := loadedStreamWrapper.(streamWrapper); ok {
+					recvStream = wrapper.stream
 				}
+
+				if recvStream == nil {
+					slog.Warn("stream lost in receiver goroutine")
+					errCh <- nil
+					return
+				}
+
+				task, err := recvStream.Recv()
+				if err != nil {
+					slog.Error("stream receive error", "error", err)
+					errCh <- err
+					return
+				}
+
+				select {
+				case taskCh <- task:
+				case <-c.stopCh:
+					return
+				}
+			}
+		}()
+
+		innerLoop:
+		for {
+			select {
+			case <-c.reconnectCh:
+				slog.Info("received reconnect signal, reconnecting")
+				c.reconnect()
+				break innerLoop
+
+			case err := <-errCh:
+				slog.Error("stream error, reconnecting", "error", err)
+				c.reconnect()
+				break innerLoop
+
+			case task := <-taskCh:
+				slog.Info("task received",
+					"task_id", task.TaskId,
+					"execution_id", task.ExecutionId,
+					"type", task.Type,
+				)
+				go runner.Execute(context.Background(), task, c)
+
+			case <-c.stopCh:
+				break innerLoop
 			}
 		}
+	}
+}
+
+func (c *MultiClient) backoffDelay(retryCount int, base, max, jitter time.Duration) time.Duration {
+	delay := time.Duration(float64(base) * math.Pow(2, float64(retryCount)))
+	if delay > max {
+		delay = max
+	}
+	if jitter > 0 {
+		delay += time.Duration(rand.Int63n(int64(jitter)))
+	}
+	return delay
+}
+
+func (c *MultiClient) sleepOrStop(d time.Duration) {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+	case <-c.stopCh:
 	}
 }
 

@@ -21,6 +21,7 @@ const (
 	CodeUserNotFound       = 11001
 	CodeUserExists         = 11002
 	CodeInvalidCredentials = 11003
+	CodeInvalidToken       = 11007
 	CodeUserInactive       = 11004
 	CodeWrongPassword      = 11005
 	CodePasswordWeak       = 11006

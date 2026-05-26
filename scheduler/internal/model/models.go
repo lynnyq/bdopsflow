@@ -20,6 +20,7 @@ type User struct {
 	UpdatedAt     time.Time  `db:"updated_at" json:"updated_at"`
 	RoleIDs       []int64    `db:"-" json:"role_ids,omitempty"`
 	DomainIDs     []int64    `db:"-" json:"domain_ids,omitempty"`
+	DomainNames   []string   `db:"-" json:"domain_names,omitempty"`
 	RoleCodes     []string   `db:"-" json:"role_codes,omitempty"`
 }
 

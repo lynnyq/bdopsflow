@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"time"
@@ -111,4 +112,22 @@ func ConvertToLocalTime(t time.Time) time.Time {
 
 func FormatTimeInLocal(t time.Time) string {
 	return t.In(time.Local).Format(DateTimeFormat)
+}
+
+const (
+	DBQueryTimeout   = 10 * time.Second
+	DBWriteTimeout   = 15 * time.Second
+	DBCleanupTimeout = 30 * time.Second
+)
+
+func queryCtx() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), DBQueryTimeout)
+}
+
+func writeCtx() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), DBWriteTimeout)
+}
+
+func cleanupCtx() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), DBCleanupTimeout)
 }

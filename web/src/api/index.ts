@@ -29,6 +29,7 @@ export const authAPI = {
   updateProfile: (data: UpdateProfileRequest) => api.put('/auth/profile', data),
   changePassword: (data: ChangePasswordRequest) => api.post('/auth/change-password', data),
   getPublicKey: () => api.get<{ public_key: string; sso_public_key?: string; sso_enabled: boolean }>('/auth/public-key'),
+  refreshToken: (refreshToken: string) => api.post<{ token: string; refresh_token: string }>('/auth/refresh', { refresh_token: refreshToken }),
 }
 
 export const adminAPI = {

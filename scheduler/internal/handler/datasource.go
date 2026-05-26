@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"log/slog"
 	"strconv"
 	"time"
@@ -13,20 +14,22 @@ import (
 )
 
 type DatasourceHandler struct {
-	dsService      *datasource.DatasourceService
-	manager        *datasource.Manager
-	config         *datasource.ConfigService
+	dsService       *datasource.DatasourceService
+	manager         *datasource.Manager
+	config          *datasource.ConfigService
 	instancePermSvc *service.InstancePermissionService
-	permSvc        *service.PermissionService
+	permSvc         *service.PermissionService
+	domainSvc       *service.DomainAdminService
 }
 
-func NewDatasourceHandler(dsService *datasource.DatasourceService, manager *datasource.Manager, config *datasource.ConfigService, instancePermSvc *service.InstancePermissionService, permSvc *service.PermissionService) *DatasourceHandler {
+func NewDatasourceHandler(dsService *datasource.DatasourceService, manager *datasource.Manager, config *datasource.ConfigService, instancePermSvc *service.InstancePermissionService, permSvc *service.PermissionService, domainSvc *service.DomainAdminService) *DatasourceHandler {
 	return &DatasourceHandler{
-		dsService:      dsService,
-		manager:        manager,
-		config:         config,
+		dsService:       dsService,
+		manager:         manager,
+		config:          config,
 		instancePermSvc: instancePermSvc,
-		permSvc:        permSvc,
+		permSvc:         permSvc,
+		domainSvc:       domainSvc,
 	}
 }
 
@@ -71,6 +74,11 @@ func (h *DatasourceHandler) List(c *gin.Context) {
 
 		slog.Debug("Datasource.List: admin result", "module", "datasource", "user_id", uID, "query_domain_id", queryDomainID, "total", total)
 
+		h.fillDomainNames(c.Request.Context(), datasources)
+		for _, ds := range datasources {
+			ds.UserPermission = "manage"
+		}
+
 		items := make([]gin.H, 0, len(datasources))
 		for _, ds := range datasources {
 			item := h.datasourceToMap(ds)
@@ -86,19 +94,39 @@ func (h *DatasourceHandler) List(c *gin.Context) {
 		return
 	}
 
-	allDatasources, _, err := h.dsService.Get(c.Request.Context(), 0, dsType, 1, 10000)
-	if err != nil {
-		Fail(c, CodeQueryError, "获取数据源列表失败")
-		return
+	userDomainIDs, _ := h.permSvc.GetUserDomainIDs(c.Request.Context(), uID)
+
+	var domainDatasources []*model.Datasource
+	if len(userDomainIDs) > 0 {
+		for _, dID := range userDomainIDs {
+			dsList, _, dsErr := h.dsService.Get(c.Request.Context(), dID, dsType, 1, 10000)
+			if dsErr == nil {
+				domainDatasources = append(domainDatasources, dsList...)
+			}
+		}
 	}
 
+	permDatasourceIDs, _ := h.instancePermSvc.GetUserDatasourceIDs(c.Request.Context(), uID, "read")
+
+	seen := make(map[int64]bool)
 	var filtered []*model.Datasource
-	for _, ds := range allDatasources {
-		hasPerm, permErr := h.instancePermSvc.HasDatasourcePermission(c.Request.Context(), uID, ds.ID, "read")
-		if permErr == nil && hasPerm {
+	for _, ds := range domainDatasources {
+		if !seen[ds.ID] {
+			seen[ds.ID] = true
 			filtered = append(filtered, ds)
 		}
 	}
+	for _, dsID := range permDatasourceIDs {
+		if !seen[dsID] {
+			seen[dsID] = true
+			ds, dsErr := h.dsService.GetByID(c.Request.Context(), dsID)
+			if dsErr == nil && ds != nil {
+				filtered = append(filtered, ds)
+			}
+		}
+	}
+
+	h.fillUserPermissions(c.Request.Context(), uID, filtered)
 
 	total := int64(len(filtered))
 	start := (page - 1) * pageSize
@@ -111,7 +139,9 @@ func (h *DatasourceHandler) List(c *gin.Context) {
 	}
 	paged := filtered[start:end]
 
-	slog.Debug("Datasource.List: filtered result", "module", "datasource", "user_id", uID, "total_all", len(allDatasources), "total_filtered", len(filtered), "page_items", len(paged))
+	slog.Debug("Datasource.List: filtered result", "module", "datasource", "user_id", uID, "total_filtered", len(filtered), "page_items", len(paged))
+
+	h.fillDomainNames(c.Request.Context(), paged)
 
 	items := make([]gin.H, 0, len(paged))
 	for _, ds := range paged {
@@ -146,7 +176,7 @@ func (h *DatasourceHandler) Get(c *gin.Context) {
 		"database": ds.Database, "username": ds.Username,
 		"password": "******", "auth_type": ds.AuthType,
 		"config": ds.Config, "description": ds.Description,
-		"domain_id": ds.DomainID, "is_enabled": ds.IsEnabled,
+		"domain_id": ds.DomainID, "domain_name": ds.DomainName, "is_enabled": ds.IsEnabled,
 		"allow_write_sql": ds.AllowWriteSQL,
 		"test_status": ds.TestStatus, "last_test_at": formatTimePtr(ds.LastTestAt),
 		"created_by": ds.CreatedBy, "updated_by": ds.UpdatedBy,
@@ -602,13 +632,107 @@ func (h *DatasourceHandler) SupportedTypes(c *gin.Context) {
 	Success(c, types)
 }
 
+func (h *DatasourceHandler) fillDomainNames(ctx context.Context, datasources []*model.Datasource) {
+	domainIDSet := make(map[int64]bool)
+	for _, ds := range datasources {
+		if ds.DomainID > 0 {
+			domainIDSet[ds.DomainID] = true
+		}
+	}
+	if len(domainIDSet) == 0 {
+		return
+	}
+
+	domains, err := h.domainSvc.ListDomains(ctx)
+	if err != nil {
+		slog.Warn("fillDomainNames: failed to list domains", "error", err)
+		return
+	}
+
+	domainMap := make(map[int64]string)
+	for _, d := range domains {
+		domainMap[d.ID] = d.Name
+	}
+
+	slog.Debug("fillDomainNames: domain map built", "domain_count", len(domainMap), "datasource_count", len(datasources))
+
+	for _, ds := range datasources {
+		if ds.DomainID > 0 {
+			ds.DomainName = domainMap[ds.DomainID]
+		}
+	}
+}
+
+func (h *DatasourceHandler) fillUserPermissions(ctx context.Context, userID int64, datasources []*model.Datasource) {
+	if len(datasources) == 0 {
+		return
+	}
+
+	dsIDs := make([]int64, 0, len(datasources))
+	for _, ds := range datasources {
+		dsIDs = append(dsIDs, ds.ID)
+	}
+
+	permLevels, err := h.instancePermSvc.GetUserDatasourcePermissionLevels(ctx, userID, dsIDs)
+	if err != nil {
+		slog.Warn("fillUserPermissions: failed to get permission levels", "error", err)
+	}
+
+	userDomainIDs, _ := h.permSvc.GetUserDomainIDs(ctx, userID)
+	domainAdminMap := make(map[int64]bool)
+	for _, dID := range userDomainIDs {
+		isDA, daErr := h.permSvc.IsDomainAdmin(ctx, userID, dID)
+		if daErr == nil && isDA {
+			domainAdminMap[dID] = true
+		}
+	}
+
+	for _, ds := range datasources {
+		if perm, ok := permLevels[ds.ID]; ok {
+			ds.UserPermission = perm
+		}
+
+		if ds.CreatedBy != nil && *ds.CreatedBy == userID {
+			ds.UserPermission = "manage"
+		}
+
+		if domainAdminMap[ds.DomainID] {
+			ds.UserPermission = pickHigherPermission(ds.UserPermission, "query")
+		}
+
+		if ds.UserPermission == "" {
+			ds.UserPermission = "read"
+		}
+	}
+}
+
+var dsPermWeight = map[string]int{
+	"manage": 100, "update": 50, "download": 40,
+	"query": 30, "read": 20, "delete": 10,
+}
+
+func pickHigherPermission(a, b string) string {
+	wa, okA := dsPermWeight[a]
+	wb, okB := dsPermWeight[b]
+	if !okA {
+		return b
+	}
+	if !okB {
+		return a
+	}
+	if wa >= wb {
+		return a
+	}
+	return b
+}
+
 func (h *DatasourceHandler) datasourceToMap(ds *model.Datasource) gin.H {
 	return gin.H{
 		"id": ds.ID, "name": ds.Name, "type": ds.Type,
 		"host": ds.Host, "port": ds.Port, "path": ds.Path,
 		"database": ds.Database, "username": ds.Username,
 		"auth_type": ds.AuthType, "description": ds.Description,
-		"domain_id": ds.DomainID, "is_enabled": ds.IsEnabled,
+		"domain_id": ds.DomainID, "domain_name": ds.DomainName, "is_enabled": ds.IsEnabled,
 		"allow_write_sql": ds.AllowWriteSQL,
 		"test_status": ds.TestStatus, "last_test_at": formatTimePtr(ds.LastTestAt),
 		"created_by": ds.CreatedBy, "updated_by": ds.UpdatedBy,
@@ -617,6 +741,7 @@ func (h *DatasourceHandler) datasourceToMap(ds *model.Datasource) gin.H {
 		"zk_hosts": ds.ZkHosts,
 		"zk_path": ds.ZkPath,
 		"rqlite_hosts": ds.RqliteHosts,
+		"user_permission": ds.UserPermission,
 	}
 }
 

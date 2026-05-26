@@ -44,21 +44,10 @@ func (s *SchedulerService) UpdateExecutionResult(ctx context.Context, executionI
 		return result.Err
 	}
 
-	getTaskIDQuery := `SELECT task_id FROM bdopsflow_task_executions WHERE execution_id = ?`
-	getTaskIDStmt := rqlite.ParameterizedStatement{
-		Query:     getTaskIDQuery,
-		Arguments: []interface{}{executionID},
-	}
-	taskIDQr, err := s.DB.QueryOneParameterized(getTaskIDStmt)
-	if err == nil && taskIDQr.Err == nil && taskIDQr.Next() {
-		row, _ := taskIDQr.Slice()
-		taskID := rowInt64(row[0])
-		lockKey := fmt.Sprintf("task:lock:%s", executionID)
-		renewKey := fmt.Sprintf("task:renew:%s", executionID)
-		failCountKey := fmt.Sprintf("task:renew:fail:count:%s", executionID)
-		s.redis.Del(ctx, lockKey, renewKey, failCountKey)
-		slog.Debug("cleaned up task lock and renewal keys", "task_id", taskID, "execution_id", executionID)
-	}
+	lockKey := fmt.Sprintf("task:lock:%s", executionID)
+	renewKey := fmt.Sprintf("task:renew:%s", executionID)
+	failCountKey := fmt.Sprintf("task:renew:fail:count:%s", executionID)
+	s.redis.Del(ctx, lockKey, renewKey, failCountKey)
 
 	slog.Info("task execution finished",
 		"execution_id", executionID,
@@ -104,6 +93,7 @@ func (s *SchedulerService) GetTaskExecutions(ctx context.Context, taskID int64) 
 		FROM bdopsflow_task_executions
 		WHERE task_id = ?
 		ORDER BY created_at DESC
+		LIMIT 100
 	`
 
 	stmt := rqlite.ParameterizedStatement{

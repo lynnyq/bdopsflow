@@ -7,8 +7,8 @@ type CreateUserRequest struct {
 	Phone     string  `json:"phone" binding:"max=20"`
 	Email     string  `json:"email" binding:"required,email"`
 	Password  string  `json:"password" binding:"required,min=1,max=512"`
-	DomainIDs []int64 `json:"domain_ids" binding:"required,min=1"`
-	RoleIDs   []int64 `json:"role_ids" binding:"required,min=1"`
+	DomainIDs []int64 `json:"domain_ids"`
+	RoleIDs   []int64 `json:"role_ids"`
 }
 
 type UpdateUserRequest struct {

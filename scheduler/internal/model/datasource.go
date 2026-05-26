@@ -20,6 +20,8 @@ type Datasource struct {
 	Config           string     `db:"config" json:"config,omitempty"`
 	Description      string     `db:"description" json:"description,omitempty"`
 	DomainID         int64      `db:"domain_id" json:"domain_id"`
+	DomainName       string     `db:"-" json:"domain_name,omitempty"`
+	UserPermission   string     `db:"-" json:"user_permission,omitempty"`
 	IsEnabled        bool       `db:"is_enabled" json:"is_enabled"`
 	AllowWriteSQL    bool       `db:"allow_write_sql" json:"allow_write_sql"`
 	TestStatus       string     `db:"test_status" json:"test_status"`

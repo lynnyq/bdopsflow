@@ -7,7 +7,8 @@ import { encryptPassword, encryptPasswordSSO, setPublicKey, setSSOPublicKey, get
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null)
-  const token = ref<string | null>(localStorage.getItem('token'))
+  const token = ref<string | null>(sessionStorage.getItem('token'))
+  const refreshToken = ref<string | null>(sessionStorage.getItem('refresh_token'))
   const permissions = ref<Permission[]>([])
   const domains = ref<DomainInfo[]>([])
   const currentDomainId = ref<number | null>(null)
@@ -38,7 +39,12 @@ export const useAuthStore = defineStore('auth', () => {
 
   const setToken = (newToken: string) => {
     token.value = newToken
-    localStorage.setItem('token', newToken)
+    sessionStorage.setItem('token', newToken)
+  }
+
+  const setRefreshToken = (newRefreshToken: string) => {
+    refreshToken.value = newRefreshToken
+    sessionStorage.setItem('refresh_token', newRefreshToken)
   }
 
   const setUser = (newUser: User) => {
@@ -64,8 +70,11 @@ export const useAuthStore = defineStore('auth', () => {
   const switchDomain = async (domainId: number) => {
     try {
       const response = await switchDomainAPI(domainId)
-      const { token: newToken, permissions: newPermissions, current_domain_id, role_codes } = response.data
+      const { token: newToken, refresh_token: newRefreshToken, permissions: newPermissions, current_domain_id, role_codes } = response.data
       setToken(newToken)
+      if (newRefreshToken) {
+        setRefreshToken(newRefreshToken)
+      }
       setPermissions(newPermissions)
       setCurrentDomainId(current_domain_id)
       setRoleCodes(role_codes || [])
@@ -79,11 +88,13 @@ export const useAuthStore = defineStore('auth', () => {
     const userId = user.value?.id
     user.value = null
     token.value = null
+    refreshToken.value = null
     permissions.value = []
     domains.value = []
     currentDomainId.value = null
     roleCodes.value = []
-    localStorage.removeItem('token')
+    sessionStorage.removeItem('token')
+    sessionStorage.removeItem('refresh_token')
     if (userId) {
       localStorage.removeItem(`bdopsflow_sql_tabs_${userId}`)
     }
@@ -110,8 +121,11 @@ export const useAuthStore = defineStore('auth', () => {
     await fetchPublicKey()
     const encryptedPassword = encryptPassword(password)
     const response = await authAPI.login({ username, password: encryptedPassword })
-    const { token: newToken, user: newUser, permissions: newPermissions, domains: newDomains, current_domain_id, role_codes } = response.data
+    const { token: newToken, refresh_token: newRefreshToken, user: newUser, permissions: newPermissions, domains: newDomains, current_domain_id, role_codes } = response.data
     setToken(newToken)
+    if (newRefreshToken) {
+      setRefreshToken(newRefreshToken)
+    }
     setUser(newUser)
     setPermissions(newPermissions)
     setDomains(newDomains)
@@ -127,8 +141,11 @@ export const useAuthStore = defineStore('auth', () => {
     }
     const encryptedPassword = encryptPasswordSSO(password)
     const response = await authAPI.ssoLogin({ username, password: encryptedPassword })
-    const { token: newToken, user: newUser, permissions: newPermissions, domains: newDomains, current_domain_id, role_codes } = response.data
+    const { token: newToken, refresh_token: newRefreshToken, user: newUser, permissions: newPermissions, domains: newDomains, current_domain_id, role_codes } = response.data
     setToken(newToken)
+    if (newRefreshToken) {
+      setRefreshToken(newRefreshToken)
+    }
     setUser(newUser)
     setPermissions(newPermissions)
     setDomains(newDomains)
@@ -161,6 +178,7 @@ export const useAuthStore = defineStore('auth', () => {
   return {
     user,
     token,
+    refreshToken,
     permissions,
     domains,
     currentDomainId,
@@ -172,6 +190,7 @@ export const useAuthStore = defineStore('auth', () => {
     hasPermission,
     hasAnyPermission,
     setToken,
+    setRefreshToken,
     setUser,
     setPermissions,
     setDomains,

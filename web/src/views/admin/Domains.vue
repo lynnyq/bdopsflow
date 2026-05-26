@@ -116,6 +116,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Edit, Delete, Document, Search, Refresh } from '@element-plus/icons-vue'
 import { domainAdminAPI, type Domain } from '@/api/admin'
 import { handleError, handleSuccess, formatValue, formatNumber } from '@/utils/error'
+import { isHandledError } from '@/utils/api'
 import { useAuthStore } from '@/stores/auth'
 
 const authStore = useAuthStore()
@@ -155,7 +156,9 @@ const loadDomains = async () => {
     const response = await domainAdminAPI.list()
     domains.value = response.data.items || []
   } catch (error) {
-    ElMessage.error('加载领域列表失败')
+    if (!isHandledError(error)) {
+      ElMessage.error('加载领域列表失败')
+    }
   } finally {
     loading.value = false
   }
@@ -178,7 +181,9 @@ const handleCreate = async () => {
         form.resetFields()
         loadDomains()
       } catch (error: any) {
-        ElMessage.error(error?.response?.data?.error || '创建领域失败')
+        if (!isHandledError(error)) {
+          ElMessage.error(error?.response?.data?.error || '创建领域失败')
+        }
       } finally {
         submitting.value = false
       }
@@ -211,7 +216,9 @@ const handleUpdate = async () => {
         showEditDialog.value = false
         loadDomains()
       } catch (error: any) {
-        ElMessage.error(error?.response?.data?.error || '更新领域失败')
+        if (!isHandledError(error)) {
+          ElMessage.error(error?.response?.data?.error || '更新领域失败')
+        }
       } finally {
         submitting.value = false
       }
@@ -234,7 +241,7 @@ const handleDelete = async (row: Domain) => {
     ElMessage.success('删除领域成功')
     loadDomains()
   } catch (error: any) {
-    if (error !== 'cancel') {
+    if (error !== 'cancel' && !isHandledError(error)) {
       ElMessage.error(error?.response?.data?.error || '删除领域失败')
     }
   }

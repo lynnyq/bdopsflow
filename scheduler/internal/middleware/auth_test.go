@@ -457,3 +457,194 @@ func TestRequirePermission_AbortPreventsNextHandler(t *testing.T) {
 		t.Error("next handler should not be called after abort")
 	}
 }
+
+func TestGenerateRefreshToken(t *testing.T) {
+	token, err := GenerateRefreshToken(1, "testuser", "Test User", 1)
+	if err != nil {
+		t.Errorf("failed to generate refresh token: %v", err)
+	}
+	if token == "" {
+		t.Error("expected non-empty refresh token")
+	}
+}
+
+func TestParseRefreshToken(t *testing.T) {
+	token, err := GenerateRefreshToken(1, "testuser", "Test User", 1)
+	if err != nil {
+		t.Fatalf("failed to generate refresh token: %v", err)
+	}
+
+	claims, err := ParseRefreshToken(token)
+	if err != nil {
+		t.Errorf("failed to parse refresh token: %v", err)
+	}
+
+	if claims.UserID != 1 {
+		t.Errorf("expected user_id 1, got %d", claims.UserID)
+	}
+	if claims.Username != "testuser" {
+		t.Errorf("expected username 'testuser', got '%s'", claims.Username)
+	}
+	if claims.RealName != "Test User" {
+		t.Errorf("expected real_name 'Test User', got '%s'", claims.RealName)
+	}
+	if claims.CurrentDomainID != 1 {
+		t.Errorf("expected current_domain_id 1, got %d", claims.CurrentDomainID)
+	}
+	if claims.Issuer != "bdopsflow-refresh" {
+		t.Errorf("expected issuer 'bdopsflow-refresh', got '%s'", claims.Issuer)
+	}
+}
+
+func TestParseRefreshToken_InvalidToken(t *testing.T) {
+	_, err := ParseRefreshToken("invalid-refresh-token")
+	if err == nil {
+		t.Error("expected error for invalid refresh token")
+	}
+}
+
+func TestParseRefreshToken_ExpiredToken(t *testing.T) {
+	oldExpiry := jwtConfig.RefreshExpiryHours
+	jwtConfig.RefreshExpiryHours = -1
+	defer func() { jwtConfig.RefreshExpiryHours = oldExpiry }()
+
+	token, err := GenerateRefreshToken(1, "testuser", "Test User", 1)
+	if err != nil {
+		t.Fatalf("failed to generate expired refresh token: %v", err)
+	}
+
+	_, err = ParseRefreshToken(token)
+	if err == nil {
+		t.Error("expected error for expired refresh token")
+	}
+}
+
+func TestParseRefreshToken_WrongSecret(t *testing.T) {
+	token, err := GenerateToken(1, "testuser", "Test User", 1)
+	if err != nil {
+		t.Fatalf("failed to generate access token: %v", err)
+	}
+
+	_, err = ParseRefreshToken(token)
+	if err == nil {
+		t.Error("expected error when parsing access token as refresh token")
+	}
+}
+
+func TestRefreshToken_DifferentSecretFromAccessToken(t *testing.T) {
+	accessToken, err := GenerateToken(1, "testuser", "Test User", 1)
+	if err != nil {
+		t.Fatalf("failed to generate access token: %v", err)
+	}
+
+	refreshToken, err := GenerateRefreshToken(1, "testuser", "Test User", 1)
+	if err != nil {
+		t.Fatalf("failed to generate refresh token: %v", err)
+	}
+
+	_, err = ParseToken(refreshToken)
+	if err == nil {
+		t.Error("access token parser should reject refresh token")
+	}
+
+	_, err = ParseRefreshToken(accessToken)
+	if err == nil {
+		t.Error("refresh token parser should reject access token")
+	}
+}
+
+func TestRefreshToken_IssuerIsDifferent(t *testing.T) {
+	accessToken, _ := GenerateToken(1, "testuser", "Test User", 1)
+	refreshToken, _ := GenerateRefreshToken(1, "testuser", "Test User", 1)
+
+	accessClaims, _ := ParseToken(accessToken)
+	refreshClaims, _ := ParseRefreshToken(refreshToken)
+
+	if accessClaims.Issuer == refreshClaims.Issuer {
+		t.Errorf("access token and refresh token should have different issuers, got same: '%s'", accessClaims.Issuer)
+	}
+
+	if accessClaims.Issuer != "bdopsflow" {
+		t.Errorf("expected access token issuer 'bdopsflow', got '%s'", accessClaims.Issuer)
+	}
+	if refreshClaims.Issuer != "bdopsflow-refresh" {
+		t.Errorf("expected refresh token issuer 'bdopsflow-refresh', got '%s'", refreshClaims.Issuer)
+	}
+}
+
+func TestRefreshToken_ContainsCorrectClaims(t *testing.T) {
+	token, err := GenerateRefreshToken(42, "admin", "Admin User", 5)
+	if err != nil {
+		t.Fatalf("failed to generate refresh token: %v", err)
+	}
+
+	claims, err := ParseRefreshToken(token)
+	if err != nil {
+		t.Fatalf("failed to parse refresh token: %v", err)
+	}
+
+	if claims.UserID != 42 {
+		t.Errorf("expected user_id 42, got %d", claims.UserID)
+	}
+	if claims.Username != "admin" {
+		t.Errorf("expected username 'admin', got '%s'", claims.Username)
+	}
+	if claims.RealName != "Admin User" {
+		t.Errorf("expected real_name 'Admin User', got '%s'", claims.RealName)
+	}
+	if claims.CurrentDomainID != 5 {
+		t.Errorf("expected current_domain_id 5, got %d", claims.CurrentDomainID)
+	}
+}
+
+func TestRefreshToken_ZeroDomainID(t *testing.T) {
+	token, err := GenerateRefreshToken(1, "testuser", "Test User", 0)
+	if err != nil {
+		t.Fatalf("failed to generate refresh token: %v", err)
+	}
+
+	claims, err := ParseRefreshToken(token)
+	if err != nil {
+		t.Fatalf("failed to parse refresh token: %v", err)
+	}
+
+	if claims.CurrentDomainID != 0 {
+		t.Errorf("expected current_domain_id 0, got %d", claims.CurrentDomainID)
+	}
+}
+
+func TestInitJWT_DefaultExpiry(t *testing.T) {
+	InitJWT("test-secret", 0)
+	if jwtConfig.ExpiryHours != 2 {
+		t.Errorf("expected default expiry 2, got %d", jwtConfig.ExpiryHours)
+	}
+	if jwtConfig.RefreshExpiryHours != 168 {
+		t.Errorf("expected default refresh expiry 168, got %d", jwtConfig.RefreshExpiryHours)
+	}
+	if string(jwtConfig.RefreshSecret) != "test-secret_refresh" {
+		t.Errorf("expected refresh secret 'test-secret_refresh', got '%s'", string(jwtConfig.RefreshSecret))
+	}
+
+	InitJWT("test-secret-key-for-unit-tests", 24)
+}
+
+func TestInitJWT_CustomRefreshExpiry(t *testing.T) {
+	InitJWT("test-secret", 24, 72)
+	if jwtConfig.ExpiryHours != 24 {
+		t.Errorf("expected expiry 24, got %d", jwtConfig.ExpiryHours)
+	}
+	if jwtConfig.RefreshExpiryHours != 72 {
+		t.Errorf("expected refresh expiry 72, got %d", jwtConfig.RefreshExpiryHours)
+	}
+
+	InitJWT("test-secret-key-for-unit-tests", 24)
+}
+
+func TestInitJWT_ZeroRefreshExpiryFallsBackToDefault(t *testing.T) {
+	InitJWT("test-secret", 24, 0)
+	if jwtConfig.RefreshExpiryHours != 168 {
+		t.Errorf("expected default refresh expiry 168 when 0 provided, got %d", jwtConfig.RefreshExpiryHours)
+	}
+
+	InitJWT("test-secret-key-for-unit-tests", 24)
+}

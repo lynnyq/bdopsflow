@@ -121,6 +121,7 @@ import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Delete, Plus, Search, Refresh, Connection, Edit, SwitchButton, Promotion } from '@element-plus/icons-vue'
 import { webhookAPI } from '@/api'
+import { isHandledError } from '@/utils/api'
 import type { Webhook } from '@/types'
 import { useAuthStore } from '@/stores/auth'
 
@@ -158,10 +159,13 @@ const filteredWebhooks = computed(() => {
 const loadWebhooks = async () => {
   loading.value = true
   try {
-    const response = await webhookAPI.list(currentDomainId.value)
+    const domainId = authStore.isSystemAdmin ? undefined : (authStore.currentDomainId || 1)
+    const response = await webhookAPI.list(domainId)
     webhooks.value = response.data?.items || []
   } catch (error: any) {
-    ElMessage.error(error.message || '加载Webhook列表失败')
+    if (!isHandledError(error)) {
+      ElMessage.error(error.message || '加载Webhook列表失败')
+    }
   } finally {
     loading.value = false
   }
@@ -261,7 +265,9 @@ const handleSubmit = async () => {
     dialogVisible.value = false
     loadWebhooks()
   } catch (error: any) {
-    ElMessage.error(error.message || '操作失败')
+    if (!isHandledError(error)) {
+      ElMessage.error(error.message || '操作失败')
+    }
   } finally {
     submitting.value = false
   }
@@ -274,7 +280,9 @@ const handleToggleEnabled = async (row: Webhook & { _testing?: boolean }) => {
     row.is_enabled = newStatus
     ElMessage.success(newStatus ? 'Webhook已启用' : 'Webhook已禁用')
   } catch (error: any) {
-    ElMessage.error(error.message || '操作失败')
+    if (!isHandledError(error)) {
+      ElMessage.error(error.message || '操作失败')
+    }
   }
 }
 
@@ -289,7 +297,9 @@ const handleTest = async (row: Webhook & { _testing?: boolean }) => {
       ElMessage.success(`测试成功 (状态码: ${data?.status_code}, 耗时: ${data?.response_time_ms}ms)`)
     }
   } catch (error: any) {
-    ElMessage.error(error.message || '测试失败')
+    if (!isHandledError(error)) {
+      ElMessage.error(error.message || '测试失败')
+    }
   } finally {
     row._testing = false
   }

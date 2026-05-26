@@ -263,6 +263,7 @@ import FlowCanvas from '@/components/FlowCanvas.vue'
 import { workflowAPI } from '@/api'
 import type { Workflow, WorkflowDAG, WorkflowExecution, TaskLog } from '@/types'
 import { handleError, handleSuccess, formatValue } from '@/utils/error'
+import { isHandledError } from '@/utils/api'
 import { useAuthStore } from '@/stores/auth'
 
 const authStore = useAuthStore()
@@ -469,7 +470,9 @@ const submitWorkflow = async () => {
     await loadWorkflows()
     closeDialog()
   } catch (error) {
-    ElMessage.error('保存工作流失败')
+    if (!isHandledError(error)) {
+      ElMessage.error('保存工作流失败')
+    }
   }
 }
 
@@ -484,7 +487,9 @@ const saveWorkflow = async () => {
     selectedWorkflow.value = workflows.value.find(w => w.id === selectedWorkflow.value?.id) || null
     ElMessage.success('工作流保存成功')
   } catch (error) {
-    ElMessage.error('保存工作流失败')
+    if (!isHandledError(error)) {
+      ElMessage.error('保存工作流失败')
+    }
   }
 }
 
@@ -503,7 +508,9 @@ const deleteWorkflow = async () => {
     deleteTarget.value = null
     ElMessage.success('工作流删除成功')
   } catch (error) {
-    ElMessage.error('删除工作流失败')
+    if (!isHandledError(error)) {
+      ElMessage.error('删除工作流失败')
+    }
   }
 }
 
@@ -547,7 +554,9 @@ const triggerWorkflow = async () => {
     
     ElMessage.success('工作流已启动')
   } catch (error) {
-    ElMessage.error('启动工作流失败')
+    if (!isHandledError(error)) {
+      ElMessage.error('启动工作流失败')
+    }
     isRunning.value = false
   }
 }
@@ -587,7 +596,7 @@ const startPolling = () => {
       currentLogs.value = response.data
     } catch (error) {
     }
-  }, 1000)
+  }, 2000)
   
   // 轮询执行状态
   executionPollingInterval = window.setInterval(async () => {

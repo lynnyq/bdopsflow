@@ -110,6 +110,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Refresh, Document, VideoPlay, Delete } from '@element-plus/icons-vue'
 import { queryAPI } from '@/api'
+import { isHandledError } from '@/utils/api'
 import type { QueryHistory } from '@/types'
 
 const router = useRouter()
@@ -163,7 +164,9 @@ const loadHistory = async () => {
     historyList.value = res.data.items || []
     total.value = res.data.total || 0
   } catch (err: any) {
-    ElMessage.error(err.message || '加载查询历史失败')
+    if (!isHandledError(err)) {
+      ElMessage.error(err.message || '加载查询历史失败')
+    }
   } finally {
     loading.value = false
   }
@@ -194,7 +197,7 @@ const handleDelete = async (row: QueryHistory) => {
     ElMessage.success('删除成功')
     loadHistory()
   } catch (err: any) {
-    if (err !== 'cancel') {
+    if (err !== 'cancel' && !isHandledError(err)) {
       ElMessage.error(err.message || '删除失败')
     }
   }
@@ -213,7 +216,7 @@ const handleBatchDelete = async () => {
     selectedIds.value = []
     loadHistory()
   } catch (err: any) {
-    if (err !== 'cancel') {
+    if (err !== 'cancel' && !isHandledError(err)) {
       ElMessage.error(err.message || '批量删除失败')
     }
   } finally {

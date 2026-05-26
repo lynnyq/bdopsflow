@@ -323,6 +323,7 @@ import { useAuthStore } from '@/stores/auth'
 import TaskLogViewer from '@/components/TaskLogViewer.vue'
 import type { TaskExecutionListResponse, Task, Executor } from '@/types'
 import { handleError, handleSuccess, formatValue, formatNumber } from '@/utils/error'
+import { isHandledError } from '@/utils/api'
 
 const route = useRoute()
 const authStore = useAuthStore()
@@ -537,7 +538,9 @@ const loadExecutions = async (page: number = currentPage.value) => {
       running: statsData.running || 0
     }
   } catch (error) {
-    ElMessage.error('加载执行记录失败')
+    if (!isHandledError(error)) {
+      ElMessage.error('加载执行记录失败')
+    }
   } finally {
     loading.value = false
   }
@@ -596,7 +599,7 @@ const handleDelete = async (row: TaskExecutionListResponse) => {
     ElMessage.success('删除成功')
     await loadExecutions()
   } catch (error) {
-    if (error !== 'cancel') {
+    if (error !== 'cancel' && !isHandledError(error)) {
       ElMessage.error('删除失败')
     }
   }
@@ -618,7 +621,7 @@ const handleBatchDelete = async () => {
     selectedIds.value = []
     await loadExecutions()
   } catch (error) {
-    if (error !== 'cancel') {
+    if (error !== 'cancel' && !isHandledError(error)) {
       ElMessage.error('批量删除失败')
     }
   }

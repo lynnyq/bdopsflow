@@ -143,10 +143,19 @@ func (s *WebhookService) Delete(ctx context.Context, id int64) error {
 }
 
 func (s *WebhookService) List(ctx context.Context, domainID int64) ([]model.Webhook, error) {
-	query := `SELECT id, name, url, method, headers, secret, domain_id, is_enabled, description, created_by, created_at, updated_at FROM bdopsflow_webhooks WHERE domain_id = ? ORDER BY created_at DESC`
-	stmt := rqlite.ParameterizedStatement{
-		Query:     query,
-		Arguments: []interface{}{domainID},
+	var query string
+	var stmt rqlite.ParameterizedStatement
+	if domainID > 0 {
+		query = `SELECT id, name, url, method, headers, secret, domain_id, is_enabled, description, created_by, created_at, updated_at FROM bdopsflow_webhooks WHERE domain_id = ? ORDER BY created_at DESC`
+		stmt = rqlite.ParameterizedStatement{
+			Query:     query,
+			Arguments: []interface{}{domainID},
+		}
+	} else {
+		query = `SELECT id, name, url, method, headers, secret, domain_id, is_enabled, description, created_by, created_at, updated_at FROM bdopsflow_webhooks ORDER BY created_at DESC`
+		stmt = rqlite.ParameterizedStatement{
+			Query: query,
+		}
 	}
 
 	qr, err := s.db.QueryOneParameterized(stmt)

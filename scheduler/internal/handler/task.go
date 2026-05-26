@@ -85,6 +85,12 @@ func (h *TaskHandler) List(c *gin.Context) {
 
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
 
 	bdopsflow_tasks, total, err := h.svc.ListTasks(ctx, dID, role, page, pageSize)
 	if err != nil {
@@ -183,6 +189,9 @@ func (h *TaskHandler) Create(c *gin.Context) {
 	if retryCount < 0 {
 		retryCount = 0
 	}
+	if retryCount > 10 {
+		retryCount = 10
+	}
 
 	retryInterval := req.RetryInterval
 	if retryInterval < 0 {
@@ -191,10 +200,16 @@ func (h *TaskHandler) Create(c *gin.Context) {
 	if retryInterval <= 0 && retryCount > 0 {
 		retryInterval = 5
 	}
+	if retryInterval > 3600 {
+		retryInterval = 3600
+	}
 
 	timeoutSeconds := req.TimeoutSeconds
 	if timeoutSeconds < 0 {
 		timeoutSeconds = 0
+	}
+	if timeoutSeconds > 86400 {
+		timeoutSeconds = 86400
 	}
 
 	domainID := req.DomainID
@@ -365,19 +380,33 @@ func (h *TaskHandler) Update(c *gin.Context) {
 	}
 	if req.TimeoutSeconds >= 0 {
 		currentTask.TimeoutSeconds = req.TimeoutSeconds
+		if currentTask.TimeoutSeconds > 86400 {
+			currentTask.TimeoutSeconds = 86400
+		}
 	}
 
-	// 兼容新旧字段名
 	if req.RetryCount >= 0 {
 		currentTask.RetryCount = req.RetryCount
+		if currentTask.RetryCount > 10 {
+			currentTask.RetryCount = 10
+		}
 	} else if req.RetryMax >= 0 {
 		currentTask.RetryCount = req.RetryMax
+		if currentTask.RetryCount > 10 {
+			currentTask.RetryCount = 10
+		}
 	}
 
 	if req.RetryInterval >= 0 {
 		currentTask.RetryInterval = req.RetryInterval
+		if currentTask.RetryInterval > 3600 {
+			currentTask.RetryInterval = 3600
+		}
 	} else if req.RetryDelaySeconds >= 0 {
 		currentTask.RetryInterval = req.RetryDelaySeconds
+		if currentTask.RetryInterval > 3600 {
+			currentTask.RetryInterval = 3600
+		}
 	}
 	if currentTask.RetryCount > 0 && currentTask.RetryInterval <= 0 {
 		currentTask.RetryInterval = 5
@@ -527,10 +556,36 @@ func (h *TaskHandler) Trigger(c *gin.Context) {
 
 	executionID, err := h.svc.TriggerTask(c.Request.Context(), id)
 	if err != nil {
-		slog.Error("TaskHandler.Trigger: failed to trigger task", "task_id", id, "error", err)
+		errMsg := err.Error()
+		slog.Error("TaskHandler.Trigger: failed to trigger task", "task_id", id, "error", errMsg)
+
+		if strings.Contains(errMsg, "already running") || strings.Contains(errMsg, "already being executed") {
+			Fail(c, CodeTaskRunning, "任务正在运行中，请等待当前执行完成")
+			return
+		}
 
 		domainName := h.svc.GetDomainName(c.Request.Context(), task.DomainID)
-		BadRequest(c, fmt.Sprintf("%s 没有可用的执行器，请联系管理员为 %s 分配执行器", domainName, domainName))
+		if strings.Contains(errMsg, "no available executor") {
+			Fail(c, CodeNoAvailableExecutor, fmt.Sprintf("%s 没有可用的执行器，请联系管理员为 %s 分配执行器", domainName, domainName))
+			return
+		}
+
+		if strings.Contains(errMsg, "not online") {
+			Fail(c, CodeExecutorOffline, fmt.Sprintf("执行器不在线，请检查执行器状态"))
+			return
+		}
+
+		if strings.Contains(errMsg, "no capacity") {
+			Fail(c, CodeExecutorNoCapacity, "执行器容量已满，请稍后重试或联系管理员扩容")
+			return
+		}
+
+		if strings.Contains(errMsg, "dispatch failed") {
+			Fail(c, CodeDispatchFailed, "任务分发失败，请检查执行器连接状态")
+			return
+		}
+
+		Fail(c, CodeInternalError, errMsg)
 		return
 	}
 
@@ -609,6 +664,7 @@ func (h *TaskHandler) StreamLogs(c *gin.Context) {
 	var lastLogID int64
 	var lastOutputHash uint64
 	var lastErrorHash uint64
+	execCheckCounter := 0
 
 	for {
 		select {
@@ -632,7 +688,8 @@ func (h *TaskHandler) StreamLogs(c *gin.Context) {
 				}
 			}
 
-			if len(logs) > 0 {
+			execCheckCounter++
+			if len(logs) > 0 && execCheckCounter%3 == 0 {
 				taskID := logs[0].TaskID
 				executions, execErr := h.svc.GetTaskExecutions(ctx, taskID)
 				if execErr != nil {

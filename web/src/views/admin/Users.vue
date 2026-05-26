@@ -40,6 +40,14 @@
             </el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="所属领域" width="200" align="center">
+          <template #default="{ row }">
+            <el-tag v-for="name in (row.domain_names || [])" :key="name" type="info" effect="light" style="margin: 2px;">
+              {{ name }}
+            </el-tag>
+            <span v-if="!row.domain_names || row.domain_names.length === 0">-</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="is_active" label="状态" width="100" align="center">
           <template #default="{ row }">
             <el-tag :type="row.is_active ? 'success' : 'danger'" effect="light">
@@ -535,7 +543,7 @@ const userRules = {
     { required: true, validator: validatePasswordStrength, trigger: 'blur' },
   ],
   role_ids: [
-    { required: true, type: 'array', min: 1, message: '请选择用户角色', trigger: 'change' },
+    { type: 'array', message: '角色ID必须是数字', trigger: 'change' },
   ],
   domain_ids: [
     { type: 'array', message: '领域ID必须是数字', trigger: 'change' },
@@ -558,7 +566,7 @@ const editUserRules = {
     { type: 'email', message: '请输入正确的邮箱格式', trigger: 'blur' },
   ],
   role_ids: [
-    { required: true, type: 'array', min: 1, message: '请选择用户角色', trigger: 'change' },
+    { type: 'array', message: '角色ID必须是数字', trigger: 'change' },
   ],
 }
 

@@ -393,6 +393,7 @@ import {
   Plus, Close, ArrowDown, ArrowUp
 } from '@element-plus/icons-vue';
 import { datasourceAPI, queryAPI } from '@/api';
+import { isHandledError } from '@/utils/api';
 import { translateErrorMessage } from '@/utils/error';
 import { useAuthStore } from '@/stores/auth';
 import type { Datasource, QueryResult, SavedSQL, QueryHistory, TableInfo, ColumnInfo } from '@/types';
@@ -715,8 +716,10 @@ const handleDatasourceChangeForTab = async (dsId: number | '', dbName: string) =
     }
     await handleDatabaseChange();
   } catch (err: any) {
-    const msg = err?.response?.data?.message || err?.message || '获取数据库列表失败';
-    ElMessage.error(`获取数据库列表失败: ${msg}`);
+    if (!isHandledError(err)) {
+      const msg = err?.response?.data?.message || err?.message || '获取数据库列表失败';
+      ElMessage.error(`获取数据库列表失败: ${msg}`);
+    }
     databases.value = ds.database ? [ds.database] : ['default'];
     selectedDatabase.value = dbName || databases.value[0];
   } finally {
@@ -1055,8 +1058,10 @@ const handleDatasourceChange = async () => {
     }
     await handleDatabaseChange();
   } catch (err: any) {
-    const msg = err?.response?.data?.message || err?.message || '获取数据库列表失败';
-    ElMessage.error(`获取数据库列表失败: ${msg}`);
+    if (!isHandledError(err)) {
+      const msg = err?.response?.data?.message || err?.message || '获取数据库列表失败';
+      ElMessage.error(`获取数据库列表失败: ${msg}`);
+    }
     databases.value = ds.database ? [ds.database] : ['default'];
     selectedDatabase.value = databases.value[0];
   } finally {
@@ -1091,8 +1096,10 @@ const handleDatabaseChange = async () => {
     setCachedMetadata(cacheKey, tableData);
     autocompleteData.value.tables = tableData.map((t: any) => t.name || '').filter(Boolean);
   } catch (err: any) {
-    const msg = err?.response?.data?.message || err?.message || '获取数据表列表失败';
-    ElMessage.error(`获取数据表列表失败: ${msg}`);
+    if (!isHandledError(err)) {
+      const msg = err?.response?.data?.message || err?.message || '获取数据表列表失败';
+      ElMessage.error(`获取数据表列表失败: ${msg}`);
+    }
   } finally {
     loadingTables.value = false;
   }
@@ -1122,8 +1129,10 @@ const handleTableChange = async () => {
     setCachedMetadata(cacheKey, res.data || []);
     autocompleteData.value.columns = (res.data || []).map((c: any) => c.name || '').filter(Boolean);
   } catch (err: any) {
-    const msg = err?.response?.data?.message || err?.message || '获取字段列表失败';
-    ElMessage.error(`获取字段列表失败: ${msg}`);
+    if (!isHandledError(err)) {
+      const msg = err?.response?.data?.message || err?.message || '获取字段列表失败';
+      ElMessage.error(`获取字段列表失败: ${msg}`);
+    }
     selectedTableColumns.value = [];
     autocompleteData.value.columns = [];
   } finally {
@@ -1272,7 +1281,9 @@ const handleCancel = async () => {
     queryResult.value = null;
     ElMessage.info('查询已取消');
   } catch (err) {
-    ElMessage.error('取消失败，请检查网络连接');
+    if (!isHandledError(err)) {
+      ElMessage.error('取消失败，请检查网络连接');
+    }
   } finally {
     canceling.value = false;
     currentQueryId.value = '';
@@ -1306,7 +1317,9 @@ const handleConfirmSave = async () => {
       is_public: false
     };
   } catch (err) {
-    ElMessage.error('保存失败');
+    if (!isHandledError(err)) {
+      ElMessage.error('保存失败');
+    }
   } finally {
     saving.value = false;
   }
@@ -1338,16 +1351,18 @@ const handleExportCSV = async () => {
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
   } catch (err: any) {
-    if (err.response?.data instanceof Blob) {
-      const text = await err.response.data.text();
-      try {
-        const json = JSON.parse(text);
-        ElMessage.error(json.message || '导出失败');
-      } catch {
-        ElMessage.error('导出失败');
+    if (!isHandledError(err)) {
+      if (err.response?.data instanceof Blob) {
+        const text = await err.response.data.text();
+        try {
+          const json = JSON.parse(text);
+          ElMessage.error(json.message || '导出失败');
+        } catch {
+          ElMessage.error('导出失败');
+        }
+      } else {
+        ElMessage.error(err.message || '导出失败');
       }
-    } else {
-      ElMessage.error(err.message || '导出失败');
     }
   } finally {
     exporting.value = false;
@@ -1441,8 +1456,8 @@ window.addEventListener('beforeunload', handleBeforeUnload);
 }
 
 .metadata-panel {
-  width: 280px;
-  min-width: 200px;
+  width: 300px;
+  min-width: 220px;
   flex-shrink: 1;
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
@@ -1456,15 +1471,15 @@ window.addEventListener('beforeunload', handleBeforeUnload);
 
 @media (max-width: 1200px) {
   .metadata-panel {
-    width: 220px;
-    min-width: 180px;
+    width: 240px;
+    min-width: 200px;
   }
 }
 
 @media (max-width: 900px) {
   .metadata-panel {
-    width: 180px;
-    min-width: 150px;
+    width: 200px;
+    min-width: 160px;
   }
 }
 
@@ -1492,7 +1507,7 @@ window.addEventListener('beforeunload', handleBeforeUnload);
 }
 
 .selector-section {
-  padding-bottom: 0;
+  padding-bottom: var(--space-3);
 }
 
 .selector-section.collapsed {
@@ -1514,18 +1529,18 @@ window.addEventListener('beforeunload', handleBeforeUnload);
 .selector-fields {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
-  padding-top: var(--space-2);
+  gap: var(--space-3);
+  padding-top: var(--space-3);
 }
 
 .selector-field {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-1);
 }
 
 .field-label {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--text-muted);
 }
@@ -1544,7 +1559,7 @@ window.addEventListener('beforeunload', handleBeforeUnload);
 
 .type-tag {
   margin-left: var(--space-2);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .tag-mysql { background: rgba(250, 146, 58, 0.15); color: #fa923a; }
@@ -1569,7 +1584,7 @@ window.addEventListener('beforeunload', handleBeforeUnload);
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: var(--space-2);
   padding: var(--space-4);
   color: var(--text-muted);
   font-size: var(--font-size-sm);
@@ -1580,7 +1595,7 @@ window.addEventListener('beforeunload', handleBeforeUnload);
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-1);
   min-height: 0;
 }
 
@@ -1588,9 +1603,9 @@ window.addEventListener('beforeunload', handleBeforeUnload);
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-1) var(--space-2);
+  padding: var(--space-2) var(--space-3);
   background: var(--bg-secondary);
-  border-radius: var(--radius-xs);
+  border-radius: var(--radius-sm);
   cursor: pointer;
   transition: all var(--duration-fast);
 }
@@ -1607,7 +1622,7 @@ window.addEventListener('beforeunload', handleBeforeUnload);
 
 .column-name {
   flex: 1;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
   color: var(--text-primary);
   overflow: hidden;
@@ -1617,10 +1632,10 @@ window.addEventListener('beforeunload', handleBeforeUnload);
 }
 
 .column-type {
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   color: var(--text-muted);
   background: var(--bg-card);
-  padding: 1px var(--space-1);
+  padding: 2px var(--space-2);
   border-radius: var(--radius-xs);
   flex-shrink: 0;
 }

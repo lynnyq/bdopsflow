@@ -156,7 +156,7 @@ type App struct {
 func NewApp(cfg *config.Config) *App {
 	app := &App{cfg: cfg}
 
-	middleware.InitJWT(cfg.JWTSecret, cfg.JWTExpiry)
+	middleware.InitJWT(cfg.JWTSecret, cfg.JWTExpiry, cfg.JWTRefreshExpiry)
 
 	rsaUtil, err := rsautil.NewFromConfig(cfg.RSAPublicKey, cfg.RSAPrivateKey)
 	if err != nil {

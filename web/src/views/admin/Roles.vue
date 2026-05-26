@@ -193,6 +193,7 @@ import {
   type PermissionGroup
 } from '@/api/admin'
 import { handleError, handleSuccess, formatValue } from '@/utils/error'
+import { isHandledError } from '@/utils/api'
 
 const roles = ref<Role[]>([])
 const loading = ref(false)
@@ -242,7 +243,9 @@ const loadRoles = async () => {
     const response = await roleAdminAPI.list()
     roles.value = response.data.items || []
   } catch (error) {
-    ElMessage.error('加载角色列表失败')
+    if (!isHandledError(error)) {
+      ElMessage.error('加载角色列表失败')
+    }
   } finally {
     loading.value = false
   }
@@ -275,7 +278,9 @@ const handleCreate = async () => {
         form.resetFields()
         loadRoles()
       } catch (error) {
-        ElMessage.error('创建角色失败')
+        if (!isHandledError(error)) {
+          ElMessage.error('创建角色失败')
+        }
       } finally {
         submitting.value = false
       }
@@ -309,7 +314,9 @@ const handleUpdate = async () => {
         showEditDialog.value = false
         loadRoles()
       } catch (error) {
-        ElMessage.error('更新角色失败')
+        if (!isHandledError(error)) {
+          ElMessage.error('更新角色失败')
+        }
       } finally {
         submitting.value = false
       }
@@ -332,7 +339,7 @@ const handleDelete = async (row: Role) => {
     ElMessage.success('删除角色成功')
     loadRoles()
   } catch (error: any) {
-    if (error !== 'cancel') {
+    if (error !== 'cancel' && !isHandledError(error)) {
       ElMessage.error('删除角色失败')
     }
   }
@@ -407,7 +414,9 @@ const handleSavePermissions = async () => {
     ElMessage.success('分配权限成功')
     showPermissionDialog.value = false
   } catch (error) {
-    ElMessage.error('分配权限失败')
+    if (!isHandledError(error)) {
+      ElMessage.error('分配权限失败')
+    }
   } finally {
     submitting.value = false
   }

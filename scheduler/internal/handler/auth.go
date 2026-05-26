@@ -143,6 +143,13 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
+	refreshToken, refreshErr := middleware.GenerateRefreshToken(userID, username, realName, currentDomainID)
+	if refreshErr != nil {
+		slog.Error("Login: generate refresh token failed", "error", refreshErr, "user_id", userID)
+		InternalServerError(c, "服务器错误，请稍后重试")
+		return
+	}
+
 	go func() {
 		updateQuery := "UPDATE bdopsflow_users SET last_login_at = ? WHERE id = ?"
 		updateStmt := rqlite.ParameterizedStatement{
@@ -174,7 +181,8 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	slog.Info("Login: success", "user_id", userID, "username", username, "domain_id", currentDomainID, "permissions_count", len(permissions), "domains_count", len(domains))
 
 	Success(c, gin.H{
-		"token": tokenString,
+		"token":         tokenString,
+		"refresh_token": refreshToken,
 		"user": map[string]interface{}{
 			"id":        userID,
 			"username":  username,
@@ -187,6 +195,51 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		"domains":           domains,
 		"current_domain_id": currentDomainID,
 		"role_codes":        roleCodes,
+	})
+}
+
+func (h *AuthHandler) RefreshToken(c *gin.Context) {
+	var req struct {
+		RefreshToken string `json:"refresh_token" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		BadRequest(c, "refresh_token 不能为空")
+		return
+	}
+
+	claims, err := middleware.ParseRefreshToken(req.RefreshToken)
+	if err != nil {
+		slog.Warn("RefreshToken: invalid or expired refresh token", "error", err)
+		Fail(c, CodeInvalidToken, "refresh token 无效或已过期")
+		return
+	}
+
+	if claims.Issuer != "bdopsflow-refresh" {
+		slog.Warn("RefreshToken: invalid token issuer", "issuer", claims.Issuer)
+		Fail(c, CodeInvalidToken, "无效的 refresh token")
+		return
+	}
+
+	newToken, tokenErr := middleware.GenerateToken(claims.UserID, claims.Username, claims.RealName, claims.CurrentDomainID)
+	if tokenErr != nil {
+		slog.Error("RefreshToken: generate token failed", "error", tokenErr, "user_id", claims.UserID)
+		InternalServerError(c, "服务器错误，请稍后重试")
+		return
+	}
+
+	newRefreshToken, refreshErr := middleware.GenerateRefreshToken(claims.UserID, claims.Username, claims.RealName, claims.CurrentDomainID)
+	if refreshErr != nil {
+		slog.Error("RefreshToken: generate refresh token failed", "error", refreshErr, "user_id", claims.UserID)
+		InternalServerError(c, "服务器错误，请稍后重试")
+		return
+	}
+
+	slog.Info("RefreshToken: success", "user_id", claims.UserID, "username", claims.Username)
+
+	Success(c, gin.H{
+		"token":         newToken,
+		"refresh_token": newRefreshToken,
 	})
 }
 
@@ -439,6 +492,13 @@ func (h *AuthHandler) SwitchDomain(c *gin.Context) {
 		return
 	}
 
+	refreshToken, refreshErr := middleware.GenerateRefreshToken(uid, uname, rname, req.DomainID)
+	if refreshErr != nil {
+		slog.Error("SwitchDomain: generate refresh token failed", "module", "handler_auth", "user_id", uid, "domain_id", req.DomainID, "error", refreshErr)
+		InternalServerError(c, "生成Token失败")
+		return
+	}
+
 	roleCodes, roleErr := h.permSvc.GetUserRoleCodes(c.Request.Context(), uid)
 	if roleErr != nil {
 		slog.Error("SwitchDomain: get role codes failed", "error", roleErr, "user_id", uid)
@@ -449,6 +509,7 @@ func (h *AuthHandler) SwitchDomain(c *gin.Context) {
 
 	Success(c, gin.H{
 		"token":             tokenString,
+		"refresh_token":     refreshToken,
 		"permissions":       permissions,
 		"current_domain_id": req.DomainID,
 		"role_codes":        roleCodes,
@@ -678,6 +739,13 @@ func (h *AuthHandler) SSOLogin(c *gin.Context) {
 		return
 	}
 
+	refreshToken, refreshErr := middleware.GenerateRefreshToken(userID, username, realName, currentDomainID)
+	if refreshErr != nil {
+		slog.Error("SSOLogin: generate refresh token failed", "error", refreshErr, "user_id", userID)
+		InternalServerError(c, "服务器错误，请稍后重试")
+		return
+	}
+
 	permissions, permErr := h.permSvc.GetUserPermissions(c.Request.Context(), userID)
 	if permErr != nil {
 		slog.Error("SSOLogin: get user permissions failed", "error", permErr, "user_id", userID)
@@ -695,7 +763,8 @@ func (h *AuthHandler) SSOLogin(c *gin.Context) {
 	}
 
 	Success(c, gin.H{
-		"token": tokenString,
+		"token":         tokenString,
+		"refresh_token": refreshToken,
 		"user": map[string]interface{}{
 			"id":        userID,
 			"username":  username,

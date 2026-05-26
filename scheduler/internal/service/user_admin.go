@@ -813,6 +813,11 @@ func (s *UserAdminService) EnrichUsersWithRolesAndDomains(ctx context.Context, u
 		slog.Error("EnrichUsersWithRolesAndDomains: failed to batch get role codes", "error", roleCodesErr)
 	}
 
+	domainNameMap, domainNameErr := s.getDomainNameMap(ctx)
+	if domainNameErr != nil {
+		slog.Error("EnrichUsersWithRolesAndDomains: failed to get domain names", "error", domainNameErr)
+	}
+
 	for _, u := range users {
 		if u == nil {
 			continue
@@ -822,9 +827,41 @@ func (s *UserAdminService) EnrichUsersWithRolesAndDomains(ctx context.Context, u
 		}
 		if ids, ok := domainIDsMap[u.ID]; ok {
 			u.DomainIDs = ids
+			if domainNameMap != nil {
+				for _, dID := range ids {
+					if name, found := domainNameMap[dID]; found {
+						u.DomainNames = append(u.DomainNames, name)
+					}
+				}
+			}
 		}
 		if codes, ok := roleCodesMap[u.ID]; ok {
 			u.RoleCodes = codes
 		}
 	}
+}
+
+func (s *UserAdminService) getDomainNameMap(ctx context.Context) (map[int64]string, error) {
+	query := `SELECT id, name FROM bdopsflow_domains`
+	qr, err := s.db.QueryOne(query)
+	if err != nil {
+		return nil, err
+	}
+	if qr.Err != nil {
+		return nil, qr.Err
+	}
+
+	result := make(map[int64]string)
+	for qr.Next() {
+		row, sliceErr := qr.Slice()
+		if sliceErr != nil {
+			continue
+		}
+		id := rowInt64(row[0])
+		name := rowString(row[1])
+		if id > 0 && name != "" {
+			result[id] = name
+		}
+	}
+	return result, nil
 }

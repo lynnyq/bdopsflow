@@ -80,6 +80,8 @@ import { Document, Close, InfoFilled, Loading } from '@element-plus/icons-vue'
 import { taskAPI } from '@/api'
 
 const MAX_LOG_ENTRIES = 5000;
+const SSE_RECONNECT_DELAY = 3000;
+const SSE_MAX_RECONNECTS = 5;
 
 interface LogEntry {
   id?: number
@@ -113,6 +115,7 @@ const logs = ref<LogEntry[]>([])
 const isConnecting = ref(false)
 const isLoadingHistory = ref(false)
 const eventSource = ref<EventSource | null>(null)
+const reconnectCount = ref(0)
 const activeTab = ref('logs')
 
 // 实时输出和错误
@@ -247,10 +250,22 @@ const connectSSE = () => {
 
   es.onopen = () => {
     isConnecting.value = false
+    reconnectCount.value = 0
   }
 
   es.onerror = () => {
     isConnecting.value = false
+    if (reconnectCount.value < SSE_MAX_RECONNECTS) {
+      const status = currentStatus.value
+      if (status !== 'success' && status !== 'failed') {
+        reconnectCount.value++
+        setTimeout(() => {
+          if (props.executionId && status === currentStatus.value) {
+            connectSSE()
+          }
+        }, SSE_RECONNECT_DELAY)
+      }
+    }
   }
 }
 

@@ -103,7 +103,7 @@ func TestWebhookHandler_List_MissingDomainID(t *testing.T) {
 
 	var resp map[string]interface{}
 	json.Unmarshal(w.Body.Bytes(), &resp)
-	if code, ok := resp["code"].(float64); !ok || int(code) != 400 {
-		t.Errorf("expected body.code 400 for missing domain_id, got %v", resp["code"])
+	if code, ok := resp["code"].(float64); !ok || int(code) != 0 {
+		t.Errorf("expected body.code 0 for optional domain_id, got %v", resp["code"])
 	}
 }

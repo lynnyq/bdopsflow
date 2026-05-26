@@ -29,10 +29,12 @@ export interface DomainInfo {
 
 export interface LoginResponse {
   token: string
+  refresh_token: string
   user: User
   permissions: Permission[]
   domains: DomainInfo[]
   current_domain_id: number
+  role_codes: string[]
 }
 
 export interface CurrentUserResponse {
@@ -40,12 +42,15 @@ export interface CurrentUserResponse {
   permissions: Permission[]
   domains: DomainInfo[]
   current_domain_id: number
+  role_codes: string[]
 }
 
 export interface SwitchDomainResponse {
   token: string
+  refresh_token: string
   permissions: Permission[]
   current_domain_id: number
+  role_codes: string[]
 }
 
 export interface Role {
@@ -218,6 +223,8 @@ export interface Webhook {
   headers: string
   secret: string
   domain_id: number
+  domain_name: string
+  user_permission: string
   is_enabled: boolean
   description: string
   created_by: number | null
@@ -243,6 +250,7 @@ export interface Datasource {
   config: string
   description: string
   domain_id: number
+  domain_name: string
   is_enabled: boolean
   allow_write_sql: boolean
   test_status: string

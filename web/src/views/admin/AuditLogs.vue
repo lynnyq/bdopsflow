@@ -121,6 +121,7 @@ import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Delete, Search, Refresh, Document } from '@element-plus/icons-vue'
 import { auditLogAPI } from '@/api'
+import { isHandledError } from '@/utils/api'
 import type { AuditLog } from '@/api/audit'
 
 const logs = ref<AuditLog[]>([])
@@ -254,7 +255,9 @@ const handleSearch = async () => {
     logs.value = data?.items || []
     total.value = data?.total || 0
   } catch (error: any) {
-    ElMessage.error(error.message || '加载审计日志失败')
+    if (!isHandledError(error)) {
+      ElMessage.error(error.message || '加载审计日志失败')
+    }
   } finally {
     loading.value = false
   }

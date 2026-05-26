@@ -624,10 +624,11 @@
                   <el-form-item label="重试间隔" prop="retry_interval" class="form-item">
                     <el-input-number
                       v-model="form.retry_interval"
-                      :min="1"
-                      :max="300"
+                      :min="0"
+                      :max="3600"
                       placeholder="秒"
                       class="form-input-number"
+                      :disabled="form.retry_count === 0"
                     >
                       <template #suffix>
                         <span>秒</span>
@@ -754,6 +755,7 @@ import { taskAPI, executorAPI, webhookAPI } from '@/api'
 import type { Task, TaskConfig, Executor, Webhook } from '@/types'
 import TaskLogViewer from '@/components/TaskLogViewer.vue'
 import { handleError, handleSuccess, formatValue, formatNumber } from '@/utils/error'
+import { isHandledError } from '@/utils/api'
 import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
@@ -763,7 +765,7 @@ const authStore = useAuthStore()
 const webhookList = ref<Webhook[]>([])
 
 const loadWebhooks = async () => {
-  const domainId = authStore.currentDomainId || 1
+  const domainId = authStore.isSystemAdmin ? undefined : (authStore.currentDomainId || 1)
   try {
     const response = await webhookAPI.list(domainId)
     webhookList.value = (response.data?.items || []).filter((w: Webhook) => w.is_enabled)
@@ -992,7 +994,9 @@ const loadTasks = async () => {
       return task
     })
   } catch (err: any) {
-    ElMessage.error(err.message || '加载任务列表失败')
+    if (!isHandledError(err)) {
+      ElMessage.error(err.message || '加载任务列表失败')
+    }
   } finally {
     loading.value = false
   }
@@ -1093,7 +1097,9 @@ const handleSubmit = async () => {
       dialogVisible.value = false
       await loadTasks()
     } catch (err: any) {
-      ElMessage.error(err.message || '操作失败')
+      if (!isHandledError(err)) {
+        ElMessage.error(err.message || '操作失败')
+      }
     } finally {
       submitting.value = false
     }
@@ -1121,7 +1127,9 @@ const handleToggleStatus = async (task: Task) => {
     await loadTasks()
   } catch (err: any) {
     task.is_enabled = !expectedEnabled
-    ElMessage.error(err.message || '操作失败')
+    if (!isHandledError(err)) {
+      ElMessage.error(err.message || '操作失败')
+    }
   } finally {
     toggleLoading.value = null
   }
@@ -1138,7 +1146,7 @@ const handleDelete = async (task: Task) => {
     ElMessage.success('任务已删除')
     await loadTasks()
   } catch (err: any) {
-    if (err !== 'cancel') {
+    if (err !== 'cancel' && !isHandledError(err)) {
       ElMessage.error(err.message || '删除失败')
     }
   }
@@ -1150,9 +1158,10 @@ const handleTrigger = async (task: Task) => {
     await taskAPI.trigger(task.id)
     ElMessage.success('任务已触发')
   } catch (err: any) {
-    // 优先使用后端返回的错误信息
-    const errorMessage = err.response?.data?.error || err.message || '触发失败'
-    ElMessage.error(errorMessage)
+    if (!isHandledError(err)) {
+      const errorMessage = err.response?.data?.error || err.message || '触发失败'
+      ElMessage.error(errorMessage)
+    }
   } finally {
     triggeringId.value = null
   }
@@ -1178,7 +1187,9 @@ const handleViewLastExecution = async (task: Task) => {
       selectedExecutionError.value = lastExecution.error
     }
   } catch (err: any) {
-    ElMessage.error(err.message || '加载执行记录失败')
+    if (!isHandledError(err)) {
+      ElMessage.error(err.message || '加载执行记录失败')
+    }
   } finally {
     showLogs.value = true
     

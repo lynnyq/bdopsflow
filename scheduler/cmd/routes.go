@@ -39,6 +39,7 @@ func setupRoutes(router *gin.Engine, app *App) {
 		router.POST("/api/auth/register", middleware.AuditMiddleware(app.auditLogService), authHandler.Register)
 	}
 	router.GET("/api/auth/public-key", authHandler.GetPublicKey)
+	router.POST("/api/auth/refresh", authHandler.RefreshToken)
 
 	protected := router.Group("/api")
 	protected.Use(middleware.JWTAuthMiddleware())
@@ -170,7 +171,7 @@ func setupRoutes(router *gin.Engine, app *App) {
 			webhooks.POST("/:id/test", middleware.RequirePermission(app.permissionService, "webhook", "create"), webhookHandler.Test)
 		}
 
-		dsHandler := handler.NewDatasourceHandler(app.dsService, app.dsManager, app.dsConfigService, app.instancePermSvc, app.permissionService)
+		dsHandler := handler.NewDatasourceHandler(app.dsService, app.dsManager, app.dsConfigService, app.instancePermSvc, app.permissionService, app.domainAdminService)
 		queryHandler := handler.NewQueryHandler(app.dsService, app.dsManager, app.dsConfigService, app.dsCacheService, app.dsConcurrentService)
 
 		datasources := protected.Group("/datasources")
@@ -183,9 +184,9 @@ func setupRoutes(router *gin.Engine, app *App) {
 			datasources.PUT("/:id", middleware.DatasourcePermissionMiddleware(app.instancePermSvc, "update"), dsHandler.Update)
 			datasources.DELETE("/:id", middleware.DatasourcePermissionMiddleware(app.instancePermSvc, "delete"), dsHandler.Delete)
 			datasources.POST("/:id/test", middleware.DatasourcePermissionMiddleware(app.instancePermSvc, "read"), dsHandler.TestConnection)
-			datasources.POST("/:id/permissions", middleware.RequirePermission(app.permissionService, "datasource", "manage"), dsHandler.GrantPermission)
-			datasources.PUT("/:id/permissions/:perm_id", middleware.RequirePermission(app.permissionService, "datasource", "manage"), dsHandler.UpdatePermission)
-			datasources.DELETE("/:id/permissions/:perm_id", middleware.RequirePermission(app.permissionService, "datasource", "manage"), dsHandler.RevokePermission)
+			datasources.POST("/:id/permissions", middleware.DatasourcePermissionMiddleware(app.instancePermSvc, "manage"), dsHandler.GrantPermission)
+			datasources.PUT("/:id/permissions/:perm_id", middleware.DatasourcePermissionMiddleware(app.instancePermSvc, "manage"), dsHandler.UpdatePermission)
+			datasources.DELETE("/:id/permissions/:perm_id", middleware.DatasourcePermissionMiddleware(app.instancePermSvc, "manage"), dsHandler.RevokePermission)
 			datasources.GET("/:id/permissions", middleware.DatasourcePermissionMiddleware(app.instancePermSvc, "manage"), dsHandler.GetPermissions)
 			datasources.GET("/:id/metadata", middleware.DatasourcePermissionMiddleware(app.instancePermSvc, "query"), queryHandler.GetMetadata)
 		}

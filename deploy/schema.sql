@@ -133,6 +133,7 @@ CREATE INDEX IF NOT EXISTS idx_bdopsflow_task_executions_executor_id ON bdopsflo
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_task_executions_status ON bdopsflow_task_executions(status);
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_task_executions_created_at ON bdopsflow_task_executions(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_task_executions_status_time ON bdopsflow_task_executions(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_bdopsflow_task_executions_task_status ON bdopsflow_task_executions(task_id, status, created_at DESC);
 
 -- 7. 执行器节点表
 CREATE TABLE IF NOT EXISTS bdopsflow_executors (
@@ -539,6 +540,7 @@ CREATE INDEX IF NOT EXISTS idx_bdopsflow_query_history_datasource_id ON bdopsflo
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_query_history_domain_id ON bdopsflow_query_history(domain_id);
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_query_history_created_at ON bdopsflow_query_history(created_at);
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_query_history_query_id ON bdopsflow_query_history(query_id);
+CREATE INDEX IF NOT EXISTS idx_bdopsflow_query_history_executed_by ON bdopsflow_query_history(executed_by);
 
 -- 20. 系统配置表
 CREATE TABLE IF NOT EXISTS bdopsflow_system_config (
@@ -592,6 +594,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_resource ON bdopsflow_audit_logs(resou
 CREATE INDEX IF NOT EXISTS idx_audit_logs_status ON bdopsflow_audit_logs(status);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON bdopsflow_audit_logs(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_resource_action ON bdopsflow_audit_logs(resource, action);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_domain_id ON bdopsflow_audit_logs(domain_id);
 
 -- 23. Webhook配置表
 CREATE TABLE IF NOT EXISTS bdopsflow_webhooks (

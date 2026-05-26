@@ -139,7 +139,7 @@
             <el-icon :size="24"><Timer /></el-icon>
           </div>
           <div class="stat-content">
-            <div class="stat-value">{{ stats?.tasks?.avg_duration ?? 0 }}s</div>
+            <div class="stat-value">{{ formatDuration(stats?.tasks?.avg_duration ?? 0) }}</div>
             <div class="stat-label">平均执行时长</div>
           </div>
         </div>
@@ -244,6 +244,7 @@ import { ElMessage } from 'element-plus'
 import { VideoPlay, VideoPause, Refresh, List, CircleCheck, CircleClose, Clock, Timer, Cpu, Connection, DataLine, Odometer, Database, Bell, Monitor } from '@element-plus/icons-vue'
 import { dashboardAPI, type HealthCheckResult } from '@/api'
 import { handleError, handleSuccess, formatValue, formatNumber } from '@/utils/error'
+import { isHandledError } from '@/utils/api'
 import { useAuthStore } from '@/stores/auth'
 
 const authStore = useAuthStore()
@@ -292,6 +293,7 @@ const trends = ref<TrendData[]>([])
 const healthData = ref<HealthCheckResult | null>(null)
 
 let refreshInterval: number | null = null
+let healthInterval: number | null = null
 
 const healthStatusClass = computed(() => {
   return healthData.value?.status === 'healthy' ? 'healthy' : 'unhealthy'
@@ -380,7 +382,6 @@ const refreshData = async () => {
       loadDashboardStats(),
       loadSchedulerStatus(),
       loadTrends(),
-      loadHealthData()
     ])
   } finally {
     loading.value = false
@@ -394,7 +395,9 @@ const handlePauseScheduler = async () => {
     ElMessage.success('调度器已暂停')
     await loadSchedulerStatus()
   } catch (error) {
-    ElMessage.error('暂停调度器失败')
+    if (!isHandledError(error)) {
+      ElMessage.error('暂停调度器失败')
+    }
   } finally {
     actionLoading.value = false
   }
@@ -407,7 +410,9 @@ const handleResumeScheduler = async () => {
     ElMessage.success('调度器已恢复')
     await loadSchedulerStatus()
   } catch (error) {
-    ElMessage.error('恢复调度器失败')
+    if (!isHandledError(error)) {
+      ElMessage.error('恢复调度器失败')
+    }
   } finally {
     actionLoading.value = false
   }
@@ -429,14 +434,31 @@ const formatDate = (date: string): string => {
   return `${d.getMonth() + 1}/${d.getDate()}`
 }
 
+const formatDuration = (seconds: number): string => {
+  if (!seconds || seconds === 0) return '0s'
+  if (seconds < 1) return `${(seconds).toFixed(2)}s`
+  if (seconds < 60) return `${seconds.toFixed(2)}s`
+  const minutes = Math.floor(seconds / 60)
+  const secs = seconds % 60
+  if (minutes < 60) return `${minutes}m${secs.toFixed(0)}s`
+  const hours = Math.floor(minutes / 60)
+  const mins = minutes % 60
+  return `${hours}h${mins}m`
+}
+
 onMounted(() => {
   refreshData()
+  loadHealthData()
   refreshInterval = window.setInterval(refreshData, 30000)
+  healthInterval = window.setInterval(loadHealthData, 60000)
 })
 
 onUnmounted(() => {
   if (refreshInterval) {
     clearInterval(refreshInterval)
+  }
+  if (healthInterval) {
+    clearInterval(healthInterval)
   }
 })
 </script>

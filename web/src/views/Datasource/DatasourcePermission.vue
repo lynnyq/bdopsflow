@@ -355,6 +355,7 @@ import {
   View, Download, Edit, Setting, Check, Clock
 } from '@element-plus/icons-vue'
 import { datasourceAPI } from '@/api'
+import { isHandledError } from '@/utils/api'
 import { roleAdminAPI, userAdminAPI } from '@/api/admin'
 import { useAuthStore } from '@/stores/auth'
 import type { DatasourcePermission } from '@/types'
@@ -533,7 +534,9 @@ const loadDatasource = async () => {
     datasourceName.value = res.data.name
     datasourceDomainId.value = res.data.domain_id
   } catch (err: any) {
-    ElMessage.error(err.message || '加载数据源失败')
+    if (!isHandledError(err)) {
+      ElMessage.error(err.message || '加载数据源失败')
+    }
   }
 }
 
@@ -550,7 +553,9 @@ const loadPermissions = async () => {
       permissions.value = []
     }
   } catch (err: any) {
-    ElMessage.error(err.message || '加载权限列表失败')
+    if (!isHandledError(err)) {
+      ElMessage.error(err.message || '加载权限列表失败')
+    }
   } finally {
     loading.value = false
   }
@@ -621,7 +626,9 @@ const handleSubmitEdit = async () => {
       editDialogVisible.value = false
       await loadPermissions()
     } catch (err: any) {
-      ElMessage.error(err.message || '修改权限失败')
+      if (!isHandledError(err)) {
+        ElMessage.error(err.message || '修改权限失败')
+      }
     } finally {
       submitting.value = false
     }
@@ -647,7 +654,9 @@ const handleSubmitAdd = async () => {
       addDialogVisible.value = false
       await loadPermissions()
     } catch (err: any) {
-      ElMessage.error(err.message || '添加权限失败')
+      if (!isHandledError(err)) {
+        ElMessage.error(err.message || '添加权限失败')
+      }
     } finally {
       submitting.value = false
     }
@@ -671,7 +680,7 @@ const handleDeletePermission = async (row: DatasourcePermission) => {
     ElMessage.success('权限已删除')
     await loadPermissions()
   } catch (err: any) {
-    if (err !== 'cancel') {
+    if (err !== 'cancel' && !isHandledError(err)) {
       ElMessage.error(err.message || '删除权限失败')
     }
   }

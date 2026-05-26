@@ -319,7 +319,7 @@ func (h *UserAdminHandler) UpdateUser(c *gin.Context) {
 		return
 	}
 
-	user, err := h.svc.UpdateUserWithDomainCheck(ctx, adminID, id, req.Username, req.RealName, req.Phone, req.Email, req.IsActive)
+	_, err = h.svc.UpdateUserWithDomainCheck(ctx, adminID, id, req.Username, req.RealName, req.Phone, req.Email, req.IsActive)
 	if err != nil {
 		if err == service.ErrPermissionDenied {
 			Forbidden(c, "权限不足，无法修改此用户")
@@ -360,15 +360,43 @@ func (h *UserAdminHandler) UpdateUser(c *gin.Context) {
 		}
 	}
 
-	if user != nil {
-		user.Password = ""
+	if len(req.DomainIDs) > 0 {
+		operatorRole, _ := c.Get("role")
+		var opRole string
+		if v, ok := operatorRole.(string); ok {
+			opRole = v
+		}
+		if opRole != "system_admin" && opRole != "admin" {
+			allowed, domainCheckErr := h.svc.AreDomainsAccessibleByUser(ctx, adminID, req.DomainIDs)
+			if domainCheckErr != nil {
+				slog.Error("UpdateUser: failed to check domain access", "error", domainCheckErr)
+				Fail(c, CodeInternalError, "检查领域权限失败")
+				return
+			}
+			if !allowed {
+				Forbidden(c, "只能分配自己所属的领域")
+				return
+			}
+		}
+
+		if err := h.svc.AssignUserDomains(ctx, id, req.DomainIDs); err != nil {
+			slog.Error("UpdateUser: failed to assign domains", "error", err)
+			Fail(c, CodeInternalError, "更新用户领域失败")
+			return
+		}
+	}
+
+	updatedUser, _ := h.svc.GetUserByID(ctx, id)
+	if updatedUser != nil {
+		updatedUser.Password = ""
+		h.svc.EnrichUsersWithRolesAndDomains(ctx, []*model.User{updatedUser})
 	}
 
 	slog.Info("UpdateUser: success", "module", "handler_user_admin", "user_id", id)
 
 	c.Set("audit_resource_id", strconv.FormatInt(id, 10))
 	c.Set("audit_resource_name", req.Username)
-	Success(c, user)
+	Success(c, updatedUser)
 }
 
 func (h *UserAdminHandler) DeleteUser(c *gin.Context) {

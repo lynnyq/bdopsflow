@@ -1,13 +1,13 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import { ERROR_CODE_MAP } from '@/utils/error'
+import { useAuthStore } from '@/stores/auth'
 
-// 统一响应结构
 export interface ApiResponse<T = any> {
-  code: number      // 业务状态码，0表示成功
-  status: string    // 状态："success" 或 "error"
-  message: string   // 提示信息
-  data: T           // 数据
+  code: number
+  status: string
+  message: string
+  data: T
 }
 
 const api = axios.create({
@@ -15,8 +15,20 @@ const api = axios.create({
   timeout: 30000,
 })
 
+let isRefreshing = false
+let refreshSubscribers: Array<(token: string) => void> = []
+
+function subscribeTokenRefresh(cb: (token: string) => void) {
+  refreshSubscribers.push(cb)
+}
+
+function onTokenRefreshed(newToken: string) {
+  refreshSubscribers.forEach(cb => cb(newToken))
+  refreshSubscribers = []
+}
+
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token')
+  const token = sessionStorage.getItem('token')
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
   }
@@ -31,11 +43,12 @@ api.interceptors.response.use(
       if (data.code !== 0) {
         const isAuthEndpoint = response.config.url?.includes('/auth/login') || response.config.url?.includes('/auth/sso-login')
         if (!isAuthEndpoint) {
-          const friendlyMessage = ERROR_CODE_MAP[data.code] || data.message || '请求失败'
+          const friendlyMessage = data.message || ERROR_CODE_MAP[data.code] || '请求失败'
           ElMessage.error(friendlyMessage)
         }
         const error = new Error(data.message || '请求失败')
         ;(error as any).code = data.code
+        ;(error as any)._handled = true
         ;(error as any).response = {
           data: { error: data.message, code: data.code },
           status: response.status
@@ -47,24 +60,104 @@ api.interceptors.response.use(
 
     return response
   },
-  (error) => {
-    // 在登录页时不触发 401 重定向，避免登录失败时页面刷新
-    if (error.response?.status === 401 && !window.location.pathname.includes('/login')) {
-      localStorage.removeItem('token')
-      window.location.href = '/login'
+  async (error) => {
+    const originalRequest = error.config
+
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      const refreshToken = sessionStorage.getItem('refresh_token')
+
+      if (refreshToken && !window.location.pathname.includes('/login')) {
+        if (isRefreshing) {
+          return new Promise((resolve) => {
+            subscribeTokenRefresh((newToken: string) => {
+              originalRequest.headers.Authorization = `Bearer ${newToken}`
+              resolve(api(originalRequest))
+            })
+          })
+        }
+
+        originalRequest._retry = true
+        isRefreshing = true
+
+        try {
+          const response = await axios.post('/api/auth/refresh', {
+            refresh_token: refreshToken,
+          })
+
+          const { token: newToken, refresh_token: newRefreshToken } = response.data.data || response.data
+          sessionStorage.setItem('token', newToken)
+          if (newRefreshToken) {
+            sessionStorage.setItem('refresh_token', newRefreshToken)
+          }
+
+          try {
+            const authStore = useAuthStore()
+            authStore.setToken(newToken)
+            if (newRefreshToken) {
+              authStore.setRefreshToken(newRefreshToken)
+            }
+          } catch {
+            // store may not be initialized yet
+          }
+
+          onTokenRefreshed(newToken)
+
+          originalRequest.headers.Authorization = `Bearer ${newToken}`
+          return api(originalRequest)
+        } catch (refreshError) {
+          try {
+            const authStore = useAuthStore()
+            authStore.logout()
+          } catch {
+            sessionStorage.removeItem('token')
+            sessionStorage.removeItem('refresh_token')
+          }
+          window.location.href = '/login'
+          return Promise.reject(refreshError)
+        } finally {
+          isRefreshing = false
+        }
+      }
+
+      if (!refreshToken && !window.location.pathname.includes('/login')) {
+        try {
+          const authStore = useAuthStore()
+          authStore.logout()
+        } catch {
+          sessionStorage.removeItem('token')
+          sessionStorage.removeItem('refresh_token')
+        }
+        window.location.href = '/login'
+      }
     }
 
-    // 处理统一错误响应格式
     const responseData = error.response?.data as ApiResponse
     if (responseData && typeof responseData === 'object' && 'code' in responseData && 'status' in responseData) {
-      // 将统一格式的错误信息转换为前端可识别的格式
-      const friendlyMessage = ERROR_CODE_MAP[responseData.code] || responseData.message || '请求失败'
+      const friendlyMessage = responseData.message || ERROR_CODE_MAP[responseData.code] || '请求失败'
       ElMessage.error(friendlyMessage)
       error.response.data = { error: responseData.message, code: responseData.code }
+      ;(error as any)._handled = true
+    } else if (error.response?.status) {
+      const statusMessages: Record<number, string> = {
+        400: '请求参数错误',
+        401: '登录已过期，请重新登录',
+        403: '权限不足，无法执行此操作',
+        404: '请求的资源不存在',
+        500: '服务器内部错误',
+        502: '网关错误',
+        503: '服务暂不可用',
+      }
+      const msg = statusMessages[error.response.status] || `请求失败 (${error.response.status})`
+      ElMessage.error(msg)
+      ;(error as any)._handled = true
     }
 
     return Promise.reject(error)
   }
 )
+
+export function isHandledError(err: any): boolean {
+  return !!err?._handled
+}
 
 export default api

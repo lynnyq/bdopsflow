@@ -1,8 +1,11 @@
 package middleware
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -14,20 +17,36 @@ import (
 )
 
 type JWTConfig struct {
-	Secret      []byte
-	ExpiryHours int
+	Secret             []byte
+	ExpiryHours       int
+	RefreshSecret      []byte
+	RefreshExpiryHours int
 }
 
 var jwtConfig JWTConfig
 
-func InitJWT(secret string, expiryHours int) {
+func InitJWT(secret string, expiryHours int, refreshExpiryHours ...int) {
+	refreshHours := 168
+	if len(refreshExpiryHours) > 0 && refreshExpiryHours[0] > 0 {
+		refreshHours = refreshExpiryHours[0]
+	}
 	jwtConfig = JWTConfig{
-		Secret:      []byte(secret),
-		ExpiryHours: expiryHours,
+		Secret:             []byte(secret),
+		ExpiryHours:       expiryHours,
+		RefreshSecret:      []byte(secret + "_refresh"),
+		RefreshExpiryHours: refreshHours,
 	}
 	if jwtConfig.ExpiryHours <= 0 {
-		jwtConfig.ExpiryHours = 24
+		jwtConfig.ExpiryHours = 2
 	}
+}
+
+func GetJWTConfig() *JWTConfig {
+	return &jwtConfig
+}
+
+func SetRefreshExpiryHours(hours int) {
+	jwtConfig.RefreshExpiryHours = hours
 }
 
 type Claims struct {
@@ -58,6 +77,39 @@ func GenerateToken(userID int64, username, realName string, currentDomainID int6
 func ParseToken(tokenString string) (*Claims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
 		return jwtConfig.Secret, nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	if claims, ok := token.Claims.(*Claims); ok && token.Valid {
+		return claims, nil
+	}
+
+	return nil, jwt.ErrSignatureInvalid
+}
+
+func GenerateRefreshToken(userID int64, username, realName string, currentDomainID int64) (string, error) {
+	claims := &Claims{
+		UserID:         userID,
+		Username:       username,
+		RealName:       realName,
+		CurrentDomainID: currentDomainID,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Duration(jwtConfig.RefreshExpiryHours) * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			Issuer:    "bdopsflow-refresh",
+		},
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString(jwtConfig.RefreshSecret)
+}
+
+func ParseRefreshToken(tokenString string) (*Claims, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
+		return jwtConfig.RefreshSecret, nil
 	})
 
 	if err != nil {
@@ -288,30 +340,57 @@ func DatasourcePermissionMiddleware(instancePermSvc DatasourcePermissionChecker,
 			return
 		}
 
+		var datasourceID int64
 		idStr := c.Param("id")
-		id := parseInt64(idStr)
-		if id == 0 {
+		if idStr != "" {
+			datasourceID = parseInt64(idStr)
+		}
+		if datasourceID == 0 {
+			datasourceID = parseDatasourceIDFromBody(c)
+		}
+		if datasourceID == 0 {
+			if c.Request.Method == http.MethodPost || c.Request.Method == http.MethodPut || c.Request.Method == http.MethodPatch {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "datasource_id is required"})
+				c.Abort()
+				return
+			}
 			c.Next()
 			return
 		}
 
-		slog.Debug("checking datasource permission", "module", "middleware_auth", "user_id", userID.(int64), "datasource_id", id, "permission_type", permissionType)
+		slog.Debug("checking datasource permission", "module", "middleware_auth", "user_id", userID.(int64), "datasource_id", datasourceID, "permission_type", permissionType)
 
-		ok, err := instancePermSvc.HasDatasourcePermission(c.Request.Context(), userID.(int64), id, permissionType)
+		ok, err := instancePermSvc.HasDatasourcePermission(c.Request.Context(), userID.(int64), datasourceID, permissionType)
 		if err != nil {
-			slog.Error("failed to check datasource permission", "module", "middleware_auth", "user_id", userID.(int64), "datasource_id", id, "permission_type", permissionType, "error", err)
+			slog.Error("failed to check datasource permission", "module", "middleware_auth", "user_id", userID.(int64), "datasource_id", datasourceID, "permission_type", permissionType, "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check permissions"})
 			c.Abort()
 			return
 		}
 		if !ok {
-			slog.Warn("datasource permission denied", "module", "middleware_auth", "user_id", userID.(int64), "datasource_id", id, "permission_type", permissionType)
+			slog.Warn("datasource permission denied", "module", "middleware_auth", "user_id", userID.(int64), "datasource_id", datasourceID, "permission_type", permissionType)
 			c.JSON(http.StatusForbidden, gin.H{"error": "Insufficient permissions"})
 			c.Abort()
 			return
 		}
 		c.Next()
 	}
+}
+
+func parseDatasourceIDFromBody(c *gin.Context) int64 {
+	bodyBytes, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		return 0
+	}
+	c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+
+	var body struct {
+		DatasourceID int64 `json:"datasource_id"`
+	}
+	if json.Unmarshal(bodyBytes, &body) == nil {
+		return body.DatasourceID
+	}
+	return 0
 }
 
 func parseInt64(s string) int64 {

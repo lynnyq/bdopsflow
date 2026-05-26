@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -39,15 +40,18 @@ func (s *SchedulerService) cleanupStuckTasks() {
 }
 
 func (s *SchedulerService) cleanupDeadTasks() {
-	ctx := context.Background()
+	ctx, cancel := cleanupCtx()
+	defer cancel()
 
 	createdBefore := time.Now().Add(-5 * time.Minute).Format(DateTimeFormat)
 	query := `
 		SELECT te.id, te.task_id, te.execution_id, te.start_time, te.created_at,
 		       COALESCE(t.timeout_seconds, 300) AS timeout_seconds,
-		       te.executor_id
+		       te.executor_id,
+		       e.status AS executor_status
 		FROM bdopsflow_task_executions te
 		JOIN bdopsflow_tasks t ON te.task_id = t.id
+		LEFT JOIN bdopsflow_executors e ON te.executor_id = e.id
 		WHERE te.status = 'running'
 		AND (te.start_time IS NOT NULL AND te.start_time != '')
 		AND te.created_at < ?
@@ -75,6 +79,7 @@ func (s *SchedulerService) cleanupDeadTasks() {
 		TimeoutSeconds int64
 		ExecutorID     int64
 		NoTimeout      bool
+		ExecutorStatus string
 	}
 
 	var stuckExecutions []stuckExec
@@ -93,6 +98,7 @@ func (s *SchedulerService) cleanupDeadTasks() {
 			TimeoutSeconds: rawTimeout,
 			ExecutorID:     rowInt64(row[6]),
 			NoTimeout:      rawTimeout <= 0,
+			ExecutorStatus: rowString(row[7]),
 		}
 		if stuck.TimeoutSeconds <= 0 {
 			stuck.TimeoutSeconds = 300
@@ -126,6 +132,31 @@ func (s *SchedulerService) cleanupDeadTasks() {
 		}
 	}
 
+	executorIDs := make(map[int64]bool)
+	for _, exec := range stuckExecutions {
+		if exec.ExecutorID > 0 && exec.ExecutorStatus != "online" {
+			executorIDs[exec.ExecutorID] = true
+		}
+	}
+
+	onlineExecutorIDs := make(map[int64]bool)
+	if len(executorIDs) > 0 {
+		ids := make([]string, 0, len(executorIDs))
+		for id := range executorIDs {
+			ids = append(ids, strconv.FormatInt(id, 10))
+		}
+		onlineQuery := fmt.Sprintf(
+			"SELECT id FROM bdopsflow_executors WHERE id IN (%s) AND status = 'online'",
+			strings.Join(ids, ","),
+		)
+		if oqr, oerr := s.DB.QueryOne(onlineQuery); oerr == nil && oqr.Err == nil {
+			for oqr.Next() {
+				row, _ := oqr.Slice()
+				onlineExecutorIDs[rowInt64(row[0])] = true
+			}
+		}
+	}
+
 	for _, exec := range stuckExecutions {
 		renewKey := fmt.Sprintf("task:renew:%s", exec.ExecutionID)
 		lastRenewStr, hasRenewal := renewValues[renewKey]
@@ -139,11 +170,21 @@ func (s *SchedulerService) cleanupDeadTasks() {
 		}
 
 		executorOnline := true
-		executorReachable := true
 		if exec.ExecutorID > 0 {
-			executor, execErr := s.GetExecutorByID(ctx, exec.ExecutorID)
-			if execErr != nil || executor.Status != "online" {
+			if onlineExecutorIDs[exec.ExecutorID] {
+				executorOnline = true
+			} else if exec.ExecutorStatus == "online" {
+				executorOnline = true
+			} else {
 				executorOnline = false
+			}
+		}
+
+		executorReachable := true
+		if executorOnline && exec.ExecutorID > 0 {
+			executor, execErr := s.GetExecutorByID(ctx, exec.ExecutorID)
+			if execErr != nil {
+				executorReachable = false
 			} else {
 				executorReachable = s.pingExecutor(ctx, executor)
 				if !executorReachable {
@@ -228,7 +269,8 @@ func (s *SchedulerService) cleanupDeadTasks() {
 }
 
 func (s *SchedulerService) cleanupOfflineExecutors() {
-	ctx := context.Background()
+	ctx, cancel := cleanupCtx()
+	defer cancel()
 
 	now := time.Now().Format(DateTimeFormat)
 	heartbeatCutoff := time.Now().Add(-45 * time.Second).Format(DateTimeFormat)
@@ -327,7 +369,8 @@ func (s *SchedulerService) StopCleanupRoutine() {
 }
 
 func (s *SchedulerService) cleanupStaleTaskLocks() {
-	ctx := context.Background()
+	ctx, cancel := cleanupCtx()
+	defer cancel()
 
 	query := `
 		SELECT te.execution_id, te.task_id, COALESCE(t.timeout_seconds, 300) AS timeout_seconds
@@ -348,6 +391,11 @@ func (s *SchedulerService) cleanupStaleTaskLocks() {
 
 	runningExecutionIDs := make(map[string]bool)
 
+	renewKeys := make([]string, 0)
+	failCountKeys := make([]string, 0)
+	timeoutMap := make(map[string]int64)
+	noTimeoutMap := make(map[string]bool)
+
 	for qr.Next() {
 		row, err := qr.Slice()
 		if err != nil {
@@ -355,7 +403,7 @@ func (s *SchedulerService) cleanupStaleTaskLocks() {
 		}
 
 		executionID := rowString(row[0])
-		taskID := rowInt64(row[1])
+		_ = rowInt64(row[1])
 		timeoutSeconds := rowInt64(row[2])
 		noTimeout := timeoutSeconds <= 0
 		if timeoutSeconds <= 0 {
@@ -363,28 +411,56 @@ func (s *SchedulerService) cleanupStaleTaskLocks() {
 		}
 
 		runningExecutionIDs[executionID] = true
+		renewKeys = append(renewKeys, fmt.Sprintf("task:renew:%s", executionID))
+		failCountKeys = append(failCountKeys, fmt.Sprintf("task:renew:fail:count:%s", executionID))
+		timeoutMap[executionID] = timeoutSeconds
+		noTimeoutMap[executionID] = noTimeout
+	}
 
-		renewKey := fmt.Sprintf("task:renew:%s", executionID)
-		failCountKey := fmt.Sprintf("task:renew:fail:count:%s", executionID)
+	if len(renewKeys) > 0 {
+		pipe := s.redis.Pipeline()
+		renewCmds := make([]*redis.StringCmd, len(renewKeys))
+		failCmds := make([]*redis.StringCmd, len(failCountKeys))
+		for i, key := range renewKeys {
+			renewCmds[i] = pipe.Get(ctx, key)
+		}
+		for i, key := range failCountKeys {
+			failCmds[i] = pipe.Get(ctx, key)
+		}
+		_, _ = pipe.Exec(ctx)
 
-		lastRenewStr, err := s.redis.Get(ctx, renewKey).Result()
-		if err != nil {
-			s.redis.Del(ctx, failCountKey)
-			continue
+		delKeys := make([]string, 0)
+		for i, cmd := range renewCmds {
+			executionID := ""
+			parts := strings.SplitN(renewKeys[i], ":", 3)
+			if len(parts) >= 3 {
+				executionID = parts[2]
+			}
+
+			lastRenewStr, err := cmd.Result()
+			if err != nil {
+				delKeys = append(delKeys, failCountKeys[i])
+				continue
+			}
+
+			var lastRenew int64
+			fmt.Sscanf(lastRenewStr, "%d", &lastRenew)
+
+			timeoutSeconds := timeoutMap[executionID]
+			noTimeout := noTimeoutMap[executionID]
+			interval := time.Now().Unix() - lastRenew
+			if noTimeout || interval <= timeoutSeconds {
+				if failStr, _ := failCmds[i].Result(); failStr != "" {
+					delKeys = append(delKeys, failCountKeys[i])
+					slog.Debug("cleanup: renewal recovered, reset fail count",
+						"execution_id", executionID,
+					)
+				}
+			}
 		}
 
-		var lastRenew int64
-		fmt.Sscanf(lastRenewStr, "%d", &lastRenew)
-
-		interval := time.Now().Unix() - lastRenew
-		if noTimeout || interval <= timeoutSeconds {
-			if failCountStr, _ := s.redis.Get(ctx, failCountKey).Result(); failCountStr != "" {
-				s.redis.Del(ctx, failCountKey)
-				slog.Debug("cleanup: renewal recovered, reset fail count",
-					"execution_id", executionID,
-					"task_id", taskID,
-				)
-			}
+		if len(delKeys) > 0 {
+			s.redis.Del(ctx, delKeys...)
 		}
 	}
 

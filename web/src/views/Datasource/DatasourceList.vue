@@ -20,7 +20,7 @@
       </div>
       <div class="toolbar-right">
         <el-button :icon="Refresh" @click="loadDatasources" :loading="loading" class="refresh-btn">刷新</el-button>
-        <el-button v-if="canManage" :icon="Plus" @click="handleCreate" class="create-btn">新建数据源</el-button>
+        <el-button v-if="canCreate" :icon="Plus" @click="handleCreate" class="create-btn">新建数据源</el-button>
       </div>
     </div>
 
@@ -61,6 +61,11 @@
             </el-tag>
           </template>
         </el-table-column>
+        <el-table-column prop="domain_name" label="所属领域" width="130" show-overflow-tooltip>
+          <template #default="{ row }">
+            {{ row.domain_name || '-' }}
+          </template>
+        </el-table-column>
         <el-table-column prop="allow_write_sql" label="DML" width="90" align="center">
           <template #default="{ row }">
             <el-tag :type="row.allow_write_sql ? 'warning' : 'info'" effect="light" size="small">
@@ -78,9 +83,9 @@
             {{ formatDateTime(row.created_at) }}
           </template>
         </el-table-column>
-        <el-table-column v-if="canManage" label="操作" width="260" fixed="right" align="center">
+        <el-table-column label="操作" width="260" fixed="right" align="center">
           <template #default="{ row }">
-            <el-button type="primary" link size="small" @click="handleEdit(row)">
+            <el-button v-if="canUpdate(row)" type="primary" link size="small" @click="handleEdit(row)">
               <el-icon><Edit /></el-icon> 编辑
             </el-button>
             <el-button
@@ -92,10 +97,10 @@
             >
               <el-icon><Connection /></el-icon> 测试
             </el-button>
-            <el-button v-if="canManage" type="warning" link size="small" @click="handlePermission(row)">
+            <el-button v-if="canManage(row)" type="warning" link size="small" @click="handlePermission(row)">
               <el-icon><Lock /></el-icon> 权限
             </el-button>
-            <el-button type="danger" link size="small" @click="handleDelete(row)">
+            <el-button v-if="canDelete(row)" type="danger" link size="small" @click="handleDelete(row)">
               <el-icon><Delete /></el-icon> 删除
             </el-button>
           </template>
@@ -130,13 +135,33 @@ import {
   Plus, Edit, Delete, Document, Search, Refresh, Connection, Lock
 } from '@element-plus/icons-vue'
 import { datasourceAPI } from '@/api'
+import { isHandledError } from '@/utils/api'
 import type { Datasource } from '@/types'
 import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
 const authStore = useAuthStore()
 
-const canManage = computed(() => authStore.hasPermission('datasource', 'create') || authStore.hasPermission('datasource', 'manage'))
+const canCreate = computed(() => authStore.hasPermission('datasource', 'create'))
+
+const permWeight: Record<string, number> = {
+  manage: 100, update: 50, download: 40, query: 30, read: 20, delete: 10,
+}
+
+const hasPermLevel = (row: Datasource, required: string): boolean => {
+  const userPerm = permWeight[row.user_permission] || 0
+  const reqPerm = permWeight[required] || 0
+  return userPerm >= reqPerm
+}
+
+const canUpdate = (row: Datasource): boolean => hasPermLevel(row, 'update')
+
+const canManage = (row: Datasource): boolean => hasPermLevel(row, 'manage')
+
+const canDelete = (row: Datasource): boolean => {
+  if (hasPermLevel(row, 'manage')) return true
+  return row.user_permission === 'delete'
+}
 
 const dsTypeLabels: Record<string, string> = {
   mysql: 'MySQL',
@@ -208,7 +233,9 @@ const loadDatasources = async () => {
     const res = await datasourceAPI.list()
     datasources.value = res.data.items || []
   } catch (err: any) {
-    ElMessage.error(err.message || '加载数据源列表失败')
+    if (!isHandledError(err)) {
+      ElMessage.error(err.message || '加载数据源列表失败')
+    }
   } finally {
     loading.value = false
   }
@@ -229,7 +256,9 @@ const handleTestConnection = async (row: Datasource) => {
     ElMessage.success('连接测试成功')
     await loadDatasources()
   } catch (err: any) {
-    ElMessage.error(err.response?.data?.error || err.message || '连接测试失败')
+    if (!isHandledError(err)) {
+      ElMessage.error(err.response?.data?.error || err.message || '连接测试失败')
+    }
   } finally {
     testingId.value = null
   }
@@ -250,7 +279,7 @@ const handleDelete = async (row: Datasource) => {
     ElMessage.success('数据源已删除')
     await loadDatasources()
   } catch (err: any) {
-    if (err !== 'cancel') {
+    if (err !== 'cancel' && !isHandledError(err)) {
       ElMessage.error(err.message || '删除失败')
     }
   }

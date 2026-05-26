@@ -314,6 +314,7 @@ import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import { ArrowLeft, Document, Connection, Setting, Warning, CircleCheck } from '@element-plus/icons-vue'
 import { datasourceAPI } from '@/api'
+import { isHandledError } from '@/utils/api'
 import { useAuthStore } from '@/stores/auth'
 import type { Datasource } from '@/types'
 
@@ -527,7 +528,9 @@ const handleTestConnection = async () => {
       testPassed.value = true
     } catch (err: any) {
       testPassed.value = false
-      ElMessage.error(err.response?.data?.error || err.message || '连接测试失败')
+      if (!isHandledError(err)) {
+        ElMessage.error(err.response?.data?.error || err.message || '连接测试失败')
+      }
     } finally {
       testing.value = false
     }
@@ -550,7 +553,9 @@ const handleSubmit = async () => {
       }
       router.push({ name: 'Datasources' })
     } catch (err: any) {
-      ElMessage.error(err.message || '操作失败')
+      if (!isHandledError(err)) {
+        ElMessage.error(err.message || '操作失败')
+      }
     } finally {
       submitting.value = false
     }
@@ -595,7 +600,9 @@ const loadDatasource = async () => {
       domain_id: ds.domain_id || 0,
     }
   } catch (err: any) {
-    ElMessage.error(err.message || '加载数据源失败')
+    if (!isHandledError(err)) {
+      ElMessage.error(err.message || '加载数据源失败')
+    }
   }
 }
 

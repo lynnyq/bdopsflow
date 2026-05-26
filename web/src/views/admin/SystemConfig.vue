@@ -68,6 +68,7 @@ import { ref, computed, onMounted, reactive } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Search, Connection, Setting, Lock, DataLine, Monitor } from '@element-plus/icons-vue'
 import { systemConfigAPI } from '@/api'
+import { isHandledError } from '@/utils/api'
 
 interface ConfigItem {
   key: string
@@ -140,7 +141,9 @@ const loadConfigs = async () => {
       }
     }
   } catch (err: any) {
-    ElMessage.error(err.message || '加载配置失败')
+    if (!isHandledError(err)) {
+      ElMessage.error(err.message || '加载配置失败')
+    }
   }
 }
 
@@ -154,7 +157,9 @@ const handleUpdate = async (key: string, value: string) => {
     }
     ElMessage.success('配置已更新')
   } catch (err: any) {
-    ElMessage.error(err.message || '更新配置失败')
+    if (!isHandledError(err)) {
+      ElMessage.error(err.message || '更新配置失败')
+    }
     const item = configs.value.find(c => c.key === key)
     if (item) {
       if (item.type === 'boolean') {

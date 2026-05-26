@@ -81,6 +81,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Refresh, Delete, Document, VideoPlay } from '@element-plus/icons-vue'
 import { queryAPI } from '@/api'
+import { isHandledError } from '@/utils/api'
 import type { SavedSQL } from '@/types'
 
 const router = useRouter()
@@ -130,7 +131,9 @@ const loadSavedSQL = async () => {
     savedList.value = res.data.items || []
     total.value = res.data.total || 0
   } catch (err: any) {
-    ElMessage.error(err.message || '加载已保存SQL列表失败')
+    if (!isHandledError(err)) {
+      ElMessage.error(err.message || '加载已保存SQL列表失败')
+    }
   } finally {
     loading.value = false
   }
@@ -157,7 +160,7 @@ const handleDelete = async (row: SavedSQL) => {
     ElMessage.success('已删除')
     await loadSavedSQL()
   } catch (err: any) {
-    if (err !== 'cancel') {
+    if (err !== 'cancel' && !isHandledError(err)) {
       ElMessage.error(err.message || '删除失败')
     }
   }

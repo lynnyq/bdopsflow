@@ -90,8 +90,10 @@ func (s *InstancePermissionService) HasDatasourcePermission(ctx context.Context,
 		return false, err
 	}
 	if isDomainAdmin {
-		slog.Debug("HasDatasourcePermission: domain admin bypass", "module", "instance_perm", "user_id", userID)
-		return true, nil
+		if permissionType == "read" || permissionType == "query" {
+			slog.Debug("HasDatasourcePermission: domain admin bypass for read/query", "module", "instance_perm", "user_id", userID, "permission_type", permissionType)
+			return true, nil
+		}
 	}
 
 	creatorQuery := `SELECT created_by FROM bdopsflow_datasources WHERE id = ?`
@@ -161,6 +163,128 @@ func (s *InstancePermissionService) HasDatasourcePermission(ctx context.Context,
 	return false, nil
 }
 
+func (s *InstancePermissionService) GetUserDatasourceIDs(ctx context.Context, userID int64, permissionType string) ([]int64, error) {
+	effectivePerms := datasource.GetEffectivePermissions(permissionType)
+	permPlaceholders := ""
+	permArgs := make([]interface{}, 0, len(effectivePerms))
+	for i, pt := range effectivePerms {
+		if i > 0 {
+			permPlaceholders += ", "
+		}
+		permPlaceholders += "?"
+		permArgs = append(permArgs, pt)
+	}
+
+	query := fmt.Sprintf(`
+		SELECT DISTINCT datasource_id FROM bdopsflow_datasource_permissions
+		WHERE (user_id = ? OR role_id IN (SELECT ur.role_id FROM bdopsflow_user_roles ur WHERE ur.user_id = ?))
+		AND permission_type IN (%s)
+	`, permPlaceholders)
+	args := []interface{}{userID, userID}
+	args = append(args, permArgs...)
+
+	stmt := rqlite.ParameterizedStatement{
+		Query:     query,
+		Arguments: args,
+	}
+	qr, err := s.db.QueryOneParameterized(stmt)
+	if err != nil {
+		return nil, err
+	}
+	if qr.Err != nil {
+		return nil, qr.Err
+	}
+
+	var ids []int64
+	for qr.Next() {
+		row, err := qr.Slice()
+		if err != nil {
+			continue
+		}
+		if id := rowInt64(row[0]); id > 0 {
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
+}
+
+var permissionWeight = map[string]int{
+	"manage":   100,
+	"update":   50,
+	"download": 40,
+	"query":    30,
+	"read":     20,
+	"delete":   10,
+}
+
+func highestPermission(a, b string) string {
+	wa, okA := permissionWeight[a]
+	wb, okB := permissionWeight[b]
+	if !okA {
+		return b
+	}
+	if !okB {
+		return a
+	}
+	if wa >= wb {
+		return a
+	}
+	return b
+}
+
+func (s *InstancePermissionService) GetUserDatasourcePermissionLevels(ctx context.Context, userID int64, datasourceIDs []int64) (map[int64]string, error) {
+	result := make(map[int64]string)
+	if len(datasourceIDs) == 0 {
+		return result, nil
+	}
+
+	dsPlaceholders := ""
+	dsArgs := make([]interface{}, 0, len(datasourceIDs))
+	for i, id := range datasourceIDs {
+		if i > 0 {
+			dsPlaceholders += ", "
+		}
+		dsPlaceholders += "?"
+		dsArgs = append(dsArgs, id)
+	}
+
+	query := fmt.Sprintf(`
+		SELECT datasource_id, permission_type FROM bdopsflow_datasource_permissions
+		WHERE datasource_id IN (%s)
+		AND (user_id = ? OR role_id IN (SELECT ur.role_id FROM bdopsflow_user_roles ur WHERE ur.user_id = ?))
+	`, dsPlaceholders)
+	args := append(dsArgs, userID, userID)
+
+	stmt := rqlite.ParameterizedStatement{
+		Query:     query,
+		Arguments: args,
+	}
+	qr, err := s.db.QueryOneParameterized(stmt)
+	if err != nil {
+		return nil, err
+	}
+	if qr.Err != nil {
+		return nil, qr.Err
+	}
+
+	for qr.Next() {
+		row, err := qr.Slice()
+		if err != nil {
+			continue
+		}
+		dsID := rowInt64(row[0])
+		permType := rowString(row[1])
+		if dsID > 0 && permType != "" {
+			if existing, ok := result[dsID]; ok {
+				result[dsID] = highestPermission(existing, permType)
+			} else {
+				result[dsID] = permType
+			}
+		}
+	}
+	return result, nil
+}
+
 func (s *InstancePermissionService) HasWebhookPermission(ctx context.Context, userID int64, webhookID int64, permissionType string) (bool, error) {
 	slog.Debug("HasWebhookPermission: checking", "module", "instance_perm", "user_id", userID, "webhook_id", webhookID, "permission_type", permissionType)
 	isAdmin, err := s.permSvc.IsSystemAdmin(ctx, userID)
@@ -199,8 +323,10 @@ func (s *InstancePermissionService) HasWebhookPermission(ctx context.Context, us
 		return false, err
 	}
 	if isDomainAdmin {
-		slog.Debug("HasWebhookPermission: domain admin bypass", "module", "instance_perm", "user_id", userID)
-		return true, nil
+		if permissionType == "read" {
+			slog.Debug("HasWebhookPermission: domain admin bypass for read", "module", "instance_perm", "user_id", userID, "permission_type", permissionType)
+			return true, nil
+		}
 	}
 
 	creatorQuery := `SELECT created_by FROM bdopsflow_webhooks WHERE id = ?`

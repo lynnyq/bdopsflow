@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 )
 
@@ -14,7 +15,7 @@ type DashboardStats struct {
 		Running     int64 `json:"running"`
 		Success     int64 `json:"success"`
 		Failed      int64 `json:"failed"`
-		AvgDuration int64 `json:"avg_duration"`
+		AvgDuration float64 `json:"avg_duration"`
 	} `json:"tasks"`
 	Workflows struct {
 		Total   int64 `json:"total"`
@@ -123,7 +124,7 @@ func (s *SchedulerService) GetDashboardStats(ctx context.Context, domainID int64
 		row, _ := qr.Slice()
 		stats.Tasks.Success = rowInt64(row[0])
 		stats.Tasks.Failed = rowInt64(row[1])
-		stats.Tasks.AvgDuration = int64(rowFloat64(row[2]))
+		stats.Tasks.AvgDuration = rowFloat64(row[2])
 	}
 
 	var wfQuery string
@@ -291,7 +292,25 @@ var requiredTables = []string{
 	"bdopsflow_domain_executors",
 }
 
+type tableStatsCache struct {
+	mu       sync.RWMutex
+	counts   map[string]int64
+	total    int64
+	fetchedAt time.Time
+}
+
+var tblStats = &tableStatsCache{
+	counts: make(map[string]int64),
+}
+
+const tableStatsTTL = 5 * time.Minute
+
 func (s *SchedulerService) HealthCheck(ctx context.Context) *HealthCheckResult {
+	if ctx == nil {
+		var cancel context.CancelFunc
+		ctx, cancel = queryCtx()
+		defer cancel()
+	}
 	result := &HealthCheckResult{
 		Timestamp:  time.Now().Format(DateTimeFormat),
 		Components: make(map[string]ComponentCheck),
@@ -332,6 +351,19 @@ func (s *SchedulerService) HealthCheck(ctx context.Context) *HealthCheckResult {
 	return result
 }
 
+func formatLatency(d time.Duration) string {
+	switch {
+	case d < time.Microsecond:
+		return fmt.Sprintf("%.2fns", float64(d.Nanoseconds()))
+	case d < time.Millisecond:
+		return fmt.Sprintf("%.2fμs", float64(d.Nanoseconds())/1000)
+	case d < time.Second:
+		return fmt.Sprintf("%.2fms", float64(d.Nanoseconds())/1e6)
+	default:
+		return fmt.Sprintf("%.2fs", d.Seconds())
+	}
+}
+
 func (s *SchedulerService) checkRQLite() ComponentCheck {
 	start := time.Now()
 
@@ -343,37 +375,47 @@ func (s *SchedulerService) checkRQLite() ComponentCheck {
 		return ComponentCheck{
 			Status:  "unhealthy",
 			Message: fmt.Sprintf("连接失败: %v", err),
-			Latency: latency.String(),
+			Latency: formatLatency(latency),
 		}
 	}
 	if qr.Err != nil {
 		return ComponentCheck{
 			Status:  "unhealthy",
 			Message: fmt.Sprintf("查询失败: %v", qr.Err),
-			Latency: latency.String(),
+			Latency: formatLatency(latency),
 		}
 	}
 
 	return ComponentCheck{
 		Status:  "healthy",
 		Message: "连接正常",
-		Latency: latency.String(),
+		Latency: formatLatency(latency),
 	}
 }
 
 func (s *SchedulerService) checkTables() ComponentCheck {
-	missingTables := []string{}
+	start := time.Now()
 
-	for _, tableName := range requiredTables {
-		query := fmt.Sprintf("SELECT name FROM sqlite_master WHERE type='table' AND name='%s'", tableName)
-		qr, err := s.DB.QueryOne(query)
-		if err != nil {
-			missingTables = append(missingTables, tableName)
-			continue
+	query := "SELECT name FROM sqlite_master WHERE type='table'"
+	qr, err := s.DB.QueryOne(query)
+	if err != nil || qr.Err != nil {
+		return ComponentCheck{
+			Status:  "unhealthy",
+			Message: fmt.Sprintf("查询表结构失败: %v", err),
+			Latency: formatLatency(time.Since(start)),
 		}
-		if qr.Err != nil || !qr.Next() {
-			missingTables = append(missingTables, tableName)
-			continue
+	}
+
+	existingTables := map[string]bool{}
+	for qr.Next() {
+		row, _ := qr.Slice()
+		existingTables[rowString(row[0])] = true
+	}
+
+	missingTables := []string{}
+	for _, t := range requiredTables {
+		if !existingTables[t] {
+			missingTables = append(missingTables, t)
 		}
 	}
 
@@ -381,13 +423,51 @@ func (s *SchedulerService) checkTables() ComponentCheck {
 		return ComponentCheck{
 			Status:  "unhealthy",
 			Message: fmt.Sprintf("缺少表: %v", missingTables),
+			Latency: formatLatency(time.Since(start)),
 		}
 	}
 
+	totalRows := s.getTableCounts()
+
 	return ComponentCheck{
 		Status:  "healthy",
-		Message: fmt.Sprintf("所有 %d 个表正常", len(requiredTables)),
+		Message: fmt.Sprintf("%d 个表正常，共 %d 条记录", len(requiredTables), totalRows),
+		Latency: formatLatency(time.Since(start)),
 	}
+}
+
+func (s *SchedulerService) getTableCounts() int64 {
+	tblStats.mu.RLock()
+	if time.Since(tblStats.fetchedAt) < tableStatsTTL && tblStats.total > 0 {
+		total := tblStats.total
+		tblStats.mu.RUnlock()
+		return total
+	}
+	tblStats.mu.RUnlock()
+
+	tblStats.mu.Lock()
+	defer tblStats.mu.Unlock()
+
+	if time.Since(tblStats.fetchedAt) < tableStatsTTL && tblStats.total > 0 {
+		return tblStats.total
+	}
+
+	var total int64
+	for _, tableName := range requiredTables {
+		countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s", tableName)
+		cqr, err := s.DB.QueryOne(countQuery)
+		if err == nil && cqr.Err == nil && cqr.Next() {
+			row, _ := cqr.Slice()
+			count := rowInt64(row[0])
+			tblStats.counts[tableName] = count
+			total += count
+		}
+	}
+
+	tblStats.total = total
+	tblStats.fetchedAt = time.Now()
+
+	return total
 }
 
 func (s *SchedulerService) checkRedis() ComponentCheck {
@@ -400,20 +480,18 @@ func (s *SchedulerService) checkRedis() ComponentCheck {
 		return ComponentCheck{
 			Status:  "unhealthy",
 			Message: fmt.Sprintf("连接失败: %v", err),
-			Latency: latency.String(),
+			Latency: formatLatency(latency),
 		}
 	}
 
 	return ComponentCheck{
 		Status:  "healthy",
 		Message: "连接正常",
-		Latency: latency.String(),
+		Latency: formatLatency(latency),
 	}
 }
 
 func (s *SchedulerService) checkScheduler() ComponentCheck {
-	paused := s.IsSchedulerPaused()
-
 	if s.cronScheduler == nil {
 		return ComponentCheck{
 			Status:  "unhealthy",
@@ -421,15 +499,33 @@ func (s *SchedulerService) checkScheduler() ComponentCheck {
 		}
 	}
 
+	paused := s.cronScheduler.IsPaused()
+	uptime := s.cronScheduler.GetUptime()
+	uptimeStr := formatUptime(uptime)
+
 	if paused {
 		return ComponentCheck{
 			Status:  "unhealthy",
-			Message: "已暂停",
+			Message: fmt.Sprintf("已暂停 (运行时长: %s)", uptimeStr),
 		}
 	}
 
 	return ComponentCheck{
 		Status:  "healthy",
-		Message: "运行中",
+		Message: fmt.Sprintf("运行中 (已运行 %s)", uptimeStr),
 	}
+}
+
+func formatUptime(d time.Duration) string {
+	days := int(d.Hours()) / 24
+	hours := int(d.Hours()) % 24
+	minutes := int(d.Minutes()) % 60
+
+	if days > 0 {
+		return fmt.Sprintf("%dd%dh%dm", days, hours, minutes)
+	}
+	if hours > 0 {
+		return fmt.Sprintf("%dh%dm", hours, minutes)
+	}
+	return fmt.Sprintf("%dm", minutes)
 }
