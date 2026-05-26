@@ -323,6 +323,10 @@ func (c *MultiClient) Subscribe(name, address string, capacity int32, runner Tas
 			}
 
 			if !regResp.Success {
+				if regResp.Duplicate {
+					slog.Error("register rejected: duplicate executor already online", "message", regResp.Message)
+					return fmt.Errorf("duplicate executor registration rejected: %s", regResp.Message)
+				}
 				slog.Warn("register failed from server", "message", regResp.Message)
 				c.reconnect()
 				continue

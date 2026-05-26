@@ -35,6 +35,7 @@ message RegisterResponse {
   bool success = 1;
   string message = 2;
   string executor_name = 3;
+  bool duplicate = 4;
 }
 
 message HeartbeatRequest {

@@ -571,7 +571,6 @@ const loadRoles = async () => {
       })
     }
   } catch (err: any) {
-    console.error('加载角色列表失败', err)
   }
 }
 
@@ -586,7 +585,6 @@ const loadUsers = async () => {
     const res = await userAdminAPI.listByDomain(domainId)
     users.value = res.data?.items || []
   } catch (err: any) {
-    console.error('加载用户列表失败', err)
   }
 }
 

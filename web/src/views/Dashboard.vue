@@ -322,7 +322,6 @@ const loadHealthData = async () => {
     const response = await dashboardAPI.getHealth()
     healthData.value = response.data
   } catch (error) {
-    console.error('Failed to load health data:', error)
   }
 }
 
@@ -352,7 +351,6 @@ const loadDashboardStats = async () => {
       }
     }
   } catch (error) {
-    console.error('Failed to load dashboard stats:', error)
   }
 }
 
@@ -363,7 +361,6 @@ const loadSchedulerStatus = async () => {
       paused: response.data?.paused ?? false
     }
   } catch (error) {
-    console.error('Failed to load scheduler status:', error)
   }
 }
 
@@ -373,7 +370,6 @@ const loadTrends = async () => {
     const data = response.data || {}
     trends.value = data.items || []
   } catch (error) {
-    console.error('Failed to load trends:', error)
   }
 }
 

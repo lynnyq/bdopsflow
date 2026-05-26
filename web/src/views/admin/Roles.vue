@@ -254,7 +254,6 @@ const loadPermissions = async () => {
     permissions.value = response.data.items || []
     permissionGroupsDisplay.value = response.data.groups || []
   } catch (error) {
-    console.error('加载权限列表失败', error)
   }
 }
 

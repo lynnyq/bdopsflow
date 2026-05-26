@@ -27,11 +27,11 @@ export const datasourceAPI = {
   getPermissions: (id: number) =>
     api.get<DatasourcePermission[]>(`/datasources/${id}/permissions`),
   getDatabases: (id: number) =>
-    api.get<string[]>(`/datasources/${id}/metadata`, { params: { level: 'databases' } }),
+    api.get<string[]>(`/datasources/${id}/metadata`, { params: { level: 'databases' }, timeout: 90000 }),
   getTables: (id: number, database: string) =>
-    api.get<TableInfo[]>(`/datasources/${id}/metadata`, { params: { level: 'tables', database } }),
+    api.get<TableInfo[]>(`/datasources/${id}/metadata`, { params: { level: 'tables', database }, timeout: 90000 }),
   getColumns: (id: number, database: string, table: string) =>
-    api.get<ColumnInfo[]>(`/datasources/${id}/metadata`, { params: { level: 'columns', database, table } }),
+    api.get<ColumnInfo[]>(`/datasources/${id}/metadata`, { params: { level: 'columns', database, table }, timeout: 90000 }),
 }
 
 export const queryAPI = {

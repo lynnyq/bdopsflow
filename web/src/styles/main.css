@@ -66,6 +66,13 @@
   --space-12: 48px;
   --space-16: 64px;
 
+  /* Button Scale */
+  --btn-padding-y: 8px;
+  --btn-padding-x: 16px;
+  --btn-padding-x-lg: 20px;
+  --btn-font-size: 0.875rem;
+  --btn-icon-size: 16px;
+
   /* Border Radius */
   --radius-xs: 4px;
   --radius-sm: 6px;
@@ -181,16 +188,36 @@ code, .mono {
    Element Plus Component Overrides
    ============================================ */
 
+/* 确保 Element Plus 在缩放时正确渲染 */
+:deep(.el-message),
+:deep(.el-notification),
+:deep(.el-dialog),
+:deep(.el-drawer) {
+  transform: scale(var(--el-scale, 1));
+  transform-origin: top center;
+}
+
+/* 高 DPI 下优化 Element Plus 组件 */
+@media (min-resolution: 1.5dppx) {
+  :deep(.el-input__wrapper),
+  :deep(.el-button),
+  :deep(.el-select__wrapper) {
+    border-width: 1px;
+  }
+}
+
 /* Buttons */
 :deep(.el-button) {
   font-family: var(--font-display);
   font-weight: 500;
+  font-size: var(--btn-font-size);
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-default);
   background: var(--bg-elevated);
   color: var(--text-primary);
   transition: all var(--duration-fast) var(--ease-out);
   box-shadow: var(--shadow-sm);
+  --el-button-size: var(--btn-font-size);
 }
 
 :deep(.el-button:hover) {
@@ -661,4 +688,48 @@ code, .mono {
   h1 { font-size: 2rem; }
   h2 { font-size: 1.5rem; }
   h3 { font-size: 1.25rem; }
+}
+
+/* ============================================
+   Display Scale Adaptation
+   Windows 125%/150%/200% scaling reduces effective viewport.
+   These breakpoints target the resulting smaller CSS pixel widths.
+   ============================================ */
+
+@media (max-width: 1280px) {
+  :root {
+    --space-6: 20px;
+    --space-8: 28px;
+    --space-10: 36px;
+    --btn-padding-y: 6px;
+    --btn-padding-x: 12px;
+    --btn-padding-x-lg: 16px;
+    --btn-font-size: 0.8125rem;
+    --btn-icon-size: 14px;
+  }
+}
+
+@media (max-width: 1024px) {
+  :root {
+    --space-4: 14px;
+    --space-6: 18px;
+    --space-8: 24px;
+    --btn-padding-y: 5px;
+    --btn-padding-x: 10px;
+    --btn-padding-x-lg: 14px;
+    --btn-font-size: 0.75rem;
+    --btn-icon-size: 14px;
+  }
+}
+
+@media (max-width: 768px) {
+  :root {
+    --space-4: 12px;
+    --space-6: 16px;
+    --btn-padding-y: 4px;
+    --btn-padding-x: 8px;
+    --btn-padding-x-lg: 12px;
+    --btn-font-size: 0.6875rem;
+    --btn-icon-size: 12px;
+  }
 }

@@ -43,25 +43,42 @@ func (d *KyuubiDriver) Connect(ctx context.Context, config DatasourceConfig) err
 		auth = "LDAP"
 	}
 
-	var connection *gohive.Connection
-	var err error
-
 	slog.Debug("kyuubi connecting", "host", config.Host, "port", port, "database", config.Database, "mode", config.ConnectionMode)
 
-	if config.ConnectionMode == "zookeeper" && config.ZookeeperQuorum != "" {
-		connection, err = gohive.ConnectZookeeper(config.ZookeeperQuorum, auth, configuration)
-	} else {
-		connection, err = gohive.Connect(config.Host, port, auth, configuration)
+	type connectResult struct {
+		conn *gohive.Connection
+		err  error
 	}
+	resultCh := make(chan connectResult, 1)
 
-	if err != nil {
-		slog.Error("kyuubi connection failed", "host", config.Host, "port", port, "error", err)
-		return fmt.Errorf("failed to connect to kyuubi: %w", err)
+	go func() {
+		var connection *gohive.Connection
+		var err error
+		if config.ConnectionMode == "zookeeper" && config.ZookeeperQuorum != "" {
+			connection, err = gohive.ConnectZookeeper(config.ZookeeperQuorum, auth, configuration)
+		} else {
+			connection, err = gohive.Connect(config.Host, port, auth, configuration)
+		}
+		resultCh <- connectResult{conn: connection, err: err}
+	}()
+
+	select {
+	case <-ctx.Done():
+		go func() {
+			if res := <-resultCh; res.conn != nil {
+				res.conn.Close()
+			}
+		}()
+		return fmt.Errorf("kyuubi connect cancelled: %w", ctx.Err())
+	case result := <-resultCh:
+		if result.err != nil {
+			slog.Error("kyuubi connection failed", "host", config.Host, "port", port, "error", result.err)
+			return fmt.Errorf("failed to connect to kyuubi: %w", result.err)
+		}
+		d.connection = result.conn
+		slog.Info("kyuubi connected", "host", config.Host, "port", port, "database", config.Database)
+		return nil
 	}
-
-	d.connection = connection
-	slog.Info("kyuubi connected", "host", config.Host, "port", port, "database", config.Database)
-	return nil
 }
 
 func (d *KyuubiDriver) TestConnection(ctx context.Context) error {

@@ -3,9 +3,12 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -28,6 +31,47 @@ func parseAddrs(addrsStr string) []string {
 		}
 	}
 	return addrs
+}
+
+func pidFilePath(executorName string) string {
+	cacheDir, err := os.UserCacheDir()
+	if err != nil {
+		cacheDir = os.TempDir()
+	}
+	dir := filepath.Join(cacheDir, "bdopsflow")
+	os.MkdirAll(dir, 0755)
+	return filepath.Join(dir, fmt.Sprintf("executor_%s.pid", executorName))
+}
+
+func acquirePidLock(executorName string) (*os.File, error) {
+	path := pidFilePath(executorName)
+
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0644)
+	if err != nil {
+		return nil, fmt.Errorf("create pidfile: %w", err)
+	}
+
+	err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+	if err != nil {
+		existingData, _ := io.ReadAll(f)
+		f.Close()
+		return nil, fmt.Errorf("executor %q is already running (pidfile %s, existing PID %s)", executorName, path, strings.TrimSpace(string(existingData)))
+	}
+
+	f.Truncate(0)
+	f.Seek(0, 0)
+	f.WriteString(strconv.Itoa(os.Getpid()))
+	f.Sync()
+
+	return f, nil
+}
+
+func releasePidLock(executorName string, f *os.File) {
+	if f != nil {
+		syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		f.Close()
+	}
+	os.Remove(pidFilePath(executorName))
 }
 
 func printExecutorHelp() {
@@ -120,6 +164,13 @@ func main() {
 		"config_file", cfg.ConfigFile,
 	)
 
+	pidFile, err := acquirePidLock(cfg.ExecutorName)
+	if err != nil {
+		slog.Error("failed to acquire pid lock", "error", err)
+		os.Exit(1)
+	}
+	defer releasePidLock(cfg.ExecutorName, pidFile)
+
 	taskPool := pool.NewPool(cfg.Capacity)
 	taskPool.Start()
 
@@ -131,11 +182,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	subErr := make(chan error, 1)
 	go func() {
 		address := fmt.Sprintf("%s#%d", cfg.Hostname, os.Getpid())
 		if err := client.Subscribe(cfg.ExecutorName, address, cfg.Capacity, exec); err != nil {
-			slog.Error("gRPC subscription failed", "error", err)
-			os.Exit(1)
+			subErr <- err
 		}
 	}()
 
@@ -145,9 +196,14 @@ func main() {
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
 
-	slog.Info("executor shutting down")
+	select {
+	case <-quit:
+		slog.Info("executor shutting down")
+	case err := <-subErr:
+		slog.Error("gRPC subscription failed", "error", err)
+	}
+
 	taskPool.Stop()
 	client.Close()
 }

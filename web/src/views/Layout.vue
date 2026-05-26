@@ -1,6 +1,6 @@
 <template>
   <el-container class="main-layout">
-    <el-aside class="sidebar" :width="isCollapse ? '72px' : '260px'">
+    <el-aside class="sidebar" :width="isCollapse ? '72px' : sidebarExpandedWidth">
       <div class="sidebar-header">
         <div class="logo">
           <div class="logo-icon">
@@ -168,6 +168,11 @@ const authStore = useAuthStore()
 const isCollapse = ref(false)
 const systemHealthy = ref(true)
 const openKeys = ref<string[]>([])
+const viewportWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1920)
+
+const sidebarExpandedWidth = computed(() => {
+  return viewportWidth.value < 1200 ? '200px' : '260px'
+})
 
 const user = computed(() => authStore.user)
 const activeMenu = computed(() => route.path)
@@ -255,15 +260,21 @@ async function handleSwitchDomain(domainId: number) {
   await authStore.switchDomain(domainId)
 }
 
+const handleResize = () => {
+  viewportWidth.value = window.innerWidth
+}
+
 onMounted(() => {
   checkSystemHealth()
   healthCheckInterval = window.setInterval(checkSystemHealth, 30000)
+  window.addEventListener('resize', handleResize)
 })
 
 onUnmounted(() => {
   if (healthCheckInterval) {
     clearInterval(healthCheckInterval)
   }
+  window.removeEventListener('resize', handleResize)
 })
 </script>
 

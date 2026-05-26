@@ -43,25 +43,42 @@ func (d *SparkDriver) Connect(ctx context.Context, config DatasourceConfig) erro
 		auth = "LDAP"
 	}
 
-	var connection *gohive.Connection
-	var err error
-
 	slog.Debug("spark connecting", "host", config.Host, "port", port, "database", config.Database, "mode", config.ConnectionMode)
 
-	if config.ConnectionMode == "zookeeper" && config.ZookeeperQuorum != "" {
-		connection, err = gohive.ConnectZookeeper(config.ZookeeperQuorum, auth, configuration)
-	} else {
-		connection, err = gohive.Connect(config.Host, port, auth, configuration)
+	type connectResult struct {
+		conn *gohive.Connection
+		err  error
 	}
+	resultCh := make(chan connectResult, 1)
 
-	if err != nil {
-		slog.Error("spark connection failed", "host", config.Host, "port", port, "error", err)
-		return fmt.Errorf("failed to connect to spark: %w", err)
+	go func() {
+		var connection *gohive.Connection
+		var err error
+		if config.ConnectionMode == "zookeeper" && config.ZookeeperQuorum != "" {
+			connection, err = gohive.ConnectZookeeper(config.ZookeeperQuorum, auth, configuration)
+		} else {
+			connection, err = gohive.Connect(config.Host, port, auth, configuration)
+		}
+		resultCh <- connectResult{conn: connection, err: err}
+	}()
+
+	select {
+	case <-ctx.Done():
+		go func() {
+			if res := <-resultCh; res.conn != nil {
+				res.conn.Close()
+			}
+		}()
+		return fmt.Errorf("spark connect cancelled: %w", ctx.Err())
+	case result := <-resultCh:
+		if result.err != nil {
+			slog.Error("spark connection failed", "host", config.Host, "port", port, "error", result.err)
+			return fmt.Errorf("failed to connect to spark: %w", result.err)
+		}
+		d.connection = result.conn
+		slog.Info("spark connected", "host", config.Host, "port", port, "database", config.Database)
+		return nil
 	}
-
-	d.connection = connection
-	slog.Info("spark connected", "host", config.Host, "port", port, "database", config.Database)
-	return nil
 }
 
 func (d *SparkDriver) TestConnection(ctx context.Context) error {

@@ -634,7 +634,6 @@ const loadRoles = async () => {
       roles.value = allRoles.filter((r: any) => r.code !== 'system_admin')
     }
   } catch (error) {
-    console.error('加载角色列表失败', error)
   }
 }
 
@@ -649,7 +648,6 @@ const loadDomains = async () => {
       domains.value = allDomains.filter((d: any) => userDomainIds.includes(d.id))
     }
   } catch (error) {
-    console.error('加载领域列表失败', error)
   }
 }
 

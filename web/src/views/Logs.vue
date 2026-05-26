@@ -488,9 +488,6 @@ const formatDuration = (startTime: string | null | undefined, endTime: string | 
 const loadExecutions = async (page: number = currentPage.value) => {
   loading.value = true
   try {
-    console.log('Loading executions with filters:', filters.value, 'page:', page, 'pageSize:', pageSize.value)
-    
-    // 处理筛选参数
     const params: Record<string, any> = {
       id: filters.value.id,
       execution_id: filters.value.execution_id,
@@ -520,19 +517,19 @@ const loadExecutions = async (page: number = currentPage.value) => {
       params.duration_max = filters.value.duration_max
     }
     
-    // 加载分页数据
-    const response = await logAPI.list(params)
-    console.log('Received response:', response.data)
-    // 安全地赋值，默认为空数组
-    executions.value = response.data.items || []
-    total.value = response.data.total || 0
-    currentPage.value = response.data.page || 1
-    
-    // 加载统计数据
     const statsParams: Record<string, any> = { ...params }
     delete statsParams.page
     delete statsParams.page_size
-    const statsResponse = await logAPI.getStats(statsParams)
+
+    const [response, statsResponse] = await Promise.all([
+      logAPI.list(params),
+      logAPI.getStats(statsParams)
+    ])
+
+    executions.value = response.data.items || []
+    total.value = response.data.total || 0
+    currentPage.value = response.data.page || 1
+
     const statsData = statsResponse.data || {}
     stats.value = {
       success: statsData.success || 0,
@@ -540,7 +537,6 @@ const loadExecutions = async (page: number = currentPage.value) => {
       running: statsData.running || 0
     }
   } catch (error) {
-    console.error('Failed to load executions:', error)
     ElMessage.error('加载执行记录失败')
   } finally {
     loading.value = false
@@ -552,7 +548,7 @@ const loadExecutors = async () => {
     const response = await executorAPI.list()
     executors.value = response.data.items || []
   } catch (error) {
-    console.error('加载执行器列表失败', error)
+    // ignore
   }
 }
 
@@ -561,7 +557,7 @@ const loadTasks = async () => {
     const response = await taskAPI.list()
     tasks.value = response.data?.items || []
   } catch (error) {
-    console.error('加载任务列表失败', error)
+    // ignore
   }
 }
 
@@ -1165,7 +1161,7 @@ onMounted(async () => {
 /* Logs Section */
 .logs-section {
   flex: 1;
-  min-width: 400px;
+  min-width: 280px;
   display: flex;
   flex-direction: column;
   overflow: hidden;

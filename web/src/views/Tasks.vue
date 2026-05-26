@@ -1235,7 +1235,6 @@ const loadExecutors = async () => {
     const response = await executorAPI.list()
     executors.value = response.data.items || []
   } catch (error) {
-    console.error('加载执行器列表失败:', error)
     ElMessage.error('加载执行器列表失败')
   }
 }
@@ -1278,7 +1277,7 @@ const loadExecutors = async () => {
 /* Logs Section */
 .logs-section {
   flex: 1;
-  min-width: 400px;
+  min-width: 280px;
   display: flex;
   flex-direction: column;
   overflow: hidden;

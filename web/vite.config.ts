@@ -25,5 +25,20 @@ export default defineConfig({
   build: {
     outDir: '../scheduler/web',
     emptyOutDir: false,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-vue': ['vue', 'vue-router', 'pinia'],
+          'vendor-element': ['element-plus'],
+          'vendor-codemirror': [
+            '@codemirror/view',
+            '@codemirror/state',
+            '@codemirror/lang-sql',
+            '@codemirror/theme-one-dark',
+            '@codemirror/autocomplete',
+          ],
+        },
+      },
+    },
   },
 })

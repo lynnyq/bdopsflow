@@ -631,7 +631,7 @@ const clearAll = () => {
 }
 
 const runWorkflow = () => {
-  console.log('Executing workflow:', props.workflowId)
+  emit('execute', props.workflowId)
 }
 
 watch(() => props.initialDag, (newDag) => {

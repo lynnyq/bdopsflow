@@ -89,10 +89,10 @@
         </el-form-item>
         <el-form-item label="自定义Headers">
           <div class="headers-editor">
-            <div v-for="(header, index) in form.headerList" :key="index" class="header-row">
+            <div v-for="header in form.headerList" :key="header._uid" class="header-row">
               <el-input v-model="header.key" placeholder="Key" class="header-key" clearable />
               <el-input v-model="header.value" placeholder="Value" class="header-value" clearable />
-              <el-button :icon="Delete" circle size="small" @click="removeHeader(index)" />
+              <el-button :icon="Delete" circle size="small" @click="removeHeader(header)" />
             </div>
             <el-button :icon="Plus" size="small" @click="addHeader">添加Header</el-button>
           </div>
@@ -192,7 +192,7 @@ const handleEdit = (row: Webhook) => {
   if (row.headers) {
     try {
       const parsed = typeof row.headers === 'string' ? JSON.parse(row.headers) : row.headers
-      headerList = Object.entries(parsed).map(([key, value]) => ({ key, value: String(value) }))
+      headerList = Object.entries(parsed).map(([key, value]) => ({ key, value: String(value), _uid: Date.now() + Math.random() }))
     } catch { /* ignore */ }
   }
   form.value = {
@@ -207,11 +207,14 @@ const handleEdit = (row: Webhook) => {
 }
 
 const addHeader = () => {
-  form.value.headerList.push({ key: '', value: '' })
+  form.value.headerList.push({ key: '', value: '', _uid: Date.now() + Math.random() })
 }
 
-const removeHeader = (index: number) => {
-  form.value.headerList.splice(index, 1)
+const removeHeader = (header: any) => {
+  const idx = form.value.headerList.indexOf(header)
+  if (idx !== -1) {
+    form.value.headerList.splice(idx, 1)
+  }
 }
 
 const buildHeadersJson = () => {

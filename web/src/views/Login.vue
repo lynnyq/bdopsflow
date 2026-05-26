@@ -277,11 +277,6 @@ const handleLogin = async () => {
       
       errorMessage.value = errorMsg
       ElMessage.error(errorMsg)
-        
-        // 如果是 401 错误，不触发重定向，保持在登录页
-        if (error?.response?.status === 401) {
-          console.warn('登录失败:', errorMsg)
-        }
       } finally {
         isLoading.value = false
       }

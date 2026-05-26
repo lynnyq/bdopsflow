@@ -18,76 +18,88 @@
           </el-button>
         </div>
 
-        <div class="panel-section">
-          <span class="section-label">数据源</span>
-          <el-select
-            v-model="selectedDatasourceId"
-            placeholder="选择数据源"
-            class="field-select"
-            filterable
-            :disabled="executing"
-            @change="handleDatasourceChange"
-          >
-            <el-option
-              v-for="ds in datasources"
-              :key="ds.id"
-              :label="ds.name"
-              :value="ds.id"
-            >
-              <span>{{ ds.name }}</span>
-              <el-tag
-                size="small"
-                effect="light"
-                class="type-tag"
-                :class="`tag-${ds.type}`"
+        <div class="panel-section selector-section" :class="{ collapsed: selectorCollapsed }">
+          <div class="section-label selector-toggle" @click="selectorCollapsed = !selectorCollapsed">
+            <span>数据源配置</span>
+            <el-icon :size="12"><component :is="selectorCollapsed ? ArrowDown : ArrowUp" /></el-icon>
+          </div>
+          <div class="selector-fields" v-show="!selectorCollapsed">
+            <div class="selector-field">
+              <span class="field-label">数据源</span>
+              <el-select
+                v-model="selectedDatasourceId"
+                placeholder="选择数据源"
+                class="field-select"
+                filterable
+                :disabled="executing"
+                @change="handleDatasourceChange"
               >
-                {{ dsTypeLabels[ds.type] || ds.type }}
-              </el-tag>
-            </el-option>
-          </el-select>
-        </div>
-
-        <div class="panel-section">
-          <span class="section-label">数据库</span>
-          <el-select
-            v-model="selectedDatabase"
-            placeholder="选择数据库"
-            class="field-select"
-            filterable
-            :disabled="!selectedDatasourceId"
-            @change="handleDatabaseChange"
-          >
-            <el-option
-              v-for="db in databases"
-              :key="db"
-              :label="db"
-              :value="db"
-            />
-          </el-select>
-        </div>
-
-        <div class="panel-section">
-          <span class="section-label">表</span>
-          <el-select
-            v-model="selectedTable"
-            placeholder="选择表"
-            class="field-select"
-            filterable
-            :disabled="!selectedDatabase"
-            @change="handleTableChange"
-          >
-            <el-option
-              v-for="table in availableTables"
-              :key="table.name"
-              :label="table.name"
-              :value="table.name"
-            />
-          </el-select>
+                <el-option
+                  v-for="ds in datasources"
+                  :key="ds.id"
+                  :label="ds.name"
+                  :value="ds.id"
+                >
+                  <span>{{ ds.name }}</span>
+                  <el-tag
+                    size="small"
+                    effect="light"
+                    class="type-tag"
+                    :class="`tag-${ds.type}`"
+                  >
+                    {{ dsTypeLabels[ds.type] || ds.type }}
+                  </el-tag>
+                </el-option>
+              </el-select>
+            </div>
+            <div class="selector-field">
+              <span class="field-label">数据库</span>
+              <el-select
+                v-model="selectedDatabase"
+                placeholder="选择数据库"
+                class="field-select"
+                filterable
+                :disabled="!selectedDatasourceId || loadingDatabases"
+                :loading="loadingDatabases"
+                @change="handleDatabaseChange"
+              >
+                <el-option
+                  v-for="db in databases"
+                  :key="db"
+                  :label="db"
+                  :value="db"
+                />
+              </el-select>
+            </div>
+            <div class="selector-field">
+              <span class="field-label">表</span>
+              <el-select
+                v-model="selectedTable"
+                placeholder="选择表"
+                class="field-select"
+                filterable
+                :disabled="!selectedDatabase || loadingTables"
+                :loading="loadingTables"
+                @change="handleTableChange"
+              >
+                <el-option
+                  v-for="table in availableTables"
+                  :key="table.name"
+                  :label="table.name"
+                  :value="table.name"
+                />
+              </el-select>
+            </div>
+          </div>
         </div>
 
         <div class="panel-section columns-section">
           <span class="section-label">字段</span>
-          <div class="columns-list">
+          <div v-if="loadingColumns" class="columns-loading">
+            <el-icon class="is-loading" :size="16"><Refresh /></el-icon>
+            <span>加载中...</span>
+          </div>
+          <div v-else class="columns-list">
             <div
               v-for="column in selectedTableColumns"
               :key="column.name"
@@ -215,8 +227,8 @@
                     <Close />
                   </el-icon>
                 </div>
+                <el-button class="tab-add-btn" :icon="Plus" link size="small" @click="handleAddTab" />
               </div>
-              <el-button class="tab-add-btn" :icon="Plus" link size="small" @click="handleAddTab" />
             </div>
             <span class="editor-meta">
               <el-dropdown trigger="click" @command="handleHistorySelect" v-if="recentSQLHistory.length > 0">
@@ -272,6 +284,7 @@
                   <span class="meta-item">
                     <el-icon :size="14"><DataLine /></el-icon>
                     {{ queryResult.row_count }} 行
+                    <span v-if="queryResult.row_count > MAX_DISPLAY_ROWS" class="truncated-hint">(显示前 {{ MAX_DISPLAY_ROWS }} 行)</span>
                   </span>
                   <span class="meta-item">
                     <el-icon :size="14"><Clock /></el-icon>
@@ -302,8 +315,8 @@
                 :header-cell-style="{ background: 'var(--bg-secondary)', fontWeight: 600 }"
               >
                 <el-table-column
-                  v-for="(col, index) in queryResult.columns"
-                  :key="index"
+                  v-for="col in queryResult.columns"
+                  :key="col"
                   :prop="col"
                   :label="col"
                   :min-width="120"
@@ -377,7 +390,7 @@ import { ElMessage } from 'element-plus';
 import {
   DataLine, Refresh, Key, Document, Search,
   CircleClose, VideoPlay, Delete, CircleCheck, Clock, Download, Warning,
-  Plus, Close
+  Plus, Close, ArrowDown, ArrowUp
 } from '@element-plus/icons-vue';
 import { datasourceAPI, queryAPI } from '@/api';
 import { translateErrorMessage } from '@/utils/error';
@@ -411,7 +424,6 @@ const loadTabsFromStorage = (): { tabs: SQLTab[]; activeTabId: string } => {
       }
     }
   } catch (e) {
-    console.error('Failed to load tabs from storage:', e);
   }
   tabCounter = 1;
   const defaultTab: SQLTab = {
@@ -451,14 +463,16 @@ watch(() => authStore.user?.id, (newUserId, oldUserId) => {
 });
 
 const saveTabsToStorage = () => {
-  try {
-    localStorage.setItem(getStorageKey(), JSON.stringify({
-      tabs: tabs.value,
-      activeTabId: activeTabId.value,
-    }));
-  } catch (e) {
-    console.error('Failed to save tabs to storage:', e);
-  }
+  if (saveTabsTimer) clearTimeout(saveTabsTimer);
+  saveTabsTimer = setTimeout(() => {
+    try {
+      localStorage.setItem(getStorageKey(), JSON.stringify({
+        tabs: tabs.value,
+        activeTabId: activeTabId.value,
+      }));
+    } catch (e) {
+    }
+  }, 500);
 };
 
 const activeTab = computed(() => tabs.value.find(t => t.id === activeTabId.value) || tabs.value[0]);
@@ -467,6 +481,7 @@ const editorRef = ref<HTMLElement>();
 const editorHeight = ref(200);
 const isResizing = ref(false);
 const sqlText = ref(activeTab.value.sql);
+const selectorCollapsed = ref(false);
 const executing = ref(false);
 const exporting = ref(false);
 const exportProgress = ref(0);
@@ -483,6 +498,26 @@ const selectedDatabase = ref(activeTab.value.database);
 const tables = ref<TableInfo[]>([]);
 const selectedTable = ref('');
 const selectedTableColumns = ref<ColumnInfo[]>([]);
+const loadingDatabases = ref(false);
+const loadingTables = ref(false);
+const loadingColumns = ref(false);
+
+const metadataCache = new Map<string, { data: any; timestamp: number }>();
+const METADATA_CACHE_TTL = 5 * 60 * 1000;
+
+const getCachedMetadata = (key: string): any | null => {
+  const entry = metadataCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.timestamp > METADATA_CACHE_TTL) {
+    metadataCache.delete(key);
+    return null;
+  }
+  return entry.data;
+};
+
+const setCachedMetadata = (key: string, data: any) => {
+  metadataCache.set(key, { data, timestamp: Date.now() });
+};
 
 const autocompleteData = ref<{
   tables: string[];
@@ -524,6 +559,7 @@ const dsTypeLabels: Record<string, string> = {
 };
 
 let editorView: EditorView | null = null;
+let saveTabsTimer: ReturnType<typeof setTimeout> | null = null;
 const availableTables = computed(() => tables.value);
 
 const numericTypes = new Set([
@@ -532,13 +568,19 @@ const numericTypes = new Set([
   'money', 'serial', 'bigserial', 'smallserial'
 ]);
 
-const getColumnAlign = (colName: string) => {
-  if (!selectedTableColumns.value.length) return 'left';
-  const col = selectedTableColumns.value.find(c => c.name === colName);
-  if (col && numericTypes.has(col.type.toLowerCase().split('(')[0])) {
-    return 'right';
+const columnAlignMap = computed(() => {
+  const map: Record<string, string> = {};
+  if (!selectedTableColumns.value.length) return map;
+  for (const col of selectedTableColumns.value) {
+    if (numericTypes.has(col.type.toLowerCase().split('(')[0])) {
+      map[col.name] = 'right';
+    }
   }
-  return 'left';
+  return map;
+});
+
+const getColumnAlign = (colName: string) => {
+  return columnAlignMap.value[colName] || 'left';
 };
 
 const formatCellValue = (value: any): string => {
@@ -550,9 +592,13 @@ const formatCellValue = (value: any): string => {
   return String(value);
 };
 
+const MAX_DISPLAY_ROWS = 500;
+
 const formatResultRows = computed(() => {
   if (!queryResult.value?.rows) return [];
-  return queryResult.value.rows.map(row => {
+  const rows = queryResult.value.rows;
+  const displayRows = rows.length > MAX_DISPLAY_ROWS ? rows.slice(0, MAX_DISPLAY_ROWS) : rows;
+  return displayRows.map(row => {
     const obj: Record<string, string> = {};
     queryResult.value!.columns.forEach((col, i) => {
       obj[col] = formatCellValue(row[i]);
@@ -636,6 +682,22 @@ const handleDatasourceChangeForTab = async (dsId: number | '', dbName: string) =
     return;
   }
 
+  const cacheKey = `databases_${dsId}`;
+  const cached = getCachedMetadata(cacheKey);
+  if (cached) {
+    databases.value = cached;
+    if (dbName && cached.includes(dbName)) {
+      selectedDatabase.value = dbName;
+    } else if (ds.database && cached.includes(ds.database)) {
+      selectedDatabase.value = ds.database;
+    } else {
+      selectedDatabase.value = cached[0];
+    }
+    await handleDatabaseChange();
+    return;
+  }
+
+  loadingDatabases.value = true;
   try {
     const res = await datasourceAPI.getDatabases(dsId as number);
     let dbList = res.data || [];
@@ -643,6 +705,7 @@ const handleDatasourceChangeForTab = async (dsId: number | '', dbName: string) =
       dbList = ds.database ? [ds.database] : ['default'];
     }
     databases.value = dbList;
+    setCachedMetadata(cacheKey, dbList);
     if (dbName && dbList.includes(dbName)) {
       selectedDatabase.value = dbName;
     } else if (ds.database && dbList.includes(ds.database)) {
@@ -651,11 +714,13 @@ const handleDatasourceChangeForTab = async (dsId: number | '', dbName: string) =
       selectedDatabase.value = dbList[0];
     }
     await handleDatabaseChange();
-  } catch (err) {
-    console.error('Failed to load databases:', err);
+  } catch (err: any) {
+    const msg = err?.response?.data?.message || err?.message || '获取数据库列表失败';
+    ElMessage.error(`获取数据库列表失败: ${msg}`);
     databases.value = ds.database ? [ds.database] : ['default'];
     selectedDatabase.value = dbName || databases.value[0];
-    await handleDatabaseChange();
+  } finally {
+    loadingDatabases.value = false;
   }
 };
 
@@ -893,7 +958,6 @@ const loadDatasources = async () => {
       }
     }
   } catch (err) {
-    console.error('加载数据源列表失败:', err);
   }
 };
 
@@ -907,7 +971,6 @@ const loadRecentHistory = async () => {
       }));
     }
   } catch (err) {
-    console.error('Failed to load history:', err);
   }
 };
 
@@ -963,6 +1026,20 @@ const handleDatasourceChange = async () => {
     return;
   }
 
+  const cacheKey = `databases_${selectedDatasourceId.value}`;
+  const cached = getCachedMetadata(cacheKey);
+  if (cached) {
+    databases.value = cached;
+    if (ds.database && cached.includes(ds.database)) {
+      selectedDatabase.value = ds.database;
+    } else {
+      selectedDatabase.value = cached[0];
+    }
+    await handleDatabaseChange();
+    return;
+  }
+
+  loadingDatabases.value = true;
   try {
     const res = await datasourceAPI.getDatabases(selectedDatasourceId.value as number);
     let dbList = res.data || [];
@@ -970,17 +1047,20 @@ const handleDatasourceChange = async () => {
       dbList = ds.database ? [ds.database] : ['default'];
     }
     databases.value = dbList;
+    setCachedMetadata(cacheKey, dbList);
     if (ds.database && dbList.includes(ds.database)) {
       selectedDatabase.value = ds.database;
     } else {
       selectedDatabase.value = dbList[0];
     }
     await handleDatabaseChange();
-  } catch (err) {
-    console.error('Failed to load databases:', err);
+  } catch (err: any) {
+    const msg = err?.response?.data?.message || err?.message || '获取数据库列表失败';
+    ElMessage.error(`获取数据库列表失败: ${msg}`);
     databases.value = ds.database ? [ds.database] : ['default'];
     selectedDatabase.value = databases.value[0];
-    await handleDatabaseChange();
+  } finally {
+    loadingDatabases.value = false;
   }
 };
 
@@ -995,13 +1075,26 @@ const handleDatabaseChange = async () => {
 
   const dbName = selectedDatabase.value || 'default';
 
+  const cacheKey = `tables_${selectedDatasourceId.value}_${dbName}`;
+  const cached = getCachedMetadata(cacheKey);
+  if (cached) {
+    tables.value = cached;
+    autocompleteData.value.tables = cached.map((t: any) => t.name || '').filter(Boolean);
+    return;
+  }
+
+  loadingTables.value = true;
   try {
     const res = await datasourceAPI.getTables(selectedDatasourceId.value as number, dbName);
     const tableData = res.data || [];
     tables.value = tableData;
+    setCachedMetadata(cacheKey, tableData);
     autocompleteData.value.tables = tableData.map((t: any) => t.name || '').filter(Boolean);
-  } catch (err) {
-    console.error('Failed to load tables:', err);
+  } catch (err: any) {
+    const msg = err?.response?.data?.message || err?.message || '获取数据表列表失败';
+    ElMessage.error(`获取数据表列表失败: ${msg}`);
+  } finally {
+    loadingTables.value = false;
   }
 };
 
@@ -1014,18 +1107,37 @@ const handleTableChange = async () => {
 
   const dbName = selectedDatabase.value || 'default';
 
+  const cacheKey = `columns_${selectedDatasourceId.value}_${dbName}_${selectedTable.value}`;
+  const cached = getCachedMetadata(cacheKey);
+  if (cached) {
+    selectedTableColumns.value = cached;
+    autocompleteData.value.columns = cached.map((c: any) => c.name || '').filter(Boolean);
+    return;
+  }
+
+  loadingColumns.value = true;
   try {
     const res = await datasourceAPI.getColumns(selectedDatasourceId.value as number, dbName, selectedTable.value);
     selectedTableColumns.value = res.data || [];
+    setCachedMetadata(cacheKey, res.data || []);
     autocompleteData.value.columns = (res.data || []).map((c: any) => c.name || '').filter(Boolean);
-  } catch (err) {
-    console.error('Failed to load columns:', err);
+  } catch (err: any) {
+    const msg = err?.response?.data?.message || err?.message || '获取字段列表失败';
+    ElMessage.error(`获取字段列表失败: ${msg}`);
     selectedTableColumns.value = [];
     autocompleteData.value.columns = [];
+  } finally {
+    loadingColumns.value = false;
   }
 };
 
 const refreshMetadata = async () => {
+  if (selectedDatasourceId.value) {
+    metadataCache.delete(`databases_${selectedDatasourceId.value}`);
+  }
+  if (selectedDatasourceId.value && selectedDatabase.value) {
+    metadataCache.delete(`tables_${selectedDatasourceId.value}_${selectedDatabase.value}`);
+  }
   await handleDatabaseChange();
 };
 
@@ -1292,11 +1404,13 @@ onUnmounted(() => {
   editorView?.destroy();
   document.removeEventListener('mousemove', onResize);
   document.removeEventListener('mouseup', stopResize);
+  window.removeEventListener('beforeunload', handleBeforeUnload);
 });
 
-window.addEventListener('beforeunload', () => {
+const handleBeforeUnload = () => {
   syncCurrentTabData();
-});
+};
+window.addEventListener('beforeunload', handleBeforeUnload);
 </script>
 
 <style scoped>
@@ -1328,7 +1442,8 @@ window.addEventListener('beforeunload', () => {
 
 .metadata-panel {
   width: 280px;
-  flex-shrink: 0;
+  min-width: 200px;
+  flex-shrink: 1;
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
@@ -1337,6 +1452,20 @@ window.addEventListener('beforeunload', () => {
   flex-direction: column;
   overflow: hidden;
   align-self: stretch;
+}
+
+@media (max-width: 1200px) {
+  .metadata-panel {
+    width: 220px;
+    min-width: 180px;
+  }
+}
+
+@media (max-width: 900px) {
+  .metadata-panel {
+    width: 180px;
+    min-width: 150px;
+  }
 }
 
 .panel-header {
@@ -1358,8 +1487,47 @@ window.addEventListener('beforeunload', () => {
 }
 
 .panel-section {
-  padding: var(--space-4);
+  padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--border-subtle);
+}
+
+.selector-section {
+  padding-bottom: 0;
+}
+
+.selector-section.collapsed {
+  padding-bottom: var(--space-3);
+}
+
+.selector-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  user-select: none;
+}
+
+.selector-toggle:hover {
+  color: var(--accent-primary);
+}
+
+.selector-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+}
+
+.selector-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.field-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
 }
 
 .section-label {
@@ -1367,7 +1535,7 @@ window.addEventListener('beforeunload', () => {
   font-size: var(--font-size-sm);
   font-weight: 500;
   color: var(--text-secondary);
-  margin-bottom: var(--space-3);
+  margin-bottom: var(--space-2);
 }
 
 .field-select {
@@ -1394,7 +1562,17 @@ window.addEventListener('beforeunload', () => {
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  min-height: 0;
+  min-height: 200px;
+}
+
+.columns-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: var(--space-4);
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
 }
 
 .columns-list {
@@ -1409,10 +1587,10 @@ window.addEventListener('beforeunload', () => {
 .column-item {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 8px;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
   background: var(--bg-secondary);
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   cursor: pointer;
   transition: all var(--duration-fast);
 }
@@ -1439,11 +1617,11 @@ window.addEventListener('beforeunload', () => {
 }
 
 .column-type {
-  font-size: 10px;
+  font-size: 0.6875rem;
   color: var(--text-muted);
   background: var(--bg-card);
-  padding: 2px 6px;
-  border-radius: 3px;
+  padding: 1px var(--space-1);
+  border-radius: var(--radius-xs);
   flex-shrink: 0;
 }
 
@@ -1474,7 +1652,9 @@ window.addEventListener('beforeunload', () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: var(--space-4);
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
@@ -1484,18 +1664,26 @@ window.addEventListener('beforeunload', () => {
 .toolbar-left,
 .toolbar-right {
   display: flex;
-  gap: var(--space-3);
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.toolbar-left .el-divider--vertical {
+  height: 1.2em;
+  align-self: center;
 }
 
 .refresh-btn {
   font-weight: 500;
+  font-size: var(--btn-font-size);
   background: var(--bg-secondary);
   border: 1px solid var(--border-default);
   color: var(--text-primary);
   border-radius: var(--radius-md);
   box-shadow: none;
   transition: all var(--duration-normal) var(--ease-out);
-  padding: 8px 16px;
+  padding: var(--btn-padding-y) var(--btn-padding-x);
 }
 
 .refresh-btn:hover {
@@ -1514,13 +1702,14 @@ window.addEventListener('beforeunload', () => {
 
 .create-btn {
   font-weight: 500;
+  font-size: var(--btn-font-size);
   background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
   border: none;
   color: white;
   border-radius: var(--radius-md);
   box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
   transition: all var(--duration-normal) var(--ease-out);
-  padding: 8px 20px;
+  padding: var(--btn-padding-y) var(--btn-padding-x-lg);
 }
 
 .create-btn:hover {
@@ -1531,13 +1720,14 @@ window.addEventListener('beforeunload', () => {
 
 .cancel-btn {
   font-weight: 500;
+  font-size: var(--btn-font-size);
   background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
   border: none;
   color: white;
   border-radius: var(--radius-md);
   box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
   transition: all var(--duration-normal) var(--ease-out);
-  padding: 8px 16px;
+  padding: var(--btn-padding-y) var(--btn-padding-x);
 }
 
 .cancel-btn:hover:not(:disabled) {
@@ -1555,9 +1745,9 @@ window.addEventListener('beforeunload', () => {
 .dml-warning {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  padding: 4px 8px;
+  gap: var(--space-1);
+  font-size: var(--btn-font-size);
+  padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-md);
 }
 
@@ -1604,9 +1794,9 @@ window.addEventListener('beforeunload', () => {
 .tab-item {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
-  font-size: 13px;
+  gap: var(--space-2);
+  padding: var(--btn-padding-y) var(--space-3);
+  font-size: var(--btn-font-size);
   color: var(--text-secondary);
   cursor: pointer;
   border-right: 1px solid var(--border-subtle);
@@ -1659,7 +1849,7 @@ window.addEventListener('beforeunload', () => {
 
 .tab-add-btn {
   color: var(--text-muted);
-  padding: 8px 10px;
+  padding: var(--btn-padding-y) var(--space-2);
   flex-shrink: 0;
   transition: color var(--duration-fast);
 }
@@ -1758,8 +1948,14 @@ window.addEventListener('beforeunload', () => {
 .cache-badge {
   background: rgba(251, 191, 36, 0.1);
   color: var(--accent-warning);
-  padding: 2px 8px;
+  padding: 1px var(--space-2);
   border-radius: var(--radius-sm);
+}
+
+.truncated-hint {
+  font-size: 0.6875rem;
+  color: var(--accent-warning);
+  margin-left: var(--space-1);
 }
 
 .error-text {

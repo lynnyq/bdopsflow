@@ -2,6 +2,7 @@ package grpcserver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -106,10 +107,14 @@ func (s *Server) Register(ctx context.Context, req *pb.RegisterRequest) (*pb.Reg
 	executorName, err := s.scheduler.RegisterExecutor(ctx, req.Name, req.Address, req.Capacity)
 	if err != nil {
 		slog.Error("executor register failed", "error", err)
-		return &pb.RegisterResponse{
+		resp := &pb.RegisterResponse{
 			Success: false,
 			Message: err.Error(),
-		}, nil
+		}
+		if errors.Is(err, service.ErrExecutorDuplicate) {
+			resp.Duplicate = true
+		}
+		return resp, nil
 	}
 
 	slog.Info("executor registered successfully", "executor_name", executorName)

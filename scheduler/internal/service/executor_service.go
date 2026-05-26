@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/lynnyq/bdopsflow/scheduler/internal/model"
@@ -67,6 +68,32 @@ func (s *SchedulerService) RegisterExecutor(ctx context.Context, name, address s
 
 	existingExecutor, err := s.GetExecutorByName(ctx, name)
 	if err == nil && existingExecutor != nil {
+		if existingExecutor.Status == "online" && existingExecutor.Address != address {
+			existingHost := strings.SplitN(existingExecutor.Address, "#", 2)[0]
+			newHost := strings.SplitN(address, "#", 2)[0]
+			sameHost := existingHost == newHost
+
+			if !sameHost && existingExecutor.LastHeartbeat.Valid {
+				heartbeatCutoff := time.Now().Add(-45 * time.Second)
+				if existingExecutor.LastHeartbeat.Time.After(heartbeatCutoff) {
+					slog.Warn("RegisterExecutor: rejected duplicate executor from different host",
+						"name", name,
+						"existing_address", existingExecutor.Address,
+						"new_address", address,
+					)
+					return "", fmt.Errorf("%w: executor %s is already online at %s, duplicate registration rejected", ErrExecutorDuplicate, name, existingExecutor.Address)
+				}
+			}
+
+			if sameHost {
+				slog.Info("RegisterExecutor: same host restart detected, allowing re-registration",
+					"name", name,
+					"old_address", existingExecutor.Address,
+					"new_address", address,
+				)
+			}
+		}
+
 		updateQuery := `
 			UPDATE bdopsflow_executors
 			SET address = ?, capacity = ?, status = 'online', last_heartbeat = ?, updated_at = ?

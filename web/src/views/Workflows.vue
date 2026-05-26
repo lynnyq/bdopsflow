@@ -363,15 +363,16 @@ const loadWorkflows = async () => {
     const response = await workflowAPI.list()
     workflows.value = response.data.items || []
   } catch (error) {
-    console.error('加载工作流失败:', error)
     workflows.value = []
   }
 }
 
 const selectWorkflow = async (workflow: Workflow) => {
   selectedWorkflow.value = workflow
-  await loadWorkflowDAG(workflow.id)
-  await loadWorkflowExecutions(workflow.id)
+  await Promise.all([
+    loadWorkflowDAG(workflow.id),
+    loadWorkflowExecutions(workflow.id)
+  ])
   currentExecution.value = null
   currentLogs.value = []
   nodeStates.value = {}
@@ -401,7 +402,6 @@ const loadWorkflowExecutions = async (workflowId: number) => {
     const response = await workflowAPI.getExecutions(workflowId)
     workflowExecutions.value = response.data || []
   } catch (error) {
-    console.error('加载工作流执行历史失败:', error)
     workflowExecutions.value = []
   }
 }
@@ -469,7 +469,6 @@ const submitWorkflow = async () => {
     await loadWorkflows()
     closeDialog()
   } catch (error) {
-    console.error('保存工作流失败:', error)
     ElMessage.error('保存工作流失败')
   }
 }
@@ -485,7 +484,6 @@ const saveWorkflow = async () => {
     selectedWorkflow.value = workflows.value.find(w => w.id === selectedWorkflow.value?.id) || null
     ElMessage.success('工作流保存成功')
   } catch (error) {
-    console.error('保存工作流失败:', error)
     ElMessage.error('保存工作流失败')
   }
 }
@@ -505,7 +503,6 @@ const deleteWorkflow = async () => {
     deleteTarget.value = null
     ElMessage.success('工作流删除成功')
   } catch (error) {
-    console.error('删除工作流失败:', error)
     ElMessage.error('删除工作流失败')
   }
 }
@@ -550,7 +547,6 @@ const triggerWorkflow = async () => {
     
     ElMessage.success('工作流已启动')
   } catch (error) {
-    console.error('启动工作流失败:', error)
     ElMessage.error('启动工作流失败')
     isRunning.value = false
   }
@@ -563,7 +559,6 @@ const viewExecutionLogs = async (execution: WorkflowExecution) => {
     const response = await workflowAPI.getExecutionLogs(execution.execution_id)
     currentLogs.value = response.data
   } catch (error) {
-    console.error('加载日志失败:', error)
     currentLogs.value = []
   }
   
@@ -591,7 +586,6 @@ const startPolling = () => {
       const response = await workflowAPI.getExecutionLogs(currentExecution.value.execution_id)
       currentLogs.value = response.data
     } catch (error) {
-      console.error('轮询日志失败:', error)
     }
   }, 1000)
   
@@ -621,7 +615,6 @@ const startPolling = () => {
         }
       }
     } catch (error) {
-      console.error('轮询执行状态失败:', error)
     }
   }, 1000)
 }

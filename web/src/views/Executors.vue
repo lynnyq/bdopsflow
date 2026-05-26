@@ -323,7 +323,6 @@ const loadExecutors = async () => {
     const response = await executorAPI.list()
     executors.value = response.data.items || []
   } catch (error) {
-    console.error('Failed to load executors:', error)
     ElMessage.error('加载执行器失败')
   } finally {
     loading.value = false
@@ -335,7 +334,6 @@ const loadDomains = async () => {
     const response = await domainAdminAPI.list()
     allDomains.value = response.data.items || []
   } catch (error) {
-    console.error('Failed to load domains:', error)
   }
 }
 
@@ -424,7 +422,6 @@ const handleSaveCapacity = async (row: ExecutorWithDomains) => {
     row.capacity = newCapacity
     ElMessage.success('容量更新成功')
   } catch (error) {
-    console.error('Failed to update capacity:', error)
     ElMessage.error('容量更新失败')
   } finally {
     editingRow.value = null
@@ -455,7 +452,6 @@ const handleSaveAssignDomains = async () => {
     assignDialogVisible.value = false
     loadExecutors()
   } catch (error) {
-    console.error('Failed to assign domains:', error)
     ElMessage.error('分配失败')
   } finally {
     assignLoading.value = false

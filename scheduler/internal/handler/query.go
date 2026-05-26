@@ -211,7 +211,14 @@ func (h *QueryHandler) GetMetadata(c *gin.Context) {
 		return
 	}
 
-	drv, err := h.manager.GetDriver(c.Request.Context(), ds)
+	metadataTimeout := h.config.GetInt("datasource.metadata_timeout")
+	if metadataTimeout <= 0 {
+		metadataTimeout = 60
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), time.Duration(metadataTimeout)*time.Second)
+	defer cancel()
+
+	drv, err := h.manager.GetDriver(ctx, ds)
 	if err != nil {
 		Fail(c, CodeDatasourceNotFound, "连接数据源失败，请检查数据源配置")
 		return
@@ -219,23 +226,35 @@ func (h *QueryHandler) GetMetadata(c *gin.Context) {
 
 	switch level {
 	case "databases":
-		dbs, err := drv.GetDatabases(c.Request.Context())
+		dbs, err := drv.GetDatabases(ctx)
 		if err != nil {
-			Fail(c, CodeQueryError, "获取数据库列表失败")
+			if ctx.Err() == context.DeadlineExceeded {
+				Fail(c, CodeQueryError, "获取数据库列表超时，请检查数据源连接")
+			} else {
+				Fail(c, CodeQueryError, "获取数据库列表失败")
+			}
 			return
 		}
 		Success(c, dbs)
 	case "tables":
-		tables, err := drv.GetTables(c.Request.Context(), database)
+		tables, err := drv.GetTables(ctx, database)
 		if err != nil {
-			Fail(c, CodeQueryError, "获取数据表列表失败")
+			if ctx.Err() == context.DeadlineExceeded {
+				Fail(c, CodeQueryError, "获取数据表列表超时，请检查数据源连接")
+			} else {
+				Fail(c, CodeQueryError, "获取数据表列表失败")
+			}
 			return
 		}
 		Success(c, tables)
 	case "columns":
-		columns, err := drv.GetColumns(c.Request.Context(), database, table)
+		columns, err := drv.GetColumns(ctx, database, table)
 		if err != nil {
-			Fail(c, CodeQueryError, "获取字段列表失败")
+			if ctx.Err() == context.DeadlineExceeded {
+				Fail(c, CodeQueryError, "获取字段列表超时，请检查数据源连接")
+			} else {
+				Fail(c, CodeQueryError, "获取字段列表失败")
+			}
 			return
 		}
 		Success(c, columns)

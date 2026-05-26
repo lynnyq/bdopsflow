@@ -54,6 +54,7 @@ var (
 	// 执行器相关错误
 	ErrExecutorNotFound    = errors.New("executor not found")
 	ErrExecutorNotInDomain = errors.New("executor not in the specified domain")
+	ErrExecutorDuplicate   = errors.New("executor duplicate registration rejected")
 
 	// 权限相关错误
 	ErrPermissionDenied          = errors.New("permission denied")

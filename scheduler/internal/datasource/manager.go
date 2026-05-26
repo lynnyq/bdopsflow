@@ -13,19 +13,22 @@ import (
 )
 
 type Manager struct {
-	pools   map[int64]driver.Driver
-	poolMu  sync.RWMutex
-	crypto  *Crypto
-	config  *ConfigService
-	closed  bool
-	closeMu sync.Mutex
+	pools      map[int64]driver.Driver
+	poolMu     sync.RWMutex
+	crypto     *Crypto
+	config     *ConfigService
+	closed     bool
+	closeMu    sync.Mutex
+	lastCheck  map[int64]time.Time
+	checkMu    sync.Mutex
 }
 
 func NewManager(crypto *Crypto, config *ConfigService) *Manager {
 	return &Manager{
-		pools:  make(map[int64]driver.Driver),
-		crypto: crypto,
-		config: config,
+		pools:     make(map[int64]driver.Driver),
+		crypto:    crypto,
+		config:    config,
+		lastCheck: make(map[int64]time.Time),
 	}
 }
 
@@ -39,8 +42,19 @@ func (m *Manager) GetDriver(ctx context.Context, ds *model.Datasource) (driver.D
 	m.poolMu.RUnlock()
 
 	if ok {
+		m.checkMu.Lock()
+		last := m.lastCheck[ds.ID]
+		m.checkMu.Unlock()
+
+		checkInterval := 30 * time.Second
+		if time.Since(last) < checkInterval {
+			return d, nil
+		}
+
 		if err := d.TestConnection(ctx); err == nil {
-			slog.Debug("reusing cached datasource connection", "datasource_id", ds.ID, "type", ds.Type)
+			m.checkMu.Lock()
+			m.lastCheck[ds.ID] = time.Now()
+			m.checkMu.Unlock()
 			return d, nil
 		}
 		slog.Info("datasource connection stale, reconnecting", "datasource_id", ds.ID, "type", ds.Type, "name", ds.Name)
@@ -48,6 +62,9 @@ func (m *Manager) GetDriver(ctx context.Context, ds *model.Datasource) (driver.D
 		m.poolMu.Lock()
 		delete(m.pools, ds.ID)
 		m.poolMu.Unlock()
+		m.checkMu.Lock()
+		delete(m.lastCheck, ds.ID)
+		m.checkMu.Unlock()
 	}
 
 	slog.Debug("creating new datasource connection", "datasource_id", ds.ID, "type", ds.Type, "host", ds.Host, "port", ds.Port)
@@ -94,7 +111,7 @@ func (m *Manager) connect(ctx context.Context, ds *model.Datasource) (driver.Dri
 
 	testTimeout := m.config.GetInt("datasource.test_timeout")
 	if testTimeout <= 0 {
-		testTimeout = 10
+		testTimeout = 30
 	}
 	connectCtx, cancel := context.WithTimeout(ctx, time.Duration(testTimeout)*time.Second)
 	defer cancel()
@@ -107,6 +124,10 @@ func (m *Manager) connect(ctx context.Context, ds *model.Datasource) (driver.Dri
 	m.poolMu.Lock()
 	m.pools[ds.ID] = drv
 	m.poolMu.Unlock()
+
+	m.checkMu.Lock()
+	m.lastCheck[ds.ID] = time.Now()
+	m.checkMu.Unlock()
 
 	slog.Info("datasource connected successfully", "datasource_id", ds.ID, "type", ds.Type, "name", ds.Name, "host", ds.Host)
 	return drv, nil

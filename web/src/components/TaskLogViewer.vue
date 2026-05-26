@@ -79,6 +79,8 @@ import { ref, watch, onUnmounted, nextTick, computed } from 'vue'
 import { Document, Close, InfoFilled, Loading } from '@element-plus/icons-vue'
 import { taskAPI } from '@/api'
 
+const MAX_LOG_ENTRIES = 5000;
+
 interface LogEntry {
   id?: number
   _key?: string
@@ -151,7 +153,6 @@ const loadHistoryLogs = async () => {
       scrollToBottom()
     }
   } catch (err) {
-    console.error('Failed to load history logs:', err)
   } finally {
     isLoadingHistory.value = false
   }
@@ -220,6 +221,11 @@ const connectSSE = () => {
             ...data,
             _key: `${Date.now()}-${Math.random()}`,
           })
+
+          if (logs.value.length > MAX_LOG_ENTRIES) {
+            logs.value = logs.value.slice(logs.value.length - MAX_LOG_ENTRIES)
+          }
+
           scrollToBottom()
           
           // 如果是 stdout 或 stderr 日志，实时更新对应的区域
