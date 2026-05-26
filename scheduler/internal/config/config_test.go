@@ -10,30 +10,30 @@ func TestDefaultConfig(t *testing.T) {
 	cfg := defaultConfig()
 
 	expected := &Config{
-		HTTPPort:       "8080",
-		GRPCPort:       "50051",
-		NodeID:         "",
-		RQLiteAddrs:    []string{"http://localhost:4001"},
-		RQLiteUser:     "",
-		RQLitePass:     "",
-		RQLiteTLS:      false,
-		RedisMode:      "single",
-		RedisAddr:      "localhost:6379",
-		RedisPassword:  "",
-		RedisDB:        0,
-		RedisMaster:    "mymaster",
-		RedisSentinelAddrs: []string{},
+		HTTPPort:              "8080",
+		GRPCPort:              "50051",
+		NodeID:                "",
+		RQLiteAddrs:           []string{"http://localhost:4001"},
+		RQLiteUser:            "",
+		RQLitePass:            "",
+		RQLiteTLS:             false,
+		RedisMode:             "single",
+		RedisAddr:             "localhost:6379",
+		RedisPassword:         "",
+		RedisDB:               0,
+		RedisMaster:           "mymaster",
+		RedisSentinelAddrs:    []string{},
 		RedisSentinelPassword: "",
-		JWTSecret:      "your-secret-key-change-in-production",
-		JWTExpiry:      24,
-		AllowRegister:  false,
-		CORSAllowOrigins: []string{},
-		LogLevel:       "info",
-		LogFormat:      "json",
-		SSOEnabled:     false,
-		SSOUrl:         "",
-		SSOPublicKey:   "",
-		SSOTimeout:     0,
+		JWTSecret:             "your-secret-key-change-in-production",
+		JWTExpiry:             2,
+		AllowRegister:         false,
+		CORSAllowOrigins:      []string{},
+		LogLevel:              "info",
+		LogFormat:             "json",
+		SSOEnabled:            false,
+		SSOUrl:                "",
+		SSOPublicKey:          "",
+		SSOTimeout:            0,
 		DatasourceCrypto: DatasourceCryptoConfig{
 			EncryptionKey:  "change-in-prod-32byte-key1-here1",
 			KeySource:      "direct",
@@ -408,8 +408,8 @@ app:
 	if cfg.RedisMode != "single" {
 		t.Errorf("RedisMode should default to 'single', got %v", cfg.RedisMode)
 	}
-	if cfg.JWTExpiry != 24 {
-		t.Errorf("JWTExpiry should default to 24, got %v", cfg.JWTExpiry)
+	if cfg.JWTExpiry != 2 {
+		t.Errorf("JWTExpiry should default to 2, got %v", cfg.JWTExpiry)
 	}
 	if cfg.SSOEnabled != false {
 		t.Errorf("SSOEnabled should default to false, got %v", cfg.SSOEnabled)

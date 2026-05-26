@@ -38,7 +38,7 @@ redis:
 
 jwt:
   secret: ""
-  expiry_hours: 24
+  expiry_hours: 2
 
 log:
   level: "warn"

@@ -30,7 +30,8 @@ redis:
 
 jwt:
   secret: "dev-secret-key-change-in-production"
-  expiry_hours: 24
+  expiry_hours: 2
+  refresh_expiry_hours: 168
 
 log:
   level: "info"
