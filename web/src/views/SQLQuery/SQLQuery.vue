@@ -522,21 +522,42 @@ const isCanceledError = (err: any): boolean => {
   return err?.code === 'ERR_CANCELED' || err?.name === 'CanceledError' || err?.name === 'AbortError';
 };
 
-const metadataCache = new Map<string, { data: any; timestamp: number }>();
-const METADATA_CACHE_TTL = 5 * 60 * 1000;
+const METADATA_CACHE_TTL = 30 * 60 * 1000;
+const METADATA_STORAGE_PREFIX = 'bdopsflow_meta_cache_';
+
+const getStorageCacheKey = (key: string) => `${METADATA_STORAGE_PREFIX}${key}`;
 
 const getCachedMetadata = (key: string): any | null => {
   const entry = metadataCache.get(key);
-  if (!entry) return null;
-  if (Date.now() - entry.timestamp > METADATA_CACHE_TTL) {
+  if (entry) {
+    if (Date.now() - entry.timestamp <= METADATA_CACHE_TTL) {
+      return entry.data;
+    }
     metadataCache.delete(key);
+  }
+
+  try {
+    const raw = localStorage.getItem(getStorageCacheKey(key));
+    if (!raw) return null;
+    const stored = JSON.parse(raw) as { data: any; timestamp: number };
+    if (Date.now() - stored.timestamp > METADATA_CACHE_TTL) {
+      localStorage.removeItem(getStorageCacheKey(key));
+      return null;
+    }
+    metadataCache.set(key, stored);
+    return stored.data;
+  } catch {
     return null;
   }
-  return entry.data;
 };
 
 const setCachedMetadata = (key: string, data: any) => {
-  metadataCache.set(key, { data, timestamp: Date.now() });
+  const entry = { data, timestamp: Date.now() };
+  metadataCache.set(key, entry);
+  try {
+    localStorage.setItem(getStorageCacheKey(key), JSON.stringify(entry));
+  } catch {
+  }
 };
 
 const autocompleteData = ref<{
@@ -1136,15 +1157,23 @@ const handleTableChange = async () => {
   }
 };
 
+const clearMetadataCache = (key: string) => {
+  metadataCache.delete(key);
+  try {
+    localStorage.removeItem(getStorageCacheKey(key));
+  } catch {
+  }
+};
+
 const refreshMetadata = async () => {
   if (!selectedDatasourceId.value) return;
 
-  metadataCache.delete(`databases_${selectedDatasourceId.value}`);
+  clearMetadataCache(`databases_${selectedDatasourceId.value}`);
   if (selectedDatabase.value) {
-    metadataCache.delete(`tables_${selectedDatasourceId.value}_${selectedDatabase.value}`);
+    clearMetadataCache(`tables_${selectedDatasourceId.value}_${selectedDatabase.value}`);
   }
   if (selectedTable.value) {
-    metadataCache.delete(`columns_${selectedDatasourceId.value}_${selectedDatabase.value}_${selectedTable.value}`);
+    clearMetadataCache(`columns_${selectedDatasourceId.value}_${selectedDatabase.value}_${selectedTable.value}`);
   }
 
   if (selectedTable.value) {
