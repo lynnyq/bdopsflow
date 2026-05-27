@@ -51,7 +51,9 @@ func (m *Manager) GetDriver(ctx context.Context, ds *model.Datasource) (driver.D
 			return d, nil
 		}
 
-		if err := d.TestConnection(ctx); err == nil {
+		pingCtx, pingCancel := context.WithTimeout(ctx, 5*time.Second)
+		defer pingCancel()
+		if err := d.Ping(pingCtx); err == nil {
 			m.checkMu.Lock()
 			m.lastCheck[ds.ID] = time.Now()
 			m.checkMu.Unlock()

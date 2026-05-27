@@ -47,6 +47,13 @@ func (d *SQLiteDriver) TestConnection(ctx context.Context) error {
 	return d.db.PingContext(ctx)
 }
 
+func (d *SQLiteDriver) Ping(ctx context.Context) error {
+	if d.db == nil {
+		return fmt.Errorf("sqlite connection not established")
+	}
+	return d.db.PingContext(ctx)
+}
+
 func (d *SQLiteDriver) Close() error {
 	if d.db != nil {
 		return d.db.Close()

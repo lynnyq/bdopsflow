@@ -49,6 +49,13 @@ func (d *StarRocksDriver) TestConnection(ctx context.Context) error {
 	return d.db.PingContext(ctx)
 }
 
+func (d *StarRocksDriver) Ping(ctx context.Context) error {
+	if d.db == nil {
+		return fmt.Errorf("starrocks connection not established")
+	}
+	return d.db.PingContext(ctx)
+}
+
 func (d *StarRocksDriver) Close() error {
 	if d.db != nil {
 		return d.db.Close()

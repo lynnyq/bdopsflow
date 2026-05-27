@@ -113,6 +113,13 @@ func (d *RqliteDriver) TestConnection(ctx context.Context) error {
 	return nil
 }
 
+func (d *RqliteDriver) Ping(ctx context.Context) error {
+	if d.conn == nil {
+		return fmt.Errorf("rqlite connection not established")
+	}
+	return nil
+}
+
 func (d *RqliteDriver) Close() error {
 	if d.conn != nil {
 		d.conn.Close()

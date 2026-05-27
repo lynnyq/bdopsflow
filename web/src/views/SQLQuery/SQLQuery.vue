@@ -503,6 +503,21 @@ const loadingDatabases = ref(false);
 const loadingTables = ref(false);
 const loadingColumns = ref(false);
 
+let metadataAbortController: AbortController | null = null;
+
+const cancelPendingMetadataRequests = () => {
+  if (metadataAbortController) {
+    metadataAbortController.abort();
+    metadataAbortController = null;
+  }
+};
+
+const getMetadataSignal = (): AbortSignal | undefined => {
+  cancelPendingMetadataRequests();
+  metadataAbortController = new AbortController();
+  return metadataAbortController.signal;
+};
+
 const metadataCache = new Map<string, { data: any; timestamp: number }>();
 const METADATA_CACHE_TTL = 5 * 60 * 1000;
 
@@ -700,7 +715,7 @@ const handleDatasourceChangeForTab = async (dsId: number | '', dbName: string) =
 
   loadingDatabases.value = true;
   try {
-    const res = await datasourceAPI.getDatabases(dsId as number);
+    const res = await datasourceAPI.getDatabases(dsId as number, getMetadataSignal());
     let dbList = res.data || [];
     if (dbList.length === 0) {
       dbList = ds.database ? [ds.database] : ['default'];
@@ -1044,7 +1059,7 @@ const handleDatasourceChange = async () => {
 
   loadingDatabases.value = true;
   try {
-    const res = await datasourceAPI.getDatabases(selectedDatasourceId.value as number);
+    const res = await datasourceAPI.getDatabases(selectedDatasourceId.value as number, getMetadataSignal());
     let dbList = res.data || [];
     if (dbList.length === 0) {
       dbList = ds.database ? [ds.database] : ['default'];
@@ -1090,7 +1105,7 @@ const handleDatabaseChange = async () => {
 
   loadingTables.value = true;
   try {
-    const res = await datasourceAPI.getTables(selectedDatasourceId.value as number, dbName);
+    const res = await datasourceAPI.getTables(selectedDatasourceId.value as number, dbName, getMetadataSignal());
     const tableData = res.data || [];
     tables.value = tableData;
     setCachedMetadata(cacheKey, tableData);
@@ -1124,7 +1139,7 @@ const handleTableChange = async () => {
 
   loadingColumns.value = true;
   try {
-    const res = await datasourceAPI.getColumns(selectedDatasourceId.value as number, dbName, selectedTable.value);
+    const res = await datasourceAPI.getColumns(selectedDatasourceId.value as number, dbName, selectedTable.value, getMetadataSignal());
     selectedTableColumns.value = res.data || [];
     setCachedMetadata(cacheKey, res.data || []);
     autocompleteData.value.columns = (res.data || []).map((c: any) => c.name || '').filter(Boolean);

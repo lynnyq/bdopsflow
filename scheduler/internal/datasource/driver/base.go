@@ -10,6 +10,7 @@ import (
 type Driver interface {
 	Connect(ctx context.Context, config DatasourceConfig) error
 	TestConnection(ctx context.Context) error
+	Ping(ctx context.Context) error
 	Close() error
 	Query(ctx context.Context, sql string, args ...interface{}) (*QueryResult, error)
 	GetDatabases(ctx context.Context) ([]string, error)

@@ -213,7 +213,7 @@ func (h *QueryHandler) GetMetadata(c *gin.Context) {
 
 	metadataTimeout := h.config.GetInt("datasource.metadata_timeout")
 	if metadataTimeout <= 0 {
-		metadataTimeout = 60
+		metadataTimeout = 30
 	}
 	ctx, cancel := context.WithTimeout(c.Request.Context(), time.Duration(metadataTimeout)*time.Second)
 	defer cancel()

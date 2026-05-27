@@ -51,6 +51,13 @@ func (d *TrinoDriver) TestConnection(ctx context.Context) error {
 	return d.db.PingContext(ctx)
 }
 
+func (d *TrinoDriver) Ping(ctx context.Context) error {
+	if d.db == nil {
+		return fmt.Errorf("trino connection not established")
+	}
+	return d.db.PingContext(ctx)
+}
+
 func (d *TrinoDriver) Close() error {
 	if d.db != nil {
 		return d.db.Close()

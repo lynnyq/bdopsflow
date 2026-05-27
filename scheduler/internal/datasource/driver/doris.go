@@ -49,6 +49,13 @@ func (d *DorisDriver) TestConnection(ctx context.Context) error {
 	return d.db.PingContext(ctx)
 }
 
+func (d *DorisDriver) Ping(ctx context.Context) error {
+	if d.db == nil {
+		return fmt.Errorf("doris connection not established")
+	}
+	return d.db.PingContext(ctx)
+}
+
 func (d *DorisDriver) Close() error {
 	if d.db != nil {
 		return d.db.Close()

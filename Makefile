@@ -1,4 +1,4 @@
-.PHONY: proto proto-clean proto-check proto-deps install-tools run-dev run-scheduler run-executor run-web build-scheduler build-executor build-frontend build all
+.PHONY: proto proto-clean proto-check proto-deps install-tools run-dev run-scheduler run-executor run-web build-scheduler build-executor build-frontend build all release
 
 # 获取 GOPATH/bin 路径
 GOPATH_BIN := $(shell go env GOPATH)/bin
@@ -74,6 +74,13 @@ build: build-frontend build-scheduler build-executor
 
 # Alias for build
 all: build
+
+release: build-scheduler build-executor
+	@echo "Releasing components..."
+	@mkdir release
+	@mv scheduler/bin/scheduler release/
+	@mv executor/bin/executor release/
+	@echo "✅ All components released successfully!"
 
 tidy:
 	go mod tidy

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 
 	gohive "github.com/beltran/gohive"
 )
@@ -11,6 +12,7 @@ import (
 type KyuubiDriver struct {
 	connection *gohive.Connection
 	config     DatasourceConfig
+	mu         sync.Mutex
 }
 
 func NewKyuubiDriver() Driver {
@@ -95,6 +97,13 @@ func (d *KyuubiDriver) TestConnection(ctx context.Context) error {
 	return nil
 }
 
+func (d *KyuubiDriver) Ping(ctx context.Context) error {
+	if d.connection == nil {
+		return fmt.Errorf("kyuubi connection not established")
+	}
+	return nil
+}
+
 func (d *KyuubiDriver) Close() error {
 	if d.connection != nil {
 		return d.connection.Close()
@@ -106,46 +115,76 @@ func (d *KyuubiDriver) Query(ctx context.Context, query string, args ...interfac
 	if d.connection == nil {
 		return nil, fmt.Errorf("kyuubi connection not established")
 	}
-	cursor := d.connection.Cursor()
-	slog.Debug("kyuubi executing query", "sql_preview", truncateSQL(normalizeSQL(query), 200))
-	cursor.Exec(ctx, normalizeSQL(query))
-	if cursor.Err != nil {
-		slog.Error("kyuubi query execution failed", "sql_preview", truncateSQL(normalizeSQL(query), 200), "error", cursor.Err)
-		cursor.Close()
-		return nil, fmt.Errorf("kyuubi query error: %w", cursor.Err)
-	}
-	defer cursor.Close()
 
-	description := cursor.Description()
-	if cursor.Err != nil {
-		return nil, fmt.Errorf("kyuubi get description error: %w", cursor.Err)
-	}
+	normalizedQuery := normalizeSQL(query)
+	slog.Debug("kyuubi executing query", "sql_preview", truncateSQL(normalizedQuery, 200))
 
-	var columns []string
-	for _, col := range description {
-		if len(col) > 0 {
-			columns = append(columns, col[0])
-		}
-	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
 
-	var rows [][]interface{}
-	for cursor.HasMore(ctx) {
-		rowMap := cursor.RowMap(ctx)
+	type queryResult struct {
+		result *QueryResult
+		err    error
+	}
+	resultCh := make(chan queryResult, 1)
+
+	go func() {
+		cursor := d.connection.Cursor()
+		cursor.Exec(context.Background(), normalizedQuery)
 		if cursor.Err != nil {
-			return nil, fmt.Errorf("kyuubi fetch error: %w", cursor.Err)
+			cursor.Close()
+			resultCh <- queryResult{nil, fmt.Errorf("kyuubi query error: %w", cursor.Err)}
+			return
 		}
-		row := make([]interface{}, len(columns))
-		for i, col := range columns {
-			row[i] = rowMap[col]
-		}
-		rows = append(rows, row)
-	}
 
-	return &QueryResult{
-		Columns:  columns,
-		Rows:     rows,
-		RowCount: int64(len(rows)),
-	}, nil
+		description := cursor.Description()
+		if cursor.Err != nil {
+			cursor.Close()
+			resultCh <- queryResult{nil, fmt.Errorf("kyuubi get description error: %w", cursor.Err)}
+			return
+		}
+
+		var columns []string
+		for _, col := range description {
+			if len(col) > 0 {
+				columns = append(columns, col[0])
+			}
+		}
+
+		var rows [][]interface{}
+		for cursor.HasMore(context.Background()) {
+			rowMap := cursor.RowMap(context.Background())
+			if cursor.Err != nil {
+				cursor.Close()
+				resultCh <- queryResult{nil, fmt.Errorf("kyuubi fetch error: %w", cursor.Err)}
+				return
+			}
+			row := make([]interface{}, len(columns))
+			for i, col := range columns {
+				row[i] = rowMap[col]
+			}
+			rows = append(rows, row)
+		}
+		cursor.Close()
+
+		resultCh <- queryResult{&QueryResult{
+			Columns:  columns,
+			Rows:     rows,
+			RowCount: int64(len(rows)),
+		}, nil}
+	}()
+
+	select {
+	case <-ctx.Done():
+		slog.Warn("kyuubi query cancelled by context", "sql_preview", truncateSQL(normalizedQuery, 200), "error", ctx.Err())
+		go func() { <-resultCh }()
+		return nil, fmt.Errorf("kyuubi query cancelled: %w", ctx.Err())
+	case res := <-resultCh:
+		if res.err != nil {
+			slog.Error("kyuubi query execution failed", "sql_preview", truncateSQL(normalizedQuery, 200), "error", res.err)
+		}
+		return res.result, res.err
+	}
 }
 
 func (d *KyuubiDriver) GetDatabases(ctx context.Context) ([]string, error) {
@@ -210,13 +249,35 @@ func (d *KyuubiDriver) UseDatabase(ctx context.Context, database string) error {
 	if d.connection == nil {
 		return fmt.Errorf("kyuubi connection not established")
 	}
-	cursor := d.connection.Cursor()
-	cursor.Exec(ctx, fmt.Sprintf("USE %s", escapeHiveIdentifier(database)))
-	if cursor.Err != nil {
-		cursor.Close()
-		return fmt.Errorf("kyuubi use database error: %w", cursor.Err)
+
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	type useResult struct {
+		err error
 	}
-	cursor.Close()
-	slog.Debug("kyuubi switched database", "database", database)
-	return nil
+	resultCh := make(chan useResult, 1)
+
+	go func() {
+		cursor := d.connection.Cursor()
+		cursor.Exec(context.Background(), fmt.Sprintf("USE %s", escapeHiveIdentifier(database)))
+		if cursor.Err != nil {
+			cursor.Close()
+			resultCh <- useResult{fmt.Errorf("kyuubi use database error: %w", cursor.Err)}
+			return
+		}
+		cursor.Close()
+		resultCh <- useResult{nil}
+	}()
+
+	select {
+	case <-ctx.Done():
+		go func() { <-resultCh }()
+		return fmt.Errorf("kyuubi use database cancelled: %w", ctx.Err())
+	case res := <-resultCh:
+		if res.err == nil {
+			slog.Debug("kyuubi switched database", "database", database)
+		}
+		return res.err
+	}
 }

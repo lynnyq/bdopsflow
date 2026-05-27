@@ -26,12 +26,12 @@ export const datasourceAPI = {
     api.delete(`/datasources/${datasourceId}/permissions/${permId}`),
   getPermissions: (id: number) =>
     api.get<DatasourcePermission[]>(`/datasources/${id}/permissions`),
-  getDatabases: (id: number) =>
-    api.get<string[]>(`/datasources/${id}/metadata`, { params: { level: 'databases' }, timeout: 90000 }),
-  getTables: (id: number, database: string) =>
-    api.get<TableInfo[]>(`/datasources/${id}/metadata`, { params: { level: 'tables', database }, timeout: 90000 }),
-  getColumns: (id: number, database: string, table: string) =>
-    api.get<ColumnInfo[]>(`/datasources/${id}/metadata`, { params: { level: 'columns', database, table }, timeout: 90000 }),
+  getDatabases: (id: number, signal?: AbortSignal) =>
+    api.get<string[]>(`/datasources/${id}/metadata`, { params: { level: 'databases' }, timeout: 30000, signal }),
+  getTables: (id: number, database: string, signal?: AbortSignal) =>
+    api.get<TableInfo[]>(`/datasources/${id}/metadata`, { params: { level: 'tables', database }, timeout: 30000, signal }),
+  getColumns: (id: number, database: string, table: string, signal?: AbortSignal) =>
+    api.get<ColumnInfo[]>(`/datasources/${id}/metadata`, { params: { level: 'columns', database, table }, timeout: 30000, signal }),
 }
 
 export const queryAPI = {

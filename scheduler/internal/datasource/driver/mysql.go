@@ -50,6 +50,13 @@ func (d *MySQLDriver) TestConnection(ctx context.Context) error {
 	return d.db.PingContext(ctx)
 }
 
+func (d *MySQLDriver) Ping(ctx context.Context) error {
+	if d.db == nil {
+		return fmt.Errorf("mysql connection not established")
+	}
+	return d.db.PingContext(ctx)
+}
+
 func (d *MySQLDriver) Close() error {
 	if d.db != nil {
 		return d.db.Close()
