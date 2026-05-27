@@ -195,6 +195,7 @@ func (h *QueryHandler) Execute(c *gin.Context) {
 }
 
 func (h *QueryHandler) GetMetadata(c *gin.Context) {
+	startTime := time.Now()
 	dsID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		BadRequest(c, "无效的数据源ID")
@@ -204,6 +205,8 @@ func (h *QueryHandler) GetMetadata(c *gin.Context) {
 	level := c.Query("level")
 	database := c.Query("database")
 	table := c.Query("table")
+
+	slog.Debug("GetMetadata: request received", "module", "query", "datasource_id", dsID, "level", level, "database", database, "table", table)
 
 	ds, err := h.dsService.GetByID(c.Request.Context(), dsID)
 	if err != nil {
@@ -220,6 +223,7 @@ func (h *QueryHandler) GetMetadata(c *gin.Context) {
 
 	drv, err := h.manager.GetDriver(ctx, ds)
 	if err != nil {
+		slog.Warn("GetMetadata: failed to get driver", "module", "query", "datasource_id", dsID, "type", ds.Type, "error", err, "elapsed", time.Since(startTime))
 		Fail(c, CodeDatasourceNotFound, "连接数据源失败，请检查数据源配置")
 		return
 	}
@@ -228,35 +232,47 @@ func (h *QueryHandler) GetMetadata(c *gin.Context) {
 	case "databases":
 		dbs, err := drv.GetDatabases(ctx)
 		if err != nil {
+			elapsed := time.Since(startTime)
 			if ctx.Err() == context.DeadlineExceeded {
+				slog.Warn("GetMetadata: databases timeout", "module", "query", "datasource_id", dsID, "type", ds.Type, "elapsed", elapsed)
 				Fail(c, CodeQueryError, "获取数据库列表超时，请检查数据源连接")
 			} else {
+				slog.Error("GetMetadata: databases failed", "module", "query", "datasource_id", dsID, "type", ds.Type, "error", err, "elapsed", elapsed)
 				Fail(c, CodeQueryError, "获取数据库列表失败")
 			}
 			return
 		}
+		slog.Debug("GetMetadata: databases success", "module", "query", "datasource_id", dsID, "count", len(dbs), "elapsed", time.Since(startTime))
 		Success(c, dbs)
 	case "tables":
 		tables, err := drv.GetTables(ctx, database)
 		if err != nil {
+			elapsed := time.Since(startTime)
 			if ctx.Err() == context.DeadlineExceeded {
+				slog.Warn("GetMetadata: tables timeout", "module", "query", "datasource_id", dsID, "database", database, "elapsed", elapsed)
 				Fail(c, CodeQueryError, "获取数据表列表超时，请检查数据源连接")
 			} else {
+				slog.Error("GetMetadata: tables failed", "module", "query", "datasource_id", dsID, "database", database, "error", err, "elapsed", elapsed)
 				Fail(c, CodeQueryError, "获取数据表列表失败")
 			}
 			return
 		}
+		slog.Debug("GetMetadata: tables success", "module", "query", "datasource_id", dsID, "database", database, "count", len(tables), "elapsed", time.Since(startTime))
 		Success(c, tables)
 	case "columns":
 		columns, err := drv.GetColumns(ctx, database, table)
 		if err != nil {
+			elapsed := time.Since(startTime)
 			if ctx.Err() == context.DeadlineExceeded {
+				slog.Warn("GetMetadata: columns timeout", "module", "query", "datasource_id", dsID, "database", database, "table", table, "elapsed", elapsed)
 				Fail(c, CodeQueryError, "获取字段列表超时，请检查数据源连接")
 			} else {
+				slog.Error("GetMetadata: columns failed", "module", "query", "datasource_id", dsID, "database", database, "table", table, "error", err, "elapsed", elapsed)
 				Fail(c, CodeQueryError, "获取字段列表失败")
 			}
 			return
 		}
+		slog.Debug("GetMetadata: columns success", "module", "query", "datasource_id", dsID, "database", database, "table", table, "count", len(columns), "elapsed", time.Since(startTime))
 		Success(c, columns)
 	default:
 		BadRequest(c, "无效的元数据层级，必须是 databases/tables/columns")

@@ -21,14 +21,17 @@ type Manager struct {
 	closeMu    sync.Mutex
 	lastCheck  map[int64]time.Time
 	checkMu    sync.Mutex
+	connecting map[int64]struct{}
+	connectMu  sync.Mutex
 }
 
 func NewManager(crypto *Crypto, config *ConfigService) *Manager {
 	return &Manager{
-		pools:     make(map[int64]driver.Driver),
-		crypto:    crypto,
-		config:    config,
-		lastCheck: make(map[int64]time.Time),
+		pools:      make(map[int64]driver.Driver),
+		crypto:     crypto,
+		config:     config,
+		lastCheck:  make(map[int64]time.Time),
+		connecting: make(map[int64]struct{}),
 	}
 }
 
@@ -70,7 +73,22 @@ func (m *Manager) GetDriver(ctx context.Context, ds *model.Datasource) (driver.D
 	}
 
 	slog.Debug("creating new datasource connection", "datasource_id", ds.ID, "type", ds.Type, "host", ds.Host, "port", ds.Port)
-	return m.connect(ctx, ds)
+
+	m.connectMu.Lock()
+	if _, ok := m.connecting[ds.ID]; ok {
+		m.connectMu.Unlock()
+		return nil, fmt.Errorf("datasource %d is connecting, please retry later", ds.ID)
+	}
+	m.connecting[ds.ID] = struct{}{}
+	m.connectMu.Unlock()
+
+	drv, err := m.connect(ctx, ds)
+
+	m.connectMu.Lock()
+	delete(m.connecting, ds.ID)
+	m.connectMu.Unlock()
+
+	return drv, err
 }
 
 func (m *Manager) connect(ctx context.Context, ds *model.Datasource) (driver.Driver, error) {

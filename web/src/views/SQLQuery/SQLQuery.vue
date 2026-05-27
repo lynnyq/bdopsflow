@@ -518,6 +518,10 @@ const getMetadataSignal = (): AbortSignal | undefined => {
   return metadataAbortController.signal;
 };
 
+const isCanceledError = (err: any): boolean => {
+  return err?.code === 'ERR_CANCELED' || err?.name === 'CanceledError' || err?.name === 'AbortError';
+};
+
 const metadataCache = new Map<string, { data: any; timestamp: number }>();
 const METADATA_CACHE_TTL = 5 * 60 * 1000;
 
@@ -731,7 +735,7 @@ const handleDatasourceChangeForTab = async (dsId: number | '', dbName: string) =
     }
     await handleDatabaseChange();
   } catch (err: any) {
-    if (!isHandledError(err)) {
+    if (!isCanceledError(err) && !isHandledError(err)) {
       const msg = err?.response?.data?.message || err?.message || '获取数据库列表失败';
       ElMessage.error(`获取数据库列表失败: ${msg}`);
     }
@@ -1073,7 +1077,7 @@ const handleDatasourceChange = async () => {
     }
     await handleDatabaseChange();
   } catch (err: any) {
-    if (!isHandledError(err)) {
+    if (!isCanceledError(err) && !isHandledError(err)) {
       const msg = err?.response?.data?.message || err?.message || '获取数据库列表失败';
       ElMessage.error(`获取数据库列表失败: ${msg}`);
     }
@@ -1111,7 +1115,7 @@ const handleDatabaseChange = async () => {
     setCachedMetadata(cacheKey, tableData);
     autocompleteData.value.tables = tableData.map((t: any) => t.name || '').filter(Boolean);
   } catch (err: any) {
-    if (!isHandledError(err)) {
+    if (!isCanceledError(err) && !isHandledError(err)) {
       const msg = err?.response?.data?.message || err?.message || '获取数据表列表失败';
       ElMessage.error(`获取数据表列表失败: ${msg}`);
     }
@@ -1144,7 +1148,7 @@ const handleTableChange = async () => {
     setCachedMetadata(cacheKey, res.data || []);
     autocompleteData.value.columns = (res.data || []).map((c: any) => c.name || '').filter(Boolean);
   } catch (err: any) {
-    if (!isHandledError(err)) {
+    if (!isCanceledError(err) && !isHandledError(err)) {
       const msg = err?.response?.data?.message || err?.message || '获取字段列表失败';
       ElMessage.error(`获取字段列表失败: ${msg}`);
     }
