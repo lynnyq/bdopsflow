@@ -597,7 +597,10 @@ func (h *TaskHandler) forwardToLeader(c *gin.Context, method, path string, body 
 	ctx := context.WithValue(c.Request.Context(), "authorization", c.GetHeader("Authorization"))
 	ctx = context.WithValue(ctx, "content_type", c.GetHeader("Content-Type"))
 
-	respBody, statusCode, err := h.svc.ForwardToLeader(ctx, method, path, body)
+	// 保持完整的 URL，包括 query 参数
+	fullPath := c.Request.URL.RequestURI()
+
+	respBody, statusCode, err := h.svc.ForwardToLeader(ctx, method, fullPath, body)
 	if err != nil {
 		slog.Error("TaskHandler: failed to forward request to leader",
 			"method", method,
