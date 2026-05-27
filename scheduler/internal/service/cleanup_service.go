@@ -612,3 +612,70 @@ func (s *SchedulerService) checkCronReload() {
 		}
 	}()
 }
+
+// cleanupExecutorStaleTasks 清理指定执行器上所有正在运行任务的 renew 记录
+// 当执行器重启时调用，因为执行器重启后不会再 renew 旧任务
+func (s *SchedulerService) cleanupExecutorStaleTasks(ctx context.Context, executorID int64) {
+	query := `
+		SELECT te.execution_id
+		FROM bdopsflow_task_executions te
+		WHERE te.status = 'running'
+		  AND te.executor_id = ?
+	`
+	stmt := rqlite.ParameterizedStatement{
+		Query:     query,
+		Arguments: []interface{}{executorID},
+	}
+	qr, err := s.DB.QueryOneParameterized(stmt)
+	if err != nil {
+		slog.Error("cleanupExecutorStaleTasks: query failed",
+			"executor_id", executorID,
+			"error", err,
+		)
+		return
+	}
+	if qr.Err != nil {
+		slog.Error("cleanupExecutorStaleTasks: query returned error",
+			"executor_id", executorID,
+			"error", qr.Err,
+		)
+		return
+	}
+
+	var executionIDs []string
+	for qr.Next() {
+		row, err := qr.Slice()
+		if err != nil {
+			continue
+		}
+		executionID := rowString(row[0])
+		if executionID != "" {
+			executionIDs = append(executionIDs, executionID)
+		}
+	}
+
+	if len(executionIDs) == 0 {
+		return
+	}
+
+	slog.Info("cleanupExecutorStaleTasks: cleaning up stale task renewals",
+		"executor_id", executorID,
+		"task_count", len(executionIDs),
+	)
+
+	// 删除所有任务的 renew 记录和 fail count 记录
+	var redisKeys []string
+	for _, execID := range executionIDs {
+		redisKeys = append(redisKeys, fmt.Sprintf("task:renew:%s", execID))
+		redisKeys = append(redisKeys, fmt.Sprintf("task:renew:fail:count:%s", execID))
+	}
+
+	if len(redisKeys) > 0 {
+		if err := s.redis.Del(ctx, redisKeys...).Err(); err != nil {
+			slog.Error("cleanupExecutorStaleTasks: failed to delete redis keys",
+				"executor_id", executorID,
+				"error", err,
+			)
+		}
+	}
+}

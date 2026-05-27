@@ -94,6 +94,11 @@ func (s *SchedulerService) RegisterExecutor(ctx context.Context, name, address s
 			}
 		}
 
+		// 当执行器重启时，清理该执行器上所有正在运行任务的 renew 记录
+		if existingExecutor.ID > 0 {
+			s.cleanupExecutorStaleTasks(ctx, existingExecutor.ID)
+		}
+
 		updateQuery := `
 			UPDATE bdopsflow_executors
 			SET address = ?, capacity = ?, status = 'online', last_heartbeat = ?, updated_at = ?
