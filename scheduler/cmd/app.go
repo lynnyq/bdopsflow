@@ -24,12 +24,17 @@ import (
 	"github.com/lynnyq/bdopsflow/scheduler/internal/cron"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/datasource"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/grpcserver"
+	"github.com/lynnyq/bdopsflow/scheduler/internal/handler"
+	"github.com/lynnyq/bdopsflow/scheduler/internal/health"
+	"github.com/lynnyq/bdopsflow/scheduler/internal/metrics"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/middleware"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/service"
 	"github.com/lynnyq/bdopsflow/scheduler/pkg/database"
 	"github.com/lynnyq/bdopsflow/scheduler/pkg/election"
 	"github.com/lynnyq/bdopsflow/scheduler/pkg/rsautil"
 )
+
+const AppVersion = "1.0.0"
 
 type RQLiteClient struct {
 	addrs    []string
@@ -118,14 +123,17 @@ func (c *RQLiteClient) buildURL(addr string) string {
 }
 
 type App struct {
-	cfg          *config.Config
-	db           *rqlite.Connection
-	logDB        database.DB
-	redisClient  *redis.Client
-	rqliteClient *RQLiteClient
-	rsaUtil      *rsautil.RSAUtil
-	ssoRsaUtil   *rsautil.RSAUtil
-	nodeID       string
+	cfg                 *config.Config
+	db                  *rqlite.Connection
+	logDB               database.DB
+	redisClient         *redis.Client
+	rqliteClient        *RQLiteClient
+	rsaUtil             *rsautil.RSAUtil
+	ssoRsaUtil          *rsautil.RSAUtil
+	nodeID              string
+	healthChecker       *health.HealthChecker
+	metricsCollector    *metrics.MetricsCollector
+	healthHandler       *handler.HealthHandler
 
 	schedulerService      *service.SchedulerService
 	permissionService     *service.PermissionService
@@ -157,6 +165,10 @@ func NewApp(cfg *config.Config) *App {
 	app := &App{cfg: cfg}
 
 	middleware.InitJWT(cfg.JWTSecret, cfg.JWTExpiry, cfg.JWTRefreshExpiry)
+
+	app.healthChecker = health.NewHealthChecker(AppVersion)
+	app.metricsCollector = metrics.NewMetricsCollector(nil)
+	app.healthHandler = handler.NewHealthHandler(app.healthChecker, app.metricsCollector, AppVersion)
 
 	rsaUtil, err := rsautil.NewFromConfig(cfg.RSAPublicKey, cfg.RSAPrivateKey)
 	if err != nil {
@@ -245,6 +257,7 @@ func NewApp(cfg *config.Config) *App {
 		})
 	}
 	app.redisClient = redisClient
+	app.metricsCollector = metrics.NewMetricsCollector(redisClient)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -260,6 +273,12 @@ func NewApp(cfg *config.Config) *App {
 		os.Exit(1)
 	}
 	app.rqliteClient = rqliteClient
+
+	app.healthChecker.RegisterChecker(health.NewRedisChecker(redisClient, "redis"))
+	app.healthChecker.RegisterChecker(health.NewRQLiteChecker(app.rqliteClient.Connection(), "rqlite"))
+	app.healthChecker.RegisterChecker(health.NewDiskSpaceChecker("disk_space"))
+
+	go app.metricsCollector.StartBackgroundCollection(context.Background())
 
 	db := rqliteClient.Connection()
 	app.db = db

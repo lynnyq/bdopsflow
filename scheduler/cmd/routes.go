@@ -31,6 +31,10 @@ func setupRoutes(router *gin.Engine, app *App) {
 		}
 	})
 
+	router.GET("/healthz", app.healthHandler.Liveness)
+	router.GET("/readyz", app.healthHandler.Readiness)
+	router.GET("/metrics", app.healthHandler.Metrics)
+
 	authHandler := handler.NewAuthHandler(app.logDB, app.permissionService, app.rsaUtil, app.cfg.SSOEnabled, app.cfg.SSOUrl, app.ssoRsaUtil, app.cfg.SSOTimeout)
 	userAdminHandler := handler.NewUserAdminHandler(app.userAdminService)
 	router.POST("/api/auth/login", middleware.AuditMiddleware(app.auditLogService), authHandler.Login)
