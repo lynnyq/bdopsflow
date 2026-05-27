@@ -35,6 +35,75 @@ func setupRoutes(router *gin.Engine, app *App) {
 	router.GET("/readyz", app.healthHandler.Readiness)
 	router.GET("/metrics", app.healthHandler.Metrics)
 
+	// 临时下载路由 - 用于下载项目打包文件
+	router.GET("/download/:filename", func(c *gin.Context) {
+		filename := c.Param("filename")
+		if filename == "bdopsflow-full-project-20260527.tar.gz" || filename == "README_ARTIFACT.txt" {
+			c.FileAttachment("/workspace/artifacts/"+filename, filename)
+		} else {
+			c.String(http.StatusNotFound, "File not found")
+		}
+	})
+
+	// 方便的下载页面
+	router.GET("/download", func(c *gin.Context) {
+		c.HTML(http.StatusOK, "", `
+<!DOCTYPE html>
+<html>
+<head>
+    <title>BDopsFlow 项目下载</title>
+    <style>
+        body { font-family: system-ui, -apple-system, sans-serif; max-width: 800px; margin: 50px auto; padding: 0 20px; }
+        h1 { color: #333; }
+        .info { background: #f5f5f5; padding: 20px; border-radius: 8px; margin-top: 20px; }
+        .download-btn { display: inline-block; background: #007bff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 10px 0; font-size: 16px; }
+        .download-btn:hover { background: #0056b3; }
+        .file-info { margin: 10px 0; padding: 10px; background: #e9ecef; border-radius: 4px; }
+        ul { margin: 20px 0; padding-left: 20px; }
+        li { margin: 8px 0; }
+    </style>
+</head>
+<body>
+    <h1>🚀 BDopsFlow 项目下载</h1>
+    <div class="info">
+        <p><strong>打包日期：</strong>2026-05-27</p>
+        <p><strong>包含内容：</strong></p>
+        <ul>
+            <li>✅ 完整项目源代码</li>
+            <li>✅ 健康检查模块 (/healthz, /readyz)</li>
+            <li>✅ 性能监控端点 (/metrics)</li>
+            <li>✅ 核心功能单元测试</li>
+            <li>✅ 部署指南 (docs/DEPLOYMENT.md)</li>
+            <li>✅ 安全配置指南 (docs/SECURITY.md)</li>
+        </ul>
+    </div>
+    
+    <h3>📥 下载文件：</h3>
+    <div class="file-info">
+        <a href="/download/bdopsflow-full-project-20260527.tar.gz" class="download-btn">
+            ⬇️ bdopsflow-full-project-20260527.tar.gz (约 406KB)
+        </a>
+    </div>
+    <div class="file-info">
+        <a href="/download/README_ARTIFACT.txt" class="download-btn" style="background: #6c757d;">
+            📄 下载说明文档
+        </a>
+    </div>
+    
+    <div class="info" style="margin-top: 30px;">
+        <p><strong>使用方法：</strong></p>
+        <pre style="background: #2d3748; color: #e2e8f0; padding: 15px; border-radius: 6px; overflow-x: auto;">
+# 解压
+tar -xzf bdopsflow-full-project-20260527.tar.gz
+
+# 查看说明
+cat README_ARTIFACT.txt
+</pre>
+    </div>
+</body>
+</html>`)
+	})
+
 	authHandler := handler.NewAuthHandler(app.logDB, app.permissionService, app.rsaUtil, app.cfg.SSOEnabled, app.cfg.SSOUrl, app.ssoRsaUtil, app.cfg.SSOTimeout)
 	userAdminHandler := handler.NewUserAdminHandler(app.userAdminService)
 	router.POST("/api/auth/login", middleware.AuditMiddleware(app.auditLogService), authHandler.Login)
