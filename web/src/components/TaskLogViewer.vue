@@ -195,7 +195,7 @@ const connectSSE = () => {
     }
   }
   
-  const token = localStorage.getItem('token') || ''
+  const token = sessionStorage.getItem('token') || ''
   const url = `/api/logs/stream?execution_id=${props.executionId}&token=${token}`
 
   const es = new EventSource(url)
