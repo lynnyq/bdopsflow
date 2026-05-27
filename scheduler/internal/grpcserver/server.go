@@ -29,9 +29,7 @@ type Server struct {
 }
 
 type executorConn struct {
-	stream  pb.ExecutorService_SubscribeTaskServer
-	address string
-	name    string
+	stream pb.ExecutorService_SubscribeTaskServer
 }
 
 func NewServer(port string, scheduler *service.SchedulerService) *Server {

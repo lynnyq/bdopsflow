@@ -707,39 +707,37 @@ func (s *SchedulerService) HandleTaskFailure(ctx context.Context, taskID int64, 
 		go func() {
 			defer s.redis.Del(context.Background(), retryLockKey)
 
-			select {
-			case <-time.After(time.Duration(task.RetryInterval) * time.Second):
-				if !s.IsLeader() {
-					slog.Warn("HandleTaskFailure: lost leadership before retry, aborting",
-						"task_id", taskID,
-						"retry_times", retryTimes,
-					)
-					s.UpdateTaskStatusByID(context.Background(), taskID, "failed")
-					s.SendWebhookNotification(context.Background(), taskID, failedExecutionID, "failed", output, fmt.Sprintf("retry %d aborted: lost leadership", retryTimes), 0)
-					return
-				}
-
-				slog.Info("HandleTaskFailure: executing retry",
+			time.Sleep(time.Duration(task.RetryInterval) * time.Second)
+			if !s.IsLeader() {
+				slog.Warn("HandleTaskFailure: lost leadership before retry, aborting",
 					"task_id", taskID,
 					"retry_times", retryTimes,
 				)
+				s.UpdateTaskStatusByID(context.Background(), taskID, "failed")
+				s.SendWebhookNotification(context.Background(), taskID, failedExecutionID, "failed", output, fmt.Sprintf("retry %d aborted: lost leadership", retryTimes), 0)
+				return
+			}
 
-				newExecutionID, err := s.RetryTask(context.Background(), taskID, retryTimes)
-				if err != nil {
-					slog.Error("HandleTaskFailure: retry failed",
-						"task_id", taskID,
-						"retry_times", retryTimes,
-						"error", err,
-					)
-					s.UpdateTaskStatusByID(context.Background(), taskID, "failed")
-					s.SendWebhookNotification(context.Background(), taskID, failedExecutionID, "failed", output, fmt.Sprintf("retry %d failed: %v", retryTimes, err), 0)
-				} else {
-					slog.Info("HandleTaskFailure: retry scheduled successfully",
-						"task_id", taskID,
-						"retry_times", retryTimes,
-						"new_execution_id", newExecutionID,
-					)
-				}
+			slog.Info("HandleTaskFailure: executing retry",
+				"task_id", taskID,
+				"retry_times", retryTimes,
+			)
+
+			newExecutionID, err := s.RetryTask(context.Background(), taskID, retryTimes)
+			if err != nil {
+				slog.Error("HandleTaskFailure: retry failed",
+					"task_id", taskID,
+					"retry_times", retryTimes,
+					"error", err,
+				)
+				s.UpdateTaskStatusByID(context.Background(), taskID, "failed")
+				s.SendWebhookNotification(context.Background(), taskID, failedExecutionID, "failed", output, fmt.Sprintf("retry %d failed: %v", retryTimes, err), 0)
+			} else {
+				slog.Info("HandleTaskFailure: retry scheduled successfully",
+					"task_id", taskID,
+					"retry_times", retryTimes,
+					"new_execution_id", newExecutionID,
+				)
 			}
 		}()
 	} else {

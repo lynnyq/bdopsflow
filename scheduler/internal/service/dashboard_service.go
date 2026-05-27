@@ -307,8 +307,7 @@ const tableStatsTTL = 5 * time.Minute
 
 func (s *SchedulerService) HealthCheck(ctx context.Context) *HealthCheckResult {
 	if ctx == nil {
-		var cancel context.CancelFunc
-		ctx, cancel = queryCtx()
+		_, cancel := queryCtx()
 		defer cancel()
 	}
 	result := &HealthCheckResult{

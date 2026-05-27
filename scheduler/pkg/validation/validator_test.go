@@ -1,10 +1,7 @@
 package validation
 
 import (
-	"reflect"
 	"testing"
-
-	"github.com/go-playground/validator/v10"
 )
 
 type TestStruct struct {
@@ -127,61 +124,3 @@ func TestFormatError_WithRealValidator(t *testing.T) {
 	}
 }
 
-type mockFieldError struct {
-	field     string
-	tag       string
-	param     string
-	actualTag string
-}
-
-func (e *mockFieldError) Field() string {
-	return e.field
-}
-
-func (e *mockFieldError) Tag() string {
-	return e.tag
-}
-
-func (e *mockFieldError) ActualTag() string {
-	return e.actualTag
-}
-
-func (e *mockFieldError) Param() string {
-	return e.param
-}
-
-func (e *mockFieldError) Namespace() string {
-	return ""
-}
-
-func (e *mockFieldError) StructNamespace() string {
-	return ""
-}
-
-func (e *mockFieldError) StructField() string {
-	return ""
-}
-
-func (e *mockFieldError) Value() interface{} {
-	return nil
-}
-
-func (e *mockFieldError) Kind() reflect.Kind {
-	return reflect.String
-}
-
-func (e *mockFieldError) Type() string {
-	return ""
-}
-
-func (e *mockFieldError) Error() string {
-	return ""
-}
-
-func (e *mockFieldError) Translate(ut interface{}) string {
-	return ""
-}
-
-func (e *mockFieldError) Dive() []validator.FieldError {
-	return nil
-}

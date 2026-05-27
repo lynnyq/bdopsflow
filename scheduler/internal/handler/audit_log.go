@@ -2,7 +2,6 @@ package handler
 
 import (
 	"log/slog"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/model"
@@ -113,14 +112,4 @@ func (h *AuditLogHandler) GetStats(c *gin.Context) {
 	})
 }
 
-func getIntParam(c *gin.Context, key string, defaultValue int) int {
-	val := c.Query(key)
-	if val == "" {
-		return defaultValue
-	}
-	n, err := strconv.Atoi(val)
-	if err != nil {
-		return defaultValue
-	}
-	return n
-}
+

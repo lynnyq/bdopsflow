@@ -1,21 +1,10 @@
 package service
 
 import (
-	"context"
 	"testing"
 
 	"github.com/lynnyq/bdopsflow/scheduler/internal/model"
 )
-
-type mockPermDB struct {
-	isSystemAdminFn        func(ctx context.Context, userID int64) (bool, error)
-	hasPermissionFn        func(ctx context.Context, userID int64, resource, action string, domainID int64) (bool, error)
-	getUserDomainInfosFn   func(ctx context.Context, userID int64) ([]*model.UserDomainInfo, error)
-	switchDomainFn         func(ctx context.Context, userID int64, domainID int64) ([]*model.Permission, error)
-	getDirectRoleIDsFn     func(ctx context.Context, userID int64) ([]int64, error)
-	getParentRoleIDsFn     func(ctx context.Context, roleID int64) []int64
-	checkRolePermissionFn  func(ctx context.Context, roleID int64, resource, action string) (bool, error)
-}
 
 func TestIsSystemAdmin(t *testing.T) {
 	t.Run("system_admin role is identified", func(t *testing.T) {
@@ -355,8 +344,7 @@ func TestExpandRoleInheritance(t *testing.T) {
 
 		directRoleIDs := []int64{}
 
-		var walk func(roleIDs []int64)
-		walk = func(roleIDs []int64) {
+		walk := func(roleIDs []int64) {
 			for _, id := range roleIDs {
 				if visited[id] {
 					continue

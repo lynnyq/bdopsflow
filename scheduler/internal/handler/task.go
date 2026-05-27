@@ -571,7 +571,7 @@ func (h *TaskHandler) Trigger(c *gin.Context) {
 		}
 
 		if strings.Contains(errMsg, "not online") {
-			Fail(c, CodeExecutorOffline, fmt.Sprintf("执行器不在线，请检查执行器状态"))
+			Fail(c, CodeExecutorOffline, "执行器不在线，请检查执行器状态")
 			return
 		}
 
@@ -593,9 +593,16 @@ func (h *TaskHandler) Trigger(c *gin.Context) {
 	Success(c, gin.H{"message": "triggered", "execution_id": executionID})
 }
 
+type contextKey string
+
+const (
+	contextKeyAuthorization contextKey = "authorization"
+	contextKeyContentType   contextKey = "content_type"
+)
+
 func (h *TaskHandler) forwardToLeader(c *gin.Context, method, path string, body io.Reader) {
-	ctx := context.WithValue(c.Request.Context(), "authorization", c.GetHeader("Authorization"))
-	ctx = context.WithValue(ctx, "content_type", c.GetHeader("Content-Type"))
+	ctx := context.WithValue(c.Request.Context(), contextKeyAuthorization, c.GetHeader("Authorization"))
+	ctx = context.WithValue(ctx, contextKeyContentType, c.GetHeader("Content-Type"))
 
 	respBody, statusCode, err := h.svc.ForwardToLeader(ctx, method, path, body)
 	if err != nil {

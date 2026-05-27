@@ -555,10 +555,6 @@ func (s *SchedulerService) BatchDeleteExecutionsWithDomainCheck(ctx context.Cont
 	}
 
 	deleteExecQuery := "DELETE FROM bdopsflow_task_executions WHERE id IN (" + strings.Join(placeholders, ",") + ")"
-	deleteExecStmt := rqlite.ParameterizedStatement{
-		Query:     deleteExecQuery,
-		Arguments: deleteArgs,
-	}
 
 	if !isSystemAdmin {
 		deleteExecQuery = `
@@ -569,7 +565,7 @@ func (s *SchedulerService) BatchDeleteExecutionsWithDomainCheck(ctx context.Cont
 		deleteArgs = append(deleteArgs, domainID)
 	}
 
-	deleteExecStmt = rqlite.ParameterizedStatement{
+	deleteExecStmt := rqlite.ParameterizedStatement{
 		Query:     deleteExecQuery,
 		Arguments: deleteArgs,
 	}

@@ -698,7 +698,6 @@ const handleDatasourceChangeForTab = async (dsId: number | '', dbName: string) =
   if (ds.type === 'sqlite' || ds.type === 'rqlite') {
     databases.value = ['main'];
     selectedDatabase.value = dbName || 'main';
-    await handleDatabaseChange();
     return;
   }
 
@@ -708,12 +707,7 @@ const handleDatasourceChangeForTab = async (dsId: number | '', dbName: string) =
     databases.value = cached;
     if (dbName && cached.includes(dbName)) {
       selectedDatabase.value = dbName;
-    } else if (ds.database && cached.includes(ds.database)) {
-      selectedDatabase.value = ds.database;
-    } else {
-      selectedDatabase.value = cached[0];
     }
-    await handleDatabaseChange();
     return;
   }
 
@@ -728,19 +722,16 @@ const handleDatasourceChangeForTab = async (dsId: number | '', dbName: string) =
     setCachedMetadata(cacheKey, dbList);
     if (dbName && dbList.includes(dbName)) {
       selectedDatabase.value = dbName;
-    } else if (ds.database && dbList.includes(ds.database)) {
-      selectedDatabase.value = ds.database;
-    } else {
-      selectedDatabase.value = dbList[0];
     }
-    await handleDatabaseChange();
   } catch (err: any) {
     if (!isCanceledError(err) && !isHandledError(err)) {
       const msg = err?.response?.data?.message || err?.message || '获取数据库列表失败';
       ElMessage.error(`获取数据库列表失败: ${msg}`);
     }
     databases.value = ds.database ? [ds.database] : ['default'];
-    selectedDatabase.value = dbName || databases.value[0];
+    if (dbName) {
+      selectedDatabase.value = dbName;
+    }
   } finally {
     loadingDatabases.value = false;
   }
@@ -1044,7 +1035,6 @@ const handleDatasourceChange = async () => {
   if (ds.type === 'sqlite' || ds.type === 'rqlite') {
     databases.value = ['main'];
     selectedDatabase.value = 'main';
-    await handleDatabaseChange();
     return;
   }
 
@@ -1052,12 +1042,6 @@ const handleDatasourceChange = async () => {
   const cached = getCachedMetadata(cacheKey);
   if (cached) {
     databases.value = cached;
-    if (ds.database && cached.includes(ds.database)) {
-      selectedDatabase.value = ds.database;
-    } else {
-      selectedDatabase.value = cached[0];
-    }
-    await handleDatabaseChange();
     return;
   }
 
@@ -1070,19 +1054,12 @@ const handleDatasourceChange = async () => {
     }
     databases.value = dbList;
     setCachedMetadata(cacheKey, dbList);
-    if (ds.database && dbList.includes(ds.database)) {
-      selectedDatabase.value = ds.database;
-    } else {
-      selectedDatabase.value = dbList[0];
-    }
-    await handleDatabaseChange();
   } catch (err: any) {
     if (!isCanceledError(err) && !isHandledError(err)) {
       const msg = err?.response?.data?.message || err?.message || '获取数据库列表失败';
       ElMessage.error(`获取数据库列表失败: ${msg}`);
     }
     databases.value = ds.database ? [ds.database] : ['default'];
-    selectedDatabase.value = databases.value[0];
   } finally {
     loadingDatabases.value = false;
   }
@@ -1160,13 +1137,34 @@ const handleTableChange = async () => {
 };
 
 const refreshMetadata = async () => {
-  if (selectedDatasourceId.value) {
-    metadataCache.delete(`databases_${selectedDatasourceId.value}`);
-  }
-  if (selectedDatasourceId.value && selectedDatabase.value) {
+  if (!selectedDatasourceId.value) return;
+
+  metadataCache.delete(`databases_${selectedDatasourceId.value}`);
+  if (selectedDatabase.value) {
     metadataCache.delete(`tables_${selectedDatasourceId.value}_${selectedDatabase.value}`);
   }
-  await handleDatabaseChange();
+  if (selectedTable.value) {
+    metadataCache.delete(`columns_${selectedDatasourceId.value}_${selectedDatabase.value}_${selectedTable.value}`);
+  }
+
+  if (selectedTable.value) {
+    await handleTableChange();
+  } else if (selectedDatabase.value) {
+    tables.value = [];
+    selectedTable.value = '';
+    selectedTableColumns.value = [];
+    autocompleteData.value.tables = [];
+    autocompleteData.value.columns = [];
+    await handleDatabaseChange();
+  } else {
+    databases.value = [];
+    tables.value = [];
+    selectedTable.value = '';
+    selectedTableColumns.value = [];
+    autocompleteData.value.tables = [];
+    autocompleteData.value.columns = [];
+    await handleDatasourceChange();
+  }
 };
 
 const insertColumn = (column: { name: string }) => {

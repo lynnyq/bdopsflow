@@ -1,5 +1,5 @@
 import api from '@/utils/api'
-import type { Task, Workflow, TaskExecution, TaskExecutionListResponse, Executor, ExecutorWithDomains, Domain, LoginRequest, LoginResponse, WorkflowExecution, TaskLog, DashboardStats, TrendData, Datasource, DatasourcePermission, QueryResult, QueryHistory, SavedSQL, TableInfo, ColumnInfo, SystemConfigItem, Webhook, PaginatedResponse, User, Role, Permission, CurrentUserResponse, SwitchDomainResponse, AuditLog } from '@/types'
+import type { Task, Workflow, TaskExecution, TaskExecutionListResponse, Executor, ExecutorWithDomains, Domain, LoginRequest, LoginResponse, WorkflowExecution, TaskLog, DashboardStats, TrendData, PaginatedResponse, User, Role, Permission, CurrentUserResponse, AuditLog } from '@/types'
 import { userAdminAPI, roleAdminAPI, domainAdminAPI, permissionAPI, switchDomain } from './admin'
 import { datasourceAPI, queryAPI, systemConfigAPI } from './datasource'
 import { auditLogAPI } from './audit'

@@ -124,7 +124,7 @@ func TestLoad_FileNotFound(t *testing.T) {
 	cfg := Load("/non/existent/path/config.yaml")
 
 	if cfg == nil {
-		t.Error("Load() should return default config for non-existent file")
+		t.Fatal("Load() should return default config for non-existent file")
 	}
 
 	if cfg.HTTPPort != "8080" {
@@ -445,7 +445,7 @@ app:
 	cfg := Load(tmpFile.Name())
 
 	if cfg == nil {
-		t.Error("Load() should return default config for invalid YAML")
+		t.Fatal("Load() should return default config for invalid YAML")
 	}
 	if cfg.HTTPPort != "8080" {
 		t.Errorf("expected default HTTPPort '8080' for invalid YAML, got '%s'", cfg.HTTPPort)

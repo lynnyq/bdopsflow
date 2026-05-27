@@ -1,6 +1,7 @@
 package datasource
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -642,7 +643,7 @@ func TestConfigService_Set_ValidationError(t *testing.T) {
 		cache: map[string]string{"datasource.cache_ttl": "300"},
 	}
 
-	err := svc.Set(nil, "datasource.cache_ttl", "-1", 1)
+	err := svc.Set(context.TODO(), "datasource.cache_ttl", "-1", 1)
 	if err == nil {
 		t.Errorf("Set with invalid value expected validation error, got nil")
 	}
@@ -660,7 +661,7 @@ func TestConfigService_Set_NoValidator(t *testing.T) {
 		}
 	}()
 
-	_ = svc.Set(nil, "datasource.cache_max_size", "200", 1)
+	_ = svc.Set(context.TODO(), "datasource.cache_max_size", "200", 1)
 }
 
 func TestConfigService_AllNumericDefaultsMatchGetInt(t *testing.T) {

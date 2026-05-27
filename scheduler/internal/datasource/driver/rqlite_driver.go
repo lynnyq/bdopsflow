@@ -163,9 +163,7 @@ func (d *RqliteDriver) Query(ctx context.Context, query string, args ...interfac
 			return nil, fmt.Errorf("rqlite slice error: %w", err)
 		}
 		row := make([]interface{}, len(slice))
-		for i, v := range slice {
-			row[i] = v
-		}
+		copy(row, slice)
 		resultRows = append(resultRows, row)
 	}
 

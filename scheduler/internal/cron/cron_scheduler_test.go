@@ -15,7 +15,7 @@ func TestNewCronScheduler(t *testing.T) {
 	cs := NewCronScheduler(nil, client)
 
 	if cs == nil {
-		t.Error("NewCronScheduler should return a non-nil scheduler")
+		t.Fatal("NewCronScheduler should return a non-nil scheduler")
 	}
 
 	if cs.cron == nil {

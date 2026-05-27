@@ -9,7 +9,7 @@ import (
 func TestNewHTTPExecutor(t *testing.T) {
 	executor := NewHTTPExecutor(30 * time.Second)
 	if executor == nil {
-		t.Error("expected non-nil HTTPExecutor")
+		t.Fatal("expected non-nil HTTPExecutor")
 	}
 	if executor.client.Timeout != 30*time.Second {
 		t.Errorf("expected timeout 30s, got %v", executor.client.Timeout)
@@ -32,7 +32,7 @@ func TestHTTPExecutor_Execute_InvalidURL(t *testing.T) {
 		t.Error("expected error for invalid URL")
 	}
 	if result == nil {
-		t.Error("expected non-nil result")
+		t.Fatal("expected non-nil result")
 	}
 	if result.Status != "failed" {
 		t.Errorf("expected status 'failed', got %s", result.Status)
@@ -50,7 +50,7 @@ func TestHTTPExecutor_Execute_ContextTimeout(t *testing.T) {
 		t.Error("expected error due to context timeout")
 	}
 	if result == nil {
-		t.Error("expected non-nil result")
+		t.Fatal("expected non-nil result")
 	}
 	if result.Status != "failed" {
 		t.Errorf("expected status 'failed', got %s", result.Status)
@@ -117,7 +117,7 @@ func TestShellExecutor_Execute_ContextCancel(t *testing.T) {
 func TestNewExecutorFactory(t *testing.T) {
 	factory := NewExecutorFactory()
 	if factory == nil {
-		t.Error("expected non-nil ExecutorFactory")
+		t.Fatal("expected non-nil ExecutorFactory")
 	}
 	if factory.httpExecutor == nil {
 		t.Error("expected non-nil httpExecutor")

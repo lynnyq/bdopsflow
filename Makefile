@@ -77,7 +77,7 @@ all: build
 
 release: build-scheduler build-executor
 	@echo "Releasing components..."
-	@mkdir release
+	@mkdir -p release
 	@mv scheduler/bin/scheduler release/
 	@mv executor/bin/executor release/
 	@echo "✅ All components released successfully!"

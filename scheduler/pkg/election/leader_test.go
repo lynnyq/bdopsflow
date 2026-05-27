@@ -16,7 +16,7 @@ func TestNewLeaderElection(t *testing.T) {
 
 	election := NewLeaderElection(client, "test-leader", "node-1", "127.0.0.1:8080", 10*time.Second)
 	if election == nil {
-		t.Error("NewLeaderElection returned nil")
+		t.Fatal("NewLeaderElection returned nil")
 	}
 	if election.client != client {
 		t.Error("expected client to be set")

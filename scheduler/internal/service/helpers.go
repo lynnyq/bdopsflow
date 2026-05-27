@@ -124,10 +124,6 @@ func queryCtx() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), DBQueryTimeout)
 }
 
-func writeCtx() (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.Background(), DBWriteTimeout)
-}
-
 func cleanupCtx() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), DBCleanupTimeout)
 }

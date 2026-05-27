@@ -939,25 +939,6 @@ func TestCreateTask_ExecutorAtCapacity(t *testing.T) {
 	}
 }
 
-func setupTestRouterWithAuth(handler *TaskHandler) *gin.Engine {
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	authGroup := r.Group("/api/bdopsflow_tasks")
-	authGroup.Use(func(c *gin.Context) {
-		if domainID, exists := c.Get("inject_domain_id"); exists {
-			c.Set("current_domain_id", domainID)
-		}
-		if role, exists := c.Get("inject_role"); exists {
-			c.Set("role", role)
-		}
-		c.Next()
-	})
-	{
-		authGroup.POST("/:id/trigger", handler.Trigger)
-	}
-	return r
-}
-
 func TestTrigger_PermissionDenied_DifferentDomain(t *testing.T) {
 	mock := &mockTaskService{
 		getTaskByIDFunc: func(ctx context.Context, id int64) (*model.Task, error) {

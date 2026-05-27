@@ -87,9 +87,7 @@ func (d *SQLiteDriver) Query(ctx context.Context, query string, args ...interfac
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
 		row := make([]interface{}, len(columns))
-		for i, v := range values {
-			row[i] = v
-		}
+		copy(row, values)
 		resultRows = append(resultRows, row)
 	}
 
