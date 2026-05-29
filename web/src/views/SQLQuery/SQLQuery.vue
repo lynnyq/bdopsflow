@@ -376,6 +376,7 @@
 
 <script setup lang="ts">
 import { ref, watch, computed, onMounted, onUnmounted, nextTick } from 'vue';
+import { useRoute } from 'vue-router';
 import { EditorView, basicSetup } from 'codemirror';
 import { keymap } from '@codemirror/view';
 import { EditorState } from '@codemirror/state';
@@ -397,6 +398,7 @@ import { useAuthStore } from '@/stores/auth';
 import type { Datasource, QueryResult, QueryHistory, TableInfo, ColumnInfo } from '@/types';
 
 const authStore = useAuthStore();
+const route = useRoute();
 
 const getStorageKey = () => `bdopsflow_sql_tabs_${authStore.user?.id || 'anonymous'}`;
 

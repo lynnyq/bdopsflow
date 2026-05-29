@@ -74,11 +74,11 @@ func (d *HiveDriver) Connect(ctx context.Context, config DatasourceConfig) error
 				res.conn.Close()
 			}
 		}()
-		return fmt.Errorf("hive connect cancelled: %w", ctx.Err())
+		return fmt.Errorf("hive connect cancelled: %v", ctx.Err())
 	case result := <-resultCh:
 		if result.err != nil {
 			slog.Error("hive connection failed", "host", config.Host, "port", port, "auth", auth, "error", result.err)
-			return fmt.Errorf("failed to connect to hive: %w", result.err)
+			return fmt.Errorf("failed to connect to hive: %v", result.err)
 		}
 		d.connection = result.conn
 		slog.Info("hive connected", "host", config.Host, "port", port, "database", config.Database)
@@ -94,7 +94,7 @@ func (d *HiveDriver) TestConnection(ctx context.Context) error {
 	cursor.Exec(ctx, normalizeSQL("SELECT 1"))
 	if cursor.Err != nil {
 		cursor.Close()
-		return fmt.Errorf("hive test connection failed: %w", cursor.Err)
+		return fmt.Errorf("hive test connection failed: %v", cursor.Err)
 	}
 	cursor.Close()
 	return nil
@@ -136,14 +136,14 @@ func (d *HiveDriver) Query(ctx context.Context, query string, args ...interface{
 		cursor.Exec(context.Background(), normalizedQuery)
 		if cursor.Err != nil {
 			cursor.Close()
-			resultCh <- queryResult{nil, fmt.Errorf("hive query error: %w", cursor.Err)}
+			resultCh <- queryResult{nil, fmt.Errorf("hive query error: %v", cursor.Err)}
 			return
 		}
 
 		description := cursor.Description()
 		if cursor.Err != nil {
 			cursor.Close()
-			resultCh <- queryResult{nil, fmt.Errorf("hive get description error: %w", cursor.Err)}
+			resultCh <- queryResult{nil, fmt.Errorf("hive get description error: %v", cursor.Err)}
 			return
 		}
 
@@ -159,7 +159,7 @@ func (d *HiveDriver) Query(ctx context.Context, query string, args ...interface{
 			rowMap := cursor.RowMap(context.Background())
 			if cursor.Err != nil {
 				cursor.Close()
-				resultCh <- queryResult{nil, fmt.Errorf("hive fetch error: %w", cursor.Err)}
+				resultCh <- queryResult{nil, fmt.Errorf("hive fetch error: %v", cursor.Err)}
 				return
 			}
 			row := make([]interface{}, len(columns))
@@ -183,7 +183,7 @@ func (d *HiveDriver) Query(ctx context.Context, query string, args ...interface{
 		go func() {
 			<-resultCh
 		}()
-		return nil, fmt.Errorf("hive query cancelled: %w", ctx.Err())
+		return nil, fmt.Errorf("hive query cancelled: %v", ctx.Err())
 	case res := <-resultCh:
 		if res.err != nil {
 			slog.Error("hive query execution failed", "sql_preview", truncateSQL(normalizedQuery, 200), "error", res.err)
@@ -268,7 +268,7 @@ func (d *HiveDriver) UseDatabase(ctx context.Context, database string) error {
 		cursor.Exec(context.Background(), fmt.Sprintf("USE %s", escapeHiveIdentifier(database)))
 		if cursor.Err != nil {
 			cursor.Close()
-			resultCh <- useResult{fmt.Errorf("hive use database error: %w", cursor.Err)}
+			resultCh <- useResult{fmt.Errorf("hive use database error: %v", cursor.Err)}
 			return
 		}
 		cursor.Close()
@@ -278,7 +278,7 @@ func (d *HiveDriver) UseDatabase(ctx context.Context, database string) error {
 	select {
 	case <-ctx.Done():
 		go func() { <-resultCh }()
-		return fmt.Errorf("hive use database cancelled: %w", ctx.Err())
+		return fmt.Errorf("hive use database cancelled: %v", ctx.Err())
 	case res := <-resultCh:
 		if res.err == nil {
 			slog.Debug("hive switched database", "database", database)
@@ -288,8 +288,5 @@ func (d *HiveDriver) UseDatabase(ctx context.Context, database string) error {
 }
 
 func escapeHiveIdentifier(name string) string {
-	// 首先对名称中的反引号进行转义
-	escaped := strings.ReplaceAll(name, "`", "``")
-	// 然后用反引号包裹整个标识符
-	return fmt.Sprintf("`%s`", escaped)
+	return strings.ReplaceAll(name, "`", "``")
 }
