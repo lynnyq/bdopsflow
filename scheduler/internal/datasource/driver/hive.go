@@ -169,6 +169,11 @@ func (d *HiveDriver) Query(ctx context.Context, query string, args ...interface{
 			}
 			rows = append(rows, row)
 		}
+		if cursor.Err != nil {
+			cursor.Close()
+			resultCh <- queryResult{nil, errors.Wrap(cursor.Err, "hive query error")}
+			return
+		}
 		cursor.Close()
 
 		resultCh <- queryResult{&QueryResult{
@@ -198,6 +203,9 @@ func (d *HiveDriver) GetDatabases(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	if result == nil {
+		return nil, errors.New("hive query returned nil result for SHOW DATABASES")
+	}
 	var databases []string
 	for _, row := range result.Rows {
 		if len(row) > 0 {
@@ -215,6 +223,9 @@ func (d *HiveDriver) GetTables(ctx context.Context, database string) ([]TableInf
 	if err != nil {
 		return nil, err
 	}
+	if result == nil {
+		return nil, errors.New("hive query returned nil result for SHOW TABLES")
+	}
 	var tables []TableInfo
 	for _, row := range result.Rows {
 		if len(row) > 0 {
@@ -231,6 +242,9 @@ func (d *HiveDriver) GetColumns(ctx context.Context, database, table string) ([]
 	result, err := d.Query(ctx, fmt.Sprintf("DESCRIBE %s.%s", escapeHiveIdentifier(database), escapeHiveIdentifier(table)))
 	if err != nil {
 		return nil, err
+	}
+	if result == nil {
+		return nil, errors.New("hive query returned nil result for DESCRIBE")
 	}
 	var columns []ColumnInfo
 	for _, row := range result.Rows {

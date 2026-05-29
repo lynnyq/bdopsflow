@@ -166,6 +166,11 @@ func (d *SparkDriver) Query(ctx context.Context, query string, args ...interface
 			}
 			rows = append(rows, row)
 		}
+		if cursor.Err != nil {
+			cursor.Close()
+			resultCh <- queryResult{nil, errors.Wrap(cursor.Err, "spark query error")}
+			return
+		}
 		cursor.Close()
 
 		resultCh <- queryResult{&QueryResult{
@@ -193,6 +198,9 @@ func (d *SparkDriver) GetDatabases(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	if result == nil {
+		return nil, errors.New("spark query returned nil result for SHOW DATABASES")
+	}
 	var databases []string
 	for _, row := range result.Rows {
 		if len(row) > 0 {
@@ -210,6 +218,9 @@ func (d *SparkDriver) GetTables(ctx context.Context, database string) ([]TableIn
 	if err != nil {
 		return nil, err
 	}
+	if result == nil {
+		return nil, errors.New("spark query returned nil result for SHOW TABLES")
+	}
 	var tables []TableInfo
 	for _, row := range result.Rows {
 		if len(row) > 0 {
@@ -226,6 +237,9 @@ func (d *SparkDriver) GetColumns(ctx context.Context, database, table string) ([
 	result, err := d.Query(ctx, fmt.Sprintf("DESCRIBE %s.%s", escapeHiveIdentifier(database), escapeHiveIdentifier(table)))
 	if err != nil {
 		return nil, err
+	}
+	if result == nil {
+		return nil, errors.New("spark query returned nil result for DESCRIBE")
 	}
 	var columns []ColumnInfo
 	for _, row := range result.Rows {

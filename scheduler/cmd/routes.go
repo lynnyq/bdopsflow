@@ -194,7 +194,8 @@ func setupRoutes(router *gin.Engine, app *App) {
 		query := protected.Group("/query")
 		{
 			query.POST("/execute", middleware.DatasourcePermissionMiddleware(app.instancePermSvc, "query"), queryHandler.Execute)
-			query.POST("/cancel/:query_id", middleware.DatasourcePermissionMiddleware(app.instancePermSvc, "query"), queryHandler.Cancel)
+			query.GET("/result/:query_id", queryHandler.GetResult)
+			query.POST("/cancel/:query_id", queryHandler.Cancel)
 			query.POST("/export", middleware.DatasourcePermissionMiddleware(app.instancePermSvc, "download"), queryHandler.ExportCSV)
 			query.GET("/history", queryHandler.GetHistory)
 			query.DELETE("/history/:id", queryHandler.DeleteQueryHistory)

@@ -1,6 +1,16 @@
 package handler
 
-import "testing"
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/gin-gonic/gin"
+	"github.com/lynnyq/bdopsflow/scheduler/internal/datasource/driver"
+	"github.com/lynnyq/bdopsflow/scheduler/internal/model"
+)
 
 func TestIsSelectOnly_AllowedReadOnlySQL(t *testing.T) {
 	h := &QueryHandler{}
@@ -137,5 +147,328 @@ func TestJoinSpaces(t *testing.T) {
 		if got != tc.expect {
 			t.Errorf("joinSpaces(%q) = %q, want %q", tc.input, got, tc.expect)
 		}
+	}
+}
+
+func TestQueryRegistry_UpdateResult_NilResult(t *testing.T) {
+	registry := NewQueryRegistry()
+	queryID := "q_test_nil_result"
+	registry.Register(&RunningQuery{
+		QueryID:    queryID,
+		Status:     QueryStatusPending,
+		CancelFunc: func() {},
+	})
+
+	registry.UpdateResult(queryID, nil, 1.0)
+
+	q, ok := registry.Get(queryID)
+	if !ok {
+		t.Fatal("query should exist in registry")
+	}
+	if q.Status != QueryStatusCompleted {
+		t.Errorf("status = %v, want %v", q.Status, QueryStatusCompleted)
+	}
+	if q.Result != nil {
+		t.Errorf("result should be nil, got %v", q.Result)
+	}
+}
+
+func TestGetResult_NilResultNoPanic(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	registry := NewQueryRegistry()
+	queryID := "q_test_nil_get"
+	registry.Register(&RunningQuery{
+		QueryID:    queryID,
+		Status:     QueryStatusCompleted,
+		Result:     nil,
+		CancelFunc: func() {},
+	})
+
+	h := &QueryHandler{registry: registry}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "query_id", Value: queryID}}
+
+	h.GetResult(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status code = %d, want %d", w.Code, http.StatusOK)
+	}
+
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+
+	data, ok := resp["data"].(map[string]interface{})
+	if !ok {
+		t.Fatal("response data should be a map")
+	}
+
+	if data["status"] != "completed" {
+		t.Errorf("status = %v, want completed", data["status"])
+	}
+
+	columns, ok := data["columns"].([]interface{})
+	if !ok {
+		t.Fatal("columns should be present in response")
+	}
+	if len(columns) != 0 {
+		t.Errorf("columns length = %d, want 0", len(columns))
+	}
+}
+
+func TestGetResult_NonNilResult(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	registry := NewQueryRegistry()
+	queryID := "q_test_nonnil"
+	registry.Register(&RunningQuery{
+		QueryID: queryID,
+		Status:  QueryStatusCompleted,
+		Result: &driver.QueryResult{
+			Columns:  []string{"id", "name"},
+			Rows:     [][]interface{}{{int64(1), "test"}},
+			RowCount: 1,
+		},
+		CancelFunc: func() {},
+	})
+
+	h := &QueryHandler{registry: registry}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "query_id", Value: queryID}}
+
+	h.GetResult(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status code = %d, want %d", w.Code, http.StatusOK)
+	}
+
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+
+	data, ok := resp["data"].(map[string]interface{})
+	if !ok {
+		t.Fatal("response data should be a map")
+	}
+
+	if data["status"] != "completed" {
+		t.Errorf("status = %v, want completed", data["status"])
+	}
+
+	rowCount, ok := data["row_count"].(float64)
+	if !ok {
+		t.Fatal("row_count should be a number")
+	}
+	if rowCount != 1 {
+		t.Errorf("row_count = %v, want 1", rowCount)
+	}
+}
+
+func TestExecuteQuerySafe_PanicRecovery(t *testing.T) {
+	registry := NewQueryRegistry()
+	queryID := "q_test_panic"
+	registry.Register(&RunningQuery{
+		QueryID:    queryID,
+		Status:     QueryStatusRunning,
+		CancelFunc: func() {},
+	})
+
+	h := &QueryHandler{registry: registry}
+
+	ds := &model.Datasource{ID: 1, Name: "test", Type: "hive"}
+	req := struct {
+		DatasourceID int64  `json:"datasource_id" binding:"required"`
+		SQL          string `json:"sql" binding:"required"`
+		Database     string `json:"database"`
+	}{
+		DatasourceID: 1,
+		SQL:          "SELECT 1",
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		defer func() { done <- struct{}{} }()
+		h.executeQuerySafe(ctx, cancel, queryID, ds, req, 1, 1)
+	}()
+
+	<-done
+
+	q, ok := registry.Get(queryID)
+	if !ok {
+		t.Fatal("query should exist in registry")
+	}
+
+	if q.Status != QueryStatusFailed {
+		t.Errorf("status = %v, want %v", q.Status, QueryStatusFailed)
+	}
+}
+
+func TestGetResult_FailedStatus(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	registry := NewQueryRegistry()
+	queryID := "q_test_failed"
+	registry.Register(&RunningQuery{
+		QueryID:    queryID,
+		Status:     QueryStatusFailed,
+		Error:      "hive query error",
+		CancelFunc: func() {},
+	})
+
+	h := &QueryHandler{registry: registry}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "query_id", Value: queryID}}
+
+	h.GetResult(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status code = %d, want %d", w.Code, http.StatusOK)
+	}
+
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+
+	data, ok := resp["data"].(map[string]interface{})
+	if !ok {
+		t.Fatal("response data should be a map")
+	}
+
+	if data["status"] != "failed" {
+		t.Errorf("status = %v, want failed", data["status"])
+	}
+	if data["error"] != "hive query error" {
+		t.Errorf("error = %v, want 'hive query error'", data["error"])
+	}
+}
+
+func TestQueryRegistry_UpdateError_SetsFailedStatus(t *testing.T) {
+	registry := NewQueryRegistry()
+	queryID := "q_test_update_error"
+	registry.Register(&RunningQuery{
+		QueryID:    queryID,
+		Status:     QueryStatusRunning,
+		CancelFunc: func() {},
+	})
+
+	errMsg := "hive query error: SemanticException Table not found"
+	registry.UpdateError(queryID, errMsg, 2.5)
+
+	q, ok := registry.Get(queryID)
+	if !ok {
+		t.Fatal("query should exist in registry")
+	}
+	if q.Status != QueryStatusFailed {
+		t.Errorf("status = %v, want %v", q.Status, QueryStatusFailed)
+	}
+	if q.Error != errMsg {
+		t.Errorf("error = %v, want %v", q.Error, errMsg)
+	}
+	if q.ExecutionTime != 2.5 {
+		t.Errorf("execution_time = %v, want 2.5", q.ExecutionTime)
+	}
+}
+
+func TestGetResult_HiveErrorPropagation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	testCases := []struct {
+		name       string
+		errorMsg   string
+		wantStatus string
+	}{
+		{
+			name:       "semantic error",
+			errorMsg:   "hive query error: SemanticException Table not found",
+			wantStatus: "failed",
+		},
+		{
+			name:       "permission error",
+			errorMsg:   "hive query error: org.apache.hadoop.hive.ql.metadata.AuthorizationException",
+			wantStatus: "failed",
+		},
+		{
+			name:       "syntax error",
+			errorMsg:   "hive query error: org.apache.hadoop.hive.ql.parse.ParseException",
+			wantStatus: "failed",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			registry := NewQueryRegistry()
+			queryID := "q_test_hive_err_" + tc.name
+			registry.Register(&RunningQuery{
+				QueryID:    queryID,
+				Status:     QueryStatusFailed,
+				Error:      tc.errorMsg,
+				CancelFunc: func() {},
+			})
+
+			h := &QueryHandler{registry: registry}
+
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Params = gin.Params{{Key: "query_id", Value: queryID}}
+
+			h.GetResult(c)
+
+			var resp map[string]interface{}
+			if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+				t.Fatalf("failed to parse response: %v", err)
+			}
+
+			data := resp["data"].(map[string]interface{})
+			if data["status"] != tc.wantStatus {
+				t.Errorf("status = %v, want %v", data["status"], tc.wantStatus)
+			}
+			if data["error"] != tc.errorMsg {
+				t.Errorf("error = %v, want %v", data["error"], tc.errorMsg)
+			}
+		})
+	}
+}
+
+func TestQueryRegistry_UpdateError_OverwritesCompleted(t *testing.T) {
+	registry := NewQueryRegistry()
+	queryID := "q_test_overwrite"
+	registry.Register(&RunningQuery{
+		QueryID:    queryID,
+		Status:     QueryStatusRunning,
+		CancelFunc: func() {},
+	})
+
+	registry.UpdateResult(queryID, &driver.QueryResult{
+		Columns:  []string{"id"},
+		Rows:     [][]interface{}{{1}},
+		RowCount: 1,
+	}, 1.0)
+
+	q, _ := registry.Get(queryID)
+	if q.Status != QueryStatusCompleted {
+		t.Errorf("status should be completed after UpdateResult, got %v", q.Status)
+	}
+
+	registry.UpdateError(queryID, "hive query error: late error", 1.0)
+
+	q, _ = registry.Get(queryID)
+	if q.Status != QueryStatusFailed {
+		t.Errorf("status should be failed after UpdateError, got %v", q.Status)
+	}
+	if q.Error != "hive query error: late error" {
+		t.Errorf("error = %v, want 'hive query error: late error'", q.Error)
 	}
 }

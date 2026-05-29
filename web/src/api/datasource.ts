@@ -37,6 +37,8 @@ export const datasourceAPI = {
 export const queryAPI = {
   execute: (data: { datasource_id: number; sql: string; database?: string }) =>
     api.post<QueryResult>('/query/execute', data, { timeout: 120000 }),
+  getResult: (queryId: string) =>
+    api.get<any>(`/query/result/${queryId}`),
   cancel: (queryId: string) =>
     api.post(`/query/cancel/${queryId}`),
   exportCSV: (data: { datasource_id: number; sql: string; database?: string; max_rows?: number }, onDownloadProgress?: (event: any) => void) =>

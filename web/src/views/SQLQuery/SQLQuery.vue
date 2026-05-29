@@ -488,6 +488,7 @@ const exportProgress = ref(0);
 const allowWriteSQL = ref(false);
 const canceling = ref(false);
 const currentQueryId = ref('');
+let pollTimer: ReturnType<typeof setInterval> | null = null;
 const queryResult = ref<QueryResult | null>(null);
 const errorMessage = ref('');
 
@@ -1288,13 +1289,22 @@ const getSQLToExecute = (): string => {
   return sqlText.value;
 };
 
+const stopPolling = () => {
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+};
+
 const handleExecute = async () => {
   const sql = getSQLToExecute();
   if (!sql.trim() || !selectedDatasourceId.value || executing.value) return;
 
+  stopPolling();
   executing.value = true;
   errorMessage.value = '';
   currentQueryId.value = '';
+  queryResult.value = null;
 
   try {
     const res = await queryAPI.execute({
@@ -1303,17 +1313,53 @@ const handleExecute = async () => {
       database: selectedDatabase.value
     });
 
-    queryResult.value = res.data;
-    if (res.data && res.data.query_id) {
-      currentQueryId.value = res.data.query_id;
+    const data = res.data as any;
+    const queryId = data.query_id;
+    const status = data.status;
+
+    if (status === 'completed') {
+      queryResult.value = data;
+      currentQueryId.value = queryId;
+      executing.value = false;
+      loadRecentHistory();
+      return;
     }
-    loadRecentHistory();
+
+    currentQueryId.value = queryId;
+
+    pollTimer = setInterval(async () => {
+      try {
+        const pollRes = await queryAPI.getResult(queryId);
+        const pollData = (pollRes as any).data as any;
+
+        if (pollData.status === 'completed') {
+          stopPolling();
+          queryResult.value = pollData;
+          executing.value = false;
+          loadRecentHistory();
+        } else if (pollData.status === 'failed') {
+          stopPolling();
+          errorMessage.value = pollData.error || '查询失败';
+          queryResult.value = null;
+          executing.value = false;
+        } else if (pollData.status === 'cancelled') {
+          stopPolling();
+          errorMessage.value = pollData.error || '查询已取消';
+          queryResult.value = null;
+          executing.value = false;
+        }
+      } catch (err: any) {
+        stopPolling();
+        const rawMsg = err?.response?.data?.error || err?.message || '轮询查询结果失败';
+        errorMessage.value = rawMsg;
+        queryResult.value = null;
+        executing.value = false;
+      }
+    }, 1000);
   } catch (err: any) {
     const rawMsg = err?.response?.data?.error || err?.message || '查询失败，请检查网络连接';
-    // 直接显示原始错误信息，不进行翻译截断
     errorMessage.value = rawMsg;
     queryResult.value = null;
-  } finally {
     executing.value = false;
   }
 };
@@ -1324,15 +1370,18 @@ const handleCancel = async () => {
   canceling.value = true;
   try {
     await queryAPI.cancel(currentQueryId.value);
+    stopPolling();
     errorMessage.value = '查询已取消';
     queryResult.value = null;
     ElMessage.info('查询已取消');
-  } catch (err) {
+  } catch (err: any) {
     if (!isHandledError(err)) {
-      ElMessage.error('取消失败，请检查网络连接');
+      const msg = err?.response?.data?.message || err?.message || '取消失败';
+      ElMessage.error(msg);
     }
   } finally {
     canceling.value = false;
+    executing.value = false;
     currentQueryId.value = '';
   }
 };
@@ -1466,6 +1515,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   syncCurrentTabData();
+  stopPolling();
   editorView?.destroy();
   document.removeEventListener('mousemove', onResize);
   document.removeEventListener('mouseup', stopResize);

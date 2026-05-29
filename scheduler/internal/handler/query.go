@@ -22,15 +22,19 @@ type QueryHandler struct {
 	config            *datasource.ConfigService
 	cacheService      *datasource.CacheService
 	concurrentService *datasource.ConcurrentService
+	registry          *QueryRegistry
 }
 
 func NewQueryHandler(dsService *datasource.DatasourceService, manager *datasource.Manager, config *datasource.ConfigService, cacheService *datasource.CacheService, concurrentService *datasource.ConcurrentService) *QueryHandler {
+	registry := NewQueryRegistry()
+	registry.StartCleanupLoop(5*time.Minute, 30*time.Minute)
 	return &QueryHandler{
 		dsService:         dsService,
 		manager:           manager,
 		config:            config,
 		cacheService:      cacheService,
 		concurrentService: concurrentService,
+		registry:          registry,
 	}
 }
 
@@ -80,7 +84,10 @@ func (h *QueryHandler) Execute(c *gin.Context) {
 		cached, hit, err := h.cacheService.Get(c.Request.Context(), req.DatasourceID, req.SQL)
 		if err == nil && hit {
 			slog.Debug("query cache hit", "datasource_id", req.DatasourceID, "row_count", cached.RowCount)
+			queryID := "q_" + time.Now().Format("20060102") + "_" + uuid.New().String()[:8]
 			Success(c, gin.H{
+				"query_id":       queryID,
+				"status":         string(QueryStatusCompleted),
 				"columns":        cached.Columns,
 				"rows":           cached.Rows,
 				"row_count":      cached.RowCount,
@@ -115,27 +122,73 @@ func (h *QueryHandler) Execute(c *gin.Context) {
 		defer release()
 	}
 
+	queryID := "q_" + time.Now().Format("20060102") + "_" + uuid.New().String()[:8]
 	queryTimeout := h.config.GetInt("datasource.query_timeout")
 	if queryTimeout <= 0 {
 		queryTimeout = 60
 	}
-	ctx, cancel := context.WithTimeout(c.Request.Context(), time.Duration(queryTimeout)*time.Second)
-	defer cancel()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(queryTimeout)*time.Second)
+
+	domainID, _ := c.Get("current_domain_id")
+	var dID int64
+	if v, ok := domainID.(int64); ok {
+		dID = v
+	}
+
+	runningQuery := &RunningQuery{
+		QueryID:      queryID,
+		DatasourceID: req.DatasourceID,
+		Database:     req.Database,
+		SQL:          req.SQL,
+		UserID:       uid,
+		Status:       QueryStatusPending,
+		CancelFunc:   cancel,
+	}
+	h.registry.Register(runningQuery)
+
+	go h.executeQuerySafe(ctx, cancel, queryID, ds, req, uid, dID)
+
+	Success(c, gin.H{
+		"query_id": queryID,
+		"status":   string(QueryStatusPending),
+	})
+}
+
+func (h *QueryHandler) executeQuerySafe(ctx context.Context, cancel context.CancelFunc, queryID string, ds *model.Datasource, req struct {
+	DatasourceID int64  `json:"datasource_id" binding:"required"`
+	SQL          string `json:"sql" binding:"required"`
+	Database     string `json:"database"`
+}, uid int64, domainID int64) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("query execution panic recovered", "query_id", queryID, "datasource_id", req.DatasourceID, "panic", r)
+			h.registry.UpdateError(queryID, fmt.Sprintf("查询执行异常: %v", r), 0)
+		}
+	}()
+	h.executeQuery(ctx, cancel, queryID, ds, req, uid, domainID)
+}
+
+func (h *QueryHandler) executeQuery(ctx context.Context, cancel context.CancelFunc, queryID string, ds *model.Datasource, req struct {
+	DatasourceID int64  `json:"datasource_id" binding:"required"`
+	SQL          string `json:"sql" binding:"required"`
+	Database     string `json:"database"`
+}, uid int64, domainID int64) {
+	h.registry.SetRunning(queryID)
 
 	drv, err := h.manager.GetDriver(ctx, ds)
 	if err != nil {
-		slog.Error("failed to get datasource driver", "datasource_id", req.DatasourceID, "type", ds.Type, "error", err)
-		Fail(c, CodeDatasourceNotFound, "连接数据源失败，请检查数据源配置")
+		slog.Error("failed to get datasource driver", "query_id", queryID, "datasource_id", req.DatasourceID, "type", ds.Type, "error", err)
+		h.registry.UpdateError(queryID, "连接数据源失败，请检查数据源配置", 0)
 		return
 	}
 
 	if req.Database != "" {
 		if useErr := drv.UseDatabase(ctx, req.Database); useErr != nil {
-			slog.Error("failed to switch database", "datasource_id", req.DatasourceID, "database", req.Database, "error", useErr)
-			Fail(c, CodeQueryError, fmt.Sprintf("切换数据库失败: %v", useErr))
+			slog.Error("failed to switch database", "query_id", queryID, "datasource_id", req.DatasourceID, "database", req.Database, "error", useErr)
+			h.registry.UpdateError(queryID, fmt.Sprintf("切换数据库失败: %v", useErr), 0)
 			return
 		}
-		slog.Debug("switched database context", "datasource_id", req.DatasourceID, "database", req.Database)
+		slog.Debug("switched database context", "query_id", queryID, "datasource_id", req.DatasourceID, "database", req.Database)
 	}
 
 	startTime := time.Now()
@@ -144,55 +197,63 @@ func (h *QueryHandler) Execute(c *gin.Context) {
 	execTime := time.Since(startTime).Seconds()
 
 	if req.Database != "" && ds.Database != req.Database {
-		if restoreErr := drv.UseDatabase(ctx, ds.Database); restoreErr != nil {
-			slog.Warn("failed to restore database context", "datasource_id", req.DatasourceID, "original_database", ds.Database, "error", restoreErr)
+		restoreCtx, restoreCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		if restoreErr := drv.UseDatabase(restoreCtx, ds.Database); restoreErr != nil {
+			slog.Warn("failed to restore database context", "query_id", queryID, "datasource_id", req.DatasourceID, "original_database", ds.Database, "error", restoreErr)
 		}
-	}
-
-	domainID, _ := c.Get("current_domain_id")
-	var dID int64
-	if v, ok := domainID.(int64); ok {
-		dID = v
+		restoreCancel()
 	}
 
 	history := &model.QueryHistory{
-		QueryID:        "q_" + time.Now().Format("20060102") + "_" + uuid.New().String()[:8],
+		QueryID:        queryID,
 		DatasourceID:   &ds.ID,
 		DatasourceName: ds.Name,
 		SQLText:        req.SQL,
 		Database:       req.Database,
 		ExecutionTime:  execTime,
 		ExecutedBy:     int64Ptr(uid),
-		DomainID:       dID,
+		DomainID:       domainID,
+	}
+
+	if ctx.Err() == context.Canceled {
+		history.Status = "cancelled"
+		history.ErrorMessage = "查询已被用户取消"
+		h.dsService.RecordQueryHistory(context.Background(), history)
+		h.registry.UpdateError(queryID, "查询已被用户取消", execTime)
+		slog.Info("query cancelled by user", "query_id", queryID, "datasource_id", req.DatasourceID, "execution_time", execTime)
+		return
 	}
 
 	if err != nil {
 		history.Status = "failed"
 		history.ErrorMessage = err.Error()
-		h.dsService.RecordQueryHistory(c.Request.Context(), history)
-		slog.Error("query execution failed", "datasource_id", req.DatasourceID, "datasource_name", ds.Name, "database", req.Database, "execution_time", execTime, "error", err)
-		// 直接传递原始错误信息，不包装，避免截断
-		FailWithData(c, CodeQueryError, err.Error(), gin.H{"execution_time": execTime})
+		h.dsService.RecordQueryHistory(context.Background(), history)
+		slog.Error("query execution failed", "query_id", queryID, "datasource_id", req.DatasourceID, "datasource_name", ds.Name, "database", req.Database, "execution_time", execTime, "error", err)
+		h.registry.UpdateError(queryID, err.Error(), execTime)
+		return
+	}
+
+	if result == nil {
+		history.Status = "failed"
+		history.ErrorMessage = "查询返回空结果"
+		h.dsService.RecordQueryHistory(context.Background(), history)
+		slog.Error("query returned nil result", "query_id", queryID, "datasource_id", req.DatasourceID, "datasource_name", ds.Name, "database", req.Database, "execution_time", execTime)
+		h.registry.UpdateError(queryID, "查询返回空结果，请检查SQL语句或数据源连接", execTime)
 		return
 	}
 
 	history.Status = "success"
 	history.RowCount = int(result.RowCount)
-	h.dsService.RecordQueryHistory(c.Request.Context(), history)
-	slog.Info("query executed successfully", "datasource_id", req.DatasourceID, "datasource_name", ds.Name, "database", req.Database, "row_count", result.RowCount, "execution_time", execTime)
+	h.dsService.RecordQueryHistory(context.Background(), history)
+	slog.Info("query executed successfully", "query_id", queryID, "datasource_id", req.DatasourceID, "datasource_name", ds.Name, "database", req.Database, "row_count", result.RowCount, "execution_time", execTime)
 
 	if h.cacheService != nil && result != nil {
-		if err := h.cacheService.Set(c.Request.Context(), req.DatasourceID, req.SQL, result); err != nil {
-			slog.Warn("failed to cache query result", "datasource_id", req.DatasourceID, "error", err)
+		if err := h.cacheService.Set(context.Background(), req.DatasourceID, req.SQL, result); err != nil {
+			slog.Warn("failed to cache query result", "query_id", queryID, "datasource_id", req.DatasourceID, "error", err)
 		}
 	}
 
-	Success(c, gin.H{
-		"columns":        result.Columns,
-		"rows":           result.Rows,
-		"row_count":      result.RowCount,
-		"execution_time": execTime,
-	})
+	h.registry.UpdateResult(queryID, result, execTime)
 }
 
 func (h *QueryHandler) GetMetadata(c *gin.Context) {
@@ -345,6 +406,11 @@ func (h *QueryHandler) ExportCSV(c *gin.Context) {
 		result, err = drv.Query(ctx, req.SQL)
 		if err != nil {
 			Fail(c, CodeQueryError, fmt.Sprintf("查询执行失败: %v", err))
+			return
+		}
+
+		if result == nil {
+			Fail(c, CodeQueryError, "查询返回空结果，请检查SQL语句或数据源连接")
 			return
 		}
 
@@ -582,6 +648,48 @@ func (h *QueryHandler) DeleteSavedSQL(c *gin.Context) {
 	Success(c, nil)
 }
 
+func (h *QueryHandler) GetResult(c *gin.Context) {
+	queryID := c.Param("query_id")
+	if queryID == "" {
+		BadRequest(c, "query_id不能为空")
+		return
+	}
+
+	q, ok := h.registry.Get(queryID)
+	if !ok {
+		NotFound(c, "查询不存在或已过期")
+		return
+	}
+
+	resp := gin.H{
+		"query_id": q.QueryID,
+		"status":   string(q.Status),
+	}
+
+	switch q.Status {
+	case QueryStatusCompleted:
+		if q.Result != nil {
+			resp["columns"] = q.Result.Columns
+			resp["rows"] = q.Result.Rows
+			resp["row_count"] = q.Result.RowCount
+		} else {
+			resp["columns"] = []string{}
+			resp["rows"] = [][]interface{}{}
+			resp["row_count"] = 0
+		}
+		resp["execution_time"] = q.ExecutionTime
+		resp["from_cache"] = q.FromCache
+	case QueryStatusFailed:
+		resp["error"] = q.Error
+		resp["execution_time"] = q.ExecutionTime
+	case QueryStatusCancelled:
+		resp["error"] = q.Error
+		resp["execution_time"] = q.ExecutionTime
+	}
+
+	Success(c, resp)
+}
+
 func (h *QueryHandler) Cancel(c *gin.Context) {
 	queryID := c.Param("query_id")
 	if queryID == "" {
@@ -589,13 +697,30 @@ func (h *QueryHandler) Cancel(c *gin.Context) {
 		return
 	}
 
-	if h.concurrentService != nil {
-		if err := h.concurrentService.SetCancelSignal(c.Request.Context(), queryID, 5*time.Minute); err != nil {
-			Fail(c, CodeQueryError, "取消查询失败")
+	cancelled := h.registry.Cancel(queryID)
+	if !cancelled {
+		q, ok := h.registry.Get(queryID)
+		if !ok {
+			Fail(c, CodeQueryError, "查询不存在或已过期")
 			return
 		}
+		if q.Status == QueryStatusCompleted {
+			Fail(c, CodeQueryError, "查询已完成，无法取消")
+			return
+		}
+		if q.Status == QueryStatusFailed {
+			Fail(c, CodeQueryError, "查询已失败，无需取消")
+			return
+		}
+		if q.Status == QueryStatusCancelled {
+			Fail(c, CodeQueryError, "查询已取消")
+			return
+		}
+		Fail(c, CodeQueryError, "取消查询失败")
+		return
 	}
 
+	slog.Info("query cancel signal sent", "query_id", queryID)
 	Success(c, nil)
 }
 

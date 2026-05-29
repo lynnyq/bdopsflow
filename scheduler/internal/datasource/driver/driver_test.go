@@ -367,6 +367,54 @@ func TestHiveDriverGetColumnsWithoutConnect(t *testing.T) {
 	}
 }
 
+func TestSparkDriverGetDatabasesWithoutConnect(t *testing.T) {
+	d := NewSparkDriver()
+	_, err := d.GetDatabases(context.Background())
+	if err == nil {
+		t.Error("SparkDriver.GetDatabases() on unconnected driver should return error")
+	}
+}
+
+func TestSparkDriverGetTablesWithoutConnect(t *testing.T) {
+	d := NewSparkDriver()
+	_, err := d.GetTables(context.Background(), "test")
+	if err == nil {
+		t.Error("SparkDriver.GetTables() on unconnected driver should return error")
+	}
+}
+
+func TestSparkDriverGetColumnsWithoutConnect(t *testing.T) {
+	d := NewSparkDriver()
+	_, err := d.GetColumns(context.Background(), "test", "table")
+	if err == nil {
+		t.Error("SparkDriver.GetColumns() on unconnected driver should return error")
+	}
+}
+
+func TestKyuubiDriverGetDatabasesWithoutConnect(t *testing.T) {
+	d := NewKyuubiDriver()
+	_, err := d.GetDatabases(context.Background())
+	if err == nil {
+		t.Error("KyuubiDriver.GetDatabases() on unconnected driver should return error")
+	}
+}
+
+func TestKyuubiDriverGetTablesWithoutConnect(t *testing.T) {
+	d := NewKyuubiDriver()
+	_, err := d.GetTables(context.Background(), "test")
+	if err == nil {
+		t.Error("KyuubiDriver.GetTables() on unconnected driver should return error")
+	}
+}
+
+func TestKyuubiDriverGetColumnsWithoutConnect(t *testing.T) {
+	d := NewKyuubiDriver()
+	_, err := d.GetColumns(context.Background(), "test", "table")
+	if err == nil {
+		t.Error("KyuubiDriver.GetColumns() on unconnected driver should return error")
+	}
+}
+
 func TestTrinoDriverBuildDSN(t *testing.T) {
 	d := &TrinoDriver{config: DatasourceConfig{
 		Host:     "localhost",
@@ -581,6 +629,38 @@ func TestHiveDriverUseDatabaseEmpty(t *testing.T) {
 	err := d.UseDatabase(context.Background(), "")
 	if err != nil {
 		t.Errorf("HiveDriver.UseDatabase() with empty database should return nil, got: %v", err)
+	}
+}
+
+func TestSparkDriverUseDatabaseWithoutConnect(t *testing.T) {
+	d := NewSparkDriver()
+	err := d.UseDatabase(context.Background(), "test_db")
+	if err == nil {
+		t.Error("SparkDriver.UseDatabase() on unconnected driver should return error")
+	}
+}
+
+func TestSparkDriverUseDatabaseEmpty(t *testing.T) {
+	d := &SparkDriver{}
+	err := d.UseDatabase(context.Background(), "")
+	if err != nil {
+		t.Errorf("SparkDriver.UseDatabase() with empty database should return nil, got: %v", err)
+	}
+}
+
+func TestKyuubiDriverUseDatabaseWithoutConnect(t *testing.T) {
+	d := NewKyuubiDriver()
+	err := d.UseDatabase(context.Background(), "test_db")
+	if err == nil {
+		t.Error("KyuubiDriver.UseDatabase() on unconnected driver should return error")
+	}
+}
+
+func TestKyuubiDriverUseDatabaseEmpty(t *testing.T) {
+	d := &KyuubiDriver{}
+	err := d.UseDatabase(context.Background(), "")
+	if err != nil {
+		t.Errorf("KyuubiDriver.UseDatabase() with empty database should return nil, got: %v", err)
 	}
 }
 
