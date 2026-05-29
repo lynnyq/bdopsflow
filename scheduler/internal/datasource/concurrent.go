@@ -88,3 +88,15 @@ func (s *ConcurrentService) SetCancelSignal(ctx context.Context, queryID string,
 	cancelKey := fmt.Sprintf("datasource:query:cancel:%s", queryID)
 	return s.redis.Set(ctx, cancelKey, "1", ttl).Err()
 }
+
+func (s *ConcurrentService) HasCancelSignal(ctx context.Context, queryID string) bool {
+	if queryID == "" {
+		return false
+	}
+	cancelKey := fmt.Sprintf("datasource:query:cancel:%s", queryID)
+	val, err := s.redis.Get(ctx, cancelKey).Result()
+	if err != nil {
+		return false
+	}
+	return val == "1"
+}

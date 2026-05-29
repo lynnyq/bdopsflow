@@ -171,7 +171,8 @@ func (h *QueryHandler) Execute(c *gin.Context) {
 		history.ErrorMessage = err.Error()
 		h.dsService.RecordQueryHistory(c.Request.Context(), history)
 		slog.Error("query execution failed", "datasource_id", req.DatasourceID, "datasource_name", ds.Name, "database", req.Database, "execution_time", execTime, "error", err)
-		FailWithData(c, CodeQueryError, fmt.Sprintf("查询执行失败: %v", err), gin.H{"execution_time": execTime})
+		// 直接传递原始错误信息，不包装，避免截断
+		FailWithData(c, CodeQueryError, err.Error(), gin.H{"execution_time": execTime})
 		return
 	}
 

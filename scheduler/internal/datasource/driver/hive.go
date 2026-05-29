@@ -288,5 +288,8 @@ func (d *HiveDriver) UseDatabase(ctx context.Context, database string) error {
 }
 
 func escapeHiveIdentifier(name string) string {
-	return strings.ReplaceAll(name, "`", "``")
+	// 首先对名称中的反引号进行转义
+	escaped := strings.ReplaceAll(name, "`", "``")
+	// 然后用反引号包裹整个标识符
+	return fmt.Sprintf("`%s`", escaped)
 }

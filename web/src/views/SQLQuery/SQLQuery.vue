@@ -376,7 +376,6 @@
 
 <script setup lang="ts">
 import { ref, watch, computed, onMounted, onUnmounted, nextTick } from 'vue';
-import { useRoute } from 'vue-router';
 import { EditorView, basicSetup } from 'codemirror';
 import { keymap } from '@codemirror/view';
 import { EditorState } from '@codemirror/state';
@@ -394,11 +393,9 @@ import {
 } from '@element-plus/icons-vue';
 import { datasourceAPI, queryAPI } from '@/api';
 import { isHandledError } from '@/utils/api';
-import { translateErrorMessage } from '@/utils/error';
 import { useAuthStore } from '@/stores/auth';
-import type { Datasource, QueryResult, SavedSQL, QueryHistory, TableInfo, ColumnInfo } from '@/types';
+import type { Datasource, QueryResult, QueryHistory, TableInfo, ColumnInfo } from '@/types';
 
-const route = useRoute();
 const authStore = useAuthStore();
 
 const getStorageKey = () => `bdopsflow_sql_tabs_${authStore.user?.id || 'anonymous'}`;
@@ -504,6 +501,7 @@ const loadingTables = ref(false);
 const loadingColumns = ref(false);
 
 let metadataAbortController: AbortController | null = null;
+const metadataCache = new Map<string, { data: any; timestamp: number }>();
 
 const cancelPendingMetadataRequests = () => {
   if (metadataAbortController) {
@@ -1310,7 +1308,8 @@ const handleExecute = async () => {
     loadRecentHistory();
   } catch (err: any) {
     const rawMsg = err?.response?.data?.error || err?.message || '查询失败，请检查网络连接';
-    errorMessage.value = translateErrorMessage(rawMsg);
+    // 直接显示原始错误信息，不进行翻译截断
+    errorMessage.value = rawMsg;
     queryResult.value = null;
   } finally {
     executing.value = false;
@@ -1416,16 +1415,16 @@ const handleExportCSV = async () => {
   }
 };
 
-const formatTime = (ms?: number) => {
-  if (!ms) return '-';
-  if (ms < 1000) {
-    return `${ms}ms`;
-  } else if (ms < 60000) {
-    return `${(ms / 1000).toFixed(2)}s`;
+const formatTime = (seconds?: number) => {
+  if (!seconds && seconds !== 0) return '-';
+  if (seconds < 1) {
+    return `${(seconds * 1000).toFixed(0)}ms`;
+  } else if (seconds < 60) {
+    return `${seconds.toFixed(2)}s`;
   } else {
-    const minutes = Math.floor(ms / 60000);
-    const seconds = ((ms % 60000) / 1000).toFixed(2);
-    return `${minutes}m ${seconds}s`;
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = (seconds % 60).toFixed(2);
+    return `${minutes}m ${remainingSeconds}s`;
   }
 };
 
