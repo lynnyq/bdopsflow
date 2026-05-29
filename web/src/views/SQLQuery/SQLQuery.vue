@@ -1431,11 +1431,14 @@ const formatTime = (seconds?: number) => {
 };
 
 const initFromRoute = () => {
-  const dsId = route.query.datasource_id as string;
-  const sql = route.query.sql as string;
-  if (dsId) {
-    selectedDatasourceId.value = parseInt(dsId);
-    handleDatasourceChange();
+  const dsId = route.query?.datasource_id as string;
+  const sql = route.query?.sql as string;
+  if (dsId != null && dsId !== '') {
+    const parsedId = parseInt(dsId);
+    if (!isNaN(parsedId)) {
+      selectedDatasourceId.value = parsedId;
+      handleDatasourceChange();
+    }
   }
   if (sql && editorView) {
     editorView.dispatch({

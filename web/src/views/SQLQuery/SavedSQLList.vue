@@ -140,12 +140,13 @@ const loadSavedSQL = async () => {
 }
 
 const handleLoad = (row: SavedSQL) => {
+  const query: Record<string, string> = { sql: row.sql_text }
+  if (row.datasource_id != null) {
+    query.datasource_id = String(row.datasource_id)
+  }
   router.push({
     name: 'SQLQuery',
-    query: {
-      datasource_id: String(row.datasource_id),
-      sql: row.sql_text,
-    }
+    query,
   })
 }
 
