@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	gohive "github.com/beltran/gohive"
+	"github.com/pkg/errors"
 )
 
 type HiveDriver struct {
@@ -74,11 +75,11 @@ func (d *HiveDriver) Connect(ctx context.Context, config DatasourceConfig) error
 				res.conn.Close()
 			}
 		}()
-		return fmt.Errorf("hive connect cancelled: %v", ctx.Err())
+		return errors.Wrap(ctx.Err(), "hive connect cancelled")
 	case result := <-resultCh:
 		if result.err != nil {
 			slog.Error("hive connection failed", "host", config.Host, "port", port, "auth", auth, "error", result.err)
-			return fmt.Errorf("failed to connect to hive: %v", result.err)
+			return errors.Wrap(result.err, "failed to connect to hive")
 		}
 		d.connection = result.conn
 		slog.Info("hive connected", "host", config.Host, "port", port, "database", config.Database)
@@ -88,13 +89,13 @@ func (d *HiveDriver) Connect(ctx context.Context, config DatasourceConfig) error
 
 func (d *HiveDriver) TestConnection(ctx context.Context) error {
 	if d.connection == nil {
-		return fmt.Errorf("hive connection not established")
+		return errors.New("hive connection not established")
 	}
 	cursor := d.connection.Cursor()
 	cursor.Exec(ctx, normalizeSQL("SELECT 1"))
 	if cursor.Err != nil {
 		cursor.Close()
-		return fmt.Errorf("hive test connection failed: %v", cursor.Err)
+		return errors.Wrap(cursor.Err, "hive test connection failed")
 	}
 	cursor.Close()
 	return nil
@@ -102,7 +103,7 @@ func (d *HiveDriver) TestConnection(ctx context.Context) error {
 
 func (d *HiveDriver) Ping(ctx context.Context) error {
 	if d.connection == nil {
-		return fmt.Errorf("hive connection not established")
+		return errors.New("hive connection not established")
 	}
 	return nil
 }
@@ -116,7 +117,7 @@ func (d *HiveDriver) Close() error {
 
 func (d *HiveDriver) Query(ctx context.Context, query string, args ...interface{}) (*QueryResult, error) {
 	if d.connection == nil {
-		return nil, fmt.Errorf("hive connection not established")
+		return nil, errors.New("hive connection not established")
 	}
 
 	normalizedQuery := normalizeSQL(query)
@@ -136,14 +137,14 @@ func (d *HiveDriver) Query(ctx context.Context, query string, args ...interface{
 		cursor.Exec(context.Background(), normalizedQuery)
 		if cursor.Err != nil {
 			cursor.Close()
-			resultCh <- queryResult{nil, fmt.Errorf("hive query error: %v", cursor.Err)}
+			resultCh <- queryResult{result: nil, err: errors.Wrap(cursor.Err, "hive query error")}
 			return
 		}
 
 		description := cursor.Description()
 		if cursor.Err != nil {
 			cursor.Close()
-			resultCh <- queryResult{nil, fmt.Errorf("hive get description error: %v", cursor.Err)}
+			resultCh <- queryResult{nil, errors.Wrap(cursor.Err, "hive get description error")}
 			return
 		}
 
@@ -159,7 +160,7 @@ func (d *HiveDriver) Query(ctx context.Context, query string, args ...interface{
 			rowMap := cursor.RowMap(context.Background())
 			if cursor.Err != nil {
 				cursor.Close()
-				resultCh <- queryResult{nil, fmt.Errorf("hive fetch error: %v", cursor.Err)}
+				resultCh <- queryResult{nil, errors.Wrap(cursor.Err, "hive fetch error")}
 				return
 			}
 			row := make([]interface{}, len(columns))
@@ -183,7 +184,7 @@ func (d *HiveDriver) Query(ctx context.Context, query string, args ...interface{
 		go func() {
 			<-resultCh
 		}()
-		return nil, fmt.Errorf("hive query cancelled: %v", ctx.Err())
+		return nil, errors.Wrap(ctx.Err(), "hive query cancelled")
 	case res := <-resultCh:
 		if res.err != nil {
 			slog.Error("hive query execution failed", "sql_preview", truncateSQL(normalizedQuery, 200), "error", res.err)
@@ -252,7 +253,7 @@ func (d *HiveDriver) UseDatabase(ctx context.Context, database string) error {
 		return nil
 	}
 	if d.connection == nil {
-		return fmt.Errorf("hive connection not established")
+		return errors.New("hive connection not established")
 	}
 
 	d.mu.Lock()
@@ -268,7 +269,7 @@ func (d *HiveDriver) UseDatabase(ctx context.Context, database string) error {
 		cursor.Exec(context.Background(), fmt.Sprintf("USE %s", escapeHiveIdentifier(database)))
 		if cursor.Err != nil {
 			cursor.Close()
-			resultCh <- useResult{fmt.Errorf("hive use database error: %v", cursor.Err)}
+			resultCh <- useResult{errors.Wrap(cursor.Err, "hive use database error")}
 			return
 		}
 		cursor.Close()
@@ -278,7 +279,7 @@ func (d *HiveDriver) UseDatabase(ctx context.Context, database string) error {
 	select {
 	case <-ctx.Done():
 		go func() { <-resultCh }()
-		return fmt.Errorf("hive use database cancelled: %v", ctx.Err())
+		return errors.Wrap(ctx.Err(), "hive use database cancelled")
 	case res := <-resultCh:
 		if res.err == nil {
 			slog.Debug("hive switched database", "database", database)

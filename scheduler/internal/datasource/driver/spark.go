@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	gohive "github.com/beltran/gohive"
+	"github.com/pkg/errors"
 )
 
 type SparkDriver struct {
@@ -71,11 +72,11 @@ func (d *SparkDriver) Connect(ctx context.Context, config DatasourceConfig) erro
 				res.conn.Close()
 			}
 		}()
-		return fmt.Errorf("spark connect cancelled: %w", ctx.Err())
+		return errors.Wrap(ctx.Err(), "spark connect cancelled")
 	case result := <-resultCh:
 		if result.err != nil {
 			slog.Error("spark connection failed", "host", config.Host, "port", port, "error", result.err)
-			return fmt.Errorf("failed to connect to spark: %w", result.err)
+			return errors.Wrap(result.err, "failed to connect to spark")
 		}
 		d.connection = result.conn
 		slog.Info("spark connected", "host", config.Host, "port", port, "database", config.Database)
@@ -85,13 +86,13 @@ func (d *SparkDriver) Connect(ctx context.Context, config DatasourceConfig) erro
 
 func (d *SparkDriver) TestConnection(ctx context.Context) error {
 	if d.connection == nil {
-		return fmt.Errorf("spark connection not established")
+		return errors.New("spark connection not established")
 	}
 	cursor := d.connection.Cursor()
 	cursor.Exec(ctx, normalizeSQL("SELECT 1"))
 	if cursor.Err != nil {
 		cursor.Close()
-		return fmt.Errorf("spark test connection failed: %w", cursor.Err)
+		return errors.Wrap(cursor.Err, "spark test connection failed")
 	}
 	cursor.Close()
 	return nil
@@ -99,7 +100,7 @@ func (d *SparkDriver) TestConnection(ctx context.Context) error {
 
 func (d *SparkDriver) Ping(ctx context.Context) error {
 	if d.connection == nil {
-		return fmt.Errorf("spark connection not established")
+		return errors.New("spark connection not established")
 	}
 	return nil
 }
@@ -113,7 +114,7 @@ func (d *SparkDriver) Close() error {
 
 func (d *SparkDriver) Query(ctx context.Context, query string, args ...interface{}) (*QueryResult, error) {
 	if d.connection == nil {
-		return nil, fmt.Errorf("spark connection not established")
+		return nil, errors.New("spark connection not established")
 	}
 
 	normalizedQuery := normalizeSQL(query)
@@ -133,14 +134,14 @@ func (d *SparkDriver) Query(ctx context.Context, query string, args ...interface
 		cursor.Exec(context.Background(), normalizedQuery)
 		if cursor.Err != nil {
 			cursor.Close()
-			resultCh <- queryResult{nil, fmt.Errorf("spark query error: %w", cursor.Err)}
+			resultCh <- queryResult{nil, errors.Wrap(cursor.Err, "spark query error")}
 			return
 		}
 
 		description := cursor.Description()
 		if cursor.Err != nil {
 			cursor.Close()
-			resultCh <- queryResult{nil, fmt.Errorf("spark get description error: %w", cursor.Err)}
+			resultCh <- queryResult{nil, errors.Wrap(cursor.Err, "spark get description error")}
 			return
 		}
 
@@ -156,7 +157,7 @@ func (d *SparkDriver) Query(ctx context.Context, query string, args ...interface
 			rowMap := cursor.RowMap(context.Background())
 			if cursor.Err != nil {
 				cursor.Close()
-				resultCh <- queryResult{nil, fmt.Errorf("spark fetch error: %w", cursor.Err)}
+				resultCh <- queryResult{nil, errors.Wrap(cursor.Err, "spark fetch error")}
 				return
 			}
 			row := make([]interface{}, len(columns))
@@ -178,7 +179,7 @@ func (d *SparkDriver) Query(ctx context.Context, query string, args ...interface
 	case <-ctx.Done():
 		slog.Warn("spark query cancelled by context", "sql_preview", truncateSQL(normalizedQuery, 200), "error", ctx.Err())
 		go func() { <-resultCh }()
-		return nil, fmt.Errorf("spark query cancelled: %w", ctx.Err())
+		return nil, errors.Wrap(ctx.Err(), "spark query cancelled")
 	case res := <-resultCh:
 		if res.err != nil {
 			slog.Error("spark query execution failed", "sql_preview", truncateSQL(normalizedQuery, 200), "error", res.err)
@@ -247,7 +248,7 @@ func (d *SparkDriver) UseDatabase(ctx context.Context, database string) error {
 		return nil
 	}
 	if d.connection == nil {
-		return fmt.Errorf("spark connection not established")
+		return errors.New("spark connection not established")
 	}
 
 	d.mu.Lock()
@@ -263,7 +264,7 @@ func (d *SparkDriver) UseDatabase(ctx context.Context, database string) error {
 		cursor.Exec(context.Background(), fmt.Sprintf("USE %s", escapeHiveIdentifier(database)))
 		if cursor.Err != nil {
 			cursor.Close()
-			resultCh <- useResult{fmt.Errorf("spark use database error: %w", cursor.Err)}
+			resultCh <- useResult{errors.Wrap(cursor.Err, "spark use database error")}
 			return
 		}
 		cursor.Close()
@@ -273,7 +274,7 @@ func (d *SparkDriver) UseDatabase(ctx context.Context, database string) error {
 	select {
 	case <-ctx.Done():
 		go func() { <-resultCh }()
-		return fmt.Errorf("spark use database cancelled: %w", ctx.Err())
+		return errors.Wrap(ctx.Err(), "spark use database cancelled")
 	case res := <-resultCh:
 		if res.err == nil {
 			slog.Debug("spark switched database", "database", database)

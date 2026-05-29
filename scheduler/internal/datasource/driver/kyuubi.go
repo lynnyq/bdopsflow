@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	gohive "github.com/beltran/gohive"
+	"github.com/pkg/errors"
 )
 
 type KyuubiDriver struct {
@@ -71,11 +72,11 @@ func (d *KyuubiDriver) Connect(ctx context.Context, config DatasourceConfig) err
 				res.conn.Close()
 			}
 		}()
-		return fmt.Errorf("kyuubi connect cancelled: %w", ctx.Err())
+		return errors.Wrap(ctx.Err(), "kyuubi connect cancelled")
 	case result := <-resultCh:
 		if result.err != nil {
 			slog.Error("kyuubi connection failed", "host", config.Host, "port", port, "error", result.err)
-			return fmt.Errorf("failed to connect to kyuubi: %w", result.err)
+			return errors.Wrap(result.err, "failed to connect to kyuubi")
 		}
 		d.connection = result.conn
 		slog.Info("kyuubi connected", "host", config.Host, "port", port, "database", config.Database)
@@ -85,13 +86,13 @@ func (d *KyuubiDriver) Connect(ctx context.Context, config DatasourceConfig) err
 
 func (d *KyuubiDriver) TestConnection(ctx context.Context) error {
 	if d.connection == nil {
-		return fmt.Errorf("kyuubi connection not established")
+		return errors.New("kyuubi connection not established")
 	}
 	cursor := d.connection.Cursor()
 	cursor.Exec(ctx, normalizeSQL("SELECT 1"))
 	if cursor.Err != nil {
 		cursor.Close()
-		return fmt.Errorf("kyuubi test connection failed: %w", cursor.Err)
+		return errors.Wrap(cursor.Err, "kyuubi test connection failed")
 	}
 	cursor.Close()
 	return nil
@@ -99,7 +100,7 @@ func (d *KyuubiDriver) TestConnection(ctx context.Context) error {
 
 func (d *KyuubiDriver) Ping(ctx context.Context) error {
 	if d.connection == nil {
-		return fmt.Errorf("kyuubi connection not established")
+		return errors.New("kyuubi connection not established")
 	}
 	return nil
 }
@@ -113,7 +114,7 @@ func (d *KyuubiDriver) Close() error {
 
 func (d *KyuubiDriver) Query(ctx context.Context, query string, args ...interface{}) (*QueryResult, error) {
 	if d.connection == nil {
-		return nil, fmt.Errorf("kyuubi connection not established")
+		return nil, errors.New("kyuubi connection not established")
 	}
 
 	normalizedQuery := normalizeSQL(query)
@@ -133,14 +134,14 @@ func (d *KyuubiDriver) Query(ctx context.Context, query string, args ...interfac
 		cursor.Exec(context.Background(), normalizedQuery)
 		if cursor.Err != nil {
 			cursor.Close()
-			resultCh <- queryResult{nil, fmt.Errorf("kyuubi query error: %w", cursor.Err)}
+			resultCh <- queryResult{nil, errors.Wrap(cursor.Err, "kyuubi query error")}
 			return
 		}
 
 		description := cursor.Description()
 		if cursor.Err != nil {
 			cursor.Close()
-			resultCh <- queryResult{nil, fmt.Errorf("kyuubi get description error: %w", cursor.Err)}
+			resultCh <- queryResult{nil, errors.Wrap(cursor.Err, "kyuubi get description error")}
 			return
 		}
 
@@ -156,7 +157,7 @@ func (d *KyuubiDriver) Query(ctx context.Context, query string, args ...interfac
 			rowMap := cursor.RowMap(context.Background())
 			if cursor.Err != nil {
 				cursor.Close()
-				resultCh <- queryResult{nil, fmt.Errorf("kyuubi fetch error: %w", cursor.Err)}
+				resultCh <- queryResult{nil, errors.Wrap(cursor.Err, "kyuubi fetch error")}
 				return
 			}
 			row := make([]interface{}, len(columns))
@@ -178,7 +179,7 @@ func (d *KyuubiDriver) Query(ctx context.Context, query string, args ...interfac
 	case <-ctx.Done():
 		slog.Warn("kyuubi query cancelled by context", "sql_preview", truncateSQL(normalizedQuery, 200), "error", ctx.Err())
 		go func() { <-resultCh }()
-		return nil, fmt.Errorf("kyuubi query cancelled: %w", ctx.Err())
+		return nil, errors.Wrap(ctx.Err(), "kyuubi query cancelled")
 	case res := <-resultCh:
 		if res.err != nil {
 			slog.Error("kyuubi query execution failed", "sql_preview", truncateSQL(normalizedQuery, 200), "error", res.err)
@@ -247,7 +248,7 @@ func (d *KyuubiDriver) UseDatabase(ctx context.Context, database string) error {
 		return nil
 	}
 	if d.connection == nil {
-		return fmt.Errorf("kyuubi connection not established")
+		return errors.New("kyuubi connection not established")
 	}
 
 	d.mu.Lock()
@@ -263,7 +264,7 @@ func (d *KyuubiDriver) UseDatabase(ctx context.Context, database string) error {
 		cursor.Exec(context.Background(), fmt.Sprintf("USE %s", escapeHiveIdentifier(database)))
 		if cursor.Err != nil {
 			cursor.Close()
-			resultCh <- useResult{fmt.Errorf("kyuubi use database error: %w", cursor.Err)}
+			resultCh <- useResult{errors.Wrap(cursor.Err, "kyuubi use database error")}
 			return
 		}
 		cursor.Close()
@@ -273,7 +274,7 @@ func (d *KyuubiDriver) UseDatabase(ctx context.Context, database string) error {
 	select {
 	case <-ctx.Done():
 		go func() { <-resultCh }()
-		return fmt.Errorf("kyuubi use database cancelled: %w", ctx.Err())
+		return errors.Wrap(ctx.Err(), "kyuubi use database cancelled")
 	case res := <-resultCh:
 		if res.err == nil {
 			slog.Debug("kyuubi switched database", "database", database)
