@@ -20,7 +20,7 @@
 
         <div class="panel-section selector-section" :class="{ collapsed: selectorCollapsed }">
           <div class="section-label selector-toggle" @click="selectorCollapsed = !selectorCollapsed">
-            <span>数据源选择</span>
+            <span>数据源</span>
             <el-icon :size="12"><component :is="selectorCollapsed ? ArrowDown : ArrowUp" /></el-icon>
           </div>
           <div class="selector-fields" v-show="!selectorCollapsed">
@@ -217,6 +217,13 @@
                   :class="{ active: tab.id === activeTabId }"
                   @click="handleTabSwitch(tab.id)"
                 >
+                  <el-icon
+                    v-if="tab.executing"
+                    class="tab-spinner is-loading"
+                    :size="12"
+                  >
+                    <Refresh />
+                  </el-icon>
                   <span class="tab-name" @dblclick="startRenameTab(tab)">
                     {{ tab.name }}
                   </span>
@@ -410,6 +417,11 @@ interface SQLTab {
   sql: string;
   datasourceId: number | '';
   database: string;
+  executing: boolean;
+  canceling: boolean;
+  queryId: string;
+  queryResult: QueryResult | null;
+  errorMessage: string;
 }
 
 const generateTabId = () => `tab_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
@@ -422,7 +434,19 @@ const loadTabsFromStorage = (): { tabs: SQLTab[]; activeTabId: string } => {
       const data = JSON.parse(raw);
       if (data.tabs && data.tabs.length > 0) {
         tabCounter = data.tabs.length;
-        return { tabs: data.tabs, activeTabId: data.activeTabId || data.tabs[0].id };
+        const loadedTabs: SQLTab[] = data.tabs.map((t: any) => ({
+          id: t.id,
+          name: t.name,
+          sql: t.sql || '',
+          datasourceId: t.datasourceId || '',
+          database: t.database || '',
+          executing: false,
+          canceling: false,
+          queryId: '',
+          queryResult: null,
+          errorMessage: '',
+        }));
+        return { tabs: loadedTabs, activeTabId: data.activeTabId || loadedTabs[0].id };
       }
     }
   } catch (e) {
@@ -434,6 +458,11 @@ const loadTabsFromStorage = (): { tabs: SQLTab[]; activeTabId: string } => {
     sql: '',
     datasourceId: '',
     database: '',
+    executing: false,
+    canceling: false,
+    queryId: '',
+    queryResult: null,
+    errorMessage: '',
   };
   return { tabs: [defaultTab], activeTabId: defaultTab.id };
 };
@@ -445,6 +474,7 @@ const activeTabId = ref<string>(saved.activeTabId);
 watch(() => authStore.user?.id, (newUserId, oldUserId) => {
   if (newUserId !== oldUserId && newUserId) {
     syncCurrentTabData();
+    stopAllPolling();
     const loaded = loadTabsFromStorage();
     tabs.value = loaded.tabs;
     activeTabId.value = loaded.activeTabId;
@@ -452,8 +482,6 @@ watch(() => authStore.user?.id, (newUserId, oldUserId) => {
     selectedDatasourceId.value = activeTab.value.datasourceId;
     selectedDatabase.value = activeTab.value.database;
     selectedTable.value = '';
-    queryResult.value = null;
-    errorMessage.value = '';
     nextTick(() => {
       if (editorView) {
         editorView.dispatch({
@@ -468,8 +496,15 @@ const saveTabsToStorage = () => {
   if (saveTabsTimer) clearTimeout(saveTabsTimer);
   saveTabsTimer = setTimeout(() => {
     try {
+      const storableTabs = tabs.value.map(t => ({
+        id: t.id,
+        name: t.name,
+        sql: t.sql,
+        datasourceId: t.datasourceId,
+        database: t.database,
+      }));
       localStorage.setItem(getStorageKey(), JSON.stringify({
-        tabs: tabs.value,
+        tabs: storableTabs,
         activeTabId: activeTabId.value,
       }));
     } catch (e) {
@@ -484,15 +519,17 @@ const editorHeight = ref(200);
 const isResizing = ref(false);
 const sqlText = ref(activeTab.value.sql);
 const selectorCollapsed = ref(false);
-const executing = ref(false);
 const exporting = ref(false);
 const exportProgress = ref(0);
 const allowWriteSQL = ref(false);
-const canceling = ref(false);
-const currentQueryId = ref('');
-let pollTimer: ReturnType<typeof setInterval> | null = null;
-const queryResult = ref<QueryResult | null>(null);
-const errorMessage = ref('');
+
+const pollTimers = new Map<string, ReturnType<typeof setInterval>>();
+
+const executing = computed(() => activeTab.value.executing);
+const canceling = computed(() => activeTab.value.canceling);
+const currentQueryId = computed(() => activeTab.value.queryId);
+const queryResult = computed(() => activeTab.value.queryResult);
+const errorMessage = computed(() => activeTab.value.errorMessage);
 
 const datasources = ref<Datasource[]>([]);
 const selectedDatasourceId = ref<number | ''>(activeTab.value.datasourceId);
@@ -694,8 +731,6 @@ const handleTabSwitch = (tabId: string) => {
     allowWriteSQL.value = false;
   }
 
-  queryResult.value = null;
-  errorMessage.value = '';
   saveTabsToStorage();
 };
 
@@ -780,6 +815,11 @@ const handleAddTab = () => {
     sql: '',
     datasourceId: selectedDatasourceId.value,
     database: selectedDatabase.value,
+    executing: false,
+    canceling: false,
+    queryId: '',
+    queryResult: null,
+    errorMessage: '',
   };
   tabs.value.push(newTab);
   activeTabId.value = newTab.id;
@@ -791,13 +831,13 @@ const handleAddTab = () => {
     });
   }
 
-  queryResult.value = null;
-  errorMessage.value = '';
   saveTabsToStorage();
 };
 
 const handleCloseTab = (tabId: string) => {
   if (tabs.value.length <= 1) return;
+
+  stopPolling(tabId);
 
   const idx = tabs.value.findIndex(t => t.id === tabId);
   if (idx === -1) return;
@@ -1382,22 +1422,32 @@ const getSQLToExecute = (): string => {
   return sqlText.value;
 };
 
-const stopPolling = () => {
-  if (pollTimer) {
-    clearInterval(pollTimer);
-    pollTimer = null;
+const stopPolling = (tabId?: string) => {
+  const id = tabId || activeTabId.value;
+  const timer = pollTimers.get(id);
+  if (timer) {
+    clearInterval(timer);
+    pollTimers.delete(id);
   }
+};
+
+const stopAllPolling = () => {
+  for (const [id, timer] of pollTimers) {
+    clearInterval(timer);
+  }
+  pollTimers.clear();
 };
 
 const handleExecute = async () => {
   const sql = getSQLToExecute();
-  if (!sql.trim() || !selectedDatasourceId.value || executing.value) return;
+  const tab = activeTab.value;
+  if (!sql.trim() || !selectedDatasourceId.value || tab.executing) return;
 
-  stopPolling();
-  executing.value = true;
-  errorMessage.value = '';
-  currentQueryId.value = '';
-  queryResult.value = null;
+  stopPolling(tab.id);
+  tab.executing = true;
+  tab.errorMessage = '';
+  tab.queryId = '';
+  tab.queryResult = null;
 
   try {
     const res = await queryAPI.execute({
@@ -1411,61 +1461,61 @@ const handleExecute = async () => {
     const status = data.status;
 
     if (status === 'completed') {
-      queryResult.value = data;
-      currentQueryId.value = queryId;
-      executing.value = false;
+      tab.queryResult = data;
+      tab.queryId = queryId;
+      tab.executing = false;
       loadRecentHistory();
       return;
     }
 
-    currentQueryId.value = queryId;
+    tab.queryId = queryId;
 
-    pollTimer = setInterval(async () => {
+    const timer = setInterval(async () => {
       try {
         const pollRes = await queryAPI.getResult(queryId);
         const pollData = (pollRes as any).data as any;
 
         if (pollData.status === 'completed') {
-          stopPolling();
-          queryResult.value = pollData;
-          executing.value = false;
+          stopPolling(tab.id);
+          tab.queryResult = pollData;
+          tab.executing = false;
           loadRecentHistory();
         } else if (pollData.status === 'failed') {
-          stopPolling();
-          errorMessage.value = pollData.error || '查询失败';
-          queryResult.value = null;
-          executing.value = false;
+          stopPolling(tab.id);
+          tab.errorMessage = pollData.error || '查询失败';
+          tab.queryResult = null;
+          tab.executing = false;
         } else if (pollData.status === 'cancelled') {
-          stopPolling();
-          errorMessage.value = pollData.error || '查询已取消';
-          queryResult.value = null;
-          executing.value = false;
+          stopPolling(tab.id);
+          tab.errorMessage = pollData.error || '查询已取消';
+          tab.queryResult = null;
+          tab.executing = false;
         }
       } catch (err: any) {
-        stopPolling();
-        const rawMsg = err?.response?.data?.error || err?.message || '轮询查询结果失败';
-        errorMessage.value = rawMsg;
-        queryResult.value = null;
-        executing.value = false;
+        stopPolling(tab.id);
+        tab.errorMessage = err?.response?.data?.error || err?.message || '轮询查询结果失败';
+        tab.queryResult = null;
+        tab.executing = false;
       }
     }, 1000);
+    pollTimers.set(tab.id, timer);
   } catch (err: any) {
-    const rawMsg = err?.response?.data?.error || err?.message || '查询失败，请检查网络连接';
-    errorMessage.value = rawMsg;
-    queryResult.value = null;
-    executing.value = false;
+    tab.errorMessage = err?.response?.data?.error || err?.message || '查询失败，请检查网络连接';
+    tab.queryResult = null;
+    tab.executing = false;
   }
 };
 
 const handleCancel = async () => {
-  if (!currentQueryId.value || canceling.value) return;
+  const tab = activeTab.value;
+  if (!tab.queryId || tab.canceling) return;
 
-  canceling.value = true;
+  tab.canceling = true;
   try {
-    await queryAPI.cancel(currentQueryId.value);
-    stopPolling();
-    errorMessage.value = '查询已取消';
-    queryResult.value = null;
+    await queryAPI.cancel(tab.queryId);
+    stopPolling(tab.id);
+    tab.errorMessage = '查询已取消';
+    tab.queryResult = null;
     ElMessage.info('查询已取消');
   } catch (err: any) {
     if (!isHandledError(err)) {
@@ -1473,9 +1523,9 @@ const handleCancel = async () => {
       ElMessage.error(msg);
     }
   } finally {
-    canceling.value = false;
-    executing.value = false;
-    currentQueryId.value = '';
+    tab.canceling = false;
+    tab.executing = false;
+    tab.queryId = '';
   }
 };
 
@@ -1608,7 +1658,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   syncCurrentTabData();
-  stopPolling();
+  stopAllPolling();
   editorView?.destroy();
   document.removeEventListener('mousemove', onResize);
   document.removeEventListener('mouseup', stopResize);
@@ -2040,6 +2090,17 @@ window.addEventListener('beforeunload', handleBeforeUnload);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.tab-spinner {
+  color: var(--accent-primary);
+  flex-shrink: 0;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 .tab-close {
