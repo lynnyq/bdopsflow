@@ -20,6 +20,25 @@ func NewSparkDriver() Driver {
 	return &SparkDriver{}
 }
 
+func (d *SparkDriver) lockWithContext(ctx context.Context) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	ch := make(chan struct{}, 1)
+	go func() {
+		d.mu.Lock()
+		close(ch)
+	}()
+	select {
+	case <-ch:
+		return nil
+	case <-ctx.Done():
+		<-ch
+		d.mu.Unlock()
+		return ctx.Err()
+	}
+}
+
 func (d *SparkDriver) Connect(ctx context.Context, config DatasourceConfig) error {
 	d.config = config
 	port := config.Port
@@ -121,7 +140,9 @@ func (d *SparkDriver) Query(ctx context.Context, query string, args ...interface
 	normalizedQuery := normalizeSQL(query)
 	slog.Debug("spark executing query", "sql_preview", truncateSQL(normalizedQuery, 200))
 
-	d.mu.Lock()
+	if err := d.lockWithContext(ctx); err != nil {
+		return nil, errors.Wrap(err, "spark query lock timeout, another query is running")
+	}
 	defer d.mu.Unlock()
 
 	type queryResult struct {
@@ -130,8 +151,11 @@ func (d *SparkDriver) Query(ctx context.Context, query string, args ...interface
 	}
 	resultCh := make(chan queryResult, 1)
 
+	var queryCursor *gohive.Cursor
+
 	go func() {
 		cursor := d.connection.Cursor()
+		queryCursor = cursor
 		cursor.Exec(context.Background(), normalizedQuery)
 		if cursor.Err != nil {
 			execErr := cursor.Err
@@ -193,7 +217,11 @@ func (d *SparkDriver) Query(ctx context.Context, query string, args ...interface
 
 	select {
 	case <-ctx.Done():
-		slog.Warn("spark query cancelled by context", "sql_preview", truncateSQL(normalizedQuery, 200), "error", ctx.Err())
+		slog.Warn("spark query cancelled by context, sending CancelOperation to Spark Server", "sql_preview", truncateSQL(normalizedQuery, 200), "error", ctx.Err())
+		if queryCursor != nil {
+			queryCursor.Cancel()
+			queryCursor.Close()
+		}
 		go func() { <-resultCh }()
 		return nil, errors.Wrap(ctx.Err(), "spark query cancelled")
 	case res := <-resultCh:
@@ -276,7 +304,9 @@ func (d *SparkDriver) UseDatabase(ctx context.Context, database string) error {
 		return errors.New("spark connection not established")
 	}
 
-	d.mu.Lock()
+	if err := d.lockWithContext(ctx); err != nil {
+		return errors.Wrap(err, "spark use database lock timeout, another query is running")
+	}
 	defer d.mu.Unlock()
 
 	type useResult struct {

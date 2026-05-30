@@ -20,6 +20,25 @@ func NewKyuubiDriver() Driver {
 	return &KyuubiDriver{}
 }
 
+func (d *KyuubiDriver) lockWithContext(ctx context.Context) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	ch := make(chan struct{}, 1)
+	go func() {
+		d.mu.Lock()
+		close(ch)
+	}()
+	select {
+	case <-ch:
+		return nil
+	case <-ctx.Done():
+		<-ch
+		d.mu.Unlock()
+		return ctx.Err()
+	}
+}
+
 func (d *KyuubiDriver) Connect(ctx context.Context, config DatasourceConfig) error {
 	d.config = config
 	port := config.Port
@@ -121,7 +140,9 @@ func (d *KyuubiDriver) Query(ctx context.Context, query string, args ...interfac
 	normalizedQuery := normalizeSQL(query)
 	slog.Debug("kyuubi executing query", "sql_preview", truncateSQL(normalizedQuery, 200))
 
-	d.mu.Lock()
+	if err := d.lockWithContext(ctx); err != nil {
+		return nil, errors.Wrap(err, "kyuubi query lock timeout, another query is running")
+	}
 	defer d.mu.Unlock()
 
 	type queryResult struct {
@@ -130,8 +151,11 @@ func (d *KyuubiDriver) Query(ctx context.Context, query string, args ...interfac
 	}
 	resultCh := make(chan queryResult, 1)
 
+	var queryCursor *gohive.Cursor
+
 	go func() {
 		cursor := d.connection.Cursor()
+		queryCursor = cursor
 		cursor.Exec(context.Background(), normalizedQuery)
 		if cursor.Err != nil {
 			execErr := cursor.Err
@@ -193,7 +217,11 @@ func (d *KyuubiDriver) Query(ctx context.Context, query string, args ...interfac
 
 	select {
 	case <-ctx.Done():
-		slog.Warn("kyuubi query cancelled by context", "sql_preview", truncateSQL(normalizedQuery, 200), "error", ctx.Err())
+		slog.Warn("kyuubi query cancelled by context, sending CancelOperation to Kyuubi Server", "sql_preview", truncateSQL(normalizedQuery, 200), "error", ctx.Err())
+		if queryCursor != nil {
+			queryCursor.Cancel()
+			queryCursor.Close()
+		}
 		go func() { <-resultCh }()
 		return nil, errors.Wrap(ctx.Err(), "kyuubi query cancelled")
 	case res := <-resultCh:
@@ -276,7 +304,9 @@ func (d *KyuubiDriver) UseDatabase(ctx context.Context, database string) error {
 		return errors.New("kyuubi connection not established")
 	}
 
-	d.mu.Lock()
+	if err := d.lockWithContext(ctx); err != nil {
+		return errors.Wrap(err, "kyuubi use database lock timeout, another query is running")
+	}
 	defer d.mu.Unlock()
 
 	type useResult struct {

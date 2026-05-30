@@ -301,7 +301,10 @@ func (h *QueryHandler) GetMetadata(c *gin.Context) {
 			elapsed := time.Since(startTime)
 			if ctx.Err() == context.DeadlineExceeded {
 				slog.Warn("GetMetadata: databases timeout", "module", "query", "datasource_id", dsID, "type", ds.Type, "elapsed", elapsed)
-				Fail(c, CodeQueryError, "获取数据库列表超时，请检查数据源连接")
+				Fail(c, CodeQueryError, "获取数据库列表超时，数据源可能正在执行其他查询，请稍后重试")
+			} else if strings.Contains(err.Error(), "another query is running") {
+				slog.Warn("GetMetadata: databases blocked by running query", "module", "query", "datasource_id", dsID, "elapsed", elapsed)
+				Fail(c, CodeQueryError, "数据源正在执行其他查询，无法获取数据库列表，请稍后重试")
 			} else {
 				slog.Error("GetMetadata: databases failed", "module", "query", "datasource_id", dsID, "type", ds.Type, "error", err, "elapsed", elapsed)
 				Fail(c, CodeQueryError, "获取数据库列表失败")
@@ -316,7 +319,10 @@ func (h *QueryHandler) GetMetadata(c *gin.Context) {
 			elapsed := time.Since(startTime)
 			if ctx.Err() == context.DeadlineExceeded {
 				slog.Warn("GetMetadata: tables timeout", "module", "query", "datasource_id", dsID, "database", database, "elapsed", elapsed)
-				Fail(c, CodeQueryError, "获取数据表列表超时，请检查数据源连接")
+				Fail(c, CodeQueryError, "获取数据表列表超时，数据源可能正在执行其他查询，请稍后重试")
+			} else if strings.Contains(err.Error(), "another query is running") {
+				slog.Warn("GetMetadata: tables blocked by running query", "module", "query", "datasource_id", dsID, "database", database, "elapsed", elapsed)
+				Fail(c, CodeQueryError, "数据源正在执行其他查询，无法获取数据表列表，请稍后重试")
 			} else {
 				slog.Error("GetMetadata: tables failed", "module", "query", "datasource_id", dsID, "database", database, "error", err, "elapsed", elapsed)
 				Fail(c, CodeQueryError, "获取数据表列表失败")
@@ -331,7 +337,10 @@ func (h *QueryHandler) GetMetadata(c *gin.Context) {
 			elapsed := time.Since(startTime)
 			if ctx.Err() == context.DeadlineExceeded {
 				slog.Warn("GetMetadata: columns timeout", "module", "query", "datasource_id", dsID, "database", database, "table", table, "elapsed", elapsed)
-				Fail(c, CodeQueryError, "获取字段列表超时，请检查数据源连接")
+				Fail(c, CodeQueryError, "获取字段列表超时，数据源可能正在执行其他查询，请稍后重试")
+			} else if strings.Contains(err.Error(), "another query is running") {
+				slog.Warn("GetMetadata: columns blocked by running query", "module", "query", "datasource_id", dsID, "database", database, "table", table, "elapsed", elapsed)
+				Fail(c, CodeQueryError, "数据源正在执行其他查询，无法获取字段列表，请稍后重试")
 			} else {
 				slog.Error("GetMetadata: columns failed", "module", "query", "datasource_id", dsID, "database", database, "table", table, "error", err, "elapsed", elapsed)
 				Fail(c, CodeQueryError, "获取字段列表失败")

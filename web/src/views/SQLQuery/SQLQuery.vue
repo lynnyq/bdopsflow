@@ -20,7 +20,7 @@
 
         <div class="panel-section selector-section" :class="{ collapsed: selectorCollapsed }">
           <div class="section-label selector-toggle" @click="selectorCollapsed = !selectorCollapsed">
-            <span>数据源配置</span>
+            <span>数据源选择</span>
             <el-icon :size="12"><component :is="selectorCollapsed ? ArrowDown : ArrowUp" /></el-icon>
           </div>
           <div class="selector-fields" v-show="!selectorCollapsed">
@@ -33,6 +33,7 @@
                 filterable
                 :disabled="executing"
                 @change="handleDatasourceChange"
+                @visible-change="onDatasourceVisibleChange"
               >
                 <el-option
                   v-for="ds in datasources"
@@ -62,6 +63,7 @@
                 :disabled="!selectedDatasourceId || loadingDatabases"
                 :loading="loadingDatabases"
                 @change="handleDatabaseChange"
+                @visible-change="onDatabaseVisibleChange"
               >
                 <el-option
                   v-for="db in databases"
@@ -720,6 +722,7 @@ const handleDatasourceChangeForTab = async (dsId: number | '', dbName: string) =
   if (ds.type === 'sqlite' || ds.type === 'rqlite') {
     databases.value = ['main'];
     selectedDatabase.value = dbName || 'main';
+    await handleDatabaseChange();
     return;
   }
 
@@ -729,6 +732,10 @@ const handleDatasourceChangeForTab = async (dsId: number | '', dbName: string) =
     databases.value = cached;
     if (dbName && cached.includes(dbName)) {
       selectedDatabase.value = dbName;
+      await handleDatabaseChange();
+    } else if (cached.length === 1) {
+      selectedDatabase.value = cached[0];
+      await handleDatabaseChange();
     }
     return;
   }
@@ -744,6 +751,10 @@ const handleDatasourceChangeForTab = async (dsId: number | '', dbName: string) =
     setCachedMetadata(cacheKey, dbList);
     if (dbName && dbList.includes(dbName)) {
       selectedDatabase.value = dbName;
+      await handleDatabaseChange();
+    } else if (dbList.length === 1) {
+      selectedDatabase.value = dbList[0];
+      await handleDatabaseChange();
     }
   } catch (err: any) {
     if (!isCanceledError(err) && !isHandledError(err)) {
@@ -753,6 +764,7 @@ const handleDatasourceChangeForTab = async (dsId: number | '', dbName: string) =
     databases.value = ds.database ? [ds.database] : ['default'];
     if (dbName) {
       selectedDatabase.value = dbName;
+      await handleDatabaseChange();
     }
   } finally {
     loadingDatabases.value = false;
@@ -966,9 +978,7 @@ const createEditor = () => {
 watch(editorHeight, () => {
   if (editorView && editorRef.value) {
     requestAnimationFrame(() => {
-      editorView?.dispatch({
-        effects: EditorView.resize.of(null)
-      });
+      editorView?.requestMeasure();
     });
   }
 });
@@ -1057,6 +1067,7 @@ const handleDatasourceChange = async () => {
   if (ds.type === 'sqlite' || ds.type === 'rqlite') {
     databases.value = ['main'];
     selectedDatabase.value = 'main';
+    await handleDatabaseChange();
     return;
   }
 
@@ -1064,6 +1075,10 @@ const handleDatasourceChange = async () => {
   const cached = getCachedMetadata(cacheKey);
   if (cached) {
     databases.value = cached;
+    if (cached.length === 1) {
+      selectedDatabase.value = cached[0];
+      await handleDatabaseChange();
+    }
     return;
   }
 
@@ -1076,6 +1091,10 @@ const handleDatasourceChange = async () => {
     }
     databases.value = dbList;
     setCachedMetadata(cacheKey, dbList);
+    if (dbList.length === 1) {
+      selectedDatabase.value = dbList[0];
+      await handleDatabaseChange();
+    }
   } catch (err: any) {
     if (!isCanceledError(err) && !isHandledError(err)) {
       const msg = err?.response?.data?.message || err?.message || '获取数据库列表失败';
@@ -1112,6 +1131,80 @@ const handleDatabaseChange = async () => {
     const tableData = res.data || [];
     tables.value = tableData;
     setCachedMetadata(cacheKey, tableData);
+    autocompleteData.value.tables = tableData.map((t: any) => t.name || '').filter(Boolean);
+  } catch (err: any) {
+    if (!isCanceledError(err) && !isHandledError(err)) {
+      const msg = err?.response?.data?.message || err?.message || '获取数据表列表失败';
+      ElMessage.error(`获取数据表列表失败: ${msg}`);
+    }
+  } finally {
+    loadingTables.value = false;
+  }
+};
+
+let datasourceIdOnOpen: number | '' = '';
+let databaseOnOpen = '';
+
+const onDatasourceVisibleChange = (visible: boolean) => {
+  if (visible) {
+    datasourceIdOnOpen = selectedDatasourceId.value;
+  } else if (selectedDatasourceId.value && selectedDatasourceId.value === datasourceIdOnOpen) {
+    refreshDatasourceMetadata();
+  }
+};
+
+const onDatabaseVisibleChange = (visible: boolean) => {
+  if (visible) {
+    databaseOnOpen = selectedDatabase.value;
+  } else if (selectedDatabase.value && selectedDatabase.value === databaseOnOpen) {
+    refreshDatabaseMetadata();
+  }
+};
+
+const refreshDatasourceMetadata = async () => {
+  if (!selectedDatasourceId.value) return;
+  const ds = datasources.value.find(d => d.id === selectedDatasourceId.value);
+  if (!ds) return;
+
+  if (ds.type === 'sqlite' || ds.type === 'rqlite') {
+    if (selectedDatabase.value) {
+      await refreshDatabaseMetadata();
+    }
+    return;
+  }
+
+  loadingDatabases.value = true;
+  try {
+    const res = await datasourceAPI.getDatabases(selectedDatasourceId.value as number, getMetadataSignal());
+    let dbList = res.data || [];
+    if (dbList.length === 0) {
+      dbList = ds.database ? [ds.database] : ['default'];
+    }
+    databases.value = dbList;
+    setCachedMetadata(`databases_${selectedDatasourceId.value}`, dbList);
+    if (selectedDatabase.value) {
+      await refreshDatabaseMetadata();
+    }
+  } catch (err: any) {
+    if (!isCanceledError(err) && !isHandledError(err)) {
+      const msg = err?.response?.data?.message || err?.message || '获取数据库列表失败';
+      ElMessage.error(`获取数据库列表失败: ${msg}`);
+    }
+  } finally {
+    loadingDatabases.value = false;
+  }
+};
+
+const refreshDatabaseMetadata = async () => {
+  if (!selectedDatasourceId.value || !selectedDatabase.value) return;
+
+  const dbName = selectedDatabase.value;
+  loadingTables.value = true;
+  try {
+    const res = await datasourceAPI.getTables(selectedDatasourceId.value as number, dbName, getMetadataSignal());
+    const tableData = res.data || [];
+    tables.value = tableData;
+    setCachedMetadata(`tables_${selectedDatasourceId.value}_${dbName}`, tableData);
     autocompleteData.value.tables = tableData.map((t: any) => t.name || '').filter(Boolean);
   } catch (err: any) {
     if (!isCanceledError(err) && !isHandledError(err)) {
