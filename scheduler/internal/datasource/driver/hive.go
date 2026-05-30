@@ -94,8 +94,9 @@ func (d *HiveDriver) TestConnection(ctx context.Context) error {
 	cursor := d.connection.Cursor()
 	cursor.Exec(ctx, normalizeSQL("SELECT 1"))
 	if cursor.Err != nil {
+		execErr := cursor.Err
 		cursor.Close()
-		return errors.Wrap(cursor.Err, "hive test connection failed")
+		return errors.Wrap(execErr, "hive test connection failed")
 	}
 	cursor.Close()
 	return nil
@@ -136,15 +137,17 @@ func (d *HiveDriver) Query(ctx context.Context, query string, args ...interface{
 		cursor := d.connection.Cursor()
 		cursor.Exec(context.Background(), normalizedQuery)
 		if cursor.Err != nil {
+			execErr := cursor.Err
 			cursor.Close()
-			resultCh <- queryResult{result: nil, err: errors.Wrap(cursor.Err, "hive query error")}
+			resultCh <- queryResult{result: nil, err: errors.Wrap(execErr, "hive query error")}
 			return
 		}
 
 		description := cursor.Description()
 		if cursor.Err != nil {
+			descErr := cursor.Err
 			cursor.Close()
-			resultCh <- queryResult{nil, errors.Wrap(cursor.Err, "hive get description error")}
+			resultCh <- queryResult{nil, errors.Wrap(descErr, "hive get description error")}
 			return
 		}
 
@@ -155,12 +158,19 @@ func (d *HiveDriver) Query(ctx context.Context, query string, args ...interface{
 			}
 		}
 
+		if len(columns) == 0 {
+			cursor.Close()
+			resultCh <- queryResult{nil, errors.New("hive query returned no columns, the SQL may contain errors or the table does not exist")}
+			return
+		}
+
 		var rows [][]interface{}
 		for cursor.HasMore(context.Background()) {
 			rowMap := cursor.RowMap(context.Background())
 			if cursor.Err != nil {
+				fetchErr := cursor.Err
 				cursor.Close()
-				resultCh <- queryResult{nil, errors.Wrap(cursor.Err, "hive fetch error")}
+				resultCh <- queryResult{nil, errors.Wrap(fetchErr, "hive fetch error")}
 				return
 			}
 			row := make([]interface{}, len(columns))
@@ -170,8 +180,9 @@ func (d *HiveDriver) Query(ctx context.Context, query string, args ...interface{
 			rows = append(rows, row)
 		}
 		if cursor.Err != nil {
+			finishErr := cursor.Err
 			cursor.Close()
-			resultCh <- queryResult{nil, errors.Wrap(cursor.Err, "hive query error")}
+			resultCh <- queryResult{nil, errors.Wrap(finishErr, "hive query error")}
 			return
 		}
 		cursor.Close()

@@ -237,8 +237,12 @@ func (h *QueryHandler) executeQuery(ctx context.Context, cancel context.CancelFu
 		history.Status = "failed"
 		history.ErrorMessage = "查询返回空结果"
 		h.dsService.RecordQueryHistory(context.Background(), history)
-		slog.Error("query returned nil result", "query_id", queryID, "datasource_id", req.DatasourceID, "datasource_name", ds.Name, "database", req.Database, "execution_time", execTime)
-		h.registry.UpdateError(queryID, "查询返回空结果，请检查SQL语句或数据源连接", execTime)
+		slog.Error("query returned nil result", "query_id", queryID, "datasource_id", req.DatasourceID, "datasource_name", ds.Name, "database", req.Database, "execution_time", execTime, "error", err)
+		nilResultMsg := "查询返回空结果，请检查SQL语句或数据源连接"
+		if err != nil {
+			nilResultMsg = fmt.Sprintf("查询返回空结果: %v", err)
+		}
+		h.registry.UpdateError(queryID, nilResultMsg, execTime)
 		return
 	}
 
