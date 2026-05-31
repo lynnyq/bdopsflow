@@ -15,24 +15,27 @@ import (
 )
 
 type CronScheduler struct {
-	cron         *cron.Cron
-	svc          *service.SchedulerService
-	redis        *redis.Client
-	taskEntries  map[int64]cron.EntryID // 任务ID到cron entry的映射
-	mu           sync.RWMutex
-	paused       bool                    // 全局暂停标志
-	isLeader     bool                    // 是否是主节点
-	started      bool                    // cron调度器是否已启动
-	startTime    time.Time               // 启动时间
+	cron            *cron.Cron
+	svc             *service.SchedulerService
+	redis           *redis.Client
+	taskEntries     map[int64]cron.EntryID
+	mu              sync.RWMutex
+	paused          bool
+	isLeader        bool
+	started         bool
+	startTime       time.Time
+	lastRedisSync   time.Time
+	redisSyncInterval time.Duration
 }
 
 func NewCronScheduler(svc *service.SchedulerService, redis *redis.Client) *CronScheduler {
 	return &CronScheduler{
-		cron:        cron.New(cron.WithSeconds()), // 使用本地时间
-		svc:         svc,
-		redis:       redis,
-		taskEntries: make(map[int64]cron.EntryID),
-		startTime:   time.Now(),
+		cron:              cron.New(cron.WithSeconds()),
+		svc:               svc,
+		redis:             redis,
+		taskEntries:       make(map[int64]cron.EntryID),
+		startTime:         time.Now(),
+		redisSyncInterval: 5 * time.Second,
 	}
 }
 
@@ -119,11 +122,11 @@ func (cs *CronScheduler) OnLoseLeader() {
 func (cs *CronScheduler) Pause() {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
-	
+
 	cs.paused = true
+	cs.lastRedisSync = time.Now()
 	slog.Info("cron scheduler paused")
-	
-	// 持久化到 Redis
+
 	if cs.redis != nil {
 		ctx := context.Background()
 		cs.redis.Set(ctx, "scheduler:paused", "1", 0)
@@ -134,22 +137,47 @@ func (cs *CronScheduler) Pause() {
 func (cs *CronScheduler) Resume() {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
-	
+
 	cs.paused = false
+	cs.lastRedisSync = time.Now()
 	slog.Info("cron scheduler resumed")
-	
-	// 持久化到 Redis
+
 	if cs.redis != nil {
 		ctx := context.Background()
 		cs.redis.Set(ctx, "scheduler:paused", "0", 0)
 	}
 }
 
-// IsPaused 获取暂停状态
+// IsPaused 获取暂停状态（定期从 Redis 同步，确保多节点一致性）
 func (cs *CronScheduler) IsPaused() bool {
+	cs.mu.RLock()
+	lastSync := cs.lastRedisSync
+	cs.mu.RUnlock()
+
+	if cs.redis != nil && time.Since(lastSync) > cs.redisSyncInterval {
+		cs.syncPausedFromRedis()
+	}
+
 	cs.mu.RLock()
 	defer cs.mu.RUnlock()
 	return cs.paused
+}
+
+// syncPausedFromRedis 从 Redis 同步暂停状态到本地
+func (cs *CronScheduler) syncPausedFromRedis() {
+	ctx := context.Background()
+	redisPaused, err := cs.redis.Get(ctx, "scheduler:paused").Bool()
+	if err != nil {
+		return
+	}
+
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	if cs.paused != redisPaused {
+		slog.Info("synced scheduler paused state from redis", "local", cs.paused, "redis", redisPaused)
+		cs.paused = redisPaused
+	}
+	cs.lastRedisSync = time.Now()
 }
 
 // GetUptime 获取运行时长
@@ -271,7 +299,10 @@ func (cs *CronScheduler) executeTask(taskID int64) {
 		return
 	}
 	
-	// 检查是否暂停
+	// 检查是否暂停（从 Redis 同步最新状态）
+	if cs.redis != nil {
+		cs.syncPausedFromRedis()
+	}
 	if cs.IsPaused() {
 		slog.Debug("scheduler is paused, skipping task execution", "task_id", taskID)
 		return

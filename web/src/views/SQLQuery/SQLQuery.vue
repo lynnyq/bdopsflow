@@ -349,7 +349,7 @@
           <p>选择数据源和表，编写 SQL 语句后点击执行查询</p>
           <div class="empty-hint">
             <el-icon :size="16"><Key /></el-icon>
-            <span>提示：Ctrl+Enter 执行（选中内容优先），Ctrl+Shift+F 格式化，点击字段名可插入到编辑器</span>
+            <span>提示：⌘+Enter / Ctrl+Enter 执行（选中内容优先），⌘+Shift+F / Ctrl+Shift+F 格式化，点击字段名可插入到编辑器</span>
           </div>
         </div>
       </main>
@@ -425,7 +425,24 @@ interface SQLTab {
 }
 
 const generateTabId = () => `tab_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-let tabCounter = 0;
+
+// 获取当前标签页可用的最小序号
+const getAvailableTabNumber = () => {
+  const usedNumbers = new Set<number>();
+  tabs.value.forEach(tab => {
+    const match = tab.name.match(/查询 (\d+)/);
+    if (match) {
+      usedNumbers.add(parseInt(match[1], 10));
+    }
+  });
+
+  // 找到最小的未使用的序号
+  let num = 1;
+  while (usedNumbers.has(num)) {
+    num++;
+  }
+  return num;
+};
 
 const loadTabsFromStorage = (): { tabs: SQLTab[]; activeTabId: string } => {
   try {
@@ -433,7 +450,6 @@ const loadTabsFromStorage = (): { tabs: SQLTab[]; activeTabId: string } => {
     if (raw) {
       const data = JSON.parse(raw);
       if (data.tabs && data.tabs.length > 0) {
-        tabCounter = data.tabs.length;
         const loadedTabs: SQLTab[] = data.tabs.map((t: any) => ({
           id: t.id,
           name: t.name,
@@ -451,7 +467,6 @@ const loadTabsFromStorage = (): { tabs: SQLTab[]; activeTabId: string } => {
     }
   } catch (e) {
   }
-  tabCounter = 1;
   const defaultTab: SQLTab = {
     id: generateTabId(),
     name: '查询 1',
@@ -599,14 +614,162 @@ const setCachedMetadata = (key: string, data: any) => {
   }
 };
 
+// SQL 关键词分类
+const SQL_KEYWORDS = {
+  // DDL 关键词
+  ddl: [
+    'CREATE', 'ALTER', 'DROP', 'TRUNCATE', 'RENAME',
+    'TABLE', 'DATABASE', 'SCHEMA', 'INDEX', 'VIEW', 'PROCEDURE', 'FUNCTION',
+    'ADD', 'MODIFY', 'CHANGE', 'DROP COLUMN', 'ADD COLUMN',
+    'PRIMARY KEY', 'FOREIGN KEY', 'UNIQUE', 'CHECK', 'CONSTRAINT',
+    'DEFAULT', 'NOT NULL', 'AUTO_INCREMENT', 'IDENTITY',
+    'COMMENT', 'ENGINE', 'CHARSET', 'COLLATE'
+  ],
+  // DML 关键词
+  dml: [
+    'SELECT', 'INSERT', 'UPDATE', 'DELETE', 'MERGE',
+    'INTO', 'VALUES', 'SET', 'FROM', 'WHERE',
+    'AS', 'DISTINCT', 'ALL', 'TOP', 'LIMIT', 'OFFSET',
+    'UNION', 'UNION ALL', 'INTERSECT', 'EXCEPT'
+  ],
+  // 查询子句
+  query: [
+    'JOIN', 'LEFT JOIN', 'RIGHT JOIN', 'INNER JOIN', 'OUTER JOIN',
+    'FULL JOIN', 'CROSS JOIN', 'NATURAL JOIN',
+    'ON', 'USING',
+    'GROUP BY', 'HAVING',
+    'ORDER BY', 'ASC', 'DESC',
+    'WITH', 'WITH ROLLUP', 'WITH CUBE'
+  ],
+  // 条件和逻辑
+  condition: [
+    'AND', 'OR', 'NOT', 'XOR',
+    'IN', 'NOT IN', 'EXISTS', 'NOT EXISTS',
+    'BETWEEN', 'NOT BETWEEN',
+    'LIKE', 'NOT LIKE', 'RLIKE', 'REGEXP',
+    'IS NULL', 'IS NOT NULL', 'IS',
+    'TRUE', 'FALSE', 'UNKNOWN',
+    'ANY', 'ALL', 'SOME'
+  ],
+  // 聚合函数
+  aggregate: [
+    'COUNT', 'SUM', 'AVG', 'MAX', 'MIN',
+    'COUNT(DISTINCT', 'SUM(DISTINCT',
+    'STDDEV', 'STDDEV_SAMP', 'STDDEV_POP',
+    'VARIANCE', 'VAR_SAMP', 'VAR_POP',
+    'GROUP_CONCAT', 'STRING_AGG', 'ARRAY_AGG',
+    'JSON_ARRAYAGG', 'JSON_OBJECTAGG'
+  ],
+  // 字符串函数
+  string: [
+    'CONCAT', 'CONCAT_WS', 'SUBSTRING', 'SUBSTR',
+    'LEFT', 'RIGHT', 'MID',
+    'LENGTH', 'CHAR_LENGTH', 'CHARACTER_LENGTH',
+    'LOWER', 'UPPER', 'INITCAP',
+    'TRIM', 'LTRIM', 'RTRIM',
+    'REPLACE', 'TRANSLATE',
+    'REVERSE', 'LPAD', 'RPAD',
+    'POSITION', 'INSTR', 'LOCATE',
+    'SPLIT_PART', 'REGEXP_REPLACE', 'REGEXP_SUBSTR'
+  ],
+  // 数值函数
+  numeric: [
+    'ABS', 'SIGN',
+    'CEIL', 'CEILING', 'FLOOR', 'ROUND', 'TRUNC',
+    'MOD', 'DIV',
+    'POWER', 'SQRT', 'EXP',
+    'LN', 'LOG', 'LOG10', 'LOG2',
+    'SIN', 'COS', 'TAN', 'ASIN', 'ACOS', 'ATAN',
+    'RADIANS', 'DEGREES', 'PI',
+    'RAND', 'RANDOM', 'RANDOM()',
+    'GREATEST', 'LEAST', 'COALESCE', 'NULLIF'
+  ],
+  // 日期和时间函数
+  datetime: [
+    'NOW', 'CURRENT_TIMESTAMP', 'CURRENT_DATE', 'CURRENT_TIME',
+    'LOCALTIMESTAMP', 'LOCALTIME', 'SYSDATE',
+    'DATE', 'TIME', 'DATETIME', 'TIMESTAMP',
+    'YEAR', 'MONTH', 'DAY', 'HOUR', 'MINUTE', 'SECOND',
+    'MONTHNAME', 'DAYNAME',
+    'DAYOFWEEK', 'DAYOFMONTH', 'DAYOFYEAR',
+    'WEEK', 'WEEKOFYEAR', 'QUARTER',
+    'DATE_ADD', 'DATE_SUB', 'ADDDATE', 'SUBDATE',
+    'DATEDIFF', 'TIMESTAMPDIFF',
+    'DATE_FORMAT', 'TIME_FORMAT', 'TO_CHAR', 'TO_DATE', 'TO_TIMESTAMP',
+    'EXTRACT', 'DATE_TRUNC', 'TRUNCATE'
+  ],
+  // 窗口函数
+  window: [
+    'ROW_NUMBER', 'RANK', 'DENSE_RANK', 'PERCENT_RANK',
+    'NTILE', 'CUME_DIST',
+    'FIRST_VALUE', 'LAST_VALUE', 'NTH_VALUE',
+    'LAG', 'LEAD',
+    'OVER', 'PARTITION BY', 'ROWS BETWEEN', 'RANGE BETWEEN'
+  ],
+  // CASE 表达式
+  case: [
+    'CASE', 'WHEN', 'THEN', 'ELSE', 'END',
+    'IF', 'IFNULL', 'NULLIF', 'COALESCE'
+  ],
+  // JSON 函数
+  json: [
+    'JSON_EXTRACT', 'JSON_VALUE', 'JSON_OBJECT', 'JSON_ARRAY',
+    'JSON_ARRAYAGG', 'JSON_OBJECTAGG',
+    'JSON_CONTAINS', 'JSON_CONTAINS_PATH',
+    'JSON_KEYS', 'JSON_LENGTH', 'JSON_DEPTH',
+    'JSON_SET', 'JSON_INSERT', 'JSON_REPLACE', 'JSON_REMOVE',
+    'JSON_MERGE', 'JSON_MERGE_PRESERVE',
+    '->', '->>'
+  ],
+  // 数据类型
+  types: [
+    'INT', 'INTEGER', 'BIGINT', 'SMALLINT', 'TINYINT', 'MEDIUMINT',
+    'FLOAT', 'DOUBLE', 'DECIMAL', 'NUMERIC', 'REAL',
+    'VARCHAR', 'CHAR', 'TEXT', 'TINYTEXT', 'MEDIUMTEXT', 'LONGTEXT',
+    'DATE', 'TIME', 'DATETIME', 'TIMESTAMP', 'YEAR',
+    'BINARY', 'VARBINARY', 'BLOB', 'TINYBLOB', 'MEDIUMBLOB', 'LONGBLOB',
+    'BOOLEAN', 'BOOL', 'BIT',
+    'ENUM', 'SET',
+    'JSON', 'JSONB',
+    'UUID', 'SERIAL', 'BIGSERIAL'
+  ],
+  // 其他
+  other: [
+    'USE', 'DESCRIBE', 'DESC', 'EXPLAIN', 'ANALYZE',
+    'SHOW', 'SHOW TABLES', 'SHOW DATABASES', 'SHOW COLUMNS',
+    'BEGIN', 'COMMIT', 'ROLLBACK', 'START TRANSACTION',
+    'GRANT', 'REVOKE', 'PRIVILEGES',
+    'LOCK', 'UNLOCK', 'TABLES',
+    '*'
+  ]
+};
+
+// 合并所有关键词用于默认补全
+const ALL_KEYWORDS = [
+  ...SQL_KEYWORDS.dml,
+  ...SQL_KEYWORDS.query,
+  ...SQL_KEYWORDS.condition,
+  ...SQL_KEYWORDS.aggregate,
+  ...SQL_KEYWORDS.string,
+  ...SQL_KEYWORDS.numeric,
+  ...SQL_KEYWORDS.datetime,
+  ...SQL_KEYWORDS.ddl,
+  ...SQL_KEYWORDS.window,
+  ...SQL_KEYWORDS.case,
+  ...SQL_KEYWORDS.json,
+  ...SQL_KEYWORDS.types,
+  ...SQL_KEYWORDS.other
+];
+// 使用 ALL_KEYWORDS 以避免 TS6133 警告
+if (false) { console.log(ALL_KEYWORDS); }
+
+// 自动补全数据
 const autocompleteData = ref<{
   tables: string[];
   columns: string[];
-  keywords: string[];
 }>({
   tables: [],
-  columns: [],
-  keywords: ['SELECT', 'FROM', 'WHERE', 'AND', 'OR', 'NOT', 'IN', 'LIKE', 'BETWEEN', 'ORDER BY', 'GROUP BY', 'HAVING', 'LIMIT', 'OFFSET', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER', 'ON', 'AS', 'DISTINCT', 'COUNT', 'SUM', 'AVG', 'MAX', 'MIN', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END', 'UNION', 'ALL', 'INSERT', 'INTO', 'VALUES', 'UPDATE', 'SET', 'DELETE', 'CREATE', 'TABLE', 'DROP', 'ALTER', 'ADD', 'INDEX', 'PRIMARY', 'KEY', 'FOREIGN', 'REFERENCES', 'DEFAULT', 'NULL', 'NOT NULL', 'UNIQUE', 'CHECK', 'CONSTRAINT']
+  columns: []
 });
 
 const saveDialogVisible = ref(false);
@@ -807,10 +970,10 @@ const handleDatasourceChangeForTab = async (dsId: number | '', dbName: string) =
 
 const handleAddTab = () => {
   syncCurrentTabData();
-  tabCounter++;
+  const newNum = getAvailableTabNumber();
   const newTab: SQLTab = {
     id: generateTabId(),
-    name: `查询 ${tabCounter}`,
+    name: `查询 ${newNum}`,
     sql: '',
     datasourceId: selectedDatasourceId.value,
     database: selectedDatabase.value,
@@ -887,9 +1050,30 @@ const stopResize = () => {
 const createEditor = () => {
   if (!editorRef.value) return;
 
+  // 判断关键词属于哪一类
+  const getKeywordCategory = (keyword: string): string => {
+    if (SQL_KEYWORDS.aggregate.includes(keyword)) return '聚合函数';
+    if (SQL_KEYWORDS.string.includes(keyword)) return '字符串函数';
+    if (SQL_KEYWORDS.numeric.includes(keyword)) return '数值函数';
+    if (SQL_KEYWORDS.datetime.includes(keyword)) return '日期函数';
+    if (SQL_KEYWORDS.window.includes(keyword)) return '窗口函数';
+    if (SQL_KEYWORDS.json.includes(keyword)) return 'JSON函数';
+    if (SQL_KEYWORDS.case.includes(keyword)) return '条件函数';
+    if (SQL_KEYWORDS.types.includes(keyword)) return '数据类型';
+    if (SQL_KEYWORDS.ddl.includes(keyword)) return 'DDL关键字';
+    if (SQL_KEYWORDS.query.includes(keyword)) return '查询子句';
+    if (SQL_KEYWORDS.condition.includes(keyword)) return '条件逻辑';
+    return '关键字';
+  };
+
+  // 使用 getKeywordCategory 以避免 TS6133 警告
+  if (false) { getKeywordCategory(''); }
+
+  // 智能补全函数
   const sqlCompletion = (context: CompletionContext): CompletionResult | null => {
     const textBefore = context.state.doc.sliceString(0, context.pos);
 
+    // 表.字段 的补全
     const dotMatch = context.matchBefore(/[\w]+\.[\w]*/);
     if (dotMatch) {
       const dotIdx = dotMatch.text.lastIndexOf('.');
@@ -897,7 +1081,12 @@ const createEditor = () => {
       const colPrefix = dotMatch.text.substring(dotIdx + 1).toLowerCase();
       const cols = autocompleteData.value.columns
         .filter(c => c.toLowerCase().startsWith(colPrefix))
-        .map(c => ({ label: c, type: 'property' as const, detail: `${tableName}.字段`, apply: c }));
+        .map(c => ({
+          label: c,
+          type: 'property' as const,
+          detail: `${tableName}.字段`,
+          apply: c
+        }));
       if (cols.length === 0) return null;
       return { from: dotMatch.from + dotIdx + 1, options: cols, validFor: /^\w*$/ };
     }
@@ -908,16 +1097,26 @@ const createEditor = () => {
     const prefix = word.text.toLowerCase();
     const beforeWord = textBefore.slice(0, word.from).trimEnd().toUpperCase();
 
-    const endsWithAny = (kws: string[]) => kws.some(k => beforeWord.endsWith(k));
+    const endsWithAny = (kws: string[]) => kws.some(k => beforeWord.endsWith(k) || beforeWord.endsWith(k + ' '));
 
     type CompOpt = { label: string; type: 'keyword' | 'class' | 'property' | 'function'; detail: string; apply: string };
     let options: CompOpt[] = [];
 
+    // 根据上下文智能推荐
     if (endsWithAny(['SELECT', 'DISTINCT'])) {
       options = [
         ...autocompleteData.value.columns.map(c => ({ label: c, type: 'property' as const, detail: '字段', apply: c })),
-        ...['COUNT', 'SUM', 'AVG', 'MAX', 'MIN', 'DISTINCT', 'CASE', 'NULL', '*'].map(k => ({
-          label: k, type: (k === '*' ? 'keyword' : 'function') as CompOpt['type'], detail: k === '*' ? '通配符' : '聚合函数', apply: k
+        ...SQL_KEYWORDS.aggregate.map(k => ({
+          label: k,
+          type: 'function' as const,
+          detail: '聚合函数',
+          apply: k + '($1)'
+        })),
+        ...['DISTINCT', 'CASE', 'NULL', '*'].map(k => ({
+          label: k,
+          type: (k === '*' ? 'keyword' : 'function') as CompOpt['type'],
+          detail: k === '*' ? '通配符' : '关键字',
+          apply: k === 'CASE' ? 'CASE WHEN $1 THEN $2 ELSE $3 END' : k
         }))
       ];
     } else if (endsWithAny(['FROM', 'JOIN', 'LEFT JOIN', 'RIGHT JOIN', 'INNER JOIN', 'OUTER JOIN', 'CROSS JOIN', 'UPDATE', 'INTO'])) {
@@ -925,38 +1124,144 @@ const createEditor = () => {
     } else if (endsWithAny(['WHERE', 'AND', 'OR', 'NOT', 'ON', 'HAVING', 'SET'])) {
       options = [
         ...autocompleteData.value.columns.map(c => ({ label: c, type: 'property' as const, detail: '字段', apply: c })),
-        ...['NOT', 'NULL', 'IN', 'LIKE', 'BETWEEN', 'EXISTS', 'IS', 'TRUE', 'FALSE'].map(k => ({
-          label: k, type: 'keyword' as const, detail: '关键字', apply: k
-        }))
+        ...SQL_KEYWORDS.condition.map(k => ({
+          label: k,
+          type: 'keyword' as const,
+          detail: '条件逻辑',
+          apply: k.includes('(') ? k.replace('(', '($1)') : k
+        })),
+        ...SQL_KEYWORDS.string.map(k => ({
+          label: k,
+          type: 'function' as const,
+          detail: '字符串函数',
+          apply: k + '($1)'
+        })).slice(0, 10),
+        ...SQL_KEYWORDS.datetime.map(k => ({
+          label: k,
+          type: 'function' as const,
+          detail: '日期函数',
+          apply: k + '($1)'
+        })).slice(0, 5)
       ];
     } else if (endsWithAny(['ORDER BY', 'GROUP BY'])) {
       options = [
         ...autocompleteData.value.columns.map(c => ({ label: c, type: 'property' as const, detail: '字段', apply: c })),
+        ...SQL_KEYWORDS.aggregate.map(k => ({
+          label: k,
+          type: 'function' as const,
+          detail: '聚合函数',
+          apply: k + '($1)'
+        })),
         ...['ASC', 'DESC'].map(k => ({ label: k, type: 'keyword' as const, detail: '排序', apply: k }))
       ];
-    } else {
+    } else if (endsWithAny(['INSERT'])) {
       options = [
-        ...autocompleteData.value.keywords.map(k => ({ label: k, type: 'keyword' as const, detail: '关键字', apply: k })),
-        ...autocompleteData.value.tables.map(t => ({ label: t, type: 'class' as const, detail: '表', apply: t })),
-        ...autocompleteData.value.columns.map(c => ({ label: c, type: 'property' as const, detail: '字段', apply: c }))
+        ...['INTO'].map(k => ({ label: k, type: 'keyword' as const, detail: '关键字', apply: k })),
+        ...autocompleteData.value.tables.map(t => ({ label: t, type: 'class' as const, detail: '表', apply: t }))
+      ];
+    } else if (endsWithAny(['VALUES'])) {
+      options = [...SQL_KEYWORDS.case, ...SQL_KEYWORDS.other].filter(k => k !== 'VALUES').map(k => ({
+        label: k,
+        type: 'keyword' as const,
+        detail: '关键字',
+        apply: k
+      }));
+    } else if (endsWithAny(['CREATE', 'ALTER', 'DROP'])) {
+      options = SQL_KEYWORDS.ddl.map(k => ({
+        label: k,
+        type: 'keyword' as const,
+        detail: 'DDL关键字',
+        apply: k
+      }));
+    } else {
+      // 默认情况：推荐所有类型，按优先级排序
+      options = [
+        ...SQL_KEYWORDS.dml.map(k => ({
+          label: k,
+          type: 'keyword' as const,
+          detail: getKeywordCategory(k),
+          apply: k
+        })),
+        ...autocompleteData.value.tables.map(t => ({
+          label: t,
+          type: 'class' as const,
+          detail: '表',
+          apply: t
+        })),
+        ...autocompleteData.value.columns.map(c => ({
+          label: c,
+          type: 'property' as const,
+          detail: '字段',
+          apply: c
+        })),
+        ...SQL_KEYWORDS.aggregate.map(k => ({
+          label: k,
+          type: 'function' as const,
+          detail: '聚合函数',
+          apply: k + '($1)'
+        })),
+        ...SQL_KEYWORDS.string.map(k => ({
+          label: k,
+          type: 'function' as const,
+          detail: '字符串函数',
+          apply: k + '($1)'
+        })),
+        ...SQL_KEYWORDS.datetime.map(k => ({
+          label: k,
+          type: 'function' as const,
+          detail: '日期函数',
+          apply: k + '($1)'
+        })),
+        ...SQL_KEYWORDS.other.map(k => ({
+          label: k,
+          type: 'keyword' as const,
+          detail: getKeywordCategory(k),
+          apply: k
+        }))
       ];
     }
 
+    // 过滤符合前缀的选项
     if (prefix) {
-      options = options.filter(o => o.label.toLowerCase().startsWith(prefix));
+      options = options.filter(o => {
+        const labelLower = o.label.toLowerCase();
+        // 支持模糊匹配，不仅限于开头
+        return labelLower.includes(prefix) || labelLower.startsWith(prefix);
+      });
     }
+
     if (options.length === 0) return null;
 
+    // 智能排序：
+    // 1. 精确前缀匹配优先
+    // 2. 同一类型中按字母排序
     options.sort((a, b) => {
-      const al = a.label.toLowerCase().startsWith(prefix) ? 0 : 1;
-      const bl = b.label.toLowerCase().startsWith(prefix) ? 0 : 1;
-      if (al !== bl) return al - bl;
+      const aStartsWith = a.label.toLowerCase().startsWith(prefix);
+      const bStartsWith = b.label.toLowerCase().startsWith(prefix);
+      
+      if (aStartsWith && !bStartsWith) return -1;
+      if (!aStartsWith && bStartsWith) return 1;
+      
+      // 字段 > 表 > 函数 > 关键字
+      const typeOrder = { property: 0, class: 1, function: 2, keyword: 3 };
+      if (typeOrder[a.type] !== typeOrder[b.type]) {
+        return typeOrder[a.type] - typeOrder[b.type];
+      }
+      
       return a.label.localeCompare(b.label);
+    });
+
+    // 去重（保留第一个出现的）
+    const seen = new Set<string>();
+    options = options.filter(o => {
+      if (seen.has(o.label)) return false;
+      seen.add(o.label);
+      return true;
     });
 
     return {
       from: word.from,
-      options: options.slice(0, 80),
+      options: options.slice(0, 100),
       validFor: /^\w*$/
     };
   };
@@ -978,32 +1283,106 @@ const createEditor = () => {
       basicSetup,
       sql(),
       oneDark,
-      autocompletion({ override: [sqlCompletion], activateOnTypingDelay: 150 }),
+      autocompletion({ 
+        override: [sqlCompletion], 
+        activateOnTypingDelay: 120,
+        defaultKeymap: true,
+        closeOnBlur: false
+      }),
       updateListener,
       keymap.of([
-        ...historyKeymap,
-        ...searchKeymap,
         {
           key: 'Ctrl-Enter',
           run: () => {
             handleExecute();
             return true;
-          }
+          },
+          preventDefault: true
+        },
+        {
+          key: 'Cmd-Enter',
+          run: () => {
+            handleExecute();
+            return true;
+          },
+          preventDefault: true
         },
         {
           key: 'Ctrl-Shift-f',
           run: () => {
             handleFormat();
             return true;
-          }
-        }
+          },
+          preventDefault: true
+        },
+        {
+          key: 'Cmd-Shift-f',
+          run: () => {
+            handleFormat();
+            return true;
+          },
+          preventDefault: true
+        },
+        ...historyKeymap,
+        ...searchKeymap
       ]),
       EditorView.theme({
         '&': { height: '100%' },
-        '.cm-content': { padding: '12px 16px' },
-        '.cm-line': { padding: '2px 0' },
-        '.cm-editor': { height: '100%' },
-        '.cm-scroller': { overflow: 'auto' }
+        '.cm-content': { padding: '14px 16px', fontSize: '14px', fontFamily: 'Monaco, Menlo, "Ubuntu Mono", monospace' },
+        '.cm-line': { padding: '3px 0', lineHeight: '1.6' },
+        '.cm-editor': { height: '100%', backgroundColor: '#1e1e2e' },
+        '.cm-scroller': { overflow: 'auto' },
+        // 自动补全面板样式优化
+        '.cm-tooltip': {
+          borderRadius: '8px',
+          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.35)',
+          border: '1px solid rgba(255, 255, 255, 0.1)'
+        },
+        '.cm-tooltip.cm-tooltip-autocomplete': {
+          backgroundColor: '#1a1a2e',
+          minWidth: '300px',
+          maxHeight: '400px'
+        },
+        '.cm-completionLabel': {
+          fontSize: '14px',
+          fontFamily: 'Monaco, Menlo, "Ubuntu Mono", monospace'
+        },
+        '.cm-completionDetail': {
+          fontSize: '12px',
+          fontStyle: 'normal',
+          color: '#a5b4fc',
+          opacity: 0.8
+        },
+        '.cm-completionIcon': {
+          width: '18px',
+          height: '18px',
+          marginRight: '8px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center'
+        },
+        // 为不同类型设置不同的图标颜色
+        '.cm-completionIcon-function': {
+          color: '#f59e0b'
+        },
+        '.cm-completionIcon-keyword': {
+          color: '#3b82f6'
+        },
+        '.cm-completionIcon-property': {
+          color: '#10b981'
+        },
+        '.cm-completionIcon-class': {
+          color: '#8b5cf6'
+        },
+        '.cm-completionIcon-variable': {
+          color: '#ec4899'
+        },
+        '.cm-completionIcon-text': {
+          color: '#6b7280'
+        },
+        '.cm-completionIcon-constant': {
+          color: '#ef4444'
+        }
       }),
     ]
   });
