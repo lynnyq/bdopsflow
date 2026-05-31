@@ -180,7 +180,7 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, onMounted, onUnmounted, computed } from 'vue'
+import { reactive, ref, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { User, Lock, Key, Cpu, Connection, Monitor, CircleClose, Timer, Expand } from '@element-plus/icons-vue'

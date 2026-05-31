@@ -527,7 +527,6 @@ const pollTimers = new Map<string, ReturnType<typeof setInterval>>();
 
 const executing = computed(() => activeTab.value.executing);
 const canceling = computed(() => activeTab.value.canceling);
-const currentQueryId = computed(() => activeTab.value.queryId);
 const queryResult = computed(() => activeTab.value.queryResult);
 const errorMessage = computed(() => activeTab.value.errorMessage);
 
@@ -1432,7 +1431,7 @@ const stopPolling = (tabId?: string) => {
 };
 
 const stopAllPolling = () => {
-  for (const [id, timer] of pollTimers) {
+  for (const [_id, timer] of pollTimers) {
     clearInterval(timer);
   }
   pollTimers.clear();

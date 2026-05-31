@@ -170,9 +170,6 @@ import { User, UserFilled, Phone, Message, Key, CircleCheck, CircleClose, Refres
 import { authAPI } from '@/api'
 import { isHandledError } from '@/utils/api'
 import { encryptPassword, validatePassword, PASSWORD_RULES } from '@/utils/password'
-import { useAuthStore } from '@/stores/auth'
-
-const authStore = useAuthStore()
 
 const profileForm = reactive({
   username: '',
@@ -193,7 +190,7 @@ const passwordFormRef = ref<FormInstance>()
 const updateProfileLoading = ref(false)
 const changePasswordLoading = ref(false)
 
-const validateConfirmPassword = (rule: any, value: any, callback: any) => {
+const validateConfirmPassword = (_rule: any, value: any, callback: any) => {
   if (value === '') {
     callback(new Error('请再次输入新密码'))
   } else if (value !== passwordForm.newPassword) {
@@ -253,13 +250,13 @@ const getRoleTagType = (role: string) => {
 const loadCurrentUser = async () => {
   try {
     const response = await authAPI.getCurrentUser()
-    const user = response.data
+    const user = response.data.user
     
     profileForm.username = user.username || ''
     profileForm.real_name = user.real_name || ''
     profileForm.phone = user.phone || ''
     profileForm.email = user.email || ''
-    profileForm.role = user.role || ''
+    profileForm.role = user.role_codes?.[0] || ''
     profileForm.is_active = user.is_active ?? true
   } catch (error: any) {
     if (!isHandledError(error)) {

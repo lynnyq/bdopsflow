@@ -316,7 +316,6 @@ import { ArrowLeft, Document, Connection, Setting, Warning, CircleCheck } from '
 import { datasourceAPI } from '@/api'
 import { isHandledError } from '@/utils/api'
 import { useAuthStore } from '@/stores/auth'
-import type { Datasource } from '@/types'
 
 const router = useRouter()
 const route = useRoute()

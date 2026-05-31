@@ -19,7 +19,6 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Document } from '@element-plus/icons-vue'
 
 interface Props {
   icon?: string

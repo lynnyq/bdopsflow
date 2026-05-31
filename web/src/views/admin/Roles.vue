@@ -192,7 +192,7 @@ import {
   type Permission,
   type PermissionGroup
 } from '@/api/admin'
-import { handleError, handleSuccess, formatValue } from '@/utils/error'
+
 import { isHandledError } from '@/utils/api'
 
 const roles = ref<Role[]>([])
@@ -212,7 +212,7 @@ const selectedPermissionIds = ref<number[]>([])
 const filteredRoles = computed(() => {
   if (!searchQuery.value) return roles.value
   const query = searchQuery.value.toLowerCase()
-  return roles.value.filter(r => 
+  return roles.value.filter((r: Role) =>
     r.name.toLowerCase().includes(query) || 
     r.code?.toLowerCase().includes(query) ||
     r.description?.toLowerCase().includes(query)
@@ -264,7 +264,7 @@ const handleCreate = async () => {
   const form = formRef.value
   if (!form) return
 
-  await form.validate(async (valid) => {
+  await form.validate(async (valid: boolean) => {
     if (valid) {
       submitting.value = true
       try {
@@ -302,7 +302,7 @@ const handleUpdate = async () => {
   const form = editFormRef.value
   if (!form) return
 
-  await form.validate(async (valid) => {
+  await form.validate(async (valid: boolean) => {
     if (valid) {
       submitting.value = true
       try {
@@ -380,26 +380,26 @@ const getResourceIcon = (resource: string) => {
 }
 
 const isGroupAllSelected = (group: PermissionGroup) => {
-  const allIds = group.permissions.map((p) => p.id)
-  return allIds.length > 0 && allIds.every((id) => selectedPermissionIds.value.includes(id))
+  const allIds = group.permissions.map((p: Permission) => p.id)
+  return allIds.length > 0 && allIds.every((id: number) => selectedPermissionIds.value.includes(id))
 }
 
 const isGroupIndeterminate = (group: PermissionGroup) => {
-  const allIds = group.permissions.map((p) => p.id)
-  const selectedCount = allIds.filter((id) => selectedPermissionIds.value.includes(id)).length
+  const allIds = group.permissions.map((p: Permission) => p.id)
+  const selectedCount = allIds.filter((id: number) => selectedPermissionIds.value.includes(id)).length
   return selectedCount > 0 && selectedCount < allIds.length
 }
 
 const handleGroupSelectAll = (group: PermissionGroup, checked: boolean) => {
-  const allIds = group.permissions.map((p) => p.id)
+  const allIds = group.permissions.map((p: Permission) => p.id)
   if (checked) {
-    allIds.forEach((id) => {
+    allIds.forEach((id: number) => {
       if (!selectedPermissionIds.value.includes(id)) {
         selectedPermissionIds.value.push(id)
       }
     })
   } else {
-    selectedPermissionIds.value = selectedPermissionIds.value.filter((id) => !allIds.includes(id))
+    selectedPermissionIds.value = selectedPermissionIds.value.filter((id: number) => !allIds.includes(id))
   }
 }
 

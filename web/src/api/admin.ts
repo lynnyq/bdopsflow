@@ -1,6 +1,8 @@
 import api from '@/utils/api'
 import type { User, Role, Permission, PermissionGroup, Domain, DomainWithStats, SwitchDomainResponse } from '@/types'
 
+export type { User, Role, Permission, PermissionGroup, Domain, DomainWithStats }
+
 export interface DomainExecutor {
   executor_id: number
   domain_id: number
@@ -59,6 +61,8 @@ export const userAdminAPI = {
     phone: string
     email: string
     is_active: boolean
+    role_ids?: number[]
+    domain_ids?: number[]
   }) => api.put(`/admin/users/${id}`, data),
   delete: (id: number) => api.delete(`/admin/users/${id}`),
   assignRoles: (id: number, data: AssignRolesRequest) => api.post(`/admin/users/${id}/roles`, data),

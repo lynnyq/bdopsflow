@@ -263,14 +263,6 @@ const handleSearch = async () => {
   }
 }
 
-const handleReset = () => {
-  filterForm.value = { username: '', action: '', resource: '', status: '' }
-  searchQuery.value = ''
-  dateRange.value = null
-  currentPage.value = 1
-  handleSearch()
-}
-
 const handleCleanExpired = async () => {
   try {
     await ElMessageBox.confirm(

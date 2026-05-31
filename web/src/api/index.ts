@@ -11,6 +11,8 @@ export type { User, Role, Permission, AuditLog, AuditLogListResponse, AuditLogSt
 
 interface UpdateProfileRequest {
   email: string
+  real_name: string
+  phone: string
 }
 
 interface ChangePasswordRequest {

@@ -145,7 +145,7 @@ const form = ref({
   method: 'POST',
   secret: '',
   description: '',
-  headerList: [] as { key: string; value: string }[],
+  headerList: [] as { key: string; value: string; _uid: number }[],
 })
 
 const currentDomainId = computed(() => authStore.currentDomainId || 1)
@@ -192,7 +192,7 @@ const handleCreate = () => {
 const handleEdit = (row: Webhook) => {
   isEditing.value = true
   editingId.value = row.id
-  let headerList: { key: string; value: string }[] = []
+  let headerList: { key: string; value: string; _uid: number }[] = []
   if (row.headers) {
     try {
       const parsed = typeof row.headers === 'string' ? JSON.parse(row.headers) : row.headers

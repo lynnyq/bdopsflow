@@ -143,10 +143,10 @@
 
           <template v-if="selectedNode.type === 'http'">
             <el-form-item label="URL">
-              <el-input v-model="selectedNode.config.url" placeholder="https://api.example.com" @change="notifyUpdate" />
+              <el-input v-model="selectedNode.config!.url" placeholder="https://api.example.com" @change="notifyUpdate" />
             </el-form-item>
             <el-form-item label="方法">
-              <el-select v-model="selectedNode.config.method" @change="notifyUpdate">
+              <el-select v-model="selectedNode.config!.method" @change="notifyUpdate">
                 <el-option label="GET" value="GET" />
                 <el-option label="POST" value="POST" />
                 <el-option label="PUT" value="PUT" />
@@ -154,14 +154,14 @@
               </el-select>
             </el-form-item>
             <el-form-item label="超时(秒)">
-              <el-input-number v-model="selectedNode.config.timeout" :min="1" :max="300" @change="notifyUpdate" />
+              <el-input-number v-model="selectedNode.config!.timeout" :min="1" :max="300" @change="notifyUpdate" />
             </el-form-item>
           </template>
 
           <template v-else-if="selectedNode.type === 'shell'">
             <el-form-item label="脚本内容">
               <el-input
-                v-model="selectedNode.config.script"
+                v-model="selectedNode.config!.script"
                 type="textarea"
                 :rows="6"
                 placeholder="输入shell脚本"
@@ -172,14 +172,14 @@
 
           <template v-else-if="selectedNode.type === 'delay'">
             <el-form-item label="延迟时间(秒)">
-              <el-input-number v-model="selectedNode.config.delay" :min="1" :max="3600" @change="notifyUpdate" />
+              <el-input-number v-model="selectedNode.config!.delay" :min="1" :max="3600" @change="notifyUpdate" />
             </el-form-item>
           </template>
 
           <template v-else-if="selectedNode.type === 'condition'">
             <el-form-item label="条件表达式">
               <el-input
-                v-model="selectedNode.config.condition"
+                v-model="selectedNode.config!.condition"
                 type="textarea"
                 placeholder="例如: status == 'success'"
                 @change="notifyUpdate"
@@ -189,10 +189,10 @@
 
           <template v-else-if="selectedNode.type === 'webhook'">
             <el-form-item label="Webhook URL">
-              <el-input v-model="selectedNode.config.url" placeholder="https://webhook.example.com" @change="notifyUpdate" />
+              <el-input v-model="selectedNode.config!.url" placeholder="https://webhook.example.com" @change="notifyUpdate" />
             </el-form-item>
             <el-form-item label="触发条件">
-              <el-select v-model="selectedNode.config.trigger" @change="notifyUpdate">
+              <el-select v-model="selectedNode.config!.trigger" @change="notifyUpdate">
                 <el-option label="任务完成" value="completed" />
                 <el-option label="任务失败" value="failed" />
                 <el-option label="任何状态" value="all" />
@@ -216,7 +216,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch, onMounted } from 'vue'
+import { ref, reactive, watch, onMounted } from 'vue'
 import {
   Plus,
   Delete,
@@ -374,10 +374,6 @@ const addNodeAtPosition = (type: string, x: number, y: number) => {
   notifyUpdate()
 }
 
-const addNode = (type: string) => {
-  addNodeAtPosition(type, 400 + Math.random() * 200, 300 + Math.random() * 100)
-}
-
 const addChildNode = (parentNode: WorkflowNode) => {
   const childNode: WorkflowNode = {
     id: `node_${Date.now()}`,
@@ -412,7 +408,7 @@ const selectNode = (node: WorkflowNode) => {
   selectedNode.value = node
 }
 
-const startNodeDrag = (e: MouseEvent, node: WorkflowNode) => {
+const startNodeDrag = (e: MouseEvent, _node: WorkflowNode) => {
   isDraggingNode.value = true
   lastMousePos.x = e.clientX
   lastMousePos.y = e.clientY

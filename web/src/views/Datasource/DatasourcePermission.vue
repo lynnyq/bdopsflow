@@ -185,7 +185,7 @@
                         <el-icon :size="14"><User /></el-icon>
                       </div>
                       <span class="user-select-name">{{ u.username }}</span>
-                      <el-tag size="small" :type="getRoleTagType(u.role)" effect="plain">{{ getRoleDisplayName(u.role) }}</el-tag>
+                      <el-tag size="small" :type="getRoleTagType(u.role_codes?.[0] || '')" effect="plain">{{ getRoleDisplayName(u.role_codes?.[0] || '') }}</el-tag>
                       <span class="user-select-id">ID: {{ u.id }}</span>
                     </div>
                   </el-option>
@@ -470,12 +470,12 @@ const filteredPermissions = computed(() => {
 })
 
 const getUserName = (userId: number) => {
-  const user = users.value.find(u => u.id === userId)
+  const user = users.value.find((u: AdminUser) => u.id === userId)
   return user ? user.username : `用户 ${userId}`
 }
 
 const getRoleName = (roleId: number) => {
-  const role = roles.value.find(r => r.id === roleId)
+  const role = roles.value.find((r: Role) => r.id === roleId)
   return role ? role.name : `角色 ${roleId}`
 }
 

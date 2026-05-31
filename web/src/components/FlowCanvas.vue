@@ -485,7 +485,7 @@ const deleteConnection = (connId: string) => {
   notifyUpdate()
 }
 
-const startNodeDrag = (e: MouseEvent, node: WorkflowNode) => {
+const startNodeDrag = (e: MouseEvent, _node: WorkflowNode) => {
   isDraggingNode.value = true
   lastPos.value = { x: e.clientX, y: e.clientY }
 }

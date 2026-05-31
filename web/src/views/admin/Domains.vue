@@ -115,7 +115,7 @@ import { ref, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Edit, Delete, Document, Search, Refresh } from '@element-plus/icons-vue'
 import { domainAdminAPI, type Domain } from '@/api/admin'
-import { handleError, handleSuccess, formatValue, formatNumber } from '@/utils/error'
+
 import { isHandledError } from '@/utils/api'
 import { useAuthStore } from '@/stores/auth'
 
@@ -131,7 +131,7 @@ const searchQuery = ref('')
 const filteredDomains = computed(() => {
   if (!searchQuery.value) return domains.value
   const query = searchQuery.value.toLowerCase()
-  return domains.value.filter(d => 
+  return domains.value.filter((d: Domain) =>
     d.name.toLowerCase().includes(query) || 
     d.description?.toLowerCase().includes(query)
   )
@@ -168,7 +168,7 @@ const handleCreate = async () => {
   const form = formRef.value
   if (!form) return
 
-  await form.validate(async (valid) => {
+  await form.validate(async (valid: boolean) => {
     if (valid) {
       submitting.value = true
       try {
@@ -204,7 +204,7 @@ const handleUpdate = async () => {
   const form = editFormRef.value
   if (!form) return
 
-  await form.validate(async (valid) => {
+  await form.validate(async (valid: boolean) => {
     if (valid) {
       submitting.value = true
       try {

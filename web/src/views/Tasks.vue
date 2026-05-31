@@ -237,8 +237,8 @@
         v-if="selectedExecutionId"
         :execution-id="selectedExecutionId"
         :execution-status="selectedExecutionStatus"
-        :output="selectedExecutionOutput"
-        :error="selectedExecutionError"
+        :output="selectedExecutionOutput ?? undefined"
+        :error="selectedExecutionError ?? undefined"
         @close="closeLogs"
       />
       <div v-else class="no-execution-container">
@@ -721,8 +721,8 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, nextTick, watch } from 'vue'
-import { useRouter, useRoute } from 'vue-router'
-import { ElMessage, ElMessageBox, FormInstance, FormRules } from 'element-plus'
+import { useRouter } from 'vue-router'
+import { ElMessage, ElMessageBox, FormInstance } from 'element-plus'
 import {
   Plus,
   List,
@@ -737,7 +737,6 @@ import {
   Calendar,
   VideoPlay,
   CircleCheck,
-  Loading,
   DocumentCopy,
   Close,
   InfoFilled,
@@ -754,12 +753,10 @@ import {
 import { taskAPI, executorAPI, webhookAPI } from '@/api'
 import type { Task, TaskConfig, Executor, Webhook } from '@/types'
 import TaskLogViewer from '@/components/TaskLogViewer.vue'
-import { handleError, handleSuccess, formatValue, formatNumber } from '@/utils/error'
 import { isHandledError } from '@/utils/api'
 import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
-const route = useRoute()
 const authStore = useAuthStore()
 
 const webhookList = ref<Webhook[]>([])
@@ -842,7 +839,7 @@ const setTaskCardRef = (el: any, taskId: number) => {
 
 const defaultForm = {
   name: '',
-  type: 'shell' as const,
+  type: 'shell' as string,
   timeout_seconds: 3600,
   cron_expression: '',
   config: {
@@ -912,18 +909,6 @@ const pagedTasks = computed(() => {
 
 const getTypeIcon = (type: string) => {
   return type === 'http' ? Promotion : Tools
-}
-
-const getTypeColor = (type: string) => {
-  return type === 'http' ? '#3b82f6' : '#f59e0b'
-}
-
-const getTypeBg = (type: string) => {
-  return type === 'http' ? '#dbeafe' : '#fef3c7'
-}
-
-const getTypeLabel = (type: string) => {
-  return type === 'http' ? 'HTTP' : 'Shell'
 }
 
 const formatDateTime = (dateStr: string) => {

@@ -471,7 +471,7 @@ const showActions = computed(() => authStore.isSystemAdmin || authStore.isDomain
 const filteredUsers = computed(() => {
   if (!searchQuery.value) return users.value
   const query = searchQuery.value.toLowerCase()
-  return users.value.filter(u =>
+  return users.value.filter((u: User) =>
     u.username.toLowerCase().includes(query) ||
     (u.real_name && u.real_name.toLowerCase().includes(query)) ||
     (u.phone && u.phone.includes(query)) ||
@@ -499,7 +499,7 @@ const resetPasswordForm = ref({
   confirmPassword: '',
 })
 
-const validatePasswordStrength = (rule: any, value: any, callback: any) => {
+const validatePasswordStrength = (_rule: any, value: any, callback: any) => {
   if (value === '') {
     callback(new Error('请输入密码'))
   } else {
@@ -512,7 +512,7 @@ const validatePasswordStrength = (rule: any, value: any, callback: any) => {
   }
 }
 
-const validateConfirmPassword = (rule: any, value: any, callback: any) => {
+const validateConfirmPassword = (_rule: any, value: any, callback: any) => {
   if (value === '') {
     callback(new Error('请再次输入密码'))
   } else if (value !== resetPasswordForm.value.newPassword) {
@@ -609,14 +609,14 @@ const handleDialogClosed = (type: 'create' | 'edit' | 'reset') => {
   }
 }
 
-const canManageUser = (user: User): boolean => {
+const canManageUser = (_user: User): boolean => {
   if (authStore.isSystemAdmin) return true
   if (authStore.isDomainAdmin) return true
   return authStore.hasPermission('user', 'update')
 }
 
 const getRoleLabel = (role: string): string => {
-  const found = roles.value.find(r => r.code === role)
+  const found = roles.value.find((r: Role) => r.code === role)
   return found ? found.name : role
 }
 
@@ -663,7 +663,7 @@ const handleCreate = async () => {
   const form = formRef.value
   if (!form) return
 
-  form.validate(async (valid) => {
+  form.validate(async (valid: boolean) => {
     if (!valid) return
 
     const passwordValidation = validatePassword(userForm.value.password)
@@ -714,7 +714,7 @@ const handleUpdate = async () => {
   const form = editFormRef.value
   if (!form) return
 
-  form.validate(async (valid) => {
+  form.validate(async (valid: boolean) => {
     if (!valid) return
 
     submitting.value = true
@@ -775,7 +775,7 @@ const handleConfirmResetPassword = async () => {
   const form = resetPasswordFormRef.value
   if (!form) return
 
-  form.validate(async (valid) => {
+  form.validate(async (valid: boolean) => {
     if (!valid) return
 
     submitting.value = true

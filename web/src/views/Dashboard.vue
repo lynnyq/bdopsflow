@@ -96,9 +96,9 @@
         >
           <div class="health-card-header">
             <el-icon :size="20">
-              <component :is="getComponentIcon(key)" />
+              <component :is="getComponentIcon(String(key))" />
             </el-icon>
-            <span class="health-card-title">{{ getComponentName(key) }}</span>
+            <span class="health-card-title">{{ getComponentName(String(key)) }}</span>
           </div>
           <div class="health-card-body">
             <div class="health-status-badge" :class="check.status">
@@ -241,52 +241,25 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { VideoPlay, VideoPause, Refresh, List, CircleCheck, CircleClose, Clock, Timer, Cpu, Connection, DataLine, Odometer, Database, Bell, Monitor } from '@element-plus/icons-vue'
+import { VideoPlay, VideoPause, Refresh, List, CircleCheck, CircleClose, Clock, Timer, Cpu, Connection, DataLine } from '@element-plus/icons-vue'
 import { dashboardAPI, type HealthCheckResult } from '@/api'
-import { handleError, handleSuccess, formatValue, formatNumber } from '@/utils/error'
 import { isHandledError } from '@/utils/api'
 import { useAuthStore } from '@/stores/auth'
+import type { DashboardStats, TrendData } from '@/types'
 
 const authStore = useAuthStore()
 
 const canControlScheduler = computed(() => {
-  const role = authStore.user?.role
-  return role === 'admin' || role === 'system_admin'
+  return authStore.roleCodes.includes('admin') || authStore.roleCodes.includes('system_admin')
 })
-
-interface DashboardStats {
-  tasks: {
-    total: number
-    enabled: number
-    cron: number
-    running: number
-    success: number
-    failed: number
-    avg_duration: number
-  }
-  workflows: {
-    total: number
-    enabled: number
-  }
-  executors: {
-    total: number
-    active: number
-  }
-}
-
-interface TrendData {
-  date: string
-  total: number
-  success: number
-  failed: number
-}
 
 const loading = ref(false)
 const actionLoading = ref(false)
 const stats = ref<DashboardStats>({
   tasks: { total: 0, enabled: 0, cron: 0, running: 0, success: 0, failed: 0, avg_duration: 0 },
   workflows: { total: 0, enabled: 0 },
-  executors: { total: 0, active: 0 }
+  executors: { total: 0, active: 0, online: 0, offline: 0 },
+  scheduler: { paused: false, uptime: 0 }
 })
 const schedulerStatus = ref({ paused: false })
 const trends = ref<TrendData[]>([])
@@ -349,7 +322,13 @@ const loadDashboardStats = async () => {
       },
       executors: {
         total: data.executors?.total ?? 0,
-        active: data.executors?.active ?? 0
+        active: data.executors?.active ?? 0,
+        online: data.executors?.online ?? 0,
+        offline: data.executors?.offline ?? 0
+      },
+      scheduler: {
+        paused: data.scheduler?.paused ?? false,
+        uptime: data.scheduler?.uptime ?? 0
       }
     }
   } catch (error) {
@@ -420,9 +399,9 @@ const handleResumeScheduler = async () => {
 
 const getBarHeight = (value: number): number => {
   if (!trends.value || trends.value.length === 0) return 0
-  const validTrends = trends.value.filter(t => t && typeof t.success === 'number' && typeof t.failed === 'number')
+  const validTrends = trends.value.filter((t: TrendData) => t && typeof t.success === 'number' && typeof t.failed === 'number')
   if (validTrends.length === 0) return 0
-  const maxValue = Math.max(...validTrends.map(t => Math.max(t.success, t.failed)))
+  const maxValue = Math.max(...validTrends.map((t: TrendData) => Math.max(t.success, t.failed)))
   if (maxValue === 0) return 0
   const safeValue = typeof value === 'number' ? value : 0
   return Math.max(10, (safeValue / maxValue) * 100)

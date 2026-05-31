@@ -37,7 +37,7 @@ interface Props {
   showDetails?: boolean
 }
 
-const props = withDefaults(defineProps<Props>(), {
+withDefaults(defineProps<Props>(), {
   title: '页面出错了',
   message: '抱歉，页面加载时遇到了问题。请尝试刷新页面。',
   enableReset: true,

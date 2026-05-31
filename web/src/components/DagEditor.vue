@@ -69,7 +69,7 @@
               <feGaussianBlur stdDeviation="3" result="coloredBlur" />
               <feMerge>
                 <feMergeNode in="coloredBlur" />
-                <feMergeIn="SourceGraphic" />
+                <feMergeNode in="SourceGraphic" />
               </feMerge>
             </filter>
             <marker
@@ -321,6 +321,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   update: [dag: WorkflowDAG]
+  execute: [workflowId: number]
 }>()
 
 const canvasWidth = 4000
@@ -580,7 +581,6 @@ const getConnectionPath = (conn: WorkflowConnection) => {
   const to = getNodeCenter(toNode)
 
   const nodeWidth = 180
-  const nodeHeight = 90
 
   const fromX = fromNode.x < toNode.x ? from.x + nodeWidth / 2 - 20 : from.x - nodeWidth / 2 + 20
   const toX = fromNode.x < toNode.x ? to.x - nodeWidth / 2 + 20 : to.x + nodeWidth / 2 - 20
@@ -631,7 +631,9 @@ const clearAll = () => {
 }
 
 const runWorkflow = () => {
-  emit('execute', props.workflowId)
+  if (props.workflowId !== undefined) {
+    emit('execute', props.workflowId)
+  }
 }
 
 watch(() => props.initialDag, (newDag) => {

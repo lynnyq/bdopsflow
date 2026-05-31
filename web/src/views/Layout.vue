@@ -142,23 +142,12 @@ import { dashboardAPI } from '@/api'
 import { menuPermissionMap } from '@/config/menuPermissionMap'
 import type { MenuPermissionDef } from '@/types'
 import {
-  DataAnalysis,
-  List,
-  Connection,
-  Cpu,
-  Document,
   SwitchButton,
-  Setting,
   Expand,
   Fold,
   User,
-  Key,
-  Grid,
   UserFilled,
-  ArrowDown,
-  Search,
-  Operation,
-  Notebook
+  ArrowDown
 } from '@element-plus/icons-vue'
 
 const route = useRoute()

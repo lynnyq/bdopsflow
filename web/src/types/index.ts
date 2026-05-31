@@ -95,7 +95,8 @@ export interface Task {
   domain_id: number
   webhook_id: number | null
   webhook_events: string
-  assigned_executor_id: number
+  assigned_executor_id: number | null
+  has_available_executors: boolean
   created_by: number
   created_by_name: string
   created_at: string
@@ -211,7 +212,9 @@ export interface TaskLog {
   executor_id: number
   node_id: string
   log_level: string
+  level: string
   message: string
+  log_content: string
   log_time: string
 }
 
@@ -251,6 +254,7 @@ export interface Datasource {
   description: string
   domain_id: number
   domain_name: string
+  user_permission: string
   is_enabled: boolean
   allow_write_sql: boolean
   test_status: string
@@ -368,6 +372,7 @@ export interface DashboardStats {
   }
   executors: {
     total: number
+    active: number
     online: number
     offline: number
   }

@@ -106,7 +106,7 @@ const props = defineProps<{
   inDialog?: boolean
 }>()
 
-const emit = defineEmits<{
+defineEmits<{
   close: []
 }>()
 
