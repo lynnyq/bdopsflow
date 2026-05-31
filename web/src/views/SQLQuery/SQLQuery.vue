@@ -438,8 +438,8 @@ const loadTabsFromStorage = (): { tabs: SQLTab[]; activeTabId: string } => {
           id: t.id,
           name: t.name,
           sql: t.sql || '',
-          datasourceId: t.datasourceId || '',
-          database: t.database || '',
+          datasourceId: '',
+          database: '',
           executing: false,
           canceling: false,
           queryId: '',
@@ -1646,11 +1646,6 @@ onMounted(async () => {
   await loadDatasources();
   loadRecentHistory();
   createEditor();
-
-  const tab = activeTab.value;
-  if (tab.datasourceId) {
-    await handleDatasourceChangeForTab(tab.datasourceId, tab.database);
-  }
 
   initFromRoute();
 });

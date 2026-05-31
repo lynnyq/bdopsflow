@@ -32,22 +32,8 @@ type Domain struct {
 	UpdatedAt   time.Time `db:"updated_at" json:"updated_at"`
 }
 
-type Workflow struct {
-	ID             int64     `db:"id" json:"id"`
-	Name           string    `db:"name" json:"name"`
-	Description    string    `db:"description" json:"description"`
-	DomainID       int64     `db:"domain_id" json:"domain_id"`
-	DAGConfig      string    `db:"dag_config" json:"dag_config"`
-	CronExpression string    `db:"cron_expression" json:"cron_expression"`
-	IsEnabled      bool      `db:"is_enabled" json:"is_enabled"`
-	CreatedBy      *int64    `db:"created_by" json:"created_by"`
-	CreatedAt      time.Time `db:"created_at" json:"created_at"`
-	UpdatedAt      time.Time `db:"updated_at" json:"updated_at"`
-}
-
 type Task struct {
 	ID                  int64     `db:"id" json:"id"`
-	WorkflowID          *int64    `db:"workflow_id" json:"workflow_id"`
 	Name                string    `db:"name" json:"name"`
 	Type                string    `db:"type" json:"type"`
 	Config              string    `db:"config" json:"config"`
@@ -116,31 +102,6 @@ type Executor struct {
 func (e *Executor) GetLastHeartbeat() *time.Time {
 	if e.LastHeartbeat.Valid {
 		return &e.LastHeartbeat.Time
-	}
-	return nil
-}
-
-type WorkflowExecution struct {
-	ID         int64           `db:"id" json:"id"`
-	WorkflowID int64           `db:"workflow_id" json:"workflow_id"`
-	ExecutionID string         `db:"execution_id" json:"execution_id"`
-	Status     string         `db:"status" json:"status"`
-	StartTime  rqlite.NullTime `db:"start_time" json:"start_time"`
-	EndTime    rqlite.NullTime `db:"end_time" json:"end_time"`
-	NodeStates string         `db:"node_states" json:"node_states"`
-	CreatedAt  time.Time      `db:"created_at" json:"created_at"`
-}
-
-func (we *WorkflowExecution) GetStartTime() *time.Time {
-	if we.StartTime.Valid {
-		return &we.StartTime.Time
-	}
-	return nil
-}
-
-func (we *WorkflowExecution) GetEndTime() *time.Time {
-	if we.EndTime.Valid {
-		return &we.EndTime.Time
 	}
 	return nil
 }

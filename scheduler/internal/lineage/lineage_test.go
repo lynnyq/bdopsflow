@@ -19,8 +19,7 @@ func setupTestDB(t *testing.T) *sql.DB {
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		name TEXT NOT NULL,
 		type TEXT NOT NULL,
-		status TEXT DEFAULT 'pending',
-		workflow_id INTEGER
+		status TEXT DEFAULT 'pending'
 	);
 
 	CREATE TABLE bdopsflow_task_dependencies (
@@ -89,43 +88,6 @@ func TestService_GetTaskLineage(t *testing.T) {
 
 	if len(graph.Relations) != 3 {
 		t.Errorf("expected 3 relations, got %d", len(graph.Relations))
-	}
-}
-
-func TestService_GetWorkflowLineage(t *testing.T) {
-	db := setupTestDB(t)
-	defer db.Close()
-
-	_, err := db.Exec(`
-		INSERT INTO bdopsflow_tasks (id, name, type, workflow_id) VALUES 
-			(1, 'Task A', 'http', 1),
-			(2, 'Task B', 'http', 1),
-			(3, 'Task C', 'http', 1),
-			(4, 'Task D', 'http', 2)
-	`)
-	if err != nil {
-		t.Fatalf("failed to insert bdopsflow_tasks: %v", err)
-	}
-
-	_, err = db.Exec(`
-		INSERT INTO bdopsflow_task_dependencies (task_id, parent_task_id) VALUES
-			(2, 1),
-			(3, 2)
-	`)
-	if err != nil {
-		t.Fatalf("failed to insert dependencies: %v", err)
-	}
-
-	service := NewService(db)
-	ctx := context.Background()
-
-	graph, err := service.GetWorkflowLineage(ctx, 1)
-	if err != nil {
-		t.Errorf("failed to get workflow lineage: %v", err)
-	}
-
-	if len(graph.Tasks) != 3 {
-		t.Errorf("expected 3 bdopsflow_tasks in workflow lineage, got %d", len(graph.Tasks))
 	}
 }
 

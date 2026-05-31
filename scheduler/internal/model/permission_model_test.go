@@ -236,30 +236,6 @@ func TestPermissionModel(t *testing.T) {
 		}
 	})
 
-	t.Run("BuildPermissionGroups 按 resourceOrder 排序", func(t *testing.T) {
-		permissions := []*Permission{
-			{ID: 1, Resource: "workflow", Action: "create", Description: "创建工作流"},
-			{ID: 2, Resource: "user", Action: "create", Description: "创建用户"},
-			{ID: 3, Resource: "task", Action: "create", Description: "创建任务"},
-		}
-
-		groups := BuildPermissionGroups(permissions)
-
-		if len(groups) != 3 {
-			t.Fatalf("期望 3 个权限分组，实际为 %d", len(groups))
-		}
-
-		if groups[0].Resource != "user" {
-			t.Errorf("期望第一个分组为 'user'，实际为 '%s'", groups[0].Resource)
-		}
-		if groups[1].Resource != "task" {
-			t.Errorf("期望第二个分组为 'task'，实际为 '%s'", groups[1].Resource)
-		}
-		if groups[2].Resource != "workflow" {
-			t.Errorf("期望第三个分组为 'workflow'，实际为 '%s'", groups[2].Resource)
-		}
-	})
-
 	t.Run("BuildPermissionGroups 不包含 menu 资源", func(t *testing.T) {
 		permissions := []*Permission{
 			{ID: 1, Resource: "task", Action: "create", Description: "创建任务"},

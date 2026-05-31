@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	gohive "github.com/beltran/gohive"
 	"github.com/pkg/errors"
@@ -14,6 +16,7 @@ type KyuubiDriver struct {
 	connection *gohive.Connection
 	config     DatasourceConfig
 	mu         sync.Mutex
+	unhealthy  atomic.Bool
 }
 
 func NewKyuubiDriver() Driver {
@@ -122,7 +125,42 @@ func (d *KyuubiDriver) Ping(ctx context.Context) error {
 	if d.connection == nil {
 		return errors.New("kyuubi connection not established")
 	}
-	return nil
+	if d.unhealthy.Load() {
+		return errors.New("kyuubi connection marked as unhealthy")
+	}
+
+	acquired := make(chan struct{}, 1)
+	go func() {
+		d.mu.Lock()
+		close(acquired)
+	}()
+
+	select {
+	case <-acquired:
+		defer d.mu.Unlock()
+		pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		cursor := d.connection.Cursor()
+		cursor.Exec(pingCtx, normalizeSQL("SELECT 1"))
+		if cursor.Err != nil {
+			execErr := cursor.Err
+			cursor.Close()
+			d.unhealthy.Store(true)
+			return errors.Wrap(execErr, "kyuubi ping failed, connection may be stale")
+		}
+		cursor.Close()
+		return nil
+	case <-ctx.Done():
+		go func() {
+			<-acquired
+			d.mu.Unlock()
+		}()
+		return nil
+	}
+}
+
+func (d *KyuubiDriver) IsUnhealthy() bool {
+	return d.unhealthy.Load()
 }
 
 func (d *KyuubiDriver) Close() error {
@@ -226,6 +264,10 @@ func (d *KyuubiDriver) Query(ctx context.Context, query string, args ...interfac
 		return nil, errors.Wrap(ctx.Err(), "kyuubi query cancelled")
 	case res := <-resultCh:
 		if res.err != nil {
+			if isConnectionError(res.err) {
+				d.unhealthy.Store(true)
+				slog.Warn("kyuubi connection error detected, marked as unhealthy", "sql_preview", truncateSQL(normalizedQuery, 200), "error", res.err)
+			}
 			slog.Error("kyuubi query execution failed", "sql_preview", truncateSQL(normalizedQuery, 200), "error", res.err)
 		}
 		return res.result, res.err

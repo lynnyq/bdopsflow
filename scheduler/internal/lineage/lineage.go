@@ -159,49 +159,6 @@ func (s *Service) getChildTasks(ctx context.Context, taskID int64) ([]int64, err
 	return children, nil
 }
 
-func (s *Service) GetWorkflowLineage(ctx context.Context, workflowID int64) (*LineageGraph, error) {
-	query := `
-		SELECT id, name, type, status
-		FROM bdopsflow_tasks
-		WHERE workflow_id = ?
-	`
-
-	rows, err := s.db.QueryContext(ctx, query, workflowID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	graph := &LineageGraph{
-		Tasks:     make([]*TaskNode, 0),
-		Relations: make([]Relation, 0),
-	}
-
-	taskMap := make(map[int64]*TaskNode)
-	for rows.Next() {
-		node := &TaskNode{}
-		if err := rows.Scan(&node.ID, &node.Name, &node.Type, &node.Status); err != nil {
-			return nil, err
-		}
-		graph.Tasks = append(graph.Tasks, node)
-		taskMap[node.ID] = node
-	}
-
-	for _, task := range graph.Tasks {
-		parents, err := s.getParentTasks(ctx, task.ID)
-		if err != nil {
-			return nil, err
-		}
-		for _, parentID := range parents {
-			if _, exists := taskMap[parentID]; exists {
-				graph.Relations = append(graph.Relations, Relation{From: parentID, To: task.ID})
-			}
-		}
-	}
-
-	return graph, nil
-}
-
 func (s *Service) AddDependency(ctx context.Context, taskID, parentTaskID int64) error {
 	now := time.Now().Format(time.RFC3339Nano)
 	query := `

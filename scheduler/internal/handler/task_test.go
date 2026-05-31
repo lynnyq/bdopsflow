@@ -134,7 +134,7 @@ func setupTestRouter(handler *TaskHandler) *gin.Engine {
 	return r
 }
 
-func TestCreateTask_WithoutWorkflowID(t *testing.T) {
+func TestCreateTask_BasicFields(t *testing.T) {
 	mock := &mockTaskService{}
 	handler := newTaskHandlerWithSvc(mock)
 	router := setupTestRouter(handler)
@@ -164,67 +164,6 @@ func TestCreateTask_WithoutWorkflowID(t *testing.T) {
 	json.Unmarshal(w.Body.Bytes(), &createResp)
 	if createResp.Code != CodeSuccess {
 		t.Errorf("expected code 0, got %d, body: %s", createResp.Code, w.Body.String())
-	}
-
-	if strings.Contains(mock.lastQuery, "workflow_id") {
-		t.Errorf("INSERT should NOT contain workflow_id when not provided, got query: %s", mock.lastQuery)
-	}
-
-	t.Logf("SQL: %s", mock.lastQuery)
-	t.Logf("Args: %v", mock.lastArgs)
-}
-
-func TestCreateTask_WithWorkflowID(t *testing.T) {
-	mock := &mockTaskService{}
-	handler := newTaskHandlerWithSvc(mock)
-	router := setupTestRouter(handler)
-
-	wfID := int64(42)
-	body := map[string]interface{}{
-		"name":            "工作流任务",
-		"type":            "shell",
-		"config":          `{"script":"echo hello"}`,
-		"cron_expression": "0 0 * * *",
-		"timeout_seconds": 120,
-		"retry_count":     2,
-		"retry_interval":  10,
-		"domain_id":       2,
-		"workflow_id":     wfID,
-	}
-
-	jsonBody, _ := json.Marshal(body)
-	req, _ := http.NewRequest("POST", "/api/bdopsflow_tasks", bytes.NewBuffer(jsonBody))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-
-	router.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("expected HTTP 200, got %d, body: %s", w.Code, w.Body.String())
-	}
-	var createResp Response
-	json.Unmarshal(w.Body.Bytes(), &createResp)
-	if createResp.Code != CodeSuccess {
-		t.Errorf("expected code 0, got %d, body: %s", createResp.Code, w.Body.String())
-	}
-
-	if !strings.Contains(mock.lastQuery, "workflow_id") {
-		t.Errorf("INSERT should contain workflow_id when provided, got query: %s", mock.lastQuery)
-	}
-
-	if len(mock.lastArgs) != 15 {
-		t.Errorf("expected 15 args with workflow_id, got %d", len(mock.lastArgs))
-	}
-
-	foundWFID := false
-	for _, arg := range mock.lastArgs {
-		if id, ok := arg.(int64); ok && id == 42 {
-			foundWFID = true
-			break
-		}
-	}
-	if !foundWFID {
-		t.Errorf("workflow_id=42 not found in args: %v", mock.lastArgs)
 	}
 
 	t.Logf("SQL: %s", mock.lastQuery)

@@ -232,8 +232,6 @@ const (
 	MetricExecutorsOnline   = "bdopsflow:bdopsflow_executors:online"
 	MetricExecutorsOffline  = "bdopsflow:bdopsflow_executors:offline"
 	MetricTaskDuration      = "bdopsflow:task:duration_seconds"
-	MetricWorkflowCreated   = "bdopsflow:workflow:created"
-	MetricWorkflowRunning   = "bdopsflow:workflow:running"
 )
 
 func (m *MetricsCollector) RecordTaskCreated() {
@@ -258,12 +256,4 @@ func (m *MetricsCollector) SetExecutorsOnline(count int64) {
 
 func (m *MetricsCollector) SetExecutorsOffline(count int64) {
 	m.RegisterGauge(MetricExecutorsOffline).Set(float64(count))
-}
-
-func (m *MetricsCollector) RecordWorkflowCreated() {
-	m.RegisterCounter(MetricWorkflowCreated).Inc(1)
-}
-
-func (m *MetricsCollector) SetWorkflowRunning(count int64) {
-	m.RegisterGauge(MetricWorkflowRunning).Set(float64(count))
 }

@@ -45,31 +45,42 @@ func (m *Manager) GetDriver(ctx context.Context, ds *model.Datasource) (driver.D
 	m.poolMu.RUnlock()
 
 	if ok {
-		m.checkMu.Lock()
-		last := m.lastCheck[ds.ID]
-		m.checkMu.Unlock()
-
-		checkInterval := 30 * time.Second
-		if time.Since(last) < checkInterval {
-			return d, nil
-		}
-
-		pingCtx, pingCancel := context.WithTimeout(ctx, 5*time.Second)
-		defer pingCancel()
-		if err := d.Ping(pingCtx); err == nil {
+		if hc, ok := d.(driver.UnhealthyChecker); ok && hc.IsUnhealthy() {
+			slog.Info("datasource marked as unhealthy, reconnecting", "datasource_id", ds.ID, "type", ds.Type, "name", ds.Name)
+			d.Close()
+			m.poolMu.Lock()
+			delete(m.pools, ds.ID)
+			m.poolMu.Unlock()
 			m.checkMu.Lock()
-			m.lastCheck[ds.ID] = time.Now()
+			delete(m.lastCheck, ds.ID)
 			m.checkMu.Unlock()
-			return d, nil
+		} else {
+			m.checkMu.Lock()
+			last := m.lastCheck[ds.ID]
+			m.checkMu.Unlock()
+
+			checkInterval := 30 * time.Second
+			if time.Since(last) < checkInterval {
+				return d, nil
+			}
+
+			pingCtx, pingCancel := context.WithTimeout(ctx, 5*time.Second)
+			defer pingCancel()
+			if err := d.Ping(pingCtx); err == nil {
+				m.checkMu.Lock()
+				m.lastCheck[ds.ID] = time.Now()
+				m.checkMu.Unlock()
+				return d, nil
+			}
+			slog.Info("datasource connection stale, reconnecting", "datasource_id", ds.ID, "type", ds.Type, "name", ds.Name)
+			d.Close()
+			m.poolMu.Lock()
+			delete(m.pools, ds.ID)
+			m.poolMu.Unlock()
+			m.checkMu.Lock()
+			delete(m.lastCheck, ds.ID)
+			m.checkMu.Unlock()
 		}
-		slog.Info("datasource connection stale, reconnecting", "datasource_id", ds.ID, "type", ds.Type, "name", ds.Name)
-		d.Close()
-		m.poolMu.Lock()
-		delete(m.pools, ds.ID)
-		m.poolMu.Unlock()
-		m.checkMu.Lock()
-		delete(m.lastCheck, ds.ID)
-		m.checkMu.Unlock()
 	}
 
 	slog.Debug("creating new datasource connection", "datasource_id", ds.ID, "type", ds.Type, "host", ds.Host, "port", ds.Port)

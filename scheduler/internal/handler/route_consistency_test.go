@@ -27,20 +27,6 @@ func TestRouteParam_ExecutionID_CanBeExtracted(t *testing.T) {
 			wantValue:  "exec-123",
 		},
 		{
-			name:       "workflow execution detail uses execution_id",
-			routePath:  "/api/workflows/executions/:execution_id",
-			requestPath: "/api/workflows/executions/exec-456",
-			paramName:  "execution_id",
-			wantValue:  "exec-456",
-		},
-		{
-			name:       "workflow execution logs uses execution_id",
-			routePath:  "/api/workflows/executions/:execution_id/logs",
-			requestPath: "/api/workflows/executions/exec-789/logs",
-			paramName:  "execution_id",
-			wantValue:  "exec-789",
-		},
-		{
 			name:       "executor remove domain uses domain_id",
 			routePath:  "/api/executors/:name/domains/:domain_id",
 			requestPath: "/api/executors/exec-1/domains/42",
@@ -53,13 +39,6 @@ func TestRouteParam_ExecutionID_CanBeExtracted(t *testing.T) {
 			requestPath: "/api/tasks/1",
 			paramName:  "id",
 			wantValue:  "1",
-		},
-		{
-			name:       "workflow endpoints use id",
-			routePath:  "/api/workflows/:id",
-			requestPath: "/api/workflows/2",
-			paramName:  "id",
-			wantValue:  "2",
 		},
 		{
 			name:       "executor endpoints use name",
@@ -131,12 +110,6 @@ func TestRouteParam_OldCamelCaseNamesNotUsed(t *testing.T) {
 			name:       "task execution logs should NOT use executionId",
 			routePath:  "/api/tasks/executions/:execution_id/logs",
 			requestPath: "/api/tasks/executions/exec-123/logs",
-			oldParam:   "executionId",
-		},
-		{
-			name:       "workflow execution detail should NOT use executionId",
-			routePath:  "/api/workflows/executions/:execution_id",
-			requestPath: "/api/workflows/executions/exec-456",
 			oldParam:   "executionId",
 		},
 		{

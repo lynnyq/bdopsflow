@@ -184,7 +184,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Edit, Delete, Document, Search, Refresh, Key, User, Setting, Grid, Management, Timer, DataAnalysis, List, Lock, Connection, Monitor } from '@element-plus/icons-vue'
+import { Plus, Edit, Delete, Document, Search, Refresh, Key, User, Setting, Grid, Timer, DataAnalysis, List, Lock, Connection, Monitor } from '@element-plus/icons-vue'
 import {
   roleAdminAPI,
   permissionAPI,
@@ -367,7 +367,6 @@ const getResourceIcon = (resource: string) => {
     role: Key,
     domain: Grid,
     task: Timer,
-    workflow: Management,
     executor: Setting,
     log: List,
     dashboard: DataAnalysis,

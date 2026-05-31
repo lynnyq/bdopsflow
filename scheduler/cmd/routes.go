@@ -64,20 +64,6 @@ func setupRoutes(router *gin.Engine, app *App) {
 			tasks.GET("/executions/:execution_id/logs", taskHandler.ExecutionLogs)
 		}
 
-		workflowHandler := handler.NewWorkflowHandler(app.schedulerService)
-		workflows := protected.Group("/workflows")
-		{
-			workflows.GET("", workflowHandler.List)
-			workflows.POST("", middleware.RequirePermission(app.permissionService, "workflow", "create"), workflowHandler.Create)
-			workflows.GET("/:id", workflowHandler.Get)
-			workflows.PUT("/:id", middleware.RequirePermission(app.permissionService, "workflow", "update"), workflowHandler.Update)
-			workflows.DELETE("/:id", middleware.RequirePermission(app.permissionService, "workflow", "delete"), workflowHandler.Delete)
-			workflows.POST("/:id/trigger", middleware.RequirePermission(app.permissionService, "workflow", "trigger"), workflowHandler.TriggerWorkflow)
-			workflows.GET("/:id/executions", workflowHandler.GetWorkflowExecutions)
-			workflows.GET("/executions/:execution_id", workflowHandler.GetWorkflowExecution)
-			workflows.GET("/executions/:execution_id/logs", workflowHandler.GetExecutionLogs)
-		}
-
 		executorHandler := handler.NewExecutorHandler(app.schedulerService)
 		executorDomainHandler := handler.NewExecutorDomainHandler(app.executorDomainService, app.permissionService, app.userAdminService)
 		executors := protected.Group("/executors")

@@ -129,7 +129,6 @@ func (h *TaskHandler) Get(c *gin.Context) {
 
 func (h *TaskHandler) Create(c *gin.Context) {
 	var req struct {
-		WorkflowID         *int64      `json:"workflow_id"`
 		Name               string      `json:"name"`
 		Type               string      `json:"type"`
 		Config             interface{} `json:"config"`
@@ -258,34 +257,20 @@ func (h *TaskHandler) Create(c *gin.Context) {
 	ri := int64(retryInterval)
 
 	isEnabled := int64(0)
-	if req.IsEnabled && hasAvailableExecutors { // 只有在有可用执行器时才启用
+	if req.IsEnabled && hasAvailableExecutors {
 		isEnabled = 1
 	}
 
-	if req.WorkflowID != nil && *req.WorkflowID > 0 {
-		query = `
-			INSERT INTO bdopsflow_tasks (workflow_id, name, type, config, cron_expression, timeout_seconds,
-			                  retry_count, retry_interval, is_enabled, status, domain_id, webhook_id, webhook_events,
-			                  assigned_executor_id, created_by, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, 1, ?, ?)
-		`
-		args = []interface{}{
-			*req.WorkflowID, safeString(req.Name), safeString(req.Type), safeString(configStr),
-			safeString(req.CronExpression), ts, rc, ri, isEnabled, domainID, req.WebhookID, req.WebhookEvents,
-			assignedExecutorID, now, now,
-		}
-	} else {
-		query = `
-			INSERT INTO bdopsflow_tasks (name, type, config, cron_expression, timeout_seconds,
-			                  retry_count, retry_interval, is_enabled, status, domain_id, webhook_id, webhook_events,
-			                  assigned_executor_id, created_by, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, 1, ?, ?)
-		`
-		args = []interface{}{
-			safeString(req.Name), safeString(req.Type), safeString(configStr),
-			safeString(req.CronExpression), ts, rc, ri, isEnabled, domainID, req.WebhookID, req.WebhookEvents,
-			assignedExecutorID, now, now,
-		}
+	query = `
+		INSERT INTO bdopsflow_tasks (name, type, config, cron_expression, timeout_seconds,
+		                  retry_count, retry_interval, is_enabled, status, domain_id, webhook_id, webhook_events,
+		                  assigned_executor_id, created_by, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, 1, ?, ?)
+	`
+	args = []interface{}{
+		safeString(req.Name), safeString(req.Type), safeString(configStr),
+		safeString(req.CronExpression), ts, rc, ri, isEnabled, domainID, req.WebhookID, req.WebhookEvents,
+		assignedExecutorID, now, now,
 	}
 
 	task, err := h.svc.CreateTask(ctx, query, args...)

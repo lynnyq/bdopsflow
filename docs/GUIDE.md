@@ -1,6 +1,6 @@
 # BDopsFlow 使用指南
 
-本文档是 BDopsFlow 分布式工作流调度平台的综合使用指南，涵盖项目概述、架构设计、快速开始、功能详解、API参考、错误码参考、数据库设计、部署指南、开发指南和安全建议。
+本文档是 BDopsFlow 分布式任务调度平台的综合使用指南，涵盖项目概述、架构设计、快速开始、功能详解、API参考、错误码参考、数据库设计、部署指南、开发指南和安全建议。
 
 ## 目录
 
@@ -19,14 +19,13 @@
 
 ## 1. 项目概述
 
-BDopsFlow 是一个分布式工作流调度平台，提供任务调度、工作流编排、数据源查询和权限管理能力。
+BDopsFlow 是一个分布式任务调度平台，提供任务调度、数据源查询和权限管理能力。
 
 ### 核心能力
 
 | 能力         | 说明                                                                      |
 | ---------- | ----------------------------------------------------------------------- |
 | 任务调度       | 支持 Cron 定时调度和手动触发，支持 HTTP 和 Shell 两种任务类型                                |
-| 工作流编排      | DAG 有向无环图编排，拓扑排序执行，支持任务依赖和血缘追踪                                          |
 | 数据源查询      | 支持 MySQL、SQLite、Hive、Kyuubi、Spark、Trino、StarRocks、Doris、Rqlite 共 9 种数据源 |
 | 权限管理       | RBAC 角色权限控制，领域隔离实现多租户                                                   |
 | 审计日志       | 全量审计所有写操作，中间件+Handler 协作模式                                              |
@@ -111,7 +110,6 @@ BDopsFlow 采用分布式架构，由调度中心（Scheduler）和执行器（E
 | -------------------- | --------- |
 | `/api/auth/*`        | 认证相关      |
 | `/api/tasks/*`       | 任务管理      |
-| `/api/workflows/*`   | 工作流管理     |
 | `/api/executors/*`   | 执行器管理     |
 | `/api/logs/*`        | 日志查询      |
 | `/api/admin/*`       | 管理员接口     |
@@ -379,55 +377,7 @@ Renew(ctx) - 续期锁TTL
 - 锁 Key 格式：`bdopsflow:lock:{name}`
 - TTL：60秒，续期间隔10秒
 
-### 4.3 DAG 工作流编排
-
-支持复杂工作流编排的有向无环图（DAG）系统。
-
-**DAG 配置结构**：
-
-```json
-{
-    "nodes": [
-        {
-            "id": "task1",
-            "name": "数据抽取",
-            "type": "http",
-            "config": {},
-            "position": {"x": 100, "y": 200},
-            "timeout_seconds": 300,
-            "retry_count": 3
-        }
-    ],
-    "connections": [
-        {"from": "task1", "to": "task2"}
-    ]
-}
-```
-
-**DAG 验证流程**：
-
-1. 检查节点ID是否重复
-2. 检查连接中的节点是否存在
-3. 检查重复连接
-4. 检查自环（from === to）
-5. Kahn算法拓扑排序检测循环依赖
-
-**TopologicalSort 算法（Kahn's algorithm）**：
-
-1. 计算每个节点的入度
-2. 入度为0的节点入队
-3. 依次出队，减少后继节点入度
-4. 若出队数 < 节点数，则存在环
-
-**工作流执行**：
-
-1. 解析 DAG 配置
-2. 验证 DAG 结构
-3. 计算拓扑排序
-4. 按顺序执行节点，确保所有前置节点完成
-5. 记录每个节点的执行状态
-
-### 4.4 任务调度系统
+### 4.3 任务调度系统
 
 基于 Robfig Cron 的定时任务调度系统。
 
@@ -475,7 +425,7 @@ Renew(ctx) - 续期锁TTL
 
 如果任务配置了 `assigned_executor_id`，则只分发到该执行器。
 
-### 4.5 Webhook 回调系统
+### 4.4 Webhook 回调系统
 
 灵活的任务事件回调通知系统。
 
@@ -541,7 +491,7 @@ Renew(ctx) - 续期锁TTL
 
 **重试策略**：失败后指数退避重试，最多3次，间隔1s/2s/4s
 
-### 4.6 血缘关系追踪
+### 4.5 血缘关系追踪
 
 追踪任务之间的依赖关系和影响范围。
 
@@ -549,9 +499,8 @@ Renew(ctx) - 续期锁TTL
 | ------ | -------------- |
 | 获取上游血缘 | 查询任务的所有上游依赖    |
 | 获取影响范围 | 查询所有依赖该任务的下游任务 |
-| 工作流血缘图 | 获取工作流的完整血缘关系图  |
 
-### 4.7 指标收集系统
+### 4.6 指标收集系统
 
 收集和管理系统运行时指标，支持 Redis 持久化。
 
@@ -564,10 +513,8 @@ Renew(ctx) - 续期锁TTL
 | `bdopsflow:executors:online`      | Gauge     | 在线执行器数   |
 | `bdopsflow:executors:offline`     | Gauge     | 离线执行器数   |
 | `bdopsflow:task:duration_seconds` | Histogram | 任务执行耗时分布 |
-| `bdopsflow:workflow:created`      | Counter   | 工作流创建次数  |
-| `bdopsflow:workflow:running`      | Gauge     | 当前运行工作流数 |
 
-### 4.8 RBAC 权限管理
+### 4.7 RBAC 权限管理
 
 基于纯 RBAC 模型的访问控制系统，支持角色继承、多领域切换和实例级权限控制。
 
@@ -613,7 +560,6 @@ Renew(ctx) - 续期锁TTL
 | executor   | read, assign, online, offline, manage                    |
 | task       | create, read, update, delete, trigger, manage            |
 | log        | read, delete, manage                                     |
-| workflow   | create, read, update, delete, trigger, manage            |
 | datasource | create, read, update, delete, query, download, manage    |
 | webhook    | create, read, update, delete, trigger, manage            |
 | audit\_log | read, delete, manage                                     |
@@ -634,11 +580,11 @@ Renew(ctx) - 续期锁TTL
 - 前端提供领域切换器，切换时刷新权限和新 Token
 - 同一用户在不同领域可拥有不同角色
 
-### 4.9 领域隔离
+### 4.8 领域隔离
 
 实现多租户资源隔离的机制。
 
-- 所有任务、工作流都绑定到领域
+- 所有任务都绑定到领域
 - 执行器可分配到一个或多个领域
 - 执行器可设置为全局（所有领域可用）
 - 用户在不同领域可拥有不同角色
@@ -656,7 +602,7 @@ Renew(ctx) - 续期锁TTL
 - 前端提供领域切换器（Dropdown），切换时调用 `/api/auth/switch-domain`
 - 切换领域后，后端返回新领域下的权限列表和新 Token
 
-### 4.10 数据源查询系统
+### 4.9 数据源查询系统
 
 支持 9 种数据源类型的统一 SQL 查询接口。
 
@@ -791,7 +737,7 @@ type Driver interface {
 - 返回：databases列表、tables列表、columns列表
 - 支持按数据库过滤
 
-### 4.11 审计日志系统
+### 4.10 审计日志系统
 
 全量审计所有写操作（POST/PUT/DELETE），采用中间件+Handler 协作模式。
 
@@ -855,7 +801,7 @@ type Driver interface {
 - 前缀匹配：routePrefixRules（如 `/api/tasks/` → resource=task）
 - 动态参数：自动提取路径中的ID作为resource_id
 
-### 4.12 SSO 登录
+### 4.11 SSO 登录
 
 支持第三方 SSO 统一认证登录。
 
@@ -909,7 +855,7 @@ type Driver interface {
 | role | 固定为 user |
 | password | 空（无本地密码） |
 
-### 4.13 故障恢复机制
+### 4.12 故障恢复机制
 
 当新调度器成为主节点时的完整任务恢复系统。
 
@@ -946,7 +892,7 @@ type Driver interface {
 | 过期锁清理 | 300秒 | 清理残留的任务锁 |
 | 审计日志清理 | 24小时 | 清理超过保留天数的审计日志 |
 
-### 4.14 执行器管理
+### 4.13 执行器管理
 
 **注册流程**：执行器启动后通过 gRPC 向调度中心注册，提供名称、地址和容量。
 
@@ -960,7 +906,7 @@ type Driver interface {
 
 **容量管理**：支持动态调整执行器容量，调度中心通过心跳响应下发目标容量。
 
-### 4.15 实时日志系统
+### 4.14 实时日志系统
 
 **日志传输链路**：
 
@@ -994,7 +940,7 @@ Executor → gRPC ReportTaskLog → Scheduler → Redis Pub/Sub → SSE → Fron
 - 自动滚动到底部
 - 支持暂停/恢复滚动
 
-### 4.16 RSA 密码加密
+### 4.15 RSA 密码加密
 
 **密钥生成**：
 
@@ -1023,7 +969,7 @@ Executor → gRPC ReportTaskLog → Scheduler → Redis Pub/Sub → SSE → Fron
 ./scheduler decrypt-password --key <private_key> <ciphertext>
 ```
 
-### 4.17 执行器任务执行
+### 4.16 执行器任务执行
 
 执行器支持 HTTP 和 Shell 两种任务类型，通过 goroutine 池控制并发执行。
 
@@ -1145,21 +1091,7 @@ Authorization: Bearer <token>
 }
 ```
 
-### 5.4 工作流接口
-
-| 方法     | 路径                                            | 说明        | 权限                          |
-| ------ | --------------------------------------------- | --------- | --------------------------- |
-| GET    | `/api/workflows`                              | 获取工作流列表   | 已登录                         |
-| POST   | `/api/workflows`                              | 创建工作流     | system\_admin/domain\_admin |
-| GET    | `/api/workflows/:id`                          | 获取工作流详情   | 已登录                         |
-| PUT    | `/api/workflows/:id`                          | 更新工作流     | system\_admin/domain\_admin |
-| DELETE | `/api/workflows/:id`                          | 删除工作流     | system\_admin               |
-| POST   | `/api/workflows/:id/trigger`                  | 触发工作流     | system\_admin/domain\_admin |
-| GET    | `/api/workflows/:id/executions`               | 获取工作流执行历史 | 已登录                         |
-| GET    | `/api/workflows/executions/:executionId`      | 获取工作流执行详情 | 已登录                         |
-| GET    | `/api/workflows/executions/:executionId/logs` | 获取工作流执行日志 | 已登录                         |
-
-### 5.5 执行器接口
+### 5.4 执行器接口
 
 | 方法     | 路径                                    | 说明         | 权限                                    |
 | ------ | ------------------------------------- | ---------- | ------------------------------------- |
@@ -1175,7 +1107,7 @@ Authorization: Bearer <token>
 | GET    | `/api/executors/:name/tasks`          | 获取执行器已分配任务 | admin/system\_admin/domain\_admin     |
 | GET    | `/api/executors/:name/can-delete`     | 检查执行器是否可删除 | 已登录                                   |
 
-### 5.6 日志接口
+### 5.5 日志接口
 
 | 方法     | 路径                       | 说明       | 权限  |
 | ------ | ------------------------ | -------- | --- |
@@ -1185,7 +1117,7 @@ Authorization: Bearer <token>
 | POST   | `/api/logs/batch-delete` | 批量删除执行记录 | 已登录 |
 | GET    | `/api/logs/stream`       | 日志流（SSE） | 已登录 |
 
-### 5.7 仪表盘接口
+### 5.6 仪表盘接口
 
 | 方法   | 路径                                | 说明      | 权限            |
 | ---- | --------------------------------- | ------- | ------------- |
@@ -1196,7 +1128,7 @@ Authorization: Bearer <token>
 | POST | `/api/dashboard/scheduler/pause`  | 暂停调度器   | system\_admin |
 | POST | `/api/dashboard/scheduler/resume` | 恢复调度器   | system\_admin |
 
-### 5.8 管理员接口
+### 5.7 管理员接口
 
 #### 用户管理
 
@@ -1240,7 +1172,7 @@ Authorization: Bearer <token>
 | --- | ------------------------ | ------ | ------------- |
 | GET | `/api/admin/permissions` | 获取所有权限 | system\_admin |
 
-### 5.9 数据源接口
+### 5.8 数据源接口
 
 | 方法     | 路径                                          | 说明         | 权限                          |
 | ------ | ------------------------------------------- | ---------- | --------------------------- |
@@ -1258,7 +1190,7 @@ Authorization: Bearer <token>
 | GET    | `/api/datasources/:id/permissions`          | 获取数据源权限列表  | datasource manage           |
 | GET    | `/api/datasources/:id/metadata`             | 获取数据源元数据   | datasource query            |
 
-### 5.10 查询接口
+### 5.9 查询接口
 
 | 方法     | 路径                                | 说明         | 权限                  |
 | ------ | --------------------------------- | ---------- | ------------------- |
@@ -1272,7 +1204,7 @@ Authorization: Bearer <token>
 | POST   | `/api/query/saved-sql`            | 保存SQL      | 已登录                 |
 | DELETE | `/api/query/saved-sql/:id`        | 删除保存的SQL   | 已登录                 |
 
-### 5.11 Webhook接口
+### 5.10 Webhook接口
 
 | 方法   | 路径                        | 说明           | 权限                                |
 | ---- | ------------------------- | ------------ | --------------------------------- |
@@ -1283,7 +1215,7 @@ Authorization: Bearer <token>
 | DELETE | `/api/webhooks/:id`      | 删除 Webhook   | system\_admin                     |
 | POST | `/api/webhooks/:id/test`  | 测试 Webhook   | admin/system\_admin/domain\_admin |
 
-### 5.12 审计日志接口
+### 5.11 审计日志接口
 
 | 方法   | 路径                                | 说明       | 权限            |
 | ---- | --------------------------------- | -------- | ------------- |
@@ -1293,14 +1225,14 @@ Authorization: Bearer <token>
 | GET  | `/api/admin/audit-logs/retention` | 获取保留天数   | system\_admin |
 | PUT  | `/api/admin/audit-logs/retention` | 更新保留天数   | system\_admin |
 
-### 5.13 系统配置接口
+### 5.12 系统配置接口
 
 | 方法  | 路径                              | 说明       | 权限            |
 | --- | ------------------------------- | -------- | ------------- |
 | GET | `/api/admin/system-config`      | 获取系统配置列表 | system\_admin |
 | PUT | `/api/admin/system-config/:key` | 更新系统配置   | system\_admin |
 
-### 5.14 公共接口
+### 5.13 公共接口
 
 | 方法  | 路径                  | 说明       | 权限 |
 | --- | ------------------- | -------- | -- |
@@ -1381,13 +1313,7 @@ Authorization: Bearer <token>
 | 14002 | `CodeInstancePermissionDenied` | 实例级权限不足 |
 | 14003 | `CodePermissionExists` | 权限已存在 |
 
-### 6.8 工作流相关错误码
-
-| 错误码   | 常量名                    | 说明     |
-| ----- | ---------------------- | ------ |
-| 15001 | `CodeWorkflowNotFound` | 工作流不存在 |
-
-### 6.9 数据源相关错误码
+### 6.8 数据源相关错误码
 
 | 错误码   | 常量名                           | 说明       |
 | ----- | ----------------------------- | -------- |
@@ -1396,7 +1322,7 @@ Authorization: Bearer <token>
 | 16003 | `CodeDatasourceConnectFailed` | 数据源连接失败  |
 | 16004 | `CodeDatasourceNameExists`    | 数据源名称已存在 |
 
-### 6.10 查询相关错误码
+### 6.9 查询相关错误码
 
 | 错误码   | 常量名                        | 说明            |
 | ----- | -------------------------- | ------------- |
@@ -1422,28 +1348,26 @@ BDopsFlow 使用 rqlite 分布式数据库，所有表名使用 `bdopsflow_` 前
 | -- | ---------------------------------- | ----------- |
 | 1  | bdopsflow\_domains                 | 领域表         |
 | 2  | bdopsflow\_users                   | 用户表         |
-| 3  | bdopsflow\_workflows               | 工作流表        |
-| 4  | bdopsflow\_tasks                   | 任务表         |
-| 5  | bdopsflow\_task\_executions        | 任务执行记录表     |
-| 6  | bdopsflow\_executors               | 执行器节点表      |
-| 7  | bdopsflow\_workflow\_executions    | 工作流执行记录表    |
-| 8  | bdopsflow\_task\_dependencies      | 任务依赖表（血缘关系） |
-| 9  | bdopsflow\_task\_logs              | 任务执行日志表     |
-| 10 | bdopsflow\_roles                   | 角色表         |
-| 11 | bdopsflow\_permissions             | 权限表         |
-| 12 | bdopsflow\_role\_permissions       | 角色权限映射表     |
-| 13 | bdopsflow\_user\_roles             | 用户角色映射表     |
-| 14 | bdopsflow\_user\_domains           | 用户领域关联表    |
-| 15 | bdopsflow\_domain\_executors       | 执行器领域分配表    |
-| 16 | bdopsflow\_datasources             | 数据源表        |
-| 17 | bdopsflow\_saved\_sql              | 保存的SQL表     |
-| 18 | bdopsflow\_datasource\_permissions | 数据源权限表      |
-| 19 | bdopsflow\_query\_history          | 查询历史表       |
-| 20 | bdopsflow\_system\_config          | 系统配置表       |
-| 21 | bdopsflow\_system\_config\_history | 配置变更历史表     |
-| 22 | bdopsflow\_audit\_logs             | 审计日志表       |
-| 23 | bdopsflow\_webhooks                | Webhook配置表  |
-| 24 | bdopsflow\_webhook\_permissions    | Webhook权限表 |
+| 3  | bdopsflow\_tasks                   | 任务表         |
+| 4  | bdopsflow\_task\_executions        | 任务执行记录表     |
+| 5  | bdopsflow\_executors               | 执行器节点表      |
+| 6  | bdopsflow\_task\_dependencies      | 任务依赖表（血缘关系） |
+| 7  | bdopsflow\_task\_logs              | 任务执行日志表     |
+| 8  | bdopsflow\_roles                   | 角色表         |
+| 9  | bdopsflow\_permissions             | 权限表         |
+| 10 | bdopsflow\_role\_permissions       | 角色权限映射表     |
+| 11 | bdopsflow\_user\_roles             | 用户角色映射表     |
+| 12 | bdopsflow\_user\_domains           | 用户领域关联表    |
+| 13 | bdopsflow\_domain\_executors       | 执行器领域分配表    |
+| 14 | bdopsflow\_datasources             | 数据源表        |
+| 15 | bdopsflow\_saved\_sql              | 保存的SQL表     |
+| 16 | bdopsflow\_datasource\_permissions | 数据源权限表      |
+| 17 | bdopsflow\_query\_history          | 查询历史表       |
+| 18 | bdopsflow\_system\_config          | 系统配置表       |
+| 19 | bdopsflow\_system\_config\_history | 配置变更历史表     |
+| 20 | bdopsflow\_audit\_logs             | 审计日志表       |
+| 21 | bdopsflow\_webhooks                | Webhook配置表  |
+| 22 | bdopsflow\_webhook\_permissions    | Webhook权限表 |
 
 ### 7.2 基础功能表
 
@@ -1487,27 +1411,11 @@ BDopsFlow 使用 rqlite 分布式数据库，所有表名使用 `bdopsflow_` 前
 
 约束：`UNIQUE(user_id, domain_id)`
 
-#### bdopsflow\_workflows（工作流表）
-
-| 字段               | 类型         | 说明           |
-| ---------------- | ---------- | ------------ |
-| id               | INTEGER PK | 自增主键         |
-| name             | TEXT       | 工作流名称        |
-| description      | TEXT       | 描述           |
-| domain\_id       | INTEGER FK | 所属领域         |
-| dag\_config      | TEXT       | DAG 配置（JSON） |
-| cron\_expression | TEXT       | Cron 表达式     |
-| is\_enabled      | BOOLEAN    | 是否启用         |
-| created\_by      | INTEGER    | 创建人          |
-| created\_at      | DATETIME   | 创建时间         |
-| updated\_at      | DATETIME   | 更新时间         |
-
 #### bdopsflow\_tasks（任务表）
 
 | 字段                     | 类型         | 说明                |
 | ---------------------- | ---------- | ----------------- |
 | id                     | INTEGER PK | 自增主键              |
-| workflow\_id           | INTEGER FK | 所属工作流             |
 | name                   | TEXT       | 任务名称              |
 | type                   | TEXT       | 任务类型（http/shell）  |
 | config                 | TEXT       | 任务配置（JSON）        |
@@ -1559,19 +1467,6 @@ BDopsFlow 使用 rqlite 分布式数据库，所有表名使用 `bdopsflow_` 前
 | is\_global      | BOOLEAN     | 是否全局，默认 0    |
 | created\_at     | DATETIME    | 创建时间         |
 | updated\_at     | DATETIME    | 更新时间         |
-
-#### bdopsflow\_workflow\_executions（工作流执行记录表）
-
-| 字段            | 类型          | 说明         |
-| ------------- | ----------- | ---------- |
-| id            | INTEGER PK  | 自增主键       |
-| workflow\_id  | INTEGER FK  | 工作流 ID     |
-| execution\_id | TEXT UNIQUE | 执行 ID      |
-| status        | TEXT        | 执行状态       |
-| start\_time   | DATETIME    | 开始时间       |
-| end\_time     | DATETIME    | 结束时间       |
-| node\_states  | TEXT        | 节点状态（JSON） |
-| created\_at   | DATETIME    | 创建时间       |
 
 #### bdopsflow\_task\_dependencies（任务依赖表）
 

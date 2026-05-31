@@ -307,7 +307,7 @@ func (h *QueryHandler) GetMetadata(c *gin.Context) {
 				Fail(c, CodeQueryError, "数据源正在执行其他查询，无法获取数据库列表，请稍后重试")
 			} else {
 				slog.Error("GetMetadata: databases failed", "module", "query", "datasource_id", dsID, "type", ds.Type, "error", err, "elapsed", elapsed)
-				Fail(c, CodeQueryError, "获取数据库列表失败")
+				Fail(c, CodeQueryError, "获取数据库列表失败: "+err.Error())
 			}
 			return
 		}
@@ -325,7 +325,7 @@ func (h *QueryHandler) GetMetadata(c *gin.Context) {
 				Fail(c, CodeQueryError, "数据源正在执行其他查询，无法获取数据表列表，请稍后重试")
 			} else {
 				slog.Error("GetMetadata: tables failed", "module", "query", "datasource_id", dsID, "database", database, "error", err, "elapsed", elapsed)
-				Fail(c, CodeQueryError, "获取数据表列表失败")
+				Fail(c, CodeQueryError, "获取数据表列表失败: "+err.Error())
 			}
 			return
 		}
@@ -343,7 +343,7 @@ func (h *QueryHandler) GetMetadata(c *gin.Context) {
 				Fail(c, CodeQueryError, "数据源正在执行其他查询，无法获取字段列表，请稍后重试")
 			} else {
 				slog.Error("GetMetadata: columns failed", "module", "query", "datasource_id", dsID, "database", database, "table", table, "error", err, "elapsed", elapsed)
-				Fail(c, CodeQueryError, "获取字段列表失败")
+				Fail(c, CodeQueryError, "获取字段列表失败: "+err.Error())
 			}
 			return
 		}

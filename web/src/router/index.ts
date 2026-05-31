@@ -87,12 +87,6 @@ const routes: RouteRecordRaw[] = [
         meta: { menuPermission: 'query-history' },
       },
       {
-        path: 'workflows',
-        name: 'Workflows',
-        component: () => import('@/views/Workflows.vue'),
-        meta: { menuPermission: 'task' },
-      },
-      {
         path: 'admin/users',
         name: 'AdminUsers',
         component: () => import('@/views/admin/Users.vue'),

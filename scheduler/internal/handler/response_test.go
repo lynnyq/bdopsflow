@@ -492,22 +492,6 @@ func TestFailFromError_PermissionDenied(t *testing.T) {
 	}
 }
 
-func TestFailFromError_WorkflowNotFound(t *testing.T) {
-	c, w := setupTestContext()
-
-	FailFromError(c, service.ErrWorkflowNotFound)
-
-	var resp Response
-	json.Unmarshal(w.Body.Bytes(), &resp)
-
-	if resp.Code != 15001 {
-		t.Errorf("expected code 15001, got %d", resp.Code)
-	}
-	if resp.Message != "workflow not found" {
-		t.Errorf("expected message 'workflow not found', got %q", resp.Message)
-	}
-}
-
 func TestFailFromError_WrapError(t *testing.T) {
 	c, w := setupTestContext()
 

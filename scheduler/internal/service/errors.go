@@ -68,8 +68,6 @@ var (
 	ErrTaskRunning       = errors.New("task is running")
 	ErrTaskLocked        = errors.New("task is locked by another execution")
 
-	ErrWorkflowNotFound = errors.New("workflow not found")
-
 	ErrNoAvailableExecutor = errors.New("no available executor")
 	ErrDispatchFailed      = errors.New("dispatch failed")
 	ErrDispatcherNotConfigured = errors.New("dispatcher not configured")
@@ -98,7 +96,6 @@ var errorCodeMap = map[error]int{
 	ErrTaskAlreadyExists:      10001,
 	ErrTaskRunning:            10001,
 	ErrTaskLocked:             10002,
-	ErrWorkflowNotFound:       15001,
 	ErrExecutorNotFound:       10004,
 	ErrNoAvailableExecutor:    10007,
 	ErrDispatchFailed:         10008,

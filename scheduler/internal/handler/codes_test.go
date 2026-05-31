@@ -38,7 +38,6 @@ func TestCodeConstantsNonZero(t *testing.T) {
 		"CodeDomainNotFound":      CodeDomainNotFound,
 		"CodeDomainHasResources":  CodeDomainHasResources,
 		"CodePermissionDenied":    CodePermissionDenied,
-		"CodeWorkflowNotFound":    CodeWorkflowNotFound,
 		"CodeDatasourceNotFound":  CodeDatasourceNotFound,
 		"CodeDatasourceExists":    CodeDatasourceExists,
 		"CodeDatasourceConnectFailed": CodeDatasourceConnectFailed,
@@ -93,7 +92,6 @@ func TestCodeRangesNoOverlap(t *testing.T) {
 		CodeDomainNotFound,
 		CodeDomainHasResources,
 		CodePermissionDenied,
-		CodeWorkflowNotFound,
 		CodeDatasourceNotFound,
 		CodeDatasourceExists,
 		CodeDatasourceConnectFailed,
@@ -141,7 +139,6 @@ func TestCodeRangesNoOverlap(t *testing.T) {
 		"CodeDomainNotFound",
 		"CodeDomainHasResources",
 		"CodePermissionDenied",
-		"CodeWorkflowNotFound",
 		"CodeDatasourceNotFound",
 		"CodeDatasourceExists",
 		"CodeDatasourceConnectFailed",
@@ -264,12 +261,6 @@ func TestPermissionCodesInRange(t *testing.T) {
 	}
 }
 
-func TestWorkflowCodesInRange(t *testing.T) {
-	if CodeWorkflowNotFound < 15001 || CodeWorkflowNotFound > 15099 {
-		t.Errorf("CodeWorkflowNotFound = %d, expected to be in range 15001-15099", CodeWorkflowNotFound)
-	}
-}
-
 func TestDatasourceCodesInRange(t *testing.T) {
 	dsCodes := map[string]int{
 		"CodeDatasourceNotFound":     CodeDatasourceNotFound,
@@ -353,7 +344,6 @@ func TestCodeExactValues(t *testing.T) {
 		{"CodeDomainNotFound", CodeDomainNotFound, 13001},
 		{"CodeDomainHasResources", CodeDomainHasResources, 13002},
 		{"CodePermissionDenied", CodePermissionDenied, 14001},
-		{"CodeWorkflowNotFound", CodeWorkflowNotFound, 15001},
 		{"CodeDatasourceNotFound", CodeDatasourceNotFound, 16001},
 		{"CodeDatasourceExists", CodeDatasourceExists, 16002},
 		{"CodeDatasourceConnectFailed", CodeDatasourceConnectFailed, 16003},
@@ -433,13 +423,6 @@ func TestCodeCategories(t *testing.T) {
 			},
 			min: 14000,
 			max: 14999,
-		},
-		"workflow": {
-			codes: map[string]int{
-				"CodeWorkflowNotFound": CodeWorkflowNotFound,
-			},
-			min: 15000,
-			max: 15999,
 		},
 		"datasource": {
 			codes: map[string]int{

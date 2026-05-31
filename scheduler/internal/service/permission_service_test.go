@@ -100,7 +100,6 @@ func TestHasAnyPermission(t *testing.T) {
 		permissions := []*model.Permission{
 			{ID: 1, Resource: "task", Action: "create"},
 			{ID: 2, Resource: "task", Action: "read"},
-			{ID: 3, Resource: "workflow", Action: "create"},
 		}
 
 		resourceMap := make(map[string]bool)
@@ -110,9 +109,6 @@ func TestHasAnyPermission(t *testing.T) {
 
 		if !resourceMap["task"] {
 			t.Error("expected task resource to be present")
-		}
-		if !resourceMap["workflow"] {
-			t.Error("expected workflow resource to be present")
 		}
 		if resourceMap["datasource"] {
 			t.Error("expected datasource resource to be absent")
@@ -370,7 +366,6 @@ func TestPermissionGetCode(t *testing.T) {
 	}{
 		{"task", "create", "task:create"},
 		{"task", "manage", "task:manage"},
-		{"workflow", "trigger", "workflow:trigger"},
 		{"datasource", "read", "datasource:read"},
 		{"user", "update", "user:update"},
 		{"webhook", "delete", "webhook:delete"},

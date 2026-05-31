@@ -4,8 +4,6 @@
 
 ### 核心特性
 
-- **Dify 风格工作流**：可视化 DAG 编排，9 种节点类型（Start/End/HTTP/Shell/IF-ELSE/Delay/Webhook/变量聚合/数据转换），条件分支，并行执行，变量引用 `{{node_id.field}}`
-- **X6 可视化画布**：基于 AntV X6 的流程编辑器，拖拽编排，条件分支多出口连线，运行态可视化
 - **分布式架构**：Scheduler + Executor 分离，gRPC 通信，Leader Election 高可用
 - **RBAC 多租户**：纯 RBAC 权限模型，角色继承，多领域支持，数据源/Webhook 实例级权限控制，菜单权限自动推导
 - **数据源查询**：9 种数据库驱动，SQL 编辑器，查询缓存，并发控制，CSV 导出
@@ -19,7 +17,7 @@
 | 层 | 技术 |
 |---|------|
 | 后端 | Go 1.24+, Gin, gRPC, gorqlite |
-| 前端 | Vue 3, TypeScript, Element Plus, AntV X6 |
+| 前端 | Vue 3, TypeScript, Element Plus |
 | 存储 | rqlite (Raft SQL), Redis |
 | 通信 | HTTP REST, gRPC, SSE |
 
@@ -30,9 +28,6 @@ bdopsflow/
 ├── scheduler/          # 调度中心
 │   ├── cmd/           # 入口 + 路由
 │   └── internal/
-│       ├── workflow/   # Dify 风格工作流引擎
-│       │   └── executors/  # 9 种节点执行器
-│       ├── dag/        # DAG 验证 + 拓扑排序
 │       ├── handler/    # HTTP 处理器
 │       ├── service/    # 业务逻辑
 │       ├── middleware/  # JWT/RBAC/审计/数据源权限
@@ -46,7 +41,6 @@ bdopsflow/
 │       └── config/     # 配置
 ├── web/                # 前端
 │   └── src/
-│       ├── components/workflow/  # X6 工作流编辑器
 │       ├── views/      # 页面
 │       └── api/        # API 接口
 └── deploy/             # 部署配置
@@ -93,20 +87,6 @@ cd web
 npm install
 npm run dev
 ```
-
-### 工作流节点类型
-
-| 节点 | 说明 | 输出示例 |
-|------|------|---------|
-| Start | 工作流入口，定义输入变量 | variables |
-| End | 工作流出口，定义输出变量 | outputs |
-| HTTP | HTTP 请求 | status_code, response |
-| Shell | Shell 脚本执行 | stdout, stderr, exit_code |
-| IF/ELSE | 条件分支（true/false 双出口） | result, branch |
-| Delay | 延迟等待 | waited_seconds |
-| Webhook | Webhook 通知 | status_code, response |
-| 变量聚合 | 合并多个输入变量 | merged_variables |
-| 数据转换 | 表达式/脚本转换 | result |
 
 ### RBAC 权限模型
 

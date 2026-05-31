@@ -57,24 +57,6 @@
             <div class="stat-label">在线执行器</div>
           </div>
         </div>
-        <div class="stat-item">
-          <div class="stat-icon stat-icon-info">
-            <el-icon :size="24"><Connection /></el-icon>
-          </div>
-          <div class="stat-content">
-            <div class="stat-value">{{ stats?.workflows?.total ?? 0 }}</div>
-            <div class="stat-label">工作流总数</div>
-          </div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-icon stat-icon-success">
-            <el-icon :size="24"><CircleCheck /></el-icon>
-          </div>
-          <div class="stat-content">
-            <div class="stat-value">{{ stats?.workflows?.enabled ?? 0 }}</div>
-            <div class="stat-label">已启用工作流</div>
-          </div>
-        </div>
       </div>
     </section>
 
@@ -241,7 +223,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { VideoPlay, VideoPause, Refresh, List, CircleCheck, CircleClose, Clock, Timer, Cpu, Connection, DataLine } from '@element-plus/icons-vue'
+import { VideoPlay, VideoPause, Refresh, List, CircleCheck, CircleClose, Clock, Timer, Cpu, DataLine } from '@element-plus/icons-vue'
 import { dashboardAPI, type HealthCheckResult } from '@/api'
 import { isHandledError } from '@/utils/api'
 import { useAuthStore } from '@/stores/auth'
@@ -257,7 +239,6 @@ const loading = ref(false)
 const actionLoading = ref(false)
 const stats = ref<DashboardStats>({
   tasks: { total: 0, enabled: 0, cron: 0, running: 0, success: 0, failed: 0, avg_duration: 0 },
-  workflows: { total: 0, enabled: 0 },
   executors: { total: 0, active: 0, online: 0, offline: 0 },
   scheduler: { paused: false, uptime: 0 }
 })
@@ -315,10 +296,6 @@ const loadDashboardStats = async () => {
         success: data.tasks?.success ?? 0,
         failed: data.tasks?.failed ?? 0,
         avg_duration: data.tasks?.avg_duration ?? 0
-      },
-      workflows: {
-        total: data.workflows?.total ?? 0,
-        enabled: data.workflows?.enabled ?? 0
       },
       executors: {
         total: data.executors?.total ?? 0,

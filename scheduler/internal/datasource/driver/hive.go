@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	gohive "github.com/beltran/gohive"
 	"github.com/pkg/errors"
@@ -15,6 +17,7 @@ type HiveDriver struct {
 	connection *gohive.Connection
 	config     DatasourceConfig
 	mu         sync.Mutex
+	unhealthy  atomic.Bool
 }
 
 func NewHiveDriver() Driver {
@@ -125,7 +128,42 @@ func (d *HiveDriver) Ping(ctx context.Context) error {
 	if d.connection == nil {
 		return errors.New("hive connection not established")
 	}
-	return nil
+	if d.unhealthy.Load() {
+		return errors.New("hive connection marked as unhealthy")
+	}
+
+	acquired := make(chan struct{}, 1)
+	go func() {
+		d.mu.Lock()
+		close(acquired)
+	}()
+
+	select {
+	case <-acquired:
+		defer d.mu.Unlock()
+		pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		cursor := d.connection.Cursor()
+		cursor.Exec(pingCtx, normalizeSQL("SELECT 1"))
+		if cursor.Err != nil {
+			execErr := cursor.Err
+			cursor.Close()
+			d.unhealthy.Store(true)
+			return errors.Wrap(execErr, "hive ping failed, connection may be stale")
+		}
+		cursor.Close()
+		return nil
+	case <-ctx.Done():
+		go func() {
+			<-acquired
+			d.mu.Unlock()
+		}()
+		return nil
+	}
+}
+
+func (d *HiveDriver) IsUnhealthy() bool {
+	return d.unhealthy.Load()
 }
 
 func (d *HiveDriver) Close() error {
@@ -229,6 +267,10 @@ func (d *HiveDriver) Query(ctx context.Context, query string, args ...interface{
 		return nil, errors.Wrap(ctx.Err(), "hive query cancelled")
 	case res := <-resultCh:
 		if res.err != nil {
+			if isConnectionError(res.err) {
+				d.unhealthy.Store(true)
+				slog.Warn("hive connection error detected, marked as unhealthy", "sql_preview", truncateSQL(normalizedQuery, 200), "error", res.err)
+			}
 			slog.Error("hive query execution failed", "sql_preview", truncateSQL(normalizedQuery, 200), "error", res.err)
 		}
 		return res.result, res.err

@@ -229,7 +229,6 @@ const pageTitle = computed(() => {
     '/saved-sql': '已保存 SQL',
     '/admin/system-config': '系统配置',
     '/admin/audit-logs': '审计日志',
-    '/workflows': '工作流管理',
   }
   if (route.path.match(/\/datasources\/\d+\/edit/)) return '编辑数据源'
   if (route.path.match(/\/datasources\/\d+\/permissions/)) return '权限管理'

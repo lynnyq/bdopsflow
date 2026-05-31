@@ -31,7 +31,6 @@ var resourceNameMap = map[string]string{
 	"domain":     "领域管理",
 	"executor":   "执行器管理",
 	"task":       "任务管理",
-	"workflow":   "工作流管理",
 	"log":        "日志管理",
 	"datasource": "数据源管理",
 	"webhook":    "Webhook管理",
@@ -41,7 +40,7 @@ var resourceNameMap = map[string]string{
 
 var resourceOrder = []string{
 	"dashboard", "user", "role", "permission", "domain", "executor",
-	"task", "workflow", "log", "datasource", "webhook", "audit_log", "config",
+	"task", "log", "datasource", "webhook", "audit_log", "config",
 }
 
 // BuildPermissionGroups 从数据库权限列表构建分组

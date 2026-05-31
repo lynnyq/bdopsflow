@@ -82,7 +82,6 @@ export interface DomainWithStats extends Domain {
 
 export interface Task {
   id: number
-  workflow_id: number | null
   name: string
   type: string
   config: string
@@ -112,50 +111,6 @@ export interface TaskConfig {
   headers?: string
   body?: string
   script?: string
-}
-
-export interface Workflow {
-  id: number
-  name: string
-  description: string
-  domain_id: number
-  dag_config: string
-  cron_expression: string
-  is_enabled: boolean
-  created_by: number | null
-  created_at: string
-  updated_at: string
-}
-
-export interface WorkflowNodeConfig {
-  url?: string
-  method?: string
-  script?: string
-  delay?: number
-  timeout?: number
-  condition?: string
-  trigger?: 'completed' | 'failed' | 'all'
-}
-
-export interface WorkflowNode {
-  id: string
-  name: string
-  type: 'http' | 'shell' | 'delay' | 'condition' | 'webhook'
-  x: number
-  y: number
-  status: 'pending' | 'running' | 'success' | 'failed'
-  config?: WorkflowNodeConfig
-}
-
-export interface WorkflowConnection {
-  id: string
-  from: string
-  to: string
-}
-
-export interface WorkflowDAG {
-  nodes: WorkflowNode[]
-  connections: WorkflowConnection[]
 }
 
 export interface Executor {
@@ -345,17 +300,6 @@ export interface LoginRequest {
   password: string
 }
 
-export interface WorkflowExecution {
-  id: number
-  workflow_id: number
-  execution_id: string
-  status: string
-  start_time: string | null
-  end_time: string | null
-  node_states: string
-  created_at: string
-}
-
 export interface DashboardStats {
   tasks: {
     total: number
@@ -365,10 +309,6 @@ export interface DashboardStats {
     success: number
     failed: number
     avg_duration: number
-  }
-  workflows: {
-    total: number
-    enabled: number
   }
   executors: {
     total: number

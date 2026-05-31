@@ -1,5 +1,5 @@
 import api from '@/utils/api'
-import type { Task, Workflow, TaskExecution, TaskExecutionListResponse, Executor, ExecutorWithDomains, Domain, LoginRequest, LoginResponse, WorkflowExecution, TaskLog, DashboardStats, TrendData, PaginatedResponse, User, Role, Permission, CurrentUserResponse, AuditLog } from '@/types'
+import type { Task, TaskExecution, TaskExecutionListResponse, Executor, ExecutorWithDomains, Domain, LoginRequest, LoginResponse, TaskLog, DashboardStats, TrendData, PaginatedResponse, User, Role, Permission, CurrentUserResponse, AuditLog } from '@/types'
 import { userAdminAPI, roleAdminAPI, domainAdminAPI, permissionAPI, switchDomain } from './admin'
 import { datasourceAPI, queryAPI, systemConfigAPI } from './datasource'
 import { auditLogAPI } from './audit'
@@ -48,19 +48,6 @@ export const taskAPI = {
   trigger: (id: number) => api.post(`/tasks/${id}/trigger`),
   getExecutions: (id: number) => api.get<TaskExecution[]>(`/tasks/${id}/executions`),
   getExecutionLogs: (executionId: string) => api.get<TaskLog[]>(`/tasks/executions/${executionId}/logs`),
-}
-
-export const workflowAPI = {
-  list: (params?: { page?: number; page_size?: number }) => api.get<PaginatedResponse<Workflow>>('/workflows', { params }),
-  get: (id: number) => api.get<Workflow>(`/workflows/${id}`),
-  create: (data: Partial<Workflow>) => api.post<Workflow>('/workflows', data),
-  update: (id: number, data: Partial<Workflow>) => api.put(`/workflows/${id}`, data),
-  delete: (id: number) => api.delete(`/workflows/${id}`),
-  // 工作流执行相关 API
-  trigger: (id: number) => api.post<WorkflowExecution>(`/workflows/${id}/trigger`),
-  getExecutions: (id: number) => api.get<WorkflowExecution[]>(`/workflows/${id}/executions`),
-  getExecution: (executionId: string) => api.get<WorkflowExecution>(`/workflows/executions/${executionId}`),
-  getExecutionLogs: (executionId: string) => api.get<TaskLog[]>(`/workflows/executions/${executionId}/logs`),
 }
 
 export const executorAPI = {

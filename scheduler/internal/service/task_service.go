@@ -41,7 +41,7 @@ func (s *SchedulerService) CreateTask(ctx context.Context, query string, args ..
 
 func (s *SchedulerService) GetTaskByID(ctx context.Context, id int64) (*model.Task, error) {
 	query := `
-		SELECT id, workflow_id, name, type, config, cron_expression, timeout_seconds,
+		SELECT id, name, type, config, cron_expression, timeout_seconds,
 		       retry_count, retry_interval, is_enabled, status, domain_id, webhook_id, webhook_events,
 		       assigned_executor_id, created_by, created_at, updated_at
 		FROM bdopsflow_tasks WHERE id = ?
@@ -128,7 +128,7 @@ func (s *SchedulerService) ListTasks(ctx context.Context, domainID int64, role s
 
 	offset := (page - 1) * pageSize
 	dataQuery := `
-		SELECT id, workflow_id, name, type, config, cron_expression, timeout_seconds,
+		SELECT id, name, type, config, cron_expression, timeout_seconds,
 		       retry_count, retry_interval, is_enabled, status, domain_id, webhook_id, webhook_events,
 		       assigned_executor_id, created_by, created_at, updated_at
 		FROM bdopsflow_tasks` + whereClause + " ORDER BY created_at DESC LIMIT ? OFFSET ?"
@@ -290,6 +290,7 @@ func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (strin
 				"execution_id", runningExecID,
 			)
 			s.UpdateExecutionResult(ctx, runningExecID, "failed", "", "stale execution cleaned up on new trigger")
+			s.AddTaskLog(ctx, runningExecID, taskID, "", "error", "stale execution cleaned up on new trigger")
 			s.HandleTaskFailure(ctx, taskID, runningExecID, "", "stale execution cleaned up on new trigger")
 			lockKey := fmt.Sprintf("task:lock:%s", runningExecID)
 			failCountKey := fmt.Sprintf("task:renew:fail:count:%s", runningExecID)
@@ -316,6 +317,7 @@ func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (strin
 					"timeout_seconds", timeoutSeconds,
 				)
 				s.UpdateExecutionResult(ctx, runningExecID, "failed", "", "stale execution cleaned up on new trigger")
+				s.AddTaskLog(ctx, runningExecID, taskID, "", "error", "stale execution cleaned up on new trigger")
 				s.HandleTaskFailure(ctx, taskID, runningExecID, "", "stale execution cleaned up on new trigger")
 				lockKey := fmt.Sprintf("task:lock:%s", runningExecID)
 				failCountKey := fmt.Sprintf("task:renew:fail:count:%s", runningExecID)
@@ -344,6 +346,7 @@ func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (strin
 						"running_execution_id", runningExecID,
 					)
 
+					s.AddTaskLog(ctx, skippedExecutionID, taskID, "", "warn", skippedReason)
 					s.SendWebhookNotification(ctx, taskID, skippedExecutionID, "skipped", "", skippedReason, 0)
 				}
 
@@ -411,41 +414,47 @@ func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (strin
 	if task.AssignedExecutorID > 0 {
 		executor, err = s.GetExecutorByID(ctx, task.AssignedExecutorID)
 		if err != nil {
+			errMsg := fmt.Sprintf("specified executor %d not found: %v", task.AssignedExecutorID, err)
 			slog.Error("specified executor not found",
 				"task_id", taskID,
 				"assigned_executor_id", task.AssignedExecutorID,
 				"error", err,
 			)
-			s.UpdateExecutionResult(ctx, executionID, "failed", "", fmt.Sprintf("specified executor %d not found: %v", task.AssignedExecutorID, err))
+			s.UpdateExecutionResult(ctx, executionID, "failed", "", errMsg)
 			s.UpdateTaskStatusByID(ctx, taskID, "failed")
-			s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", fmt.Sprintf("specified executor %d not found: %v", task.AssignedExecutorID, err), 0)
+			s.AddTaskLog(ctx, executionID, taskID, "", "error", errMsg)
+			s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", errMsg, 0)
 			s.redis.Del(ctx, lockKey)
 			return executionID, fmt.Errorf("specified executor %d not found: %w", task.AssignedExecutorID, err)
 		}
 
 		if executor.Status != "online" {
+			errMsg := fmt.Sprintf("specified executor %d is not online (status: %s)", task.AssignedExecutorID, executor.Status)
 			slog.Error("specified executor is not online",
 				"task_id", taskID,
 				"assigned_executor_id", task.AssignedExecutorID,
 				"executor_status", executor.Status,
 			)
-			s.UpdateExecutionResult(ctx, executionID, "failed", "", fmt.Sprintf("specified executor %d is not online (status: %s)", task.AssignedExecutorID, executor.Status))
+			s.UpdateExecutionResult(ctx, executionID, "failed", "", errMsg)
 			s.UpdateTaskStatusByID(ctx, taskID, "failed")
-			s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", fmt.Sprintf("specified executor %d is not online (status: %s)", task.AssignedExecutorID, executor.Status), 0)
+			s.AddTaskLog(ctx, executionID, taskID, "", "error", errMsg)
+			s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", errMsg, 0)
 			s.redis.Del(ctx, lockKey)
 			return executionID, fmt.Errorf("specified executor %d is not online", task.AssignedExecutorID)
 		}
 
 		if executor.CurrentLoad >= executor.Capacity {
+			errMsg := fmt.Sprintf("specified executor %d has no capacity (load: %d/%d)", task.AssignedExecutorID, executor.CurrentLoad, executor.Capacity)
 			slog.Error("specified executor has no capacity",
 				"task_id", taskID,
 				"assigned_executor_id", task.AssignedExecutorID,
 				"current_load", executor.CurrentLoad,
 				"capacity", executor.Capacity,
 			)
-			s.UpdateExecutionResult(ctx, executionID, "failed", "", fmt.Sprintf("specified executor %d has no capacity (load: %d/%d)", task.AssignedExecutorID, executor.CurrentLoad, executor.Capacity))
+			s.UpdateExecutionResult(ctx, executionID, "failed", "", errMsg)
 			s.UpdateTaskStatusByID(ctx, taskID, "failed")
-			s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", fmt.Sprintf("specified executor %d has no capacity (load: %d/%d)", task.AssignedExecutorID, executor.CurrentLoad, executor.Capacity), 0)
+			s.AddTaskLog(ctx, executionID, taskID, "", "error", errMsg)
+			s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", errMsg, 0)
 			s.redis.Del(ctx, lockKey)
 			return executionID, fmt.Errorf("specified executor %d has no capacity", task.AssignedExecutorID)
 		}
@@ -459,10 +468,12 @@ func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (strin
 	} else {
 		executor, err = s.SelectAvailableExecutor(ctx, task.DomainID)
 		if err != nil {
+			errMsg := fmt.Sprintf("no available executor: %v", err)
 			slog.Error("no available executor", "task_id", taskID, "domain_id", task.DomainID, "error", err)
-			s.UpdateExecutionResult(ctx, executionID, "failed", "", fmt.Sprintf("no available executor: %v", err))
+			s.UpdateExecutionResult(ctx, executionID, "failed", "", errMsg)
 			s.UpdateTaskStatusByID(ctx, taskID, "failed")
-			s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", fmt.Sprintf("no available executor: %v", err), 0)
+			s.AddTaskLog(ctx, executionID, taskID, "", "error", errMsg)
+			s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", errMsg, 0)
 			s.redis.Del(ctx, lockKey)
 			return executionID, fmt.Errorf("no available executor: %w", err)
 		}
@@ -486,9 +497,11 @@ func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (strin
 
 	if s.dispatcher == nil {
 		slog.Warn("no task dispatcher set", "task_id", taskID)
-		s.UpdateExecutionResult(ctx, executionID, "failed", "", "dispatcher not configured")
+		errMsg := "dispatcher not configured"
+		s.UpdateExecutionResult(ctx, executionID, "failed", "", errMsg)
 		s.UpdateTaskStatusByID(ctx, taskID, "failed")
-		s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", "dispatcher not configured", 0)
+		s.AddTaskLog(ctx, executionID, taskID, "", "error", errMsg)
+		s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", errMsg, 0)
 		s.redis.Del(ctx, lockKey)
 		return executionID, fmt.Errorf("dispatcher not configured")
 	}
@@ -504,10 +517,12 @@ func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (strin
 	}
 
 	if err := s.dispatcher(executor.Name, grpcTask); err != nil {
+		errMsg := fmt.Sprintf("dispatch failed: %v", err)
 		slog.Error("dispatch task failed", "task_id", taskID, "executor", executor.Name, "error", err)
-		s.UpdateExecutionResult(ctx, executionID, "failed", "", fmt.Sprintf("dispatch failed: %v", err))
+		s.UpdateExecutionResult(ctx, executionID, "failed", "", errMsg)
 		s.UpdateTaskStatusByID(ctx, taskID, "failed")
-		s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", fmt.Sprintf("dispatch failed: %v", err), 0)
+		s.AddTaskLog(ctx, executionID, taskID, "", "error", errMsg)
+		s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", errMsg, 0)
 		s.redis.Del(ctx, lockKey)
 		return executionID, fmt.Errorf("dispatch failed: %w", err)
 	}
@@ -580,8 +595,10 @@ func (s *SchedulerService) RetryTask(ctx context.Context, taskID int64, retryTim
 	if task.AssignedExecutorID > 0 {
 		executor, err = s.GetExecutorByID(ctx, task.AssignedExecutorID)
 		if err != nil || executor.Status != "online" || executor.CurrentLoad >= executor.Capacity {
-			s.UpdateExecutionResult(ctx, executionID, "failed", "", "specified executor unavailable for retry")
+			errMsg := "specified executor unavailable for retry"
+			s.UpdateExecutionResult(ctx, executionID, "failed", "", errMsg)
 			s.UpdateTaskStatusByID(ctx, taskID, "failed")
+			s.AddTaskLog(ctx, executionID, taskID, "", "error", errMsg)
 			s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", "retry failed: specified executor unavailable", 0)
 			s.redis.Del(ctx, lockKey)
 			return executionID, fmt.Errorf("specified executor unavailable for retry")
@@ -589,9 +606,11 @@ func (s *SchedulerService) RetryTask(ctx context.Context, taskID int64, retryTim
 	} else {
 		executor, err = s.SelectAvailableExecutor(ctx, task.DomainID)
 		if err != nil {
-			s.UpdateExecutionResult(ctx, executionID, "failed", "", fmt.Sprintf("no available executor: %v", err))
+			errMsg := fmt.Sprintf("no available executor: %v", err)
+			s.UpdateExecutionResult(ctx, executionID, "failed", "", errMsg)
 			s.UpdateTaskStatusByID(ctx, taskID, "failed")
-			s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", fmt.Sprintf("retry failed: no available executor: %v", err), 0)
+			s.AddTaskLog(ctx, executionID, taskID, "", "error", errMsg)
+			s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", fmt.Sprintf("retry failed: %s", errMsg), 0)
 			s.redis.Del(ctx, lockKey)
 			return executionID, fmt.Errorf("no available executor: %w", err)
 		}
@@ -608,8 +627,10 @@ func (s *SchedulerService) RetryTask(ctx context.Context, taskID int64, retryTim
 	}
 
 	if s.dispatcher == nil {
-		s.UpdateExecutionResult(ctx, executionID, "failed", "", "dispatcher not configured")
+		errMsg := "dispatcher not configured"
+		s.UpdateExecutionResult(ctx, executionID, "failed", "", errMsg)
 		s.UpdateTaskStatusByID(ctx, taskID, "failed")
+		s.AddTaskLog(ctx, executionID, taskID, "", "error", errMsg)
 		s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", "retry failed: dispatcher not configured", 0)
 		s.redis.Del(ctx, lockKey)
 		return executionID, fmt.Errorf("dispatcher not configured")
@@ -626,9 +647,11 @@ func (s *SchedulerService) RetryTask(ctx context.Context, taskID int64, retryTim
 	}
 
 	if err := s.dispatcher(executor.Name, grpcTask); err != nil {
-		s.UpdateExecutionResult(ctx, executionID, "failed", "", fmt.Sprintf("dispatch failed: %v", err))
+		errMsg := fmt.Sprintf("dispatch failed: %v", err)
+		s.UpdateExecutionResult(ctx, executionID, "failed", "", errMsg)
 		s.UpdateTaskStatusByID(ctx, taskID, "failed")
-		s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", fmt.Sprintf("retry failed: dispatch failed: %v", err), 0)
+		s.AddTaskLog(ctx, executionID, taskID, "", "error", errMsg)
+		s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", fmt.Sprintf("retry failed: %s", errMsg), 0)
 		s.redis.Del(ctx, lockKey)
 		return executionID, fmt.Errorf("dispatch failed: %w", err)
 	}
@@ -819,7 +842,7 @@ func (s *SchedulerService) UpdateTaskStatusByID(ctx context.Context, taskID int6
 
 func (s *SchedulerService) ScanPendingTasks(ctx context.Context) ([]*model.Task, error) {
 	query := `
-		SELECT id, workflow_id, name, type, config, cron_expression, timeout_seconds,
+		SELECT id, name, type, config, cron_expression, timeout_seconds,
 		       retry_count, retry_interval, is_enabled, status, domain_id, webhook_id, webhook_events,
 		       assigned_executor_id, created_by, created_at, updated_at
 		FROM bdopsflow_tasks

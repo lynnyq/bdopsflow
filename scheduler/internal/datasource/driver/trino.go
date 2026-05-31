@@ -8,7 +8,8 @@ import (
 	"net/url"
 	"strings"
 
-	_ "github.com/trinodb/trino-go-client/trino"
+	trino "github.com/trinodb/trino-go-client/trino"
+	"github.com/pkg/errors"
 )
 
 type TrinoDriver struct {
@@ -69,10 +70,15 @@ func (d *TrinoDriver) Query(ctx context.Context, query string, args ...interface
 	if d.db == nil {
 		return nil, fmt.Errorf("trino connection not established")
 	}
+	query = normalizeTrinoSQL(query)
 	slog.Debug("trino executing query", "sql_preview", truncateSQL(query, 200))
 	rows, err := d.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		slog.Error("trino query execution failed", "sql_preview", truncateSQL(query, 200), "error", err)
+		var qf *trino.ErrQueryFailed
+		if errors.As(err, &qf) && qf.Reason != nil {
+			return nil, fmt.Errorf("trino query error: %s", strings.Trim(qf.Reason.Error(), `"`))
+		}
 		return nil, fmt.Errorf("trino query error: %w", err)
 	}
 	defer rows.Close()
@@ -107,24 +113,53 @@ func (d *TrinoDriver) Query(ctx context.Context, query string, args ...interface
 }
 
 func (d *TrinoDriver) GetDatabases(ctx context.Context) ([]string, error) {
-	result, err := d.Query(ctx, "SHOW CATALOGS")
-	if err != nil {
-		return nil, err
-	}
-	var databases []string
-	for _, row := range result.Rows {
-		if len(row) > 0 {
-			databases = append(databases, fmt.Sprintf("%v", row[0]))
+	var catalogs []string
+	if d.config.Database != "" {
+		defaultCatalog := d.config.Database
+		if idx := strings.Index(defaultCatalog, "."); idx >= 0 {
+			defaultCatalog = defaultCatalog[:idx]
+		}
+		catalogs = []string{defaultCatalog}
+	} else {
+		result, err := d.Query(ctx, "SHOW CATALOGS")
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range result.Rows {
+			if len(row) > 0 {
+				catalogs = append(catalogs, fmt.Sprintf("%v", row[0]))
+			}
 		}
 	}
-	return databases, nil
+
+	var schemas []string
+	for _, catalog := range catalogs {
+		schemaResult, err := d.Query(ctx, fmt.Sprintf("SHOW SCHEMAS FROM %s", escapeTrinoIdentifier(catalog)))
+		if err != nil {
+			slog.Warn("trino failed to list schemas for catalog, skipping", "catalog", catalog, "error", err)
+			continue
+		}
+		for _, row := range schemaResult.Rows {
+			if len(row) > 0 {
+				schemaName := fmt.Sprintf("%v", row[0])
+				if schemaName == "information_schema" {
+					continue
+				}
+				schemas = append(schemas, catalog+"."+schemaName)
+			}
+		}
+	}
+	return schemas, nil
 }
 
 func (d *TrinoDriver) GetTables(ctx context.Context, database string) ([]TableInfo, error) {
 	if database == "" {
 		database = d.config.Database
 	}
-	result, err := d.Query(ctx, fmt.Sprintf("SHOW TABLES FROM %s", escapeTrinoIdentifier(database)))
+	if database == "" {
+		return nil, fmt.Errorf("trino: database (catalog.schema) is required")
+	}
+	result, err := d.Query(ctx, fmt.Sprintf("SHOW TABLES FROM %s", buildTrinoQualifiedName(database, "")))
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +176,10 @@ func (d *TrinoDriver) GetColumns(ctx context.Context, database, table string) ([
 	if database == "" {
 		database = d.config.Database
 	}
-	result, err := d.Query(ctx, fmt.Sprintf("SHOW COLUMNS FROM %s.%s", escapeTrinoIdentifier(database), escapeTrinoIdentifier(table)))
+	if database == "" {
+		return nil, fmt.Errorf("trino: database (catalog.schema) is required")
+	}
+	result, err := d.Query(ctx, fmt.Sprintf("SHOW COLUMNS FROM %s", buildTrinoQualifiedName(database, table)))
 	if err != nil {
 		return nil, err
 	}
@@ -243,4 +281,36 @@ func convertTrinoValue(v interface{}) interface{} {
 
 func escapeTrinoIdentifier(name string) string {
 	return strings.ReplaceAll(name, `"`, `""`)
+}
+
+func buildTrinoQualifiedName(database, table string) string {
+	parts := strings.SplitN(database, ".", 2)
+	if len(parts) == 2 {
+		if table != "" {
+			return fmt.Sprintf(`"%s"."%s"."%s"`, escapeTrinoIdentifier(parts[0]), escapeTrinoIdentifier(parts[1]), escapeTrinoIdentifier(table))
+		}
+		return fmt.Sprintf(`"%s"."%s"`, escapeTrinoIdentifier(parts[0]), escapeTrinoIdentifier(parts[1]))
+	}
+	if table != "" {
+		return fmt.Sprintf(`"%s"."%s"`, escapeTrinoIdentifier(database), escapeTrinoIdentifier(table))
+	}
+	return fmt.Sprintf(`"%s"`, escapeTrinoIdentifier(database))
+}
+
+func normalizeTrinoSQL(sql string) string {
+	var buf strings.Builder
+	buf.Grow(len(sql))
+	inSingleQuote := false
+	for i := 0; i < len(sql); i++ {
+		ch := sql[i]
+		if ch == '\'' {
+			inSingleQuote = !inSingleQuote
+			buf.WriteByte(ch)
+		} else if ch == '`' && !inSingleQuote {
+			buf.WriteByte('"')
+		} else {
+			buf.WriteByte(ch)
+		}
+	}
+	return buf.String()
 }

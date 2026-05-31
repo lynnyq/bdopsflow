@@ -17,10 +17,6 @@ type DashboardStats struct {
 		Failed      int64 `json:"failed"`
 		AvgDuration float64 `json:"avg_duration"`
 	} `json:"tasks"`
-	Workflows struct {
-		Total   int64 `json:"total"`
-		Enabled int64 `json:"enabled"`
-	} `json:"workflows"`
 	Executors struct {
 		Total  int64 `json:"total"`
 		Active int64 `json:"active"`
@@ -125,31 +121,6 @@ func (s *SchedulerService) GetDashboardStats(ctx context.Context, domainID int64
 		stats.Tasks.Success = rowInt64(row[0])
 		stats.Tasks.Failed = rowInt64(row[1])
 		stats.Tasks.AvgDuration = rowFloat64(row[2])
-	}
-
-	var wfQuery string
-	args = []interface{}{}
-	if isSystemAdmin {
-		wfQuery = `
-			SELECT
-				COUNT(*) as total,
-				SUM(CASE WHEN is_enabled = 1 THEN 1 ELSE 0 END) as enabled
-			FROM bdopsflow_workflows
-		`
-	} else {
-		wfQuery = `
-			SELECT
-				COUNT(*) as total,
-				SUM(CASE WHEN is_enabled = 1 THEN 1 ELSE 0 END) as enabled
-			FROM bdopsflow_workflows WHERE domain_id = ?
-		`
-		args = append(args, domainID)
-	}
-	qr, err = s.executeQuery(wfQuery, args)
-	if err == nil && qr.Next() {
-		row, _ := qr.Slice()
-		stats.Workflows.Total = rowInt64(row[0])
-		stats.Workflows.Enabled = rowInt64(row[1])
 	}
 
 	var execQuery string
@@ -279,11 +250,9 @@ type ComponentCheck struct {
 var requiredTables = []string{
 	"bdopsflow_domains",
 	"bdopsflow_users",
-	"bdopsflow_workflows",
 	"bdopsflow_tasks",
 	"bdopsflow_task_executions",
 	"bdopsflow_executors",
-	"bdopsflow_workflow_executions",
 	"bdopsflow_task_logs",
 	"bdopsflow_roles",
 	"bdopsflow_permissions",

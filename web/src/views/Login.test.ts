@@ -37,7 +37,6 @@ describe('Type Definitions', () => {
   it('Task interface has correct structure', () => {
     const task = {
       id: 1,
-      workflow_id: null,
       name: 'Test Task',
       type: 'http',
       config: '{"url":"http://example.com"}',
@@ -59,25 +58,6 @@ describe('Type Definitions', () => {
     expect(task.type).toBe('http')
     expect(task.status).toBe('pending')
     expect(task.is_enabled).toBe(true)
-  })
-
-  it('Workflow interface has correct structure', () => {
-    const workflow = {
-      id: 1,
-      name: 'Test Workflow',
-      description: 'Test Description',
-      domain_id: 1,
-      dag_config: '[1, 2, 3]',
-      cron_expression: '0 0 * * *',
-      is_enabled: true,
-      created_by: 1,
-      created_at: '2024-01-01T00:00:00Z',
-      updated_at: '2024-01-01T00:00:00Z',
-    }
-
-    expect(workflow.id).toBe(1)
-    expect(workflow.name).toBe('Test Workflow')
-    expect(workflow.dag_config).toBe('[1, 2, 3]')
   })
 
   it('Executor interface has correct structure', () => {

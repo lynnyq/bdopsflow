@@ -31,7 +31,6 @@ const (
 	CodeDomainNotFound     = 13001
 	CodeDomainHasResources = 13002
 	CodePermissionDenied   = 14001
-	CodeWorkflowNotFound   = 15001
 	CodeDatasourceNotFound     = 16001
 	CodeDatasourceExists       = 16002
 	CodeDatasourceConnectFailed = 16003

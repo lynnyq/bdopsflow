@@ -14,51 +14,25 @@ func scanTaskResult(qr *rqlite.QueryResult, task *model.Task) error {
 	}
 
 	task.ID = rowInt64(row[0])
-	if v := rowInt64(row[1]); v > 0 {
-		task.WorkflowID = &v
-	}
-	task.Name = rowString(row[2])
-	task.Type = rowString(row[3])
-	task.Config = rowString(row[4])
-	task.CronExpression = rowString(row[5])
-	task.TimeoutSeconds = int32(rowInt64(row[6]))
-	task.RetryCount = int32(rowInt64(row[7]))
-	task.RetryInterval = int32(rowInt64(row[8]))
-	task.IsEnabled = rowBool(row[9])
-	task.Status = rowString(row[10])
-	task.DomainID = rowInt64(row[11])
-	if !isEmpty(row[12]) {
-		webhookID := rowInt64(row[12])
+	task.Name = rowString(row[1])
+	task.Type = rowString(row[2])
+	task.Config = rowString(row[3])
+	task.CronExpression = rowString(row[4])
+	task.TimeoutSeconds = int32(rowInt64(row[5]))
+	task.RetryCount = int32(rowInt64(row[6]))
+	task.RetryInterval = int32(rowInt64(row[7]))
+	task.IsEnabled = rowBool(row[8])
+	task.Status = rowString(row[9])
+	task.DomainID = rowInt64(row[10])
+	if !isEmpty(row[11]) {
+		webhookID := rowInt64(row[11])
 		task.WebhookID = &webhookID
 	}
-	task.WebhookEvents = rowString(row[13])
-	task.AssignedExecutorID = rowInt64(row[14])
-	task.CreatedBy = rowInt64(row[15])
-	task.CreatedAt = parseDateTime(row[16])
-	task.UpdatedAt = parseDateTime(row[17])
-	return nil
-}
-
-func scanWorkflowResult(qr *rqlite.QueryResult, wf *model.Workflow) error {
-	row, err := qr.Slice()
-	if err != nil {
-		return err
-	}
-
-	wf.ID = rowInt64(row[0])
-	wf.Name = rowString(row[1])
-	wf.Description = rowString(row[2])
-	wf.DomainID = rowInt64(row[3])
-	wf.DAGConfig = rowString(row[4])
-	wf.CronExpression = rowString(row[5])
-	wf.IsEnabled = rowBool(row[6])
-
-	if v := rowInt64(row[7]); v > 0 {
-		wf.CreatedBy = &v
-	}
-
-	wf.CreatedAt = parseDateTime(row[8])
-	wf.UpdatedAt = parseDateTime(row[9])
+	task.WebhookEvents = rowString(row[12])
+	task.AssignedExecutorID = rowInt64(row[13])
+	task.CreatedBy = rowInt64(row[14])
+	task.CreatedAt = parseDateTime(row[15])
+	task.UpdatedAt = parseDateTime(row[16])
 	return nil
 }
 
@@ -116,30 +90,6 @@ func scanExecutionResult(qr *rqlite.QueryResult, exec *model.TaskExecution) erro
 	if len(row) > 13 {
 		exec.UpdatedAt = parseDateTime(row[13])
 	}
-
-	return nil
-}
-
-func scanWorkflowExecutionResult(qr *rqlite.QueryResult, we *model.WorkflowExecution) error {
-	row, err := qr.Slice()
-	if err != nil {
-		return err
-	}
-	we.ID = rowInt64(row[0])
-	we.WorkflowID = rowInt64(row[1])
-	we.ExecutionID = rowString(row[2])
-	we.Status = rowString(row[3])
-
-	if t := parseDateTime(row[4]); !t.IsZero() {
-		we.StartTime = rqlite.NullTime{Time: t, Valid: true}
-	}
-
-	if t := parseDateTime(row[5]); !t.IsZero() {
-		we.EndTime = rqlite.NullTime{Time: t, Valid: true}
-	}
-
-	we.NodeStates = rowString(row[6])
-	we.CreatedAt = parseDateTime(row[7])
 
 	return nil
 }

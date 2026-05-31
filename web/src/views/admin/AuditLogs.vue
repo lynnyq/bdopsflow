@@ -168,7 +168,6 @@ const resourceOptions = [
   { value: 'domain', label: '领域' },
   { value: 'datasource', label: '数据源' },
   { value: 'task', label: '任务' },
-  { value: 'workflow', label: '工作流' },
   { value: 'executor', label: '执行器' },
   { value: 'config', label: '系统配置' },
   { value: 'query', label: '查询' },

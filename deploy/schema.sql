@@ -54,29 +54,9 @@ CREATE TABLE IF NOT EXISTS bdopsflow_user_domains (
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_user_domains_user_id ON bdopsflow_user_domains(user_id);
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_user_domains_domain_id ON bdopsflow_user_domains(domain_id);
 
--- 4. 工作流表
-CREATE TABLE IF NOT EXISTS bdopsflow_workflows (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    description TEXT,
-    domain_id INTEGER NOT NULL,
-    dag_config TEXT,
-    cron_expression TEXT,
-    is_enabled BOOLEAN DEFAULT 1,
-    created_by INTEGER,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (domain_id) REFERENCES bdopsflow_domains(id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_bdopsflow_workflows_name ON bdopsflow_workflows(name);
-CREATE INDEX IF NOT EXISTS idx_bdopsflow_workflows_domain_id ON bdopsflow_workflows(domain_id);
-CREATE INDEX IF NOT EXISTS idx_bdopsflow_workflows_is_enabled ON bdopsflow_workflows(is_enabled);
-
--- 5. 任务表
+-- 4. 任务表
 CREATE TABLE IF NOT EXISTS bdopsflow_tasks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    workflow_id INTEGER,
     name TEXT NOT NULL,
     type TEXT NOT NULL,
     config TEXT NOT NULL,
@@ -94,12 +74,10 @@ CREATE TABLE IF NOT EXISTS bdopsflow_tasks (
     created_by INTEGER,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (workflow_id) REFERENCES bdopsflow_workflows(id) ON DELETE CASCADE,
     FOREIGN KEY (domain_id) REFERENCES bdopsflow_domains(id) ON DELETE CASCADE,
     FOREIGN KEY (assigned_executor_id) REFERENCES bdopsflow_executors(id) ON DELETE SET NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_bdopsflow_tasks_workflow_id ON bdopsflow_tasks(workflow_id);
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_tasks_domain_id ON bdopsflow_tasks(domain_id);
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_tasks_is_enabled ON bdopsflow_tasks(is_enabled);
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_tasks_type ON bdopsflow_tasks(type);
@@ -155,25 +133,7 @@ CREATE INDEX IF NOT EXISTS idx_bdopsflow_executors_last_heartbeat ON bdopsflow_e
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_executors_status_heartbeat ON bdopsflow_executors(status, last_heartbeat);
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_executors_is_global ON bdopsflow_executors(is_global);
 
--- 8. 工作流执行记录表
-CREATE TABLE IF NOT EXISTS bdopsflow_workflow_executions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    workflow_id INTEGER NOT NULL,
-    execution_id TEXT NOT NULL UNIQUE,
-    status TEXT NOT NULL,
-    start_time DATETIME,
-    end_time DATETIME,
-    node_states TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (workflow_id) REFERENCES bdopsflow_workflows(id) ON DELETE CASCADE
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_bdopsflow_workflow_executions_execution_id ON bdopsflow_workflow_executions(execution_id);
-CREATE INDEX IF NOT EXISTS idx_bdopsflow_workflow_executions_workflow_id ON bdopsflow_workflow_executions(workflow_id);
-CREATE INDEX IF NOT EXISTS idx_bdopsflow_workflow_executions_status ON bdopsflow_workflow_executions(status);
-CREATE INDEX IF NOT EXISTS idx_bdopsflow_workflow_executions_created_at ON bdopsflow_workflow_executions(created_at DESC);
-
--- 9. 任务依赖表
+-- 7. 任务依赖表
 CREATE TABLE IF NOT EXISTS bdopsflow_task_dependencies (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     task_id INTEGER NOT NULL,
@@ -187,7 +147,7 @@ CREATE TABLE IF NOT EXISTS bdopsflow_task_dependencies (
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_task_dependencies_task_id ON bdopsflow_task_dependencies(task_id);
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_task_dependencies_parent_id ON bdopsflow_task_dependencies(parent_task_id);
 
--- 10. 任务执行日志表
+-- 8. 任务执行日志表
 CREATE TABLE IF NOT EXISTS bdopsflow_task_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     execution_id TEXT NOT NULL,
@@ -211,7 +171,7 @@ CREATE INDEX IF NOT EXISTS idx_bdopsflow_task_logs_level ON bdopsflow_task_logs(
 -- 第二部分：权限管理系统表（v3.0 重写）
 -- ============================================================================
 
--- 11. 角色表（新增 parent_id 支持角色继承）
+-- 9. 角色表（新增 parent_id 支持角色继承）
 CREATE TABLE IF NOT EXISTS bdopsflow_roles (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -231,7 +191,7 @@ CREATE INDEX IF NOT EXISTS idx_bdopsflow_roles_domain_id ON bdopsflow_roles(doma
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_roles_is_system ON bdopsflow_roles(is_system);
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_roles_parent_id ON bdopsflow_roles(parent_id);
 
--- 12. 权限表（移除 menu:* 权限，菜单由资源权限自动推导）
+-- 10. 权限表（移除 menu:* 权限，菜单由资源权限自动推导）
 CREATE TABLE IF NOT EXISTS bdopsflow_permissions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     resource TEXT NOT NULL,
@@ -243,7 +203,7 @@ CREATE TABLE IF NOT EXISTS bdopsflow_permissions (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_bdopsflow_permissions_resource_action ON bdopsflow_permissions(resource, action);
 
--- 13. 角色权限映射表
+-- 11. 角色权限映射表
 CREATE TABLE IF NOT EXISTS bdopsflow_role_permissions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     role_id INTEGER NOT NULL,
@@ -257,7 +217,7 @@ CREATE TABLE IF NOT EXISTS bdopsflow_role_permissions (
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_role_permissions_role_id ON bdopsflow_role_permissions(role_id);
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_role_permissions_permission_id ON bdopsflow_role_permissions(permission_id);
 
--- 14. 用户角色映射表
+-- 12. 用户角色映射表
 CREATE TABLE IF NOT EXISTS bdopsflow_user_roles (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
@@ -274,7 +234,7 @@ CREATE INDEX IF NOT EXISTS idx_bdopsflow_user_roles_user_id ON bdopsflow_user_ro
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_user_roles_role_id ON bdopsflow_user_roles(role_id);
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_user_roles_domain_id ON bdopsflow_user_roles(domain_id);
 
--- 15. 执行器领域分配表
+-- 13. 执行器领域分配表
 CREATE TABLE IF NOT EXISTS bdopsflow_domain_executors (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     domain_id INTEGER NOT NULL,
@@ -353,14 +313,6 @@ INSERT OR IGNORE INTO bdopsflow_permissions (resource, action, description) VALU
 ('log', 'delete', '删除日志'),
 ('log', 'manage', '完整管理日志'),
 
--- 工作流管理
-('workflow', 'create', '创建工作流'),
-('workflow', 'read', '查看工作流'),
-('workflow', 'update', '更新工作流'),
-('workflow', 'delete', '删除工作流'),
-('workflow', 'trigger', '手动触发工作流'),
-('workflow', 'manage', '完整管理工作流'),
-
 -- 数据源管理
 ('datasource', 'create', '创建数据源'),
 ('datasource', 'read', '查看数据源'),
@@ -393,14 +345,13 @@ INSERT OR IGNORE INTO bdopsflow_role_permissions (role_id, permission_id)
 SELECT r.id, p.id FROM bdopsflow_roles r, bdopsflow_permissions p
 WHERE r.code = 'system_admin';
 
--- 领域管理员：任务、执行器、日志、工作流、数据源、Webhook、权限查看、仪表盘、用户管理、角色管理、领域管理
+-- 领域管理员：任务、执行器、日志、数据源、Webhook、权限查看、仪表盘、用户管理、角色管理、领域管理
 INSERT OR IGNORE INTO bdopsflow_role_permissions (role_id, permission_id)
 SELECT r.id, p.id FROM bdopsflow_roles r, bdopsflow_permissions p
 WHERE r.code = 'domain_admin'
 AND (
     p.resource = 'dashboard'
     OR (p.resource = 'task' AND p.action IN ('create', 'read', 'update', 'delete', 'trigger', 'manage'))
-    OR (p.resource = 'workflow' AND p.action IN ('create', 'read', 'update', 'delete', 'trigger', 'manage'))
     OR (p.resource = 'executor' AND p.action IN ('read', 'assign', 'online', 'offline', 'manage'))
     OR (p.resource = 'log' AND p.action IN ('read', 'delete', 'manage'))
     OR (p.resource = 'datasource' AND p.action IN ('create', 'read', 'update', 'delete', 'query', 'download', 'manage'))
@@ -418,7 +369,6 @@ WHERE r.code = 'user'
 AND (
     p.resource = 'dashboard'
     OR (p.resource = 'task' AND p.action IN ('read', 'trigger'))
-    OR (p.resource = 'workflow' AND p.action IN ('read', 'trigger'))
     OR (p.resource = 'executor' AND p.action IN ('read'))
     OR (p.resource = 'log' AND p.action IN ('read'))
     OR (p.resource = 'datasource' AND p.action IN ('read', 'query'))
@@ -443,7 +393,7 @@ WHERE u.username = 'admin' AND r.code = 'system_admin';
 -- 第四部分：数据查询模块表
 -- ============================================================================
 
--- 16. 数据源表
+-- 14. 数据源表
 CREATE TABLE IF NOT EXISTS bdopsflow_datasources (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -477,7 +427,7 @@ CREATE INDEX IF NOT EXISTS idx_bdopsflow_datasources_domain_id ON bdopsflow_data
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_datasources_type ON bdopsflow_datasources(type);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_bdopsflow_datasources_name_domain ON bdopsflow_datasources(name, domain_id);
 
--- 17. 数据源实例权限表
+-- 15. 数据源实例权限表
 CREATE TABLE IF NOT EXISTS bdopsflow_datasource_permissions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     datasource_id INTEGER NOT NULL,
@@ -498,7 +448,7 @@ CREATE INDEX IF NOT EXISTS idx_bdopsflow_ds_perms_datasource_id ON bdopsflow_dat
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_ds_perms_role_id ON bdopsflow_datasource_permissions(role_id);
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_ds_perms_user_id ON bdopsflow_datasource_permissions(user_id);
 
--- 18. 保存的SQL表
+-- 16. 保存的SQL表
 CREATE TABLE IF NOT EXISTS bdopsflow_saved_sql (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -518,7 +468,7 @@ CREATE TABLE IF NOT EXISTS bdopsflow_saved_sql (
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_saved_sql_datasource_id ON bdopsflow_saved_sql(datasource_id);
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_saved_sql_domain_id ON bdopsflow_saved_sql(domain_id);
 
--- 19. 查询历史表
+-- 17. 查询历史表
 CREATE TABLE IF NOT EXISTS bdopsflow_query_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     query_id TEXT,
@@ -542,7 +492,7 @@ CREATE INDEX IF NOT EXISTS idx_bdopsflow_query_history_created_at ON bdopsflow_q
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_query_history_query_id ON bdopsflow_query_history(query_id);
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_query_history_executed_by ON bdopsflow_query_history(executed_by);
 
--- 20. 系统配置表
+-- 18. 系统配置表
 CREATE TABLE IF NOT EXISTS bdopsflow_system_config (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     config_key TEXT NOT NULL UNIQUE,
@@ -553,7 +503,7 @@ CREATE TABLE IF NOT EXISTS bdopsflow_system_config (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_bdopsflow_system_config_key ON bdopsflow_system_config(config_key);
 
--- 21. 配置变更历史表
+-- 19. 配置变更历史表
 CREATE TABLE IF NOT EXISTS bdopsflow_system_config_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     config_key TEXT NOT NULL,
@@ -567,7 +517,7 @@ CREATE TABLE IF NOT EXISTS bdopsflow_system_config_history (
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_config_history_key ON bdopsflow_system_config_history(config_key);
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_config_history_time ON bdopsflow_system_config_history(changed_at);
 
--- 22. 审计日志表
+-- 20. 审计日志表
 CREATE TABLE IF NOT EXISTS bdopsflow_audit_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER,
@@ -596,7 +546,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON bdopsflow_audit_logs(cre
 CREATE INDEX IF NOT EXISTS idx_audit_logs_resource_action ON bdopsflow_audit_logs(resource, action);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_domain_id ON bdopsflow_audit_logs(domain_id);
 
--- 23. Webhook配置表
+-- 21. Webhook配置表
 CREATE TABLE IF NOT EXISTS bdopsflow_webhooks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -617,7 +567,7 @@ CREATE INDEX IF NOT EXISTS idx_bdopsflow_webhooks_domain_id ON bdopsflow_webhook
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_webhooks_is_enabled ON bdopsflow_webhooks(is_enabled);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_bdopsflow_webhooks_name_domain ON bdopsflow_webhooks(name, domain_id);
 
--- 24. Webhook实例权限表
+-- 22. Webhook实例权限表
 CREATE TABLE IF NOT EXISTS bdopsflow_webhook_permissions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     webhook_id INTEGER NOT NULL,

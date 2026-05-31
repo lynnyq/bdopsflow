@@ -7,6 +7,10 @@ import (
 	"sync"
 )
 
+type UnhealthyChecker interface {
+	IsUnhealthy() bool
+}
+
 type Driver interface {
 	Connect(ctx context.Context, config DatasourceConfig) error
 	TestConnection(ctx context.Context) error
@@ -138,4 +142,21 @@ func truncateSQL(sql string, maxLen int) string {
 		return sql
 	}
 	return sql[:maxLen] + "..."
+}
+
+func isConnectionError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "broken pipe") ||
+		strings.Contains(msg, "connection reset") ||
+		strings.Contains(msg, "connection refused") ||
+		strings.Contains(msg, "network is unreachable") ||
+		strings.Contains(msg, "i/o timeout") ||
+		strings.Contains(msg, "dial tcp") ||
+		strings.Contains(msg, "no such host") ||
+		strings.Contains(msg, "ttransport") ||
+		strings.Contains(msg, "transport error") ||
+		strings.Contains(msg, "eof")
 }
