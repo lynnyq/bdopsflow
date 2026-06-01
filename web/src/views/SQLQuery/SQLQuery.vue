@@ -55,42 +55,30 @@
             </div>
             <div class="selector-field">
               <span class="field-label">数据库</span>
-              <el-select
+              <el-select-v2
                 v-model="selectedDatabase"
                 placeholder="选择数据库"
                 class="field-select"
+                :options="databaseOptions"
                 filterable
                 :disabled="!selectedDatasourceId || loadingDatabases"
                 :loading="loadingDatabases"
                 @change="handleDatabaseChange"
                 @visible-change="onDatabaseVisibleChange"
-              >
-                <el-option
-                  v-for="db in databases"
-                  :key="db"
-                  :label="db"
-                  :value="db"
-                />
-              </el-select>
+              />
             </div>
             <div class="selector-field">
               <span class="field-label">表</span>
-              <el-select
+              <el-select-v2
                 v-model="selectedTable"
                 placeholder="选择表"
                 class="field-select"
+                :options="tableOptions"
                 filterable
                 :disabled="!selectedDatabase || loadingTables"
                 :loading="loadingTables"
                 @change="handleTableChange"
-              >
-                <el-option
-                  v-for="table in availableTables"
-                  :key="table.name"
-                  :label="table.name"
-                  :value="table.name"
-                />
-              </el-select>
+              />
             </div>
           </div>
         </div>
@@ -609,7 +597,11 @@ const setCachedMetadata = (key: string, data: any) => {
   const entry = { data, timestamp: Date.now() };
   metadataCache.set(key, entry);
   try {
-    localStorage.setItem(getStorageCacheKey(key), JSON.stringify(entry));
+    const serialized = JSON.stringify(entry);
+    if (serialized.length > 2 * 1024 * 1024) {
+      return;
+    }
+    localStorage.setItem(getStorageCacheKey(key), serialized);
   } catch {
   }
 };
@@ -804,6 +796,14 @@ const dsTypeLabels: Record<string, string> = {
 let editorView: EditorView | null = null;
 let saveTabsTimer: ReturnType<typeof setTimeout> | null = null;
 const availableTables = computed(() => tables.value);
+
+const databaseOptions = computed(() =>
+  databases.value.map(db => ({ label: db, value: db }))
+);
+
+const tableOptions = computed(() =>
+  tables.value.map(t => ({ label: t.name, value: t.name }))
+);
 
 const numericTypes = new Set([
   'int', 'integer', 'bigint', 'smallint', 'tinyint', 'mediumint',
@@ -1539,7 +1539,7 @@ const handleDatabaseChange = async () => {
   const cached = getCachedMetadata(cacheKey);
   if (cached) {
     tables.value = cached;
-    autocompleteData.value.tables = cached.map((t: any) => t.name || '').filter(Boolean);
+    autocompleteData.value.tables = cached.map((t: any) => t.name || '').filter(Boolean).slice(0, 500);
     return;
   }
 
@@ -1549,7 +1549,7 @@ const handleDatabaseChange = async () => {
     const tableData = res.data || [];
     tables.value = tableData;
     setCachedMetadata(cacheKey, tableData);
-    autocompleteData.value.tables = tableData.map((t: any) => t.name || '').filter(Boolean);
+    autocompleteData.value.tables = tableData.map((t: any) => t.name || '').filter(Boolean).slice(0, 500);
   } catch (err: any) {
     if (!isCanceledError(err) && !isHandledError(err)) {
       const msg = err?.response?.data?.message || err?.message || '获取数据表列表失败';
@@ -1623,7 +1623,7 @@ const refreshDatabaseMetadata = async () => {
     const tableData = res.data || [];
     tables.value = tableData;
     setCachedMetadata(`tables_${selectedDatasourceId.value}_${dbName}`, tableData);
-    autocompleteData.value.tables = tableData.map((t: any) => t.name || '').filter(Boolean);
+    autocompleteData.value.tables = tableData.map((t: any) => t.name || '').filter(Boolean).slice(0, 500);
   } catch (err: any) {
     if (!isCanceledError(err) && !isHandledError(err)) {
       const msg = err?.response?.data?.message || err?.message || '获取数据表列表失败';
