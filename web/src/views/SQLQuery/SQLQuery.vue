@@ -801,9 +801,14 @@ const databaseOptions = computed(() =>
   databases.value.map(db => ({ label: db, value: db }))
 );
 
-const tableOptions = computed(() =>
-  tables.value.map(t => ({ label: t.name, value: t.name }))
-);
+const tableOptions = computed(() => {
+  const opts: { label: string; value: string; disabled?: boolean }[] = []
+  if (tables.value.length > 0) {
+    opts.push({ label: `共 ${tables.value.length} 张表`, value: '__table_count__', disabled: true })
+  }
+  tables.value.forEach(t => opts.push({ label: t.name, value: t.name }))
+  return opts
+})
 
 const numericTypes = new Set([
   'int', 'integer', 'bigint', 'smallint', 'tinyint', 'mediumint',

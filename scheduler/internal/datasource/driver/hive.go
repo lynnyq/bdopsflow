@@ -118,7 +118,7 @@ func (d *HiveDriver) TestConnection(ctx context.Context) error {
 	if cursor.Err != nil {
 		execErr := cursor.Err
 		cursor.Close()
-		return errors.Wrap(execErr, "hive test connection failed")
+		return extractGohiveError(execErr, "hive test connection failed")
 	}
 	cursor.Close()
 	return nil
@@ -149,7 +149,7 @@ func (d *HiveDriver) Ping(ctx context.Context) error {
 			execErr := cursor.Err
 			cursor.Close()
 			d.unhealthy.Store(true)
-			return errors.Wrap(execErr, "hive ping failed, connection may be stale")
+			return extractGohiveError(execErr, "hive ping failed, connection may be stale")
 		}
 		cursor.Close()
 		return nil
@@ -201,7 +201,7 @@ func (d *HiveDriver) Query(ctx context.Context, query string, args ...interface{
 		if cursor.Err != nil {
 			execErr := cursor.Err
 			cursor.Close()
-			resultCh <- queryResult{result: nil, err: errors.Wrap(execErr, "hive query error")}
+			resultCh <- queryResult{result: nil, err: extractGohiveError(execErr, "hive query error")}
 			return
 		}
 
@@ -209,7 +209,7 @@ func (d *HiveDriver) Query(ctx context.Context, query string, args ...interface{
 		if cursor.Err != nil {
 			descErr := cursor.Err
 			cursor.Close()
-			resultCh <- queryResult{nil, errors.Wrap(descErr, "hive get description error")}
+			resultCh <- queryResult{nil, extractGohiveError(descErr, "hive get description error")}
 			return
 		}
 
@@ -232,7 +232,7 @@ func (d *HiveDriver) Query(ctx context.Context, query string, args ...interface{
 			if cursor.Err != nil {
 				fetchErr := cursor.Err
 				cursor.Close()
-				resultCh <- queryResult{nil, errors.Wrap(fetchErr, "hive fetch error")}
+				resultCh <- queryResult{nil, extractGohiveError(fetchErr, "hive fetch error")}
 				return
 			}
 			row := make([]interface{}, len(columns))
@@ -244,7 +244,7 @@ func (d *HiveDriver) Query(ctx context.Context, query string, args ...interface{
 		if cursor.Err != nil {
 			finishErr := cursor.Err
 			cursor.Close()
-			resultCh <- queryResult{nil, errors.Wrap(finishErr, "hive query error")}
+			resultCh <- queryResult{nil, extractGohiveError(finishErr, "hive query error")}
 			return
 		}
 		cursor.Close()
@@ -364,7 +364,7 @@ func (d *HiveDriver) UseDatabase(ctx context.Context, database string) error {
 		cursor.Exec(context.Background(), fmt.Sprintf("USE %s", escapeHiveIdentifier(database)))
 		if cursor.Err != nil {
 			cursor.Close()
-			resultCh <- useResult{errors.Wrap(cursor.Err, "hive use database error")}
+			resultCh <- useResult{extractGohiveError(cursor.Err, "hive use database error")}
 			return
 		}
 		cursor.Close()

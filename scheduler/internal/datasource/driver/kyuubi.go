@@ -115,7 +115,7 @@ func (d *KyuubiDriver) TestConnection(ctx context.Context) error {
 	if cursor.Err != nil {
 		execErr := cursor.Err
 		cursor.Close()
-		return errors.Wrap(execErr, "kyuubi test connection failed")
+		return extractGohiveError(execErr, "kyuubi test connection failed")
 	}
 	cursor.Close()
 	return nil
@@ -146,7 +146,7 @@ func (d *KyuubiDriver) Ping(ctx context.Context) error {
 			execErr := cursor.Err
 			cursor.Close()
 			d.unhealthy.Store(true)
-			return errors.Wrap(execErr, "kyuubi ping failed, connection may be stale")
+			return extractGohiveError(execErr, "kyuubi ping failed, connection may be stale")
 		}
 		cursor.Close()
 		return nil
@@ -198,7 +198,7 @@ func (d *KyuubiDriver) Query(ctx context.Context, query string, args ...interfac
 		if cursor.Err != nil {
 			execErr := cursor.Err
 			cursor.Close()
-			resultCh <- queryResult{nil, errors.Wrap(execErr, "kyuubi query error")}
+			resultCh <- queryResult{nil, extractGohiveError(execErr, "kyuubi query error")}
 			return
 		}
 
@@ -206,7 +206,7 @@ func (d *KyuubiDriver) Query(ctx context.Context, query string, args ...interfac
 		if cursor.Err != nil {
 			descErr := cursor.Err
 			cursor.Close()
-			resultCh <- queryResult{nil, errors.Wrap(descErr, "kyuubi get description error")}
+			resultCh <- queryResult{nil, extractGohiveError(descErr, "kyuubi get description error")}
 			return
 		}
 
@@ -229,7 +229,7 @@ func (d *KyuubiDriver) Query(ctx context.Context, query string, args ...interfac
 			if cursor.Err != nil {
 				fetchErr := cursor.Err
 				cursor.Close()
-				resultCh <- queryResult{nil, errors.Wrap(fetchErr, "kyuubi fetch error")}
+				resultCh <- queryResult{nil, extractGohiveError(fetchErr, "kyuubi fetch error")}
 				return
 			}
 			row := make([]interface{}, len(columns))
@@ -241,7 +241,7 @@ func (d *KyuubiDriver) Query(ctx context.Context, query string, args ...interfac
 		if cursor.Err != nil {
 			finishErr := cursor.Err
 			cursor.Close()
-			resultCh <- queryResult{nil, errors.Wrap(finishErr, "kyuubi query error")}
+			resultCh <- queryResult{nil, extractGohiveError(finishErr, "kyuubi query error")}
 			return
 		}
 		cursor.Close()
@@ -362,7 +362,7 @@ func (d *KyuubiDriver) UseDatabase(ctx context.Context, database string) error {
 		if cursor.Err != nil {
 			execErr := cursor.Err
 			cursor.Close()
-			resultCh <- useResult{errors.Wrap(execErr, "kyuubi use database error")}
+			resultCh <- useResult{extractGohiveError(execErr, "kyuubi use database error")}
 			return
 		}
 		cursor.Close()

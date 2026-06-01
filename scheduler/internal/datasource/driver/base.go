@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+
+	gohive "github.com/beltran/gohive"
+	"github.com/pkg/errors"
 )
 
 type UnhealthyChecker interface {
@@ -159,4 +162,26 @@ func isConnectionError(err error) bool {
 		strings.Contains(msg, "ttransport") ||
 		strings.Contains(msg, "transport error") ||
 		strings.Contains(msg, "eof")
+}
+
+func extractGohiveError(err error, wrapMsg string) error {
+	if err == nil {
+		return nil
+	}
+	var hiveErr gohive.HiveError
+	if errors.As(err, &hiveErr) {
+		msg := hiveErr.Message
+		if msg == "" {
+			msg = err.Error()
+		}
+		if hiveErr.ErrorCode > 0 {
+			return fmt.Errorf("%s: %s (errorCode: %d)", wrapMsg, msg, hiveErr.ErrorCode)
+		}
+		return fmt.Errorf("%s: %s", wrapMsg, msg)
+	}
+	errStr := err.Error()
+	if strings.Contains(errStr, "operation in state") && strings.Contains(errStr, "without task status or error message") {
+		return fmt.Errorf("%s: 查询执行失败，Hive未返回详细错误信息，请检查SQL语法或数据源权限", wrapMsg)
+	}
+	return errors.Wrap(err, wrapMsg)
 }

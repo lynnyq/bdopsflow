@@ -115,7 +115,7 @@ func (d *SparkDriver) TestConnection(ctx context.Context) error {
 	if cursor.Err != nil {
 		execErr := cursor.Err
 		cursor.Close()
-		return errors.Wrap(execErr, "spark test connection failed")
+		return extractGohiveError(execErr, "spark test connection failed")
 	}
 	cursor.Close()
 	return nil
@@ -146,7 +146,7 @@ func (d *SparkDriver) Ping(ctx context.Context) error {
 			execErr := cursor.Err
 			cursor.Close()
 			d.unhealthy.Store(true)
-			return errors.Wrap(execErr, "spark ping failed, connection may be stale")
+			return extractGohiveError(execErr, "spark ping failed, connection may be stale")
 		}
 		cursor.Close()
 		return nil
@@ -198,7 +198,7 @@ func (d *SparkDriver) Query(ctx context.Context, query string, args ...interface
 		if cursor.Err != nil {
 			execErr := cursor.Err
 			cursor.Close()
-			resultCh <- queryResult{nil, errors.Wrap(execErr, "spark query error")}
+			resultCh <- queryResult{nil, extractGohiveError(execErr, "spark query error")}
 			return
 		}
 
@@ -206,7 +206,7 @@ func (d *SparkDriver) Query(ctx context.Context, query string, args ...interface
 		if cursor.Err != nil {
 			descErr := cursor.Err
 			cursor.Close()
-			resultCh <- queryResult{nil, errors.Wrap(descErr, "spark get description error")}
+			resultCh <- queryResult{nil, extractGohiveError(descErr, "spark get description error")}
 			return
 		}
 
@@ -229,7 +229,7 @@ func (d *SparkDriver) Query(ctx context.Context, query string, args ...interface
 			if cursor.Err != nil {
 				fetchErr := cursor.Err
 				cursor.Close()
-				resultCh <- queryResult{nil, errors.Wrap(fetchErr, "spark fetch error")}
+				resultCh <- queryResult{nil, extractGohiveError(fetchErr, "spark fetch error")}
 				return
 			}
 			row := make([]interface{}, len(columns))
@@ -241,7 +241,7 @@ func (d *SparkDriver) Query(ctx context.Context, query string, args ...interface
 		if cursor.Err != nil {
 			finishErr := cursor.Err
 			cursor.Close()
-			resultCh <- queryResult{nil, errors.Wrap(finishErr, "spark query error")}
+			resultCh <- queryResult{nil, extractGohiveError(finishErr, "spark query error")}
 			return
 		}
 		cursor.Close()
@@ -362,7 +362,7 @@ func (d *SparkDriver) UseDatabase(ctx context.Context, database string) error {
 		if cursor.Err != nil {
 			execErr := cursor.Err
 			cursor.Close()
-			resultCh <- useResult{errors.Wrap(execErr, "spark use database error")}
+			resultCh <- useResult{extractGohiveError(execErr, "spark use database error")}
 			return
 		}
 		cursor.Close()
