@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -266,11 +267,7 @@ func NewApp(cfg *config.Config) *App {
 	logDB := database.NewLogDB(db)
 	app.logDB = logDB
 
-	leaderHTTPAddr := cfg.AdvertiseAddr
-	if leaderHTTPAddr == "" {
-		leaderHTTPAddr = fmt.Sprintf("127.0.0.1:%s", cfg.HTTPPort)
-		slog.Warn("app.advertise_addr not configured, using 127.0.0.1 as leader HTTP address; set app.advertise_addr to the externally reachable address for multi-node deployments")
-	}
+	leaderHTTPAddr := resolveAdvertiseAddr(cfg.AdvertiseAddr, cfg.HTTPPort)
 	leaderElection := election.NewLeaderElection(redisClient, "bdopsflow:leader", nodeID, leaderHTTPAddr, 15*time.Second)
 	app.leaderElection = leaderElection
 
@@ -528,6 +525,46 @@ func slogGinLogger() gin.HandlerFunc {
 	}
 }
 
+func resolveAdvertiseAddr(advertiseAddr, httpPort string) string {
+	if advertiseAddr == "" {
+		addr := fmt.Sprintf("127.0.0.1:%s", httpPort)
+		slog.Warn("app.advertise_addr not configured, using 127.0.0.1 as leader HTTP address; set app.advertise_addr to the externally reachable address for multi-node deployments",
+			"effective_addr", addr,
+		)
+		return addr
+	}
+
+	if !strings.Contains(advertiseAddr, ":") {
+		addr := fmt.Sprintf("%s:%s", advertiseAddr, httpPort)
+		slog.Info("app.advertise_addr has no port, auto-appending http_port",
+			"advertise_addr", advertiseAddr,
+			"http_port", httpPort,
+			"effective_addr", addr,
+		)
+		return addr
+	}
+
+	_, port, err := net.SplitHostPort(advertiseAddr)
+	if err != nil {
+		slog.Warn("app.advertise_addr format invalid, using as-is",
+			"advertise_addr", advertiseAddr,
+			"error", err,
+		)
+		return advertiseAddr
+	}
+
+	if port != httpPort {
+		slog.Warn("app.advertise_addr port differs from app.http_port, ensure other nodes can reach the scheduler HTTP API at this address",
+			"advertise_addr", advertiseAddr,
+			"http_port", httpPort,
+			"hint", "advertise_addr should point to the scheduler's direct HTTP port, not a reverse proxy port (e.g. nginx)",
+		)
+	}
+
+	slog.Info("using configured advertise_addr", "advertise_addr", advertiseAddr)
+	return advertiseAddr
+}
+
 func printHelp() {
 	fmt.Fprint(os.Stderr, `BDopsFlow Scheduler - 任务调度和执行引擎
 
@@ -541,11 +578,24 @@ func printHelp() {
 
 选项:
   -config string             配置文件路径 (默认: 当前目录的 config.yaml)
+  -advertise-addr string     集群部署时节点对外可达的 HTTP 地址 (格式: host:port)
+                             单节点部署可留空，多节点部署必须配置
+                             等同于配置项 app.advertise_addr，优先级高于配置文件
   -h, --help                 显示帮助信息
+
+集群部署说明:
+  多节点部署时，每个调度中心节点必须配置 advertise_addr，指定其他节点可访问的
+  HTTP 地址（如 10.0.1.5:8080）。未配置时默认使用 127.0.0.1:<http_port>，
+  导致非主节点转发请求到 127.0.0.1 而非主节点，请求会失败。
+
+  advertise_addr 必须指向调度器直接监听的 HTTP 端口，而非 Nginx 等反向代理端口。
+  若仅填写 IP 或主机名未指定端口，系统将自动补全 http_port 配置的端口号。
+  示例：-advertise-addr 10.0.1.5 等同于 -advertise-addr 10.0.1.5:8080
 
 示例:
   ./scheduler                  启动调度器
   ./scheduler -config my.yml   使用指定配置启动
+  ./scheduler -advertise-addr 10.0.1.5:8080  指定对外宣告地址
   ./scheduler keygen           生成密钥对
   ./scheduler encrypt-password --config config.yml --password mypass
 `)

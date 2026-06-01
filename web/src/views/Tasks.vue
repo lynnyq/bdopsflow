@@ -82,7 +82,7 @@
         }"
       >
         <div class="task-card-header">
-          <div class="task-header-left">
+          <div class="task-header-left" @click="handleCardClick(task)">
             <div class="task-type-badge" :class="task.type">
               <el-icon :size="18">
                 <component :is="getTypeIcon(task.type)" />
@@ -111,7 +111,7 @@
           </div>
         </div>
 
-        <div class="task-card-body">
+        <div class="task-card-body" @click="handleCardClick(task)">
 
           <div class="task-meta">
             <div class="meta-item" v-if="task.cron_expression">
@@ -128,10 +128,14 @@
                 {{ task.timeout_seconds }}s 超时
               </span>
             </div>
+            <div class="meta-item meta-item-next-run" v-if="task.is_enabled && task.cron_expression && task.next_execution_time">
+              <el-icon><Timer /></el-icon>
+              <span class="meta-value">{{ formatRelativeTime(task.next_execution_time) }}</span>
+            </div>
           </div>
 
           <div class="task-execution">
-            <div class="execution-info" v-if="task.is_enabled && task.next_execution_time">
+            <div class="execution-info" v-if="task.is_enabled && task.cron_expression && task.next_execution_time">
               <div class="execution-label">下次执行</div>
               <div class="execution-time">
                 <el-icon :size="14"><Timer /></el-icon>
@@ -924,6 +928,22 @@ const formatDateTime = (dateStr: string) => {
   })
 }
 
+const formatRelativeTime = (dateStr: string) => {
+  if (!dateStr) return ''
+  const date = new Date(dateStr)
+  const now = new Date()
+  const diffMs = date.getTime() - now.getTime()
+  if (diffMs <= 0) return '即将执行'
+  const diffSec = Math.floor(diffMs / 1000)
+  if (diffSec < 60) return `${diffSec}秒后`
+  const diffMin = Math.floor(diffSec / 60)
+  if (diffMin < 60) return `${diffMin}分钟后`
+  const diffHour = Math.floor(diffMin / 60)
+  if (diffHour < 24) return `${diffHour}小时后`
+  const diffDay = Math.floor(diffHour / 24)
+  return `${diffDay}天后`
+}
+
 const getResultClass = (status: string) => {
   const map: Record<string, string> = {
     success: 'success',
@@ -994,6 +1014,12 @@ const handleCreate = () => {
   cronPreset.value = 'manual'
   loadWebhooks()
   dialogVisible.value = true
+}
+
+const handleCardClick = (task: Task) => {
+  if (canManageTask.value) {
+    handleEdit(task)
+  }
 }
 
 const handleEdit = (task: Task) => {
@@ -1673,6 +1699,7 @@ const loadExecutors = async () => {
   gap: var(--space-3);
   flex: 1;
   min-width: 0;
+  cursor: pointer;
 }
 
 .task-title-info {
@@ -1706,6 +1733,7 @@ const loadExecutors = async () => {
 .task-card-body {
   padding: var(--space-5);
   flex: 1;
+  cursor: pointer;
 }
 
 .task-name {
@@ -1767,6 +1795,21 @@ const loadExecutors = async () => {
 .meta-value {
   font-family: var(--font-mono);
   font-size: 0.78rem;
+}
+
+.meta-item-next-run {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(16, 185, 129, 0.05));
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  color: var(--accent-success);
+}
+
+.meta-item-next-run .el-icon {
+  color: var(--accent-success);
+}
+
+.meta-item-next-run .meta-value {
+  color: var(--accent-success);
+  font-weight: 500;
 }
 
 .task-execution {

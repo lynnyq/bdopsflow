@@ -30,11 +30,17 @@ func main() {
 
 	flag.Usage = printHelp
 	configFile := flag.String("config", "", "path to config file (default: config.yaml in current directory)")
+	advertiseAddr := flag.String("advertise-addr", "", "externally reachable HTTP address for cluster deployment (format: host:port, overrides app.advertise_addr)")
 	flag.Parse()
 
 	logger.Init("info", "json")
 
 	cfg := config.Load(*configFile)
+
+	if *advertiseAddr != "" {
+		cfg.AdvertiseAddr = *advertiseAddr
+	}
+
 	logger.Init(cfg.LogLevel, cfg.LogFormat)
 
 	app := NewApp(cfg)

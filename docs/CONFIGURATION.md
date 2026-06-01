@@ -26,6 +26,7 @@ app:
   http_port: "8080"
   grpc_port: "50051"
   node_id: ""
+  advertise_addr: ""
   allow_register: false
   cors_allow_origins: []
 
@@ -75,6 +76,7 @@ app:
   http_port: "8080"
   grpc_port: "50051"
   node_id: ""
+  advertise_addr: "10.0.1.5:8080"
   allow_register: false
   cors_allow_origins:
     - "https://bdopsflow.example.com"
@@ -134,6 +136,7 @@ datasource:
 | HTTP 端口 | `app.http_port` | string | 选填 | `"8080"` | HTTP API 监听端口 |
 | gRPC 端口 | `app.grpc_port` | string | 选填 | `"50051"` | gRPC 服务监听端口 |
 | 节点 ID | `app.node_id` | string | 选填 | `""` | 调度中心节点标识，集群部署时每个节点必须唯一 |
+| 对外宣告地址 | `app.advertise_addr` | string | 选填 | `""` | 集群部署时节点对外可达的 HTTP 地址，格式 `host:port`，类似 etcd 的 `--advertise-client-urls`。单节点部署可留空（默认使用 `127.0.0.1:<http_port>`），多节点部署时必须配置为其他节点可访问的地址，否则非主节点转发请求会失败。若仅填写主机名或 IP 未指定端口，系统将自动补全为 `app.http_port` 配置的端口号 |
 | 允许注册 | `app.allow_register` | bool | 选填 | `false` | 是否允许用户自行注册 |
 | CORS 来源 | `app.cors_allow_origins` | []string | 选填 | `[]` | 允许的跨域来源列表，详见下方说明 |
 
@@ -180,6 +183,45 @@ export APP_CORS_ALLOW_ORIGINS="https://bdopsflow.example.com,https://ops.example
 - 配置了指定来源时，响应头会设置 `Vary: Origin`，确保 CDN/代理正确缓存
 - 生产环境强烈建议配置为具体的域名列表，避免使用空数组（允许所有来源）
 - 内置 Web UI（`web.enabled: true`）不受此配置影响，前后端同源无需跨域
+
+**advertise_addr 配置说明**
+
+`app.advertise_addr` 用于集群部署时指定当前节点对外可达的 HTTP 地址，其他调度中心节点通过此地址将请求转发到主节点。
+
+端口处理规则：
+
+| 配置值 | 实际生效地址 | 说明 |
+|--------|------------|------|
+| `""`（空/默认） | `127.0.0.1:<http_port>` | 单节点部署默认值，仅本机可达 |
+| `"10.0.1.5"` | `10.0.1.5:<http_port>` | 未指定端口时自动补全 `http_port` |
+| `"10.0.1.5:8080"` | `10.0.1.5:8080` | 完整指定，直接使用 |
+| `"scheduler-node1"` | `scheduler-node1:<http_port>` | 主机名同理，自动补全端口 |
+
+注意事项：
+
+- **必须指向调度器直接监听的 HTTP 端口**，而非 Nginx 等反向代理端口。例如调度器监听 `8080`，Nginx 代理 `80→8080`，则 `advertise_addr` 应配置为 `10.0.1.5:8080` 而非 `10.0.1.5:80`
+- 如果 `advertise_addr` 中的端口与 `http_port` 不一致，启动时会打印警告日志，请确认是否配置正确
+- 多节点部署时，确保各节点之间可以通过 `advertise_addr` 直接访问调度器的 HTTP API
+
+配置示例：
+
+```yaml
+app:
+  http_port: "8080"
+  advertise_addr: "10.0.1.5:8080"   # 正确：指向调度器直接监听的端口
+```
+
+```yaml
+app:
+  http_port: "8080"
+  advertise_addr: "10.0.1.5"        # 正确：自动补全为 10.0.1.5:8080
+```
+
+```yaml
+app:
+  http_port: "8080"
+  advertise_addr: "10.0.1.5:80"     # 错误：80 是 Nginx 端口，转发请求会打到 Nginx 而非调度器
+```
 
 #### rsa（RSA 密钥配置）
 
@@ -395,6 +437,7 @@ cfg.Merge(executorName, capacity, schedulerAddr, schedulerAddrs, timeout, hostna
 | `APP_HTTP_PORT` | `app.http_port` | string | `"8080"` |
 | `APP_GRPC_PORT` | `app.grpc_port` | string | `"50051"` |
 | `APP_NODE_ID` | `app.node_id` | string | `""` |
+| `APP_ADVERTISE_ADDR` | `app.advertise_addr` | string | `""` |
 | `APP_ALLOW_REGISTER` | `app.allow_register` | bool | `false` |
 | `APP_CORS_ALLOW_ORIGINS` | `app.cors_allow_origins` | []string | `[]` |
 | `RSA_PUBLIC_KEY` | `rsa.public_key` | string | `""` |
@@ -642,6 +685,7 @@ datasource:
 | rqlite 多节点部署 | 至少 3 个 rqlite 节点 | ☐ |
 | 调度中心多节点部署 | 至少 2 个调度中心节点 | ☐ |
 | node_id 已配置 | 每个调度中心节点有唯一的 `node_id` | ☐ |
+| advertise_addr 已配置 | 多节点部署时 `app.advertise_addr` 已配置为其他节点可达的地址，避免转发请求到 `127.0.0.1` | ☐ |
 | 数据源密钥轮换已启用 | `auto_rotate_days` 大于 0 | ☐ |
 
 ### 5.2 SSO 配置检查
@@ -683,7 +727,16 @@ datasource:
 ```bash
 ./scheduler                    # 使用默认配置启动
 ./scheduler -config my.yml     # 使用指定配置文件启动
+./scheduler -advertise-addr 10.0.1.5:8080  # 指定集群对外宣告地址
+./scheduler -config my.yml -advertise-addr 10.0.1.5:8080  # 同时指定配置文件和宣告地址
 ```
+
+**命令行参数**：
+
+| 参数 | 覆盖配置项 | Go 类型 | 默认值 | 说明 |
+|------|----------|---------|--------|------|
+| `-config` | - | string | `""` | 配置文件路径 |
+| `-advertise-addr` | `app.advertise_addr` | string | `""` | 集群部署时节点对外可达的 HTTP 地址（格式 `host:port`），优先级高于配置文件 |
 
 ### 6.2 生成 RSA 密钥对
 
