@@ -143,6 +143,8 @@ func (s *SchedulerService) ForwardToLeader(ctx context.Context, method, path str
 		req.Header.Set("Authorization", authHeader)
 	}
 
+	req.Header.Set("X-Forwarded-By", "bdopsflow-scheduler")
+
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return nil, http.StatusBadGateway, fmt.Errorf("failed to forward request to leader: %w", err)

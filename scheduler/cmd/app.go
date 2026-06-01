@@ -266,7 +266,12 @@ func NewApp(cfg *config.Config) *App {
 	logDB := database.NewLogDB(db)
 	app.logDB = logDB
 
-	leaderElection := election.NewLeaderElection(redisClient, "bdopsflow:leader", nodeID, fmt.Sprintf("127.0.0.1:%s", cfg.HTTPPort), 15*time.Second)
+	leaderHTTPAddr := cfg.AdvertiseAddr
+	if leaderHTTPAddr == "" {
+		leaderHTTPAddr = fmt.Sprintf("127.0.0.1:%s", cfg.HTTPPort)
+		slog.Warn("app.advertise_addr not configured, using 127.0.0.1 as leader HTTP address; set app.advertise_addr to the externally reachable address for multi-node deployments")
+	}
+	leaderElection := election.NewLeaderElection(redisClient, "bdopsflow:leader", nodeID, leaderHTTPAddr, 15*time.Second)
 	app.leaderElection = leaderElection
 
 	schedulerService := service.NewSchedulerService(logDB, redisClient)

@@ -513,6 +513,14 @@ func (h *TaskHandler) Trigger(c *gin.Context) {
 	}
 
 	if !h.svc.IsLeader() {
+		if c.GetHeader("X-Forwarded-By") != "" {
+			slog.Error("TaskHandler.Trigger: detected forwarding loop, aborting",
+				"task_id", id,
+				"path", c.Request.URL.Path,
+			)
+			ServiceUnavailable(c, "检测到请求转发循环，请检查集群节点配置")
+			return
+		}
 		h.forwardToLeader(c, c.Request.Method, c.Request.URL.Path, c.Request.Body)
 		return
 	}

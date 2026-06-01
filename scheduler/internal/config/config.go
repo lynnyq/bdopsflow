@@ -9,6 +9,7 @@ import (
 type Config struct {
 	HTTPPort              string
 	GRPCPort              string
+	AdvertiseAddr         string
 	NodeID                string
 	RQLiteAddrs           []string
 	RQLiteUser            string
@@ -72,6 +73,7 @@ func Load(configFile string) *Config {
 	return &Config{
 		HTTPPort:              cfg.GetString("app.http_port", "8080"),
 		GRPCPort:              cfg.GetString("app.grpc_port", "50051"),
+		AdvertiseAddr:         cfg.GetString("app.advertise_addr", ""),
 		NodeID:                cfg.GetString("app.node_id", ""),
 		RQLiteAddrs:           cfg.GetStringSlice("database.rqlite_addrs", []string{"http://localhost:4001"}),
 		RQLiteUser:            cfg.GetString("database.rqlite_user", ""),
@@ -112,6 +114,7 @@ func defaultConfig() *Config {
 	return &Config{
 		HTTPPort:              "8080",
 		GRPCPort:              "50051",
+		AdvertiseAddr:         "",
 		NodeID:                "",
 		RQLiteAddrs:           []string{"http://localhost:4001"},
 		RQLiteUser:            "",
