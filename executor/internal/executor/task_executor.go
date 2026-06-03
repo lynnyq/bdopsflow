@@ -13,22 +13,22 @@ import (
 	"sync"
 	"time"
 
-	pb "github.com/lynnyq/bdopsflow/proto"
 	"github.com/lynnyq/bdopsflow/executor/internal/grpcclient"
 	"github.com/lynnyq/bdopsflow/executor/internal/pool"
+	pb "github.com/lynnyq/bdopsflow/proto"
 )
 
 // 正在运行的任务信息
 type RunningTaskInfo struct {
-	task           *pb.Task
-	startTime      time.Time
+	task            *pb.Task
+	startTime       time.Time
 	currentProgress int32
-	progressMsg    string
+	progressMsg     string
 }
 
 type TaskExecutor struct {
-	taskPool       *pool.Pool
-	runningTasks   sync.Map // map[string]*RunningTaskInfo
+	taskPool     *pool.Pool
+	runningTasks sync.Map // map[string]*RunningTaskInfo
 }
 
 func NewTaskExecutor(taskPool *pool.Pool) *TaskExecutor {
@@ -76,10 +76,10 @@ func (e *TaskExecutor) GetRunningTaskStates() []*pb.RunningTaskState {
 
 func (e *TaskExecutor) addRunningTask(executionId string, task *pb.Task) {
 	e.runningTasks.Store(executionId, &RunningTaskInfo{
-		task:           task,
-		startTime:      time.Now(),
+		task:            task,
+		startTime:       time.Now(),
 		currentProgress: 0,
-		progressMsg:    "Task started",
+		progressMsg:     "Task started",
 	})
 	slog.Debug("added task to running list", "execution_id", executionId, "running_count", e.getRunningCount())
 }
@@ -206,7 +206,7 @@ func (e *TaskExecutor) executeHTTP(ctx context.Context, task *pb.Task, client *g
 	}
 
 	sendLog(client, task, "info", fmt.Sprintf("🚀 Sending HTTP %s request to: %s", config.Method, config.URL))
-	
+
 	if config.Headers != "" {
 		sendLog(client, task, "info", fmt.Sprintf("📋 Request headers: %s", config.Headers))
 	}
@@ -250,12 +250,12 @@ func (e *TaskExecutor) executeHTTP(ctx context.Context, task *pb.Task, client *g
 	body := string(bodyBytes)
 
 	contentType := resp.Header.Get("Content-Type")
-	
+
 	if resp.StatusCode >= 400 {
 		sendLog(client, task, "error", fmt.Sprintf("❌ HTTP Error Response"))
 		sendLog(client, task, "error", fmt.Sprintf("Status: %d %s", resp.StatusCode, resp.Status))
 		sendLog(client, task, "error", fmt.Sprintf("Content-Type: %s", contentType))
-		
+
 		if strings.Contains(strings.ToLower(contentType), "json") {
 			var jsonData interface{}
 			if err := json.Unmarshal(bodyBytes, &jsonData); err == nil {
@@ -267,7 +267,7 @@ func (e *TaskExecutor) executeHTTP(ctx context.Context, task *pb.Task, client *g
 		} else {
 			sendOutputLog(client, task, "stderr", body)
 		}
-		
+
 		return body, fmt.Errorf("http status %d: %s", resp.StatusCode, body)
 	}
 
@@ -289,8 +289,8 @@ func (e *TaskExecutor) executeHTTP(ctx context.Context, task *pb.Task, client *g
 		} else {
 			sendOutputLog(client, task, "stdout", body)
 		}
-	} else if strings.Contains(strings.ToLower(contentType), "text") || 
-	           strings.Contains(strings.ToLower(contentType), "html") {
+	} else if strings.Contains(strings.ToLower(contentType), "text") ||
+		strings.Contains(strings.ToLower(contentType), "html") {
 		sendLog(client, task, "info", fmt.Sprintf("📄 Response Body (Text):"))
 		sendOutputLog(client, task, "stdout", body)
 	} else {
@@ -324,7 +324,7 @@ func (e *TaskExecutor) executeShell(ctx context.Context, task *pb.Task, client *
 	sendLog(client, task, "info", "Executing shell script")
 
 	cmd := exec.CommandContext(ctx, "bash", "-c", config.Script)
-	
+
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return "", fmt.Errorf("create stdout pipe: %w", err)
@@ -339,7 +339,7 @@ func (e *TaskExecutor) executeShell(ctx context.Context, task *pb.Task, client *
 	}
 
 	var fullOutput, fullError bytes.Buffer
-	
+
 	go func() {
 		buf := make([]byte, 1024)
 		for {
@@ -354,7 +354,7 @@ func (e *TaskExecutor) executeShell(ctx context.Context, task *pb.Task, client *
 			}
 		}
 	}()
-	
+
 	go func() {
 		buf := make([]byte, 1024)
 		for {
@@ -373,13 +373,12 @@ func (e *TaskExecutor) executeShell(ctx context.Context, task *pb.Task, client *
 	err = cmd.Wait()
 
 	output := fullOutput.String()
-	if fullError.Len() > 0 {
-		output += "\n[stderr]\n" + fullError.String()
-	}
+	stderrOutput := fullError.String()
 
 	if err != nil {
 		sendLog(client, task, "error", fmt.Sprintf("Shell execution error: %v", err))
-		return output, fmt.Errorf("shell execution failed: %w, stderr: %s", err, fullError.String())
+		// 失败时 output 为空，标准输出和标准错误都放在返回的 error 中
+		return "", fmt.Errorf("shell execution failed: %w, stdout: %s, stderr: %s", err, output, stderrOutput)
 	}
 
 	sendLog(client, task, "info", fmt.Sprintf("Shell execution completed, output length: %d", len(output)))
