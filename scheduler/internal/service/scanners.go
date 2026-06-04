@@ -31,9 +31,18 @@ func scanTaskResult(qr *rqlite.QueryResult, task *model.Task) error {
 	task.WebhookEvents = rowString(row[12])
 	task.AssignedExecutorID = rowInt64(row[13])
 	task.CreatedBy = rowInt64(row[14])
-	task.CreatedByName = rowString(row[15])
-	task.CreatedAt = parseDateTime(row[16])
-	task.UpdatedAt = parseDateTime(row[17])
+
+	// 兼容两种查询格式：17列（ScanPendingTasks）和 18列（GetTaskByID、ListTasks）
+	if len(row) == 18 {
+		// 18列：包含 created_by_name
+		task.CreatedByName = rowString(row[15])
+		task.CreatedAt = parseDateTime(row[16])
+		task.UpdatedAt = parseDateTime(row[17])
+	} else {
+		// 17列：不包含 created_by_name
+		task.CreatedAt = parseDateTime(row[15])
+		task.UpdatedAt = parseDateTime(row[16])
+	}
 	return nil
 }
 
