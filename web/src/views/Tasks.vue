@@ -60,6 +60,14 @@
           <el-option label="启用" :value="true" />
           <el-option label="停用" :value="false" />
         </el-select>
+        <el-select v-model="filterCreatedBy" placeholder="创建者" clearable class="filter-select">
+          <el-option
+            v-for="user in users"
+            :key="user.id"
+            :label="user.real_name || user.username"
+            :value="user.id"
+          />
+        </el-select>
       </div>
       <div class="toolbar-right">
         <el-button :icon="Refresh" @click="loadTasks" :loading="loading" class="refresh-btn">刷新</el-button>
@@ -92,7 +100,7 @@
               <h3 class="task-name">{{ task.name }}</h3>
               <p class="task-id">ID: {{ task.id }}</p>
               <p class="task-creator" v-if="task.created_by_name">
-                <el-icon><User /></el-icon>
+                <el-icon><UserIcon /></el-icon>
                 {{ task.created_by_name }}
               </p>
             </div>
@@ -752,10 +760,10 @@ import {
   Setting,
   SwitchButton,
   DataAnalysis,
-  User
+  User as UserIcon
 } from '@element-plus/icons-vue'
-import { taskAPI, executorAPI, webhookAPI } from '@/api'
-import type { Task, TaskConfig, Executor, Webhook } from '@/types'
+import { taskAPI, executorAPI, webhookAPI, userAdminAPI } from '@/api'
+import type { Task, TaskConfig, Executor, Webhook, User } from '@/types'
 import TaskLogViewer from '@/components/TaskLogViewer.vue'
 import { isHandledError } from '@/utils/api'
 import { useAuthStore } from '@/stores/auth'
@@ -787,6 +795,8 @@ const formRef = ref<FormInstance>()
 const searchQuery = ref('')
 const filterType = ref<string | null>(null)
 const filterStatus = ref<boolean | null>(null)
+const filterCreatedBy = ref<number | null>(null)
+const users = ref<User[]>([])
 const currentPage = ref(1)
 const pageSize = ref(20)
 
@@ -897,7 +907,8 @@ const filteredTasks = computed(() => {
       task.id.toString().includes(searchQuery.value)
     const matchType = filterType.value == null || task.type === filterType.value
     const matchStatus = filterStatus.value == null || task.is_enabled === filterStatus.value
-    return matchSearch && matchType && matchStatus
+    const matchCreatedBy = filterCreatedBy.value == null || task.created_by === filterCreatedBy.value
+    return matchSearch && matchType && matchStatus && matchCreatedBy
   })
 })
 
@@ -985,7 +996,11 @@ const stringifyConfig = (config: TaskConfig | string): string => {
 const loadTasks = async () => {
   loading.value = true
   try {
-    const res = await taskAPI.list()
+    const params: { page?: number; page_size?: number; created_by?: number } = {}
+    if (filterCreatedBy.value) {
+      params.created_by = filterCreatedBy.value
+    }
+    const res = await taskAPI.list(params)
     tasks.value = (res.data.items || []).map(task => {
       if (task.config && typeof task.config === 'string') {
         try {
@@ -1233,9 +1248,15 @@ const handleViewHistory = (task: Task) => {
   })
 }
 
-// 监听筛选条件变化，重置页码
+// 监听非后端过滤的筛选条件变化，仅重置页码
 watch([searchQuery, filterType, filterStatus], () => {
   currentPage.value = 1
+})
+
+// 监听创建者筛选变化，重置页码并请求后端
+watch(filterCreatedBy, () => {
+  currentPage.value = 1
+  loadTasks()
 })
 
 // 确保 timeout_seconds 始终是数字类型，且 0 值被正确保留
@@ -1248,9 +1269,19 @@ watch(() => form.value.timeout_seconds, (newVal) => {
 onMounted(async () => {
   await Promise.all([
     loadTasks(),
-    loadExecutors()
+    loadExecutors(),
+    loadUsers()
   ])
 })
+
+const loadUsers = async () => {
+  try {
+    const res = await userAdminAPI.list()
+    users.value = res.data.items || []
+  } catch {
+    // ignore
+  }
+}
 
 const loadExecutors = async () => {
   try {

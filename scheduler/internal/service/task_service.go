@@ -78,7 +78,7 @@ func (s *SchedulerService) GetTaskByID(ctx context.Context, id int64) (*model.Ta
 	return task, nil
 }
 
-func (s *SchedulerService) ListTasks(ctx context.Context, domainID int64, role string, page, pageSize int) ([]*model.Task, int, error) {
+func (s *SchedulerService) ListTasks(ctx context.Context, domainID int64, role string, page, pageSize int, createdBy ...int64) ([]*model.Task, int, error) {
 	if pageSize <= 0 {
 		pageSize = 20
 	}
@@ -97,11 +97,20 @@ func (s *SchedulerService) ListTasks(ctx context.Context, domainID int64, role s
 	if isSystemAdmin {
 		whereClause = ""
 	} else {
-		whereClause = " WHERE domain_id = ?"
+		whereClause = " WHERE t.domain_id = ?"
 		args = append(args, domainID)
 	}
 
-	countQuery := "SELECT COUNT(*) FROM bdopsflow_tasks" + whereClause
+	if len(createdBy) > 0 && createdBy[0] > 0 {
+		if whereClause == "" {
+			whereClause = " WHERE t.created_by = ?"
+		} else {
+			whereClause += " AND t.created_by = ?"
+		}
+		args = append(args, createdBy[0])
+	}
+
+	countQuery := "SELECT COUNT(*) FROM bdopsflow_tasks t" + whereClause
 	var countQr rqlite.QueryResult
 	var err error
 

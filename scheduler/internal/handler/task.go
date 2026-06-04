@@ -92,7 +92,20 @@ func (h *TaskHandler) List(c *gin.Context) {
 		pageSize = 20
 	}
 
-	bdopsflow_tasks, total, err := h.svc.ListTasks(ctx, dID, role, page, pageSize)
+	var bdopsflow_tasks []*model.Task
+	var total int
+	var err error
+
+	if cbStr := c.Query("created_by"); cbStr != "" {
+		if createdBy, parseErr := strconv.ParseInt(cbStr, 10, 64); parseErr == nil {
+			bdopsflow_tasks, total, err = h.svc.ListTasks(ctx, dID, role, page, pageSize, createdBy)
+		} else {
+			bdopsflow_tasks, total, err = h.svc.ListTasks(ctx, dID, role, page, pageSize)
+		}
+	} else {
+		bdopsflow_tasks, total, err = h.svc.ListTasks(ctx, dID, role, page, pageSize)
+	}
+
 	if err != nil {
 		slog.Error("TaskHandler.List: failed to list bdopsflow_tasks", "error", err)
 		FailFromError(c, err)
