@@ -41,6 +41,9 @@ func setupRoutes(router *gin.Engine, app *App) {
 	router.GET("/api/auth/public-key", authHandler.GetPublicKey)
 	router.POST("/api/auth/refresh", authHandler.RefreshToken)
 
+	wecomHandler := handler.NewWeComHandler(app.dsConfigService)
+	router.POST("/api/wecom/:wx_group_id", wecomHandler.SendWeComMessage)
+
 	protected := router.Group("/api")
 	protected.Use(middleware.JWTAuthMiddleware())
 	protected.Use(middleware.InjectUserRole(app.permissionService))
