@@ -15,21 +15,22 @@ import (
 var defaultConfigValues = map[string]string{
 	"datasource.default_limit":           "1000",
 	"datasource.max_export_rows":         "1000",
-	"datasource.cache_ttl":               "300",
-	"datasource.cache_max_size":          "100",
-	"datasource.query_timeout":           "60",
+	"datasource.cache_ttl":              "300",
+	"datasource.cache_max_size":         "100",
+	"datasource.query_timeout":          "60",
 	"datasource.max_concurrent_per_user": "5",
-	"datasource.max_concurrent_global":   "50",
-	"datasource.allow_write_sql":         "false",
-	"datasource.history_retention_days":  "30",
-	"datasource.connection_max_idle":     "5",
-	"datasource.connection_max_open":     "10",
+	"datasource.max_concurrent_global":  "50",
+	"datasource.allow_write_sql":        "false",
+	"datasource.history_retention_days": "30",
+	"datasource.connection_max_idle":    "5",
+	"datasource.connection_max_open":   "10",
 	"datasource.connection_max_lifetime": "1800",
-	"datasource.max_sql_length":          "65536",
-	"datasource.max_cell_size":           "65536",
-	"datasource.health_check_interval":   "300",
-	"datasource.test_timeout":            "10",
-	"web.enabled":                        "false",
+	"datasource.max_sql_length":        "65536",
+	"datasource.max_cell_size":        "65536",
+	"datasource.health_check_interval":  "300",
+	"datasource.test_timeout":         "10",
+	"web.enabled":                     "false",
+	"wecom.robot_url":                 "https://qyapi.weixin.qq.com/cgi-bin/webhook/send",
 }
 
 type ConfigMeta struct {
@@ -51,6 +52,12 @@ var configMetaList = []ConfigMeta{
 		Description: "启用后，可通过调度器监听端口直接访问 Web UI，无需单独部署前端。禁用后仅提供 API 服务。",
 		Type: "boolean", DefaultValue: "false",
 		Group: "系统",
+	},
+	{
+		Key: "wecom.robot_url", Label: "企业微信群机器人 URL",
+		Description: "用于推送 BDopsFlow 任务执行通知到企业微信群的机器人接口地址",
+		Type: "text", DefaultValue: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send",
+		Group: "消息通知",
 	},
 	{
 		Key: "datasource.default_limit", Label: "默认查询行数",
@@ -316,8 +323,8 @@ func (s *ConfigService) Set(ctx context.Context, key, value string, changedBy in
 		slog.Info("config not found, inserting new", "key", key, "value", value)
 		_, err = s.db.WriteOneParameterized(
 			rqlite.ParameterizedStatement{
-				Query:     "INSERT INTO bdopsflow_system_config (config_key, config_value, created_at, updated_at) VALUES (?, ?, ?, ?)",
-				Arguments: []interface{}{key, value, now, now},
+				Query:     "INSERT INTO bdopsflow_system_config (config_key, config_value, updated_at) VALUES (?, ?, ?)",
+				Arguments: []interface{}{key, value, now},
 			},
 		)
 		if err != nil {

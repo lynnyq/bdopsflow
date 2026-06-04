@@ -42,6 +42,16 @@
                 controls-position="right"
               />
             </template>
+            <template v-else-if="item.type === 'text'">
+              <el-input
+                v-model="textValues[item.key]"
+                @blur="(e: any) => handleUpdate(item.key, e.target.value)"
+                :loading="loadingKeys[item.key]"
+                size="default"
+                placeholder="请输入配置值"
+                clearable
+              />
+            </template>
           </div>
           <div class="config-meta">
             <span class="meta-item">
@@ -87,6 +97,7 @@ const configs = ref<ConfigItem[]>([])
 const loadingKeys = reactive<Record<string, boolean>>({})
 const boolValues = reactive<Record<string, boolean>>({})
 const numValues = reactive<Record<string, number>>({})
+const textValues = reactive<Record<string, string>>({})
 
 const groupIcons: Record<string, any> = {
   '查询': Search,
@@ -94,6 +105,8 @@ const groupIcons: Record<string, any> = {
   '安全': Lock,
   '缓存': DataLine,
   '连接池': Connection,
+  '系统': Setting,
+  '消息通知': Monitor,
   '其他': Setting,
 }
 
@@ -138,6 +151,8 @@ const loadConfigs = async () => {
         boolValues[item.key] = item.value === 'true'
       } else if (item.type === 'number') {
         numValues[item.key] = parseInt(item.value, 10) || parseInt(item.default_value, 10) || 0
+      } else if (item.type === 'text') {
+        textValues[item.key] = item.value || item.default_value || ''
       }
     }
   } catch (err: any) {
@@ -166,6 +181,8 @@ const handleUpdate = async (key: string, value: string) => {
         boolValues[key] = item.value === 'true'
       } else if (item.type === 'number') {
         numValues[key] = parseInt(item.value, 10) || 0
+      } else if (item.type === 'text') {
+        textValues[key] = item.value || item.default_value || ''
       }
     }
   } finally {
@@ -312,6 +329,26 @@ onMounted(() => {
 
 .config-control :deep(.el-switch) {
   --el-switch-on-color: var(--accent-primary);
+}
+
+.config-control :deep(.el-input) {
+  width: 100%;
+}
+
+.config-control :deep(.el-input .el-input__wrapper) {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: none;
+}
+
+.config-control :deep(.el-input .el-input__wrapper:hover) {
+  border-color: var(--accent-primary);
+}
+
+.config-control :deep(.el-input .el-input__wrapper.is-focus) {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 1px var(--accent-primary);
 }
 
 .config-meta {

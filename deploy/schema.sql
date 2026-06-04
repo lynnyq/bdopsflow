@@ -610,7 +610,8 @@ INSERT OR IGNORE INTO bdopsflow_system_config (config_key, config_value, descrip
 ('datasource.max_cell_size', '65536', '单个单元格值最大字节数', datetime('now')),
 ('datasource.health_check_interval', '300', '健康检查间隔(秒),0为禁用', datetime('now')),
 ('datasource.test_timeout', '10', '连接测试超时时间(秒)', datetime('now')),
-('audit_log.retention_days', '90', '审计日志保留天数', datetime('now'));
+('audit_log.retention_days', '90', '审计日志保留天数', datetime('now')),
+('wecom.robot_url', 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send', '企业微信群机器人URL', datetime('now'));
 
 -- ============================================================================
 -- 初始化完成
