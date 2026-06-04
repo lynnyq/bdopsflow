@@ -65,6 +65,7 @@ func setupRoutes(router *gin.Engine, app *App) {
 			tasks.POST("/:id/trigger", middleware.RequirePermission(app.permissionService, "task", "trigger"), taskHandler.Trigger)
 			tasks.GET("/:id/executions", taskHandler.Executions)
 			tasks.GET("/executions/:execution_id/logs", taskHandler.ExecutionLogs)
+			tasks.POST("/executions/:execution_id/cancel", middleware.RequirePermission(app.permissionService, "task", "trigger"), taskHandler.CancelExecution)
 		}
 
 		executorHandler := handler.NewExecutorHandler(app.schedulerService)

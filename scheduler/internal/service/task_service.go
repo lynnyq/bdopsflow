@@ -128,10 +128,11 @@ func (s *SchedulerService) ListTasks(ctx context.Context, domainID int64, role s
 
 	offset := (page - 1) * pageSize
 	dataQuery := `
-		SELECT id, name, type, config, cron_expression, timeout_seconds,
-		       retry_count, retry_interval, is_enabled, status, domain_id, webhook_id, webhook_events,
-		       assigned_executor_id, created_by, created_at, updated_at
-		FROM bdopsflow_tasks` + whereClause + " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+		SELECT t.id, t.name, t.type, t.config, t.cron_expression, t.timeout_seconds,
+		       t.retry_count, t.retry_interval, t.is_enabled, t.status, t.domain_id, t.webhook_id, t.webhook_events,
+		       t.assigned_executor_id, t.created_by, u.real_name as created_by_name, t.created_at, t.updated_at
+		FROM bdopsflow_tasks t
+		LEFT JOIN bdopsflow_users u ON t.created_by = u.id` + whereClause + " ORDER BY t.created_at DESC LIMIT ? OFFSET ?"
 
 	dataArgs := make([]interface{}, len(args))
 	copy(dataArgs, args)

@@ -24,6 +24,7 @@ type RunningTaskInfo struct {
 	startTime       time.Time
 	currentProgress int32
 	progressMsg     string
+	cancel          context.CancelFunc // 取消任务的函数
 }
 
 type TaskExecutor struct {
@@ -74,12 +75,13 @@ func (e *TaskExecutor) GetRunningTaskStates() []*pb.RunningTaskState {
 	return states
 }
 
-func (e *TaskExecutor) addRunningTask(executionId string, task *pb.Task) {
+func (e *TaskExecutor) addRunningTask(executionId string, task *pb.Task, cancel context.CancelFunc) {
 	e.runningTasks.Store(executionId, &RunningTaskInfo{
 		task:            task,
 		startTime:       time.Now(),
 		currentProgress: 0,
 		progressMsg:     "Task started",
+		cancel:          cancel,
 	})
 	slog.Debug("added task to running list", "execution_id", executionId, "running_count", e.getRunningCount())
 }
@@ -87,6 +89,20 @@ func (e *TaskExecutor) addRunningTask(executionId string, task *pb.Task) {
 func (e *TaskExecutor) removeRunningTask(executionId string) {
 	e.runningTasks.Delete(executionId)
 	slog.Debug("removed task from running list", "execution_id", executionId, "running_count", e.getRunningCount())
+}
+
+// 取消指定的任务
+func (e *TaskExecutor) CancelTask(executionId string) bool {
+	if val, ok := e.runningTasks.Load(executionId); ok {
+		if info, ok := val.(*RunningTaskInfo); ok {
+			if info.cancel != nil {
+				info.cancel()
+				slog.Info("task cancellation executed", "execution_id", executionId)
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // 更新任务进度
@@ -116,8 +132,19 @@ func (e *TaskExecutor) Execute(ctx context.Context, task *pb.Task, client *grpcc
 		"type", task.Type,
 	)
 
+	// 创建可取消的 context，同时支持超时和手动取消
+	var execCtx context.Context
+	var cancel context.CancelFunc
+
+	if task.TimeoutSeconds > 0 {
+		execCtx, cancel = context.WithTimeout(ctx, time.Duration(task.TimeoutSeconds)*time.Second)
+	} else {
+		execCtx, cancel = context.WithCancel(ctx)
+	}
+	defer cancel()
+
 	sendLog(client, task, "info", "Task execution started")
-	e.addRunningTask(task.ExecutionId, task)
+	e.addRunningTask(task.ExecutionId, task, cancel)
 	defer e.removeRunningTask(task.ExecutionId)
 
 	if e.taskPool != nil {
@@ -125,7 +152,7 @@ func (e *TaskExecutor) Execute(ctx context.Context, task *pb.Task, client *grpcc
 		defer e.taskPool.DecRunning()
 	}
 
-	output, err := e.executeTask(ctx, task, client)
+	output, err := e.executeTask(execCtx, task, client)
 
 	status := "success"
 	errorMsg := ""
@@ -170,21 +197,11 @@ func (e *TaskExecutor) GetRunningTasks() int32 {
 }
 
 func (e *TaskExecutor) executeTask(ctx context.Context, task *pb.Task, client *grpcclient.MultiClient) (string, error) {
-	var execCtx context.Context
-	var cancel context.CancelFunc
-
-	if task.TimeoutSeconds > 0 {
-		execCtx, cancel = context.WithTimeout(ctx, time.Duration(task.TimeoutSeconds)*time.Second)
-		defer cancel()
-	} else {
-		execCtx = ctx
-	}
-
 	switch task.Type {
 	case "http":
-		return e.executeHTTP(execCtx, task, client)
+		return e.executeHTTP(ctx, task, client)
 	case "shell":
-		return e.executeShell(execCtx, task, client)
+		return e.executeShell(ctx, task, client)
 	default:
 		return "", fmt.Errorf("unsupported task type: %s", task.Type)
 	}

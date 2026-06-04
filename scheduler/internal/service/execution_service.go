@@ -574,6 +574,63 @@ func (s *SchedulerService) BatchDeleteExecutionsWithDomainCheck(ctx context.Cont
 	return err
 }
 
+func (s *SchedulerService) CancelExecution(ctx context.Context, executionID string) error {
+	query := `
+		SELECT task_id, status, executor_id FROM bdopsflow_task_executions WHERE execution_id = ?
+	`
+	stmt := rqlite.ParameterizedStatement{
+		Query:     query,
+		Arguments: []interface{}{executionID},
+	}
+	qr, err := s.DB.QueryOneParameterized(stmt)
+	if err != nil {
+		return fmt.Errorf("failed to query execution: %w", err)
+	}
+	if qr.Err != nil {
+		return fmt.Errorf("query error: %w", qr.Err)
+	}
+
+	if !qr.Next() {
+		return fmt.Errorf("execution not found")
+	}
+
+	row, err := qr.Slice()
+	if err != nil {
+		return fmt.Errorf("failed to get row: %w", err)
+	}
+
+	taskID := rowInt64(row[0])
+	status := rowString(row[1])
+	executorID := rowInt64(row[2])
+
+	if status != "running" && status != "pending" {
+		return fmt.Errorf("execution is not running or pending (current status: %s)", status)
+	}
+
+	// 如果有执行器ID，通知执行器取消任务
+	if executorID > 0 && s.cancelNotifier != nil {
+		executor, err := s.GetExecutorByID(ctx, executorID)
+		if err == nil && executor != nil {
+			s.cancelNotifier.AddCancelExecutionId(executor.Name, executionID)
+			slog.Info("sent cancel signal to executor",
+				"execution_id", executionID,
+				"executor_name", executor.Name,
+				"task_id", taskID)
+		}
+	}
+
+	err = s.UpdateExecutionResult(ctx, executionID, "failed", "", "task cancelled by user")
+	if err != nil {
+		slog.Error("failed to update execution result", "execution_id", executionID, "error", err)
+		return fmt.Errorf("failed to update execution: %w", err)
+	}
+
+	s.AddTaskLog(ctx, executionID, taskID, "", "info", "Task cancelled by user")
+
+	slog.Info("execution cancelled", "execution_id", executionID, "task_id", taskID)
+	return nil
+}
+
 func (s *SchedulerService) GetTaskLogs(ctx context.Context, executionID string) ([]*model.TaskLog, error) {
 	query := `
 		SELECT id, execution_id, task_id, executor_id, node_id, log_level, message, log_time

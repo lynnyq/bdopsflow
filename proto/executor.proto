@@ -52,14 +52,16 @@ message HeartbeatResponse {
   bool success = 1;
   string message = 2;
   int32 target_capacity = 3;
-  // 新增：调度器是否希望执行器在下一次心跳时发送详细任务状态
+  // 新增：调度器是否希望执行器下次心跳时发送详细任务状态
   bool need_full_sync = 4;
-  // 新增：调度器节点 ID（用于检测调度器变化）
+  // 新增：调度器节点ID（用于检测调度器变化）
   string scheduler_node_id = 5;
   // 新增：是否是新的领导节点
   bool is_new_leader = 6;
   // 新增：该节点当前是否是领导节点
   bool is_leader = 7;
+  // 新增：需要取消的任务执行ID列表
+  repeated string cancel_execution_ids = 8;
 }
 
 message SubscribeTaskRequest {

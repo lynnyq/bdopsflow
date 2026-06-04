@@ -25,6 +25,7 @@ type TaskRunnerStats interface {
 	GetRunningExecutionIds() []string
 	GetRunningTaskStates() []*pb.RunningTaskState // 新增
 	UpdateCapacity(newCapacity int32) error
+	CancelTask(executionId string) bool // 新增：取消任务的方法
 }
 
 // 包装结构体用于避免 atomic.Value 存储 nil 导致的 panic
@@ -583,6 +584,20 @@ func (c *MultiClient) heartbeatLoop(executorName string, currentCapacity int32) 
 							slog.Info("capacity updated successfully", "new_capacity", currentCapacity)
 						} else {
 							slog.Error("failed to update capacity", "error", err)
+						}
+					}
+				}
+
+				// 处理取消任务指令
+				if len(resp.CancelExecutionIds) > 0 {
+					slog.Info("received cancel execution IDs",
+						"count", len(resp.CancelExecutionIds),
+						"execution_ids", resp.CancelExecutionIds)
+					if taskRunner != nil {
+						for _, execId := range resp.CancelExecutionIds {
+							if taskRunner.CancelTask(execId) {
+								slog.Info("successfully cancelled task", "execution_id", execId)
+							}
 						}
 					}
 				}

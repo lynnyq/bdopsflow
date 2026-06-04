@@ -31,8 +31,18 @@ func scanTaskResult(qr *rqlite.QueryResult, task *model.Task) error {
 	task.WebhookEvents = rowString(row[12])
 	task.AssignedExecutorID = rowInt64(row[13])
 	task.CreatedBy = rowInt64(row[14])
-	task.CreatedAt = parseDateTime(row[15])
-	task.UpdatedAt = parseDateTime(row[16])
+	
+	// 兼容两种查询：有 created_by_name（18列）或没有（17列）
+	if len(row) > 16 {
+		task.CreatedByName = rowString(row[15])
+		task.CreatedAt = parseDateTime(row[16])
+		if len(row) > 17 {
+			task.UpdatedAt = parseDateTime(row[17])
+		}
+	} else {
+		task.CreatedAt = parseDateTime(row[15])
+		task.UpdatedAt = parseDateTime(row[16])
+	}
 	return nil
 }
 

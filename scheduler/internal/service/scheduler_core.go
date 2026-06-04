@@ -50,6 +50,10 @@ type LeaderAddrResolver interface {
 	GetLeaderHTTPAddr(ctx context.Context) (string, error)
 }
 
+type CancelNotifier interface {
+	AddCancelExecutionId(executorName, executionId string)
+}
+
 type SchedulerService struct {
 	DB                   database.DB
 	redis                *redis.Client
@@ -71,6 +75,7 @@ type SchedulerService struct {
 	connectivityChecker   ExecutorConnectivityChecker
 	leaderAddrResolver    LeaderAddrResolver
 	httpClient            *http.Client
+	cancelNotifier        CancelNotifier
 }
 
 func NewSchedulerService(db database.DB, redis *redis.Client) *SchedulerService {
@@ -110,6 +115,10 @@ func (s *SchedulerService) SetConnectivityChecker(checker ExecutorConnectivityCh
 
 func (s *SchedulerService) SetLeaderAddrResolver(resolver LeaderAddrResolver) {
 	s.leaderAddrResolver = resolver
+}
+
+func (s *SchedulerService) SetCancelNotifier(notifier CancelNotifier) {
+	s.cancelNotifier = notifier
 }
 
 func (s *SchedulerService) ForwardToLeader(ctx context.Context, method, path string, body io.Reader) ([]byte, int, error) {

@@ -798,6 +798,32 @@ func toTaskLogResponse(tl *model.TaskLog) *TaskLogResponse {
 	}
 }
 
+func (h *TaskHandler) CancelExecution(c *gin.Context) {
+	executionID := c.Param("execution_id")
+	if safeString(executionID) == "" {
+		slog.Warn("TaskHandler.CancelExecution: execution_id required")
+		BadRequest(c, "execution_id required")
+		return
+	}
+
+	ctx := c.Request.Context()
+	err := h.svc.CancelExecution(ctx, executionID)
+	if err != nil {
+		slog.Error("TaskHandler.CancelExecution: failed to cancel execution", "execution_id", executionID, "error", err)
+		if strings.Contains(err.Error(), "not found") {
+			NotFound(c, "execution not found")
+		} else if strings.Contains(err.Error(), "not running") {
+			BadRequest(c, err.Error())
+		} else {
+			FailFromError(c, err)
+		}
+		return
+	}
+
+	slog.Info("TaskHandler.CancelExecution: execution cancelled", "execution_id", executionID)
+	Success(c, gin.H{"message": "execution cancelled", "execution_id": executionID})
+}
+
 func (h *TaskHandler) ExecutionLogs(c *gin.Context) {
 	executionID := c.Param("execution_id")
 	if safeString(executionID) == "" {

@@ -344,6 +344,7 @@ func NewApp(cfg *config.Config) *App {
 	grpcSrv.SetNodeId(nodeID)
 	schedulerService.SetConnectivityChecker(grpcSrv)
 	schedulerService.SetLeaderAddrResolver(leaderElection)
+	schedulerService.SetCancelNotifier(grpcSrv)
 	app.grpcSrv = grpcSrv
 
 	cronScheduler := cron.NewCronScheduler(schedulerService, redisClient)

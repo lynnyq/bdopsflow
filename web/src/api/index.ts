@@ -48,6 +48,7 @@ export const taskAPI = {
   trigger: (id: number) => api.post(`/tasks/${id}/trigger`),
   getExecutions: (id: number) => api.get<TaskExecution[]>(`/tasks/${id}/executions`),
   getExecutionLogs: (executionId: string) => api.get<TaskLog[]>(`/tasks/executions/${executionId}/logs`),
+  cancelExecution: (executionId: string) => api.post(`/tasks/executions/${executionId}/cancel`),
 }
 
 export const executorAPI = {

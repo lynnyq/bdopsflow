@@ -10,7 +10,15 @@
         </el-tag>
       </div>
       <div class="log-actions">
-        <el-button :icon="Close" size="small" text @click="$emit('close')">关闭</el-button>
+        <el-button
+          v-if="canCancel"
+          :icon="CircleClose"
+          size="small"
+          class="cancel-btn"
+          :loading="isCanceling"
+          @click="handleCancel"
+        >终止任务</el-button>
+        <el-button :icon="Close" size="small" text class="close-btn" @click="$emit('close')">关闭</el-button>
       </div>
     </div>
     <div class="log-header in-dialog" v-else>
@@ -76,8 +84,9 @@
 
 <script setup lang="ts">
 import { ref, watch, onUnmounted, nextTick, computed } from 'vue'
-import { Document, Close, InfoFilled, Loading } from '@element-plus/icons-vue'
+import { Document, Close, InfoFilled, Loading, CircleClose } from '@element-plus/icons-vue'
 import { taskAPI } from '@/api'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 const MAX_LOG_ENTRIES = 5000;
 const SSE_RECONNECT_DELAY = 3000;
@@ -117,11 +126,45 @@ const isLoadingHistory = ref(false)
 const eventSource = ref<EventSource | null>(null)
 const reconnectCount = ref(0)
 const activeTab = ref('logs')
+const isCanceling = ref(false)
 
 // 实时输出和错误
 const realtimeOutput = ref('')
 const realtimeError = ref('')
 const currentStatus = ref(props.executionStatus || '')
+
+const canCancel = computed(() => {
+  return currentStatus.value === 'running' || currentStatus.value === 'pending'
+})
+
+const handleCancel = async () => {
+  if (!props.executionId || !canCancel.value) return
+
+  try {
+    await ElMessageBox.confirm(
+      '确认要终止当前任务吗？此操作不可恢复。',
+      '终止任务',
+      {
+        confirmButtonText: '终止',
+        cancelButtonText: '取消',
+        type: 'warning',
+        confirmButtonClass: 'el-button--danger',
+        customClass: 'cancel-task-dialog'
+      }
+    )
+    
+    isCanceling.value = true
+    await taskAPI.cancelExecution(props.executionId)
+    ElMessage.success('任务已终止')
+    currentStatus.value = 'failed'
+  } catch (err: any) {
+    if (err !== 'cancel') {
+      ElMessage.error(err.response?.data?.message || '终止失败')
+    }
+  } finally {
+    isCanceling.value = false
+  }
+}
 
 const loadHistoryLogs = async () => {
   if (!props.executionId) return
@@ -382,16 +425,42 @@ const formatLogTime = (timeStr: string | number | undefined): string => {
 
 .log-actions {
   display: flex;
-  gap: 4px;
+  gap: 8px;
 }
 
-.log-actions .el-button {
+.cancel-btn {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(239, 68, 68, 0.05));
+  color: #ff6b6b;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  font-weight: 600;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.1);
+}
+
+.cancel-btn:hover {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.25), rgba(239, 68, 68, 0.1));
+  color: #ff8080;
+  border-color: rgba(239, 68, 68, 0.5);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2);
+}
+
+.cancel-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 6px rgba(239, 68, 68, 0.15);
+}
+
+.close-btn {
   color: #8b949e;
+  font-weight: 500;
+  transition: all 0.2s ease;
 }
 
-.log-actions .el-button:hover {
+.close-btn:hover {
   color: #ffffff;
   background: rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
 }
 
 .log-tabs {

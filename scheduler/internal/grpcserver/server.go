@@ -26,6 +26,7 @@ type Server struct {
 	isNewLeader     bool
 	isLeader        bool           // 当前是否是主节点
 	needExecSync    map[string]bool // 记录哪些执行器需要同步
+	cancelExecIds   map[string][]string // 执行器 -> 需要取消的执行ID列表
 }
 
 type executorConn struct {
@@ -34,15 +35,23 @@ type executorConn struct {
 
 func NewServer(port string, scheduler *service.SchedulerService) *Server {
 	s := &Server{
-		port:         port,
-		scheduler:    scheduler,
-		executors:    make(map[string]*executorConn),
-		needExecSync: make(map[string]bool),
+		port:          port,
+		scheduler:     scheduler,
+		executors:     make(map[string]*executorConn),
+		needExecSync:  make(map[string]bool),
+		cancelExecIds: make(map[string][]string),
 	}
 
 	scheduler.SetTaskDispatcher(s.dispatchTask)
 
 	return s
+}
+
+// 添加需要取消的执行ID
+func (s *Server) AddCancelExecutionId(executorName, executionId string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cancelExecIds[executorName] = append(s.cancelExecIds[executorName], executionId)
 }
 
 // 设置节点 ID
@@ -176,6 +185,11 @@ func (s *Server) Heartbeat(ctx context.Context, req *pb.HeartbeatRequest) (*pb.H
 	isNewLeader := s.isNewLeader
 	isLeader := s.isLeader
 	needFullSync := s.needExecSync[req.ExecutorName]
+	// 获取需要取消的执行ID并清除
+	cancelIds := s.cancelExecIds[req.ExecutorName]
+	if len(cancelIds) > 0 {
+		delete(s.cancelExecIds, req.ExecutorName)
+	}
 	// 处理完后清除标记
 	if needFullSync {
 		delete(s.needExecSync, req.ExecutorName)
@@ -183,13 +197,14 @@ func (s *Server) Heartbeat(ctx context.Context, req *pb.HeartbeatRequest) (*pb.H
 	s.mu.Unlock()
 
 	return &pb.HeartbeatResponse{
-		Success:         true,
-		Message:         "ok",
-		TargetCapacity:  targetCapacity,
-		NeedFullSync:    needFullSync || (req.IsReconnect && isNewLeader),
-		SchedulerNodeId: nodeId,
-		IsNewLeader:     isNewLeader,
-		IsLeader:        isLeader,
+		Success:             true,
+		Message:             "ok",
+		TargetCapacity:      targetCapacity,
+		NeedFullSync:        needFullSync || (req.IsReconnect && isNewLeader),
+		SchedulerNodeId:     nodeId,
+		IsNewLeader:         isNewLeader,
+		IsLeader:            isLeader,
+		CancelExecutionIds:  cancelIds,
 	}, nil
 }
 
