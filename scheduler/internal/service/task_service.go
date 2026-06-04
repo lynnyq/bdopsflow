@@ -41,10 +41,12 @@ func (s *SchedulerService) CreateTask(ctx context.Context, query string, args ..
 
 func (s *SchedulerService) GetTaskByID(ctx context.Context, id int64) (*model.Task, error) {
 	query := `
-		SELECT id, name, type, config, cron_expression, timeout_seconds,
-		       retry_count, retry_interval, is_enabled, status, domain_id, webhook_id, webhook_events,
-		       assigned_executor_id, created_by, created_at, updated_at
-		FROM bdopsflow_tasks WHERE id = ?
+		SELECT t.id, t.name, t.type, t.config, t.cron_expression, t.timeout_seconds,
+		       t.retry_count, t.retry_interval, t.is_enabled, t.status, t.domain_id, t.webhook_id, t.webhook_events,
+		       t.assigned_executor_id, t.created_by, u.real_name as created_by_name, t.created_at, t.updated_at
+		FROM bdopsflow_tasks t
+		LEFT JOIN bdopsflow_users u ON t.created_by = u.id
+		WHERE t.id = ?
 	`
 
 	stmt := rqlite.ParameterizedStatement{
@@ -843,10 +845,11 @@ func (s *SchedulerService) UpdateTaskStatusByID(ctx context.Context, taskID int6
 
 func (s *SchedulerService) ScanPendingTasks(ctx context.Context) ([]*model.Task, error) {
 	query := `
-		SELECT id, name, type, config, cron_expression, timeout_seconds,
-		       retry_count, retry_interval, is_enabled, status, domain_id, webhook_id, webhook_events,
-		       assigned_executor_id, created_by, created_at, updated_at
-		FROM bdopsflow_tasks
+		SELECT t.id, t.name, t.type, t.config, t.cron_expression, t.timeout_seconds,
+		       t.retry_count, t.retry_interval, t.is_enabled, t.status, t.domain_id, t.webhook_id, t.webhook_events,
+		       t.assigned_executor_id, t.created_by, u.real_name as created_by_name, t.created_at, t.updated_at
+		FROM bdopsflow_tasks t
+		LEFT JOIN bdopsflow_users u ON t.created_by = u.id
 		WHERE is_enabled = 1 AND cron_expression != ''
 	`
 

@@ -261,16 +261,23 @@ func (h *TaskHandler) Create(c *gin.Context) {
 		isEnabled = 1
 	}
 
+	// 获取当前用户ID
+	userID, _ := c.Get("user_id")
+	var createdBy int64 = 1 // 默认值
+	if uid, ok := userID.(int64); ok {
+		createdBy = uid
+	}
+
 	query = `
 		INSERT INTO bdopsflow_tasks (name, type, config, cron_expression, timeout_seconds,
 		                  retry_count, retry_interval, is_enabled, status, domain_id, webhook_id, webhook_events,
 		                  assigned_executor_id, created_by, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, 1, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)
 	`
 	args = []interface{}{
 		safeString(req.Name), safeString(req.Type), safeString(configStr),
 		safeString(req.CronExpression), ts, rc, ri, isEnabled, domainID, req.WebhookID, req.WebhookEvents,
-		assignedExecutorID, now, now,
+		assignedExecutorID, createdBy, now, now,
 	}
 
 	task, err := h.svc.CreateTask(ctx, query, args...)
