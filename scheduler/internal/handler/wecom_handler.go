@@ -36,10 +36,10 @@ type BdopsFlowTask struct {
 }
 
 type BdopsFlowEvent struct {
-	DeliveryID string              `json:"delivery_id"`
-	Event      string              `json:"event"`
-	Execution  BdopsFlowExecution  `json:"execution"`
-	Task       BdopsFlowTask       `json:"task"`
+	DeliveryID string             `json:"delivery_id"`
+	Event      string             `json:"event"`
+	Execution  BdopsFlowExecution `json:"execution"`
+	Task       BdopsFlowTask      `json:"task"`
 	Timestamp  int64              `json:"timestamp"`
 }
 
@@ -113,7 +113,8 @@ func (h *WeComHandler) buildMarkdownMessage(eventData BdopsFlowEvent) string {
 	if eventData.Execution.Status == "failed" && errorMsg != "" {
 		logsDisplay = "无"
 	} else if output != "" {
-		logsDisplay = output
+
+		logsDisplay = fmt.Sprintf(`<font color="info">%s</font>`, output)
 	} else {
 		logsDisplay = "无"
 	}
@@ -121,7 +122,7 @@ func (h *WeComHandler) buildMarkdownMessage(eventData BdopsFlowEvent) string {
 	// 根据状态添加错误日志显示
 	var errorDisplay string
 	if eventData.Execution.Status == "failed" && errorMsg != "" {
-		errorDisplay = errorMsg
+		errorDisplay = fmt.Sprintf(`<font color="warning">%s</font>`, errorMsg)
 	} else {
 		errorDisplay = "无"
 	}
@@ -159,8 +160,8 @@ func (h *WeComHandler) sendRobotMarkdownMsg(groupID string, msg string) error {
 	}
 
 	data := map[string]interface{}{
-		"groupId":      groupID,
-		"fromChannel":  "HDP",
+		"groupId":     groupID,
+		"fromChannel": "HDP",
 		"reqData": map[string]interface{}{
 			"msgtype": "markdown",
 			"ewechatMsg": map[string]string{

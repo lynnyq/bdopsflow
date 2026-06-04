@@ -363,6 +363,11 @@ func (s *ConfigService) Reload(ctx context.Context) error {
 	}
 
 	newCache := make(map[string]string)
+	// 先复制默认配置
+	for k, v := range defaultConfigValues {
+		newCache[k] = v
+	}
+	// 再用数据库中的配置覆盖
 	for qr.Next() {
 		row, err := qr.Slice()
 		if err != nil {
