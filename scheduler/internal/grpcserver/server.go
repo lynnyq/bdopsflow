@@ -17,17 +17,17 @@ import (
 
 type Server struct {
 	pb.UnimplementedExecutorServiceServer
-	port            string
-	grpcServer      *grpc.Server
-	scheduler       *service.SchedulerService
-	mu              sync.RWMutex
-	executors       map[string]*executorConn
-	lis             net.Listener
-	nodeId          string
-	isNewLeader     bool
-	isLeader        bool           // 当前是否是主节点
-	needExecSync    map[string]bool // 记录哪些执行器需要同步
-	cancelExecIds   map[string][]string // 执行器 -> 需要取消的执行ID列表
+	port          string
+	grpcServer    *grpc.Server
+	scheduler     *service.SchedulerService
+	mu            sync.RWMutex
+	executors     map[string]*executorConn
+	lis           net.Listener
+	nodeId        string
+	isNewLeader   bool
+	isLeader      bool                // 当前是否是主节点
+	needExecSync  map[string]bool     // 记录哪些执行器需要同步
+	cancelExecIds map[string][]string // 执行器 -> 需要取消的执行ID列表
 }
 
 type executorConn struct {
@@ -145,7 +145,7 @@ func (s *Server) Heartbeat(ctx context.Context, req *pb.HeartbeatRequest) (*pb.H
 		nodeId := s.nodeId
 		isLeader := s.isLeader
 		s.mu.RUnlock()
-		
+
 		return &pb.HeartbeatResponse{
 			Success:         true,
 			Message:         "ok",
@@ -161,7 +161,7 @@ func (s *Server) Heartbeat(ctx context.Context, req *pb.HeartbeatRequest) (*pb.H
 			"executor_name", req.ExecutorName,
 			"task_count", len(req.RunningTasks),
 		)
-		
+
 		// 提取 execution ids
 		execIds := make([]string, 0, len(req.RunningTasks))
 		for _, task := range req.RunningTasks {
@@ -169,7 +169,7 @@ func (s *Server) Heartbeat(ctx context.Context, req *pb.HeartbeatRequest) (*pb.H
 			// 更新任务进度信息
 			s.scheduler.UpdateTaskProgress(ctx, task.ExecutionId, task.Progress, task.ProgressMessage)
 		}
-		
+
 		err := s.scheduler.UpdateExecutorHeartbeatWithRunningTasks(ctx, req.ExecutorName, req.CurrentLoad, execIds)
 		if err != nil {
 			slog.Warn("failed to update executor heartbeat", "executor_name", req.ExecutorName, "error", err)
@@ -202,26 +202,26 @@ func (s *Server) Heartbeat(ctx context.Context, req *pb.HeartbeatRequest) (*pb.H
 	s.mu.Unlock()
 
 	return &pb.HeartbeatResponse{
-		Success:             true,
-		Message:             "ok",
-		TargetCapacity:      targetCapacity,
-		NeedFullSync:        needFullSync || (req.IsReconnect && isNewLeader),
-		SchedulerNodeId:     nodeId,
-		IsNewLeader:         isNewLeader,
-		IsLeader:            isLeader,
-		CancelExecutionIds:  cancelIds,
+		Success:            true,
+		Message:            "ok",
+		TargetCapacity:     targetCapacity,
+		NeedFullSync:       needFullSync || (req.IsReconnect && isNewLeader),
+		SchedulerNodeId:    nodeId,
+		IsNewLeader:        isNewLeader,
+		IsLeader:           isLeader,
+		CancelExecutionIds: cancelIds,
 	}, nil
 }
 
 // 新增：同步正在运行的任务
 func (s *Server) SyncRunningTasks(ctx context.Context, req *pb.SyncRunningTasksRequest) (*pb.SyncRunningTasksResponse, error) {
 	slog.Info("sync running tasks requested", "executor_name", req.ExecutorName)
-	
+
 	// 标记该执行器需要在下次心跳时同步
 	s.mu.Lock()
 	s.needExecSync[req.ExecutorName] = true
 	s.mu.Unlock()
-	
+
 	return &pb.SyncRunningTasksResponse{
 		Success: true,
 		Message: "please send running tasks in next heartbeat",

@@ -9,12 +9,12 @@ import (
 
 type DashboardStats struct {
 	Tasks struct {
-		Total       int64 `json:"total"`
-		Enabled     int64 `json:"enabled"`
-		Cron        int64 `json:"cron"`
-		Running     int64 `json:"running"`
-		Success     int64 `json:"success"`
-		Failed      int64 `json:"failed"`
+		Total       int64   `json:"total"`
+		Enabled     int64   `json:"enabled"`
+		Cron        int64   `json:"cron"`
+		Running     int64   `json:"running"`
+		Success     int64   `json:"success"`
+		Failed      int64   `json:"failed"`
 		AvgDuration float64 `json:"avg_duration"`
 	} `json:"tasks"`
 	Executors struct {
@@ -236,9 +236,9 @@ func (s *SchedulerService) IsSchedulerPaused() bool {
 }
 
 type HealthCheckResult struct {
-	Status     string                      `json:"status"`
-	Timestamp  string                      `json:"timestamp"`
-	Components map[string]ComponentCheck   `json:"components"`
+	Status     string                    `json:"status"`
+	Timestamp  string                    `json:"timestamp"`
+	Components map[string]ComponentCheck `json:"components"`
 }
 
 type ComponentCheck struct {
@@ -262,9 +262,9 @@ var requiredTables = []string{
 }
 
 type tableStatsCache struct {
-	mu       sync.RWMutex
-	counts   map[string]int64
-	total    int64
+	mu        sync.RWMutex
+	counts    map[string]int64
+	total     int64
 	fetchedAt time.Time
 }
 

@@ -136,7 +136,7 @@ func TestCronScheduler_RegisterTask_5Field(t *testing.T) {
 	defer cs.Stop()
 
 	taskID := int64(3)
-	
+
 	standard5Field := "0 * * * *"
 
 	cs.RegisterTask(taskID, standard5Field)
@@ -164,7 +164,7 @@ func TestCronScheduler_RegisterTask_Duplicate(t *testing.T) {
 	cronExpr2 := "30 * * * * *"
 
 	cs.RegisterTask(taskID, cronExpr1)
-	
+
 	cs.RegisterTask(taskID, cronExpr2)
 
 	cs.mu.RLock()

@@ -127,13 +127,13 @@ func (e *ShellExecutor) Execute(ctx context.Context, configStr string) (*TaskRes
 }
 
 type ExecutorFactory struct {
-	httpExecutor *HTTPExecutor
+	httpExecutor  *HTTPExecutor
 	shellExecutor *ShellExecutor
 }
 
 func NewExecutorFactory() *ExecutorFactory {
 	return &ExecutorFactory{
-		httpExecutor: NewHTTPExecutor(5 * time.Minute),
+		httpExecutor:  NewHTTPExecutor(5 * time.Minute),
 		shellExecutor: NewShellExecutor(),
 	}
 }

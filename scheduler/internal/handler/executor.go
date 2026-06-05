@@ -44,16 +44,16 @@ func parseParam(s string, handler func(int64)) (bool, error) {
 }
 
 type ExecutorDTO struct {
-	ID             int64  `json:"id"`
-	Name           string `json:"name"`
-	Address        string `json:"address"`
-	Status         string `json:"status"`
-	LastHeartbeat  string `json:"last_heartbeat"`
-	Capacity       int64  `json:"capacity"`
-	CurrentLoad    int64  `json:"current_load"`
-	IsGlobal       bool   `json:"is_global"`
-	CreatedAt      string `json:"created_at"`
-	UpdatedAt      string `json:"updated_at"`
+	ID            int64  `json:"id"`
+	Name          string `json:"name"`
+	Address       string `json:"address"`
+	Status        string `json:"status"`
+	LastHeartbeat string `json:"last_heartbeat"`
+	Capacity      int64  `json:"capacity"`
+	CurrentLoad   int64  `json:"current_load"`
+	IsGlobal      bool   `json:"is_global"`
+	CreatedAt     string `json:"created_at"`
+	UpdatedAt     string `json:"updated_at"`
 }
 
 func executorToDTO(exec *model.Executor) *ExecutorDTO {

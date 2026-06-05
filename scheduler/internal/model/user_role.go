@@ -5,9 +5,9 @@ import "time"
 // UserRole 用户角色映射模型
 type UserRole struct {
 	ID        int64     `json:"id"`
-	UserID    int64     `json:"user_id"`    // 用户ID
-	RoleID    int64     `json:"role_id"`    // 角色ID
-	DomainID  *int64   `json:"domain_id"`  // 领域ID，NULL表示全局角色
+	UserID    int64     `json:"user_id"`   // 用户ID
+	RoleID    int64     `json:"role_id"`   // 角色ID
+	DomainID  *int64    `json:"domain_id"` // 领域ID，NULL表示全局角色
 	CreatedAt time.Time `json:"created_at"`
 
 	// 关联数据
@@ -33,9 +33,9 @@ type UserWithRoles struct {
 
 // UserRoleDetail 用户角色详情
 type UserRoleDetail struct {
-	RoleID    int64   `json:"role_id"`
-	RoleName  string  `json:"role_name"`
-	RoleCode  string  `json:"role_code"`
-	DomainID  *int64  `json:"domain_id"`
+	RoleID     int64  `json:"role_id"`
+	RoleName   string `json:"role_name"`
+	RoleCode   string `json:"role_code"`
+	DomainID   *int64 `json:"domain_id"`
 	DomainName string `json:"domain_name,omitempty"`
 }

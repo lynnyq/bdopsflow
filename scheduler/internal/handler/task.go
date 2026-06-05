@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	TimeResponseFormat     = time.RFC3339Nano
+	TimeResponseFormat       = time.RFC3339Nano
 	ExecutorHeartbeatTimeout = 30 // 心跳超时时间（秒）
 )
 
@@ -154,9 +154,9 @@ func (h *TaskHandler) Create(c *gin.Context) {
 		RetryInterval      int32       `json:"retry_interval"`
 		IsEnabled          bool        `json:"is_enabled"`
 		DomainID           int64       `json:"domain_id"`
-		WebhookID          *int64  `json:"webhook_id"`
-		WebhookEvents      string  `json:"webhook_events"`
-		AssignedExecutorID int64     `json:"assigned_executor_id"`
+		WebhookID          *int64      `json:"webhook_id"`
+		WebhookEvents      string      `json:"webhook_events"`
+		AssignedExecutorID int64       `json:"assigned_executor_id"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -305,7 +305,7 @@ func (h *TaskHandler) Create(c *gin.Context) {
 
 	// 返回任务和是否有可用执行器的信息
 	Created(c, gin.H{
-		"task": task,
+		"task":                    task,
 		"has_available_executors": hasAvailableExecutors,
 	})
 }
@@ -346,8 +346,8 @@ func (h *TaskHandler) Update(c *gin.Context) {
 		RetryInterval      int32       `json:"retry_interval"`
 		IsEnabled          *bool       `json:"is_enabled"`
 		DomainID           int64       `json:"domain_id"`
-		WebhookID          *int64  `json:"webhook_id"`
-		WebhookEvents      string  `json:"webhook_events"`
+		WebhookID          *int64      `json:"webhook_id"`
+		WebhookEvents      string      `json:"webhook_events"`
 		AssignedExecutorID int64       `json:"assigned_executor_id"`
 	}
 
@@ -478,7 +478,7 @@ func (h *TaskHandler) Update(c *gin.Context) {
 		slog.Error("TaskHandler.Update: failed to get updated task", "id", id, "error", err)
 	} else {
 		Success(c, gin.H{
-			"task": updatedTask,
+			"task":                    updatedTask,
 			"has_available_executors": hasAvailableExecutors,
 		})
 		return
@@ -486,7 +486,7 @@ func (h *TaskHandler) Update(c *gin.Context) {
 
 	slog.Info("TaskHandler.Update: task updated", "id", id)
 	Success(c, gin.H{
-		"task": currentTask,
+		"task":                    currentTask,
 		"has_available_executors": hasAvailableExecutors,
 	})
 }
@@ -762,15 +762,15 @@ type TaskExecutionResponse struct {
 	ExecutionID  string  `json:"execution_id"`
 	ExecutorID   int64   `json:"executor_id"`
 	ExecutorName *string `json:"executor_name,omitempty"`
-	TaskName    *string `json:"task_name,omitempty"`
-	TaskType    *string `json:"task_type,omitempty"`
-	Status      string  `json:"status"`
-	StartTime   *string `json:"start_time,omitempty"`
-	EndTime     *string `json:"end_time,omitempty"`
-	Output      string  `json:"output,omitempty"`
-	Error       string  `json:"error,omitempty"`
-	RetryTimes  int32   `json:"retry_times"`
-	CreatedAt   string  `json:"created_at"`
+	TaskName     *string `json:"task_name,omitempty"`
+	TaskType     *string `json:"task_type,omitempty"`
+	Status       string  `json:"status"`
+	StartTime    *string `json:"start_time,omitempty"`
+	EndTime      *string `json:"end_time,omitempty"`
+	Output       string  `json:"output,omitempty"`
+	Error        string  `json:"error,omitempty"`
+	RetryTimes   int32   `json:"retry_times"`
+	CreatedAt    string  `json:"created_at"`
 }
 
 func toTaskExecutionResponse(exec *model.TaskExecution) *TaskExecutionResponse {

@@ -55,10 +55,10 @@ type CancelNotifier interface {
 }
 
 type SchedulerService struct {
-	DB                   database.DB
-	redis                *redis.Client
-	dispatcher           TaskDispatcher
-	cronScheduler        interface {
+	DB            database.DB
+	redis         *redis.Client
+	dispatcher    TaskDispatcher
+	cronScheduler interface {
 		RegisterTask(taskID int64, cronExpr string)
 		UnregisterTask(taskID int64)
 		Pause()
@@ -80,8 +80,8 @@ type SchedulerService struct {
 
 func NewSchedulerService(db database.DB, redis *redis.Client) *SchedulerService {
 	return &SchedulerService{
-		DB:           db,
-		redis:        redis,
+		DB:            db,
+		redis:         redis,
 		stopCleanupCh: make(chan struct{}),
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,

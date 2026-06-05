@@ -4,15 +4,15 @@ import "time"
 
 // Role 角色模型
 type Role struct {
-	ID          int64      `json:"id"`
-	Name        string     `json:"name"`        // 角色名称
-	Code        string     `json:"code"`        // 角色代码（唯一）
-	Description string     `json:"description"` // 角色描述
-	IsSystem    bool       `json:"is_system"`
-	ParentID    *int64     `json:"parent_id"`
-	DomainID    *int64     `json:"domain_id"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
+	ID          int64     `json:"id"`
+	Name        string    `json:"name"`        // 角色名称
+	Code        string    `json:"code"`        // 角色代码（唯一）
+	Description string    `json:"description"` // 角色描述
+	IsSystem    bool      `json:"is_system"`
+	ParentID    *int64    `json:"parent_id"`
+	DomainID    *int64    `json:"domain_id"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 
 	// 关联数据
 	Permissions []*Permission `json:"permissions,omitempty"` // 角色拥有的权限

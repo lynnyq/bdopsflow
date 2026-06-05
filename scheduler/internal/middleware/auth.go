@@ -18,7 +18,7 @@ import (
 
 type JWTConfig struct {
 	Secret             []byte
-	ExpiryHours       int
+	ExpiryHours        int
 	RefreshSecret      []byte
 	RefreshExpiryHours int
 }
@@ -32,7 +32,7 @@ func InitJWT(secret string, expiryHours int, refreshExpiryHours ...int) {
 	}
 	jwtConfig = JWTConfig{
 		Secret:             []byte(secret),
-		ExpiryHours:       expiryHours,
+		ExpiryHours:        expiryHours,
 		RefreshSecret:      []byte(secret + "_refresh"),
 		RefreshExpiryHours: refreshHours,
 	}
@@ -50,18 +50,18 @@ func SetRefreshExpiryHours(hours int) {
 }
 
 type Claims struct {
-	UserID         int64  `json:"user_id"`
-	Username       string `json:"username"`
-	RealName       string `json:"real_name"`
-	CurrentDomainID int64 `json:"current_domain_id"`
+	UserID          int64  `json:"user_id"`
+	Username        string `json:"username"`
+	RealName        string `json:"real_name"`
+	CurrentDomainID int64  `json:"current_domain_id"`
 	jwt.RegisteredClaims
 }
 
 func GenerateToken(userID int64, username, realName string, currentDomainID int64) (string, error) {
 	claims := &Claims{
-		UserID:         userID,
-		Username:       username,
-		RealName:       realName,
+		UserID:          userID,
+		Username:        username,
+		RealName:        realName,
 		CurrentDomainID: currentDomainID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Duration(jwtConfig.ExpiryHours) * time.Hour)),
@@ -92,9 +92,9 @@ func ParseToken(tokenString string) (*Claims, error) {
 
 func GenerateRefreshToken(userID int64, username, realName string, currentDomainID int64) (string, error) {
 	claims := &Claims{
-		UserID:         userID,
-		Username:       username,
-		RealName:       realName,
+		UserID:          userID,
+		Username:        username,
+		RealName:        realName,
 		CurrentDomainID: currentDomainID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Duration(jwtConfig.RefreshExpiryHours) * time.Hour)),

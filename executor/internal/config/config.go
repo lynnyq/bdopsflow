@@ -46,7 +46,7 @@ func parseSchedulerAddrs(addrsStr string) []string {
 // Load loads configuration from config file
 func Load(configFile string) *Config {
 	defaultHostname := getSystemHostname()
-	
+
 	cfg, err := config.New(config.Options{
 		ConfigFile: configFile,
 	})

@@ -7,21 +7,21 @@ import (
 )
 
 type User struct {
-	ID            int64      `db:"id" json:"id"`
-	Username      string     `db:"username" json:"username"`
-	Password      string     `db:"password" json:"-"`
-	RealName      string     `db:"real_name" json:"real_name"`
-	Phone         string     `db:"phone" json:"phone"`
-	Email         string     `db:"email" json:"email"`
-	IsActive      bool       `db:"is_active" json:"is_active"`
-	LastLoginAt   *time.Time `db:"last_login_at" json:"last_login_at"`
-	CreatedBy     *int64     `db:"created_by" json:"created_by,omitempty"`
-	CreatedAt     time.Time  `db:"created_at" json:"created_at"`
-	UpdatedAt     time.Time  `db:"updated_at" json:"updated_at"`
-	RoleIDs       []int64    `db:"-" json:"role_ids,omitempty"`
-	DomainIDs     []int64    `db:"-" json:"domain_ids,omitempty"`
-	DomainNames   []string   `db:"-" json:"domain_names,omitempty"`
-	RoleCodes     []string   `db:"-" json:"role_codes,omitempty"`
+	ID          int64      `db:"id" json:"id"`
+	Username    string     `db:"username" json:"username"`
+	Password    string     `db:"password" json:"-"`
+	RealName    string     `db:"real_name" json:"real_name"`
+	Phone       string     `db:"phone" json:"phone"`
+	Email       string     `db:"email" json:"email"`
+	IsActive    bool       `db:"is_active" json:"is_active"`
+	LastLoginAt *time.Time `db:"last_login_at" json:"last_login_at"`
+	CreatedBy   *int64     `db:"created_by" json:"created_by,omitempty"`
+	CreatedAt   time.Time  `db:"created_at" json:"created_at"`
+	UpdatedAt   time.Time  `db:"updated_at" json:"updated_at"`
+	RoleIDs     []int64    `db:"-" json:"role_ids,omitempty"`
+	DomainIDs   []int64    `db:"-" json:"domain_ids,omitempty"`
+	DomainNames []string   `db:"-" json:"domain_names,omitempty"`
+	RoleCodes   []string   `db:"-" json:"role_codes,omitempty"`
 }
 
 type Domain struct {
@@ -44,8 +44,8 @@ type Task struct {
 	IsEnabled           bool      `db:"is_enabled" json:"is_enabled"`
 	Status              string    `db:"status" json:"status"`
 	DomainID            int64     `db:"domain_id" json:"domain_id"`
-	WebhookID     *int64  `db:"webhook_id" json:"webhook_id"`
-	WebhookEvents string  `db:"webhook_events" json:"webhook_events"`
+	WebhookID           *int64    `db:"webhook_id" json:"webhook_id"`
+	WebhookEvents       string    `db:"webhook_events" json:"webhook_events"`
 	AssignedExecutorID  int64     `db:"assigned_executor_id" json:"assigned_executor_id"`
 	CreatedBy           int64     `db:"created_by" json:"created_by"`
 	CreatedByName       string    `db:"-" json:"created_by_name"`

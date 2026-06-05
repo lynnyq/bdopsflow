@@ -285,7 +285,7 @@ func buildWhereClauseFromFilter(filter map[string]string) (string, []interface{}
 
 func TestGetAllExecutions_Integration(t *testing.T) {
 	t.Skip("需要数据库连接，跳过集成测试")
-	
+
 	ctx := context.Background()
 	filter := map[string]string{
 		"start_time_from": "2024-01-01 00:00:00",

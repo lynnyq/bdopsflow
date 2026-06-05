@@ -493,8 +493,8 @@ func TestExecutorWithDomainsModel(t *testing.T) {
 	t.Run("创建带领域的执行器", func(t *testing.T) {
 		executor := &ExecutorWithDomains{
 			Executor: Executor{
-				ID:    1,
-				Name:  "test-executor",
+				ID:     1,
+				Name:   "test-executor",
 				Status: "online",
 			},
 			IsGlobal: false,
@@ -515,8 +515,8 @@ func TestExecutorWithDomainsModel(t *testing.T) {
 	t.Run("全局执行器", func(t *testing.T) {
 		executor := &ExecutorWithDomains{
 			Executor: Executor{
-				ID:    2,
-				Name:  "global-executor",
+				ID:     2,
+				Name:   "global-executor",
 				Status: "online",
 			},
 			IsGlobal: true,

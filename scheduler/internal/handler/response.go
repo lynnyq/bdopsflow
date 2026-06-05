@@ -15,13 +15,13 @@ type Response struct {
 }
 
 type PaginatedResponse struct {
-	Code    int         `json:"code"`
-	Status  string      `json:"status"`
-	Message string      `json:"message"`
-	Data    interface{} `json:"data"`
-	Total   int         `json:"total"`
-	Page    int         `json:"page"`
-	PageSize int        `json:"page_size"`
+	Code     int         `json:"code"`
+	Status   string      `json:"status"`
+	Message  string      `json:"message"`
+	Data     interface{} `json:"data"`
+	Total    int         `json:"total"`
+	Page     int         `json:"page"`
+	PageSize int         `json:"page_size"`
 }
 
 func Success(c *gin.Context, data interface{}) {

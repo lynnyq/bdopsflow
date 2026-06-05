@@ -43,34 +43,34 @@ func TestWebhookConfig_BuildPayload(t *testing.T) {
 
 func TestShouldSendForEvent(t *testing.T) {
 	tests := []struct {
-		name            string
+		name             string
 		configuredEvents []string
-		event           string
-		expected        bool
+		event            string
+		expected         bool
 	}{
 		{
-			name:            "empty configured events",
+			name:             "empty configured events",
 			configuredEvents: []string{},
-			event:           "task.completed",
-			expected:        true,
+			event:            "task.completed",
+			expected:         true,
 		},
 		{
-			name:            "wildcard event",
+			name:             "wildcard event",
 			configuredEvents: []string{"*"},
-			event:           "task.completed",
-			expected:        true,
+			event:            "task.completed",
+			expected:         true,
 		},
 		{
-			name:            "matching event",
+			name:             "matching event",
 			configuredEvents: []string{"task.completed", "task.failed"},
-			event:           "task.completed",
-			expected:        true,
+			event:            "task.completed",
+			expected:         true,
 		},
 		{
-			name:            "non-matching event",
+			name:             "non-matching event",
 			configuredEvents: []string{"task.failed"},
-			event:           "task.completed",
-			expected:        false,
+			event:            "task.completed",
+			expected:         false,
 		},
 	}
 
@@ -105,7 +105,7 @@ func TestWebhookService_Send(t *testing.T) {
 	defer server.Close()
 
 	svc := NewService()
-	
+
 	config := WebhookConfig{
 		URL:     server.URL,
 		Method:  "POST",
@@ -234,69 +234,69 @@ func TestWebhookService_Send_DefaultMethod(t *testing.T) {
 // TestWebhookEventFiltering 测试 webhook 推送时机的灵活配置
 func TestWebhookEventFiltering(t *testing.T) {
 	tests := []struct {
-		name            string
+		name             string
 		configuredEvents []string
-		testCases       []struct {
-			event           string
-			shouldSend      bool
-			description     string
+		testCases        []struct {
+			event       string
+			shouldSend  bool
+			description string
 		}
 	}{
 		{
-			name:            "仅任务成功时推送",
+			name:             "仅任务成功时推送",
 			configuredEvents: []string{"success"},
 			testCases: []struct {
-				event           string
-				shouldSend      bool
-				description     string
+				event       string
+				shouldSend  bool
+				description string
 			}{
 				{event: "success", shouldSend: true, description: "任务成功应该推送"},
 				{event: "failed", shouldSend: false, description: "任务失败不应该推送"},
 			},
 		},
 		{
-			name:            "仅任务失败时推送",
+			name:             "仅任务失败时推送",
 			configuredEvents: []string{"failed"},
 			testCases: []struct {
-				event           string
-				shouldSend      bool
-				description     string
+				event       string
+				shouldSend  bool
+				description string
 			}{
 				{event: "success", shouldSend: false, description: "任务成功不应该推送"},
 				{event: "failed", shouldSend: true, description: "任务失败应该推送"},
 			},
 		},
 		{
-			name:            "每次执行都推送（通配符）",
+			name:             "每次执行都推送（通配符）",
 			configuredEvents: []string{"*"},
 			testCases: []struct {
-				event           string
-				shouldSend      bool
-				description     string
+				event       string
+				shouldSend  bool
+				description string
 			}{
 				{event: "success", shouldSend: true, description: "任务成功应该推送"},
 				{event: "failed", shouldSend: true, description: "任务失败应该推送"},
 			},
 		},
 		{
-			name:            "任务成功和失败都推送",
+			name:             "任务成功和失败都推送",
 			configuredEvents: []string{"success", "failed"},
 			testCases: []struct {
-				event           string
-				shouldSend      bool
-				description     string
+				event       string
+				shouldSend  bool
+				description string
 			}{
 				{event: "success", shouldSend: true, description: "任务成功应该推送"},
 				{event: "failed", shouldSend: true, description: "任务失败应该推送"},
 			},
 		},
 		{
-			name:            "空配置（默认全部推送）",
+			name:             "空配置（默认全部推送）",
 			configuredEvents: []string{},
 			testCases: []struct {
-				event           string
-				shouldSend      bool
-				description     string
+				event       string
+				shouldSend  bool
+				description string
 			}{
 				{event: "success", shouldSend: true, description: "默认应该推送所有事件"},
 				{event: "failed", shouldSend: true, description: "默认应该推送所有事件"},
@@ -322,24 +322,24 @@ func TestWebhookEventFiltering(t *testing.T) {
 // TestWebhookPayloadWithDifferentEvents 测试不同事件类型的 payload 构建
 func TestWebhookPayloadWithDifferentEvents(t *testing.T) {
 	testCases := []struct {
-		event      string
-		status     string
-		output     string
-		errorMsg   string
+		event       string
+		status      string
+		output      string
+		errorMsg    string
 		description string
 	}{
 		{
-			event:      "success",
-			status:     "success",
-			output:     "Task completed successfully",
-			errorMsg:   "",
+			event:       "success",
+			status:      "success",
+			output:      "Task completed successfully",
+			errorMsg:    "",
 			description: "任务成功场景",
 		},
 		{
-			event:      "failed",
-			status:     "failed",
-			output:     "",
-			errorMsg:   "Task execution failed: timeout",
+			event:       "failed",
+			status:      "failed",
+			output:      "",
+			errorMsg:    "Task execution failed: timeout",
 			description: "任务失败场景",
 		},
 	}
@@ -469,11 +469,11 @@ func TestWebhookPayloadSerialization(t *testing.T) {
 // TestWebhookFlexiblePushScenarios 测试灵活的推送时机场景
 func TestWebhookFlexiblePushScenarios(t *testing.T) {
 	tests := []struct {
-		name            string
-		webhookConfig   WebhookConfig
-		testEvents      []string
-		expectedSends   []int
-		description     string
+		name          string
+		webhookConfig WebhookConfig
+		testEvents    []string
+		expectedSends []int
+		description   string
 	}{
 		{
 			name: "只订阅任务成功事件",
@@ -536,7 +536,7 @@ func TestWebhookFlexiblePushScenarios(t *testing.T) {
 			for i, event := range tt.testEvents {
 				payload := BuildPayload(event, 1, "exec-1", event, "", "", 0)
 				svc.Send(context.Background(), tt.webhookConfig, payload)
-				
+
 				if receivedCount != tt.expectedSends[i] {
 					t.Errorf("%s: 第 %d 次事件后，期望累计发送 %d 次，实际累计发送 %d 次",
 						tt.description, i+1, tt.expectedSends[i], receivedCount)
@@ -573,15 +573,15 @@ func TestSendFromMap(t *testing.T) {
 	}
 
 	payloadMap := map[string]interface{}{
-		"event":         "success",
-		"timestamp":     int64(time.Now().Unix()),
-		"task_id":       int64(123),
-		"execution_id":  "exec-456",
-		"status":        "success",
-		"output":        "test output",
-		"error":         "",
-		"duration_ms":   int64(1000),
-		"metadata":      map[string]interface{}{"task_name": "test"},
+		"event":        "success",
+		"timestamp":    int64(time.Now().Unix()),
+		"task_id":      int64(123),
+		"execution_id": "exec-456",
+		"status":       "success",
+		"output":       "test output",
+		"error":        "",
+		"duration_ms":  int64(1000),
+		"metadata":     map[string]interface{}{"task_name": "test"},
 	}
 
 	svc := NewService()

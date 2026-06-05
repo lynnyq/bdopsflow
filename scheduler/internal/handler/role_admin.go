@@ -99,7 +99,7 @@ func (h *RoleAdminHandler) GetRole(c *gin.Context) {
 	}
 
 	Success(c, gin.H{
-		"role":        role,
+		"role":                  role,
 		"bdopsflow_permissions": bdopsflow_permissions,
 	})
 }

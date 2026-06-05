@@ -19,19 +19,19 @@ const (
 )
 
 type RunningQuery struct {
-	QueryID        string
-	DatasourceID   int64
-	Database       string
-	SQL            string
-	UserID         int64
-	Status         QueryStatus
-	Result         *driver.QueryResult
-	Error          string
-	ExecutionTime  float64
-	StartTime      time.Time
-	FromCache      bool
-	CancelFunc     context.CancelFunc
-	CreatedAt      time.Time
+	QueryID       string
+	DatasourceID  int64
+	Database      string
+	SQL           string
+	UserID        int64
+	Status        QueryStatus
+	Result        *driver.QueryResult
+	Error         string
+	ExecutionTime float64
+	StartTime     time.Time
+	FromCache     bool
+	CancelFunc    context.CancelFunc
+	CreatedAt     time.Time
 }
 
 type QueryRegistry struct {

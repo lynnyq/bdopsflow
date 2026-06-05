@@ -139,12 +139,12 @@ type App struct {
 	webhookSvc            *service.WebhookService
 	instancePermSvc       *service.InstancePermissionService
 
-	dsCrypto             *datasource.Crypto
-	dsConfigService      *datasource.ConfigService
-	dsManager            *datasource.Manager
-	dsService            *datasource.DatasourceService
-	dsCacheService       *datasource.CacheService
-	dsConcurrentService  *datasource.ConcurrentService
+	dsCrypto            *datasource.Crypto
+	dsConfigService     *datasource.ConfigService
+	dsManager           *datasource.Manager
+	dsService           *datasource.DatasourceService
+	dsCacheService      *datasource.CacheService
+	dsConcurrentService *datasource.ConcurrentService
 
 	leaderElection *election.LeaderElection
 	grpcSrv        *grpcserver.Server

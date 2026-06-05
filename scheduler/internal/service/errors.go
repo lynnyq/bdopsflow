@@ -57,9 +57,9 @@ var (
 	ErrExecutorDuplicate   = errors.New("executor duplicate registration rejected")
 
 	// 权限相关错误
-	ErrPermissionDenied          = errors.New("permission denied")
-	ErrUnauthorized              = errors.New("unauthorized")
-	ErrInstancePermissionDenied  = errors.New("instance permission denied")
+	ErrPermissionDenied             = errors.New("permission denied")
+	ErrUnauthorized                 = errors.New("unauthorized")
+	ErrInstancePermissionDenied     = errors.New("instance permission denied")
 	ErrCannotDeleteRoleWithChildren = errors.New("cannot delete role with child roles")
 
 	// 任务相关错误
@@ -68,38 +68,38 @@ var (
 	ErrTaskRunning       = errors.New("task is running")
 	ErrTaskLocked        = errors.New("task is locked by another execution")
 
-	ErrNoAvailableExecutor = errors.New("no available executor")
-	ErrDispatchFailed      = errors.New("dispatch failed")
+	ErrNoAvailableExecutor     = errors.New("no available executor")
+	ErrDispatchFailed          = errors.New("dispatch failed")
 	ErrDispatcherNotConfigured = errors.New("dispatcher not configured")
 )
 
 var errorCodeMap = map[error]int{
-	ErrUserNotFound:           11001,
-	ErrUserAlreadyExists:      11002,
-	ErrInvalidCredentials:     11003,
-	ErrUserInactive:           11004,
-	ErrWrongPassword:          11005,
-	ErrPasswordWeak:           11006,
-	ErrRoleNotFound:           12001,
-	ErrRoleAlreadyExists:      12002,
-	ErrSystemRoleCannotDelete: 12003,
-	ErrSystemRoleCannotModify: 12003,
-	ErrDomainNotFound:         13001,
-	ErrDomainHasResources:     13002,
-	ErrDomainAccessDenied:     13003,
-	ErrUserDomainNotFound:     13004,
-	ErrPermissionDenied:       14001,
-	ErrUnauthorized:           14001,
-	ErrInstancePermissionDenied: 14002,
+	ErrUserNotFound:                 11001,
+	ErrUserAlreadyExists:            11002,
+	ErrInvalidCredentials:           11003,
+	ErrUserInactive:                 11004,
+	ErrWrongPassword:                11005,
+	ErrPasswordWeak:                 11006,
+	ErrRoleNotFound:                 12001,
+	ErrRoleAlreadyExists:            12002,
+	ErrSystemRoleCannotDelete:       12003,
+	ErrSystemRoleCannotModify:       12003,
+	ErrDomainNotFound:               13001,
+	ErrDomainHasResources:           13002,
+	ErrDomainAccessDenied:           13003,
+	ErrUserDomainNotFound:           13004,
+	ErrPermissionDenied:             14001,
+	ErrUnauthorized:                 14001,
+	ErrInstancePermissionDenied:     14002,
 	ErrCannotDeleteRoleWithChildren: 12004,
-	ErrTaskNotFound:           10003,
-	ErrTaskAlreadyExists:      10001,
-	ErrTaskRunning:            10001,
-	ErrTaskLocked:             10002,
-	ErrExecutorNotFound:       10004,
-	ErrNoAvailableExecutor:    10007,
-	ErrDispatchFailed:         10008,
-	ErrDispatcherNotConfigured: 10008,
+	ErrTaskNotFound:                 10003,
+	ErrTaskAlreadyExists:            10001,
+	ErrTaskRunning:                  10001,
+	ErrTaskLocked:                   10002,
+	ErrExecutorNotFound:             10004,
+	ErrNoAvailableExecutor:          10007,
+	ErrDispatchFailed:               10008,
+	ErrDispatcherNotConfigured:      10008,
 }
 
 func GetErrorCode(err error) int {

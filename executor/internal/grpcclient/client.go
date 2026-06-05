@@ -50,20 +50,20 @@ type nameWrapper struct {
 }
 
 type MultiClient struct {
-	schedulerAddrs []string
-	currentIndex   atomic.Int64
-	conn           atomic.Value // stores connWrapper
-	client         atomic.Value // stores clientWrapper
-	stream         atomic.Value // stores streamWrapper
-	stopCh         chan struct{}
-	reconnectCh    chan struct{} // 触发重连的信号通道
-	taskRunner     atomic.Value // stores taskRunnerWrapper
-	executorName   atomic.Value // stores nameWrapper
-	mu             sync.RWMutex
-	isConnected    atomic.Bool
-	connectMu      sync.Mutex
+	schedulerAddrs  []string
+	currentIndex    atomic.Int64
+	conn            atomic.Value // stores connWrapper
+	client          atomic.Value // stores clientWrapper
+	stream          atomic.Value // stores streamWrapper
+	stopCh          chan struct{}
+	reconnectCh     chan struct{} // 触发重连的信号通道
+	taskRunner      atomic.Value  // stores taskRunnerWrapper
+	executorName    atomic.Value  // stores nameWrapper
+	mu              sync.RWMutex
+	isConnected     atomic.Bool
+	connectMu       sync.Mutex
 	lastSchedulerId atomic.Value // stores nameWrapper
-	needFullSync    atomic.Bool   // 是否需要在下一次心跳发送完整状态
+	needFullSync    atomic.Bool  // 是否需要在下一次心跳发送完整状态
 }
 
 func NewMultiClient(schedulerAddrs []string) (*MultiClient, error) {
@@ -286,9 +286,9 @@ func (c *MultiClient) Subscribe(name, address string, capacity int32, runner Tas
 	c.taskRunner.Store(taskRunnerWrapper{runner: runner.(TaskRunnerStats)})
 
 	const (
-		baseDelay    = 3 * time.Second
-		maxDelay     = 60 * time.Second
-		maxJitter    = 500 * time.Millisecond
+		baseDelay = 3 * time.Second
+		maxDelay  = 60 * time.Second
+		maxJitter = 500 * time.Millisecond
 	)
 
 	currentCapacity := capacity
@@ -402,7 +402,7 @@ func (c *MultiClient) Subscribe(name, address string, capacity int32, runner Tas
 		go c.heartbeatLoop(executorName, currentCapacity)
 
 		slog.Info("task subscription started, waiting for tasks")
-		
+
 		taskCh := make(chan *pb.Task, 10)
 		errCh := make(chan error, 1)
 		go func() {
@@ -434,7 +434,7 @@ func (c *MultiClient) Subscribe(name, address string, capacity int32, runner Tas
 			}
 		}()
 
-		innerLoop:
+	innerLoop:
 		for {
 			select {
 			case <-c.reconnectCh:
@@ -534,11 +534,11 @@ func (c *MultiClient) heartbeatLoop(executorName string, currentCapacity int32) 
 			)
 
 			resp, err := client.Heartbeat(context.Background(), &pb.HeartbeatRequest{
-				ExecutorName:         executorName,
-				CurrentLoad:          currentLoad,
-				RunningExecutionIds:  runningExecIds,
-				RunningTasks:         runningTasks,
-				IsReconnect:          isReconnect,
+				ExecutorName:        executorName,
+				CurrentLoad:         currentLoad,
+				RunningExecutionIds: runningExecIds,
+				RunningTasks:        runningTasks,
+				IsReconnect:         isReconnect,
 			})
 
 			if err != nil {

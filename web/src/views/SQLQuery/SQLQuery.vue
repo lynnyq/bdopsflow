@@ -795,7 +795,6 @@ const dsTypeLabels: Record<string, string> = {
 
 let editorView: EditorView | null = null;
 let saveTabsTimer: ReturnType<typeof setTimeout> | null = null;
-const availableTables = computed(() => tables.value);
 
 const databaseOptions = computed(() =>
   databases.value.map(db => ({ label: db, value: db }))

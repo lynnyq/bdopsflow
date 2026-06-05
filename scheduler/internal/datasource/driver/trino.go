@@ -8,8 +8,8 @@ import (
 	"net/url"
 	"strings"
 
-	trino "github.com/trinodb/trino-go-client/trino"
 	"github.com/pkg/errors"
+	trino "github.com/trinodb/trino-go-client/trino"
 )
 
 type TrinoDriver struct {

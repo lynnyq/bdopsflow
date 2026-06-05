@@ -144,7 +144,7 @@ func TestConfigValidate(t *testing.T) {
 		{
 			name: "valid with multiple addrs",
 			cfg: &Config{
-				ExecutorName:    "test-exec",
+				ExecutorName:   "test-exec",
 				SchedulerAddrs: []string{"s1:50051", "s2:50051"},
 			},
 			wantErr: false,

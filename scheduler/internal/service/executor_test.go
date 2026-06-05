@@ -29,10 +29,10 @@ func TestExecutorAddressFormat(t *testing.T) {
 
 func TestExecutorCapacity(t *testing.T) {
 	tests := []struct {
-		name       string
-		capacity   int32
+		name        string
+		capacity    int32
 		currentLoad int32
-		canAccept  bool
+		canAccept   bool
 	}{
 		{"has capacity", 10, 5, true},
 		{"at capacity", 10, 10, false},

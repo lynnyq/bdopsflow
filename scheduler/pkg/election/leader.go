@@ -11,15 +11,15 @@ import (
 )
 
 type LeaderElection struct {
-	client      *redis.Client
-	leaderKey   string
-	nodeID      string
-	httpAddr    string
-	ttl         time.Duration
-	isLeader    bool
-	mu          sync.RWMutex
-	onAcquire   func()
-	onRelease   func()
+	client    *redis.Client
+	leaderKey string
+	nodeID    string
+	httpAddr  string
+	ttl       time.Duration
+	isLeader  bool
+	mu        sync.RWMutex
+	onAcquire func()
+	onRelease func()
 }
 
 func NewLeaderElection(client *redis.Client, leaderKey, nodeID, httpAddr string, ttl time.Duration) *LeaderElection {

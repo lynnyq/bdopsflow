@@ -123,4 +123,3 @@ func TestFormatError_WithRealValidator(t *testing.T) {
 		})
 	}
 }
-

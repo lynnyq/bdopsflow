@@ -12,11 +12,11 @@ import (
 )
 
 type MetricsCollector struct {
-	redis          *redis.Client
-	metrics        map[string]*Counter
-	gauges         map[string]*Gauge
-	histograms     map[string]*Histogram
-	mu             sync.RWMutex
+	redis              *redis.Client
+	metrics            map[string]*Counter
+	gauges             map[string]*Gauge
+	histograms         map[string]*Histogram
+	mu                 sync.RWMutex
 	collectionInterval time.Duration
 }
 
@@ -39,10 +39,10 @@ type Histogram struct {
 }
 
 type MetricsSnapshot struct {
-	Timestamp   int64                  `json:"timestamp"`
-	Counters    map[string]int64       `json:"counters"`
-	Gauges      map[string]float64     `json:"gauges"`
-	Histograms  map[string]interface{} `json:"histograms"`
+	Timestamp  int64                  `json:"timestamp"`
+	Counters   map[string]int64       `json:"counters"`
+	Gauges     map[string]float64     `json:"gauges"`
+	Histograms map[string]interface{} `json:"histograms"`
 }
 
 var (
@@ -70,7 +70,7 @@ func GetGlobalCollector() *MetricsCollector {
 func (m *MetricsCollector) RegisterCounter(name string) *Counter {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if _, exists := m.metrics[name]; !exists {
 		m.metrics[name] = &Counter{Name: name}
 	}
@@ -80,7 +80,7 @@ func (m *MetricsCollector) RegisterCounter(name string) *Counter {
 func (m *MetricsCollector) RegisterGauge(name string) *Gauge {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if _, exists := m.gauges[name]; !exists {
 		m.gauges[name] = &Gauge{Name: name}
 	}
@@ -90,7 +90,7 @@ func (m *MetricsCollector) RegisterGauge(name string) *Gauge {
 func (m *MetricsCollector) RegisterHistogram(name string) *Histogram {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if _, exists := m.histograms[name]; !exists {
 		m.histograms[name] = &Histogram{Name: name}
 	}
@@ -133,16 +133,16 @@ func (h *Histogram) Observe(value float64) {
 func (h *Histogram) GetStats() (count int, sum float64, avg float64, min float64, max float64) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	
+
 	count = len(h.Values)
 	if count == 0 {
 		return
 	}
-	
+
 	sum = 0
 	min = h.Values[0]
 	max = h.Values[0]
-	
+
 	for _, v := range h.Values {
 		sum += v
 		if v < min {
@@ -153,7 +153,7 @@ func (h *Histogram) GetStats() (count int, sum float64, avg float64, min float64
 		}
 	}
 	avg = sum / float64(count)
-	
+
 	return
 }
 
@@ -192,7 +192,7 @@ func (m *MetricsCollector) GetSnapshot() *MetricsSnapshot {
 
 func (m *MetricsCollector) SaveToRedis(ctx context.Context) error {
 	snapshot := m.GetSnapshot()
-	
+
 	data, err := json.Marshal(snapshot)
 	if err != nil {
 		return fmt.Errorf("failed to marshal metrics: %w", err)
@@ -217,7 +217,7 @@ func (m *MetricsCollector) StartBackgroundCollection(ctx context.Context) {
 				return
 			case <-ticker.C:
 				if err := m.SaveToRedis(ctx); err != nil {
-				slog.Error("Failed to save metrics", "error", err)
+					slog.Error("Failed to save metrics", "error", err)
 				}
 			}
 		}
@@ -225,13 +225,13 @@ func (m *MetricsCollector) StartBackgroundCollection(ctx context.Context) {
 }
 
 const (
-	MetricTasksCreated       = "bdopsflow:bdopsflow_tasks:created"
-	MetricTasksCompleted    = "bdopsflow:bdopsflow_tasks:completed"
-	MetricTasksFailed       = "bdopsflow:bdopsflow_tasks:failed"
-	MetricTasksRunning      = "bdopsflow:bdopsflow_tasks:running"
-	MetricExecutorsOnline   = "bdopsflow:bdopsflow_executors:online"
-	MetricExecutorsOffline  = "bdopsflow:bdopsflow_executors:offline"
-	MetricTaskDuration      = "bdopsflow:task:duration_seconds"
+	MetricTasksCreated     = "bdopsflow:bdopsflow_tasks:created"
+	MetricTasksCompleted   = "bdopsflow:bdopsflow_tasks:completed"
+	MetricTasksFailed      = "bdopsflow:bdopsflow_tasks:failed"
+	MetricTasksRunning     = "bdopsflow:bdopsflow_tasks:running"
+	MetricExecutorsOnline  = "bdopsflow:bdopsflow_executors:online"
+	MetricExecutorsOffline = "bdopsflow:bdopsflow_executors:offline"
+	MetricTaskDuration     = "bdopsflow:task:duration_seconds"
 )
 
 func (m *MetricsCollector) RecordTaskCreated() {

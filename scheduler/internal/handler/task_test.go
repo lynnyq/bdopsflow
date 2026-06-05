@@ -18,18 +18,18 @@ import (
 )
 
 type mockTaskService struct {
-	createTaskFunc           func(ctx context.Context, query string, args ...interface{}) (*model.Task, error)
-	getTaskByIDFunc          func(ctx context.Context, id int64) (*model.Task, error)
-	listTasksFunc            func(ctx context.Context, domainID int64, role string, page, pageSize int) ([]*model.Task, int, error)
-	updateTaskFunc           func(ctx context.Context, id int64, task *model.Task) error
-	deleteTaskFunc           func(ctx context.Context, id int64) error
-	triggerTaskFunc          func(ctx context.Context, taskID int64) (string, error)
-	getTaskExecsFunc         func(ctx context.Context, taskID int64) ([]*model.TaskExecution, error)
-	getTaskLogsFunc          func(ctx context.Context, executionID string) ([]*model.TaskLog, error)
+	createTaskFunc            func(ctx context.Context, query string, args ...interface{}) (*model.Task, error)
+	getTaskByIDFunc           func(ctx context.Context, id int64) (*model.Task, error)
+	listTasksFunc             func(ctx context.Context, domainID int64, role string, page, pageSize int, createdBy ...int64) ([]*model.Task, int, error)
+	updateTaskFunc            func(ctx context.Context, id int64, task *model.Task) error
+	deleteTaskFunc            func(ctx context.Context, id int64) error
+	triggerTaskFunc           func(ctx context.Context, taskID int64) (string, error)
+	getTaskExecsFunc          func(ctx context.Context, taskID int64) ([]*model.TaskExecution, error)
+	getTaskLogsFunc           func(ctx context.Context, executionID string) ([]*model.TaskLog, error)
 	listExecutorsByDomainFunc func(ctx context.Context, domainID int64) ([]*model.Executor, error)
-	getDomainNameFunc        func(ctx context.Context, domainID int64) string
-	isLeaderFunc             func() bool
-	forwardToLeaderFunc      func(ctx context.Context, method, path string, body io.Reader) ([]byte, int, error)
+	getDomainNameFunc         func(ctx context.Context, domainID int64) string
+	isLeaderFunc              func() bool
+	forwardToLeaderFunc       func(ctx context.Context, method, path string, body io.Reader) ([]byte, int, error)
 
 	lastQuery string
 	lastArgs  []interface{}
@@ -51,9 +51,9 @@ func (m *mockTaskService) GetTaskByID(ctx context.Context, id int64) (*model.Tas
 	return &model.Task{ID: id, Name: "test", Type: "http", Status: "pending"}, nil
 }
 
-func (m *mockTaskService) ListTasks(ctx context.Context, domainID int64, role string, page, pageSize int) ([]*model.Task, int, error) {
+func (m *mockTaskService) ListTasks(ctx context.Context, domainID int64, role string, page, pageSize int, createdBy ...int64) ([]*model.Task, int, error) {
 	if m.listTasksFunc != nil {
-		return m.listTasksFunc(ctx, domainID, role, page, pageSize)
+		return m.listTasksFunc(ctx, domainID, role, page, pageSize, createdBy...)
 	}
 	return []*model.Task{}, 0, nil
 }
@@ -119,6 +119,10 @@ func (m *mockTaskService) ForwardToLeader(ctx context.Context, method, path stri
 		return m.forwardToLeaderFunc(ctx, method, path, body)
 	}
 	return nil, 503, fmt.Errorf("not implemented")
+}
+
+func (m *mockTaskService) CancelExecution(ctx context.Context, executionID string) error {
+	return nil
 }
 
 func setupTestRouter(handler *TaskHandler) *gin.Engine {
@@ -283,7 +287,7 @@ func TestCreateTask_DefaultValues(t *testing.T) {
 
 func TestListTasks(t *testing.T) {
 	mock := &mockTaskService{
-		listTasksFunc: func(ctx context.Context, domainID int64, role string, page, pageSize int) ([]*model.Task, int, error) {
+		listTasksFunc: func(ctx context.Context, domainID int64, role string, page, pageSize int, createdBy ...int64) ([]*model.Task, int, error) {
 			return []*model.Task{
 				{ID: 1, Name: "task1", Type: "http", Status: "pending"},
 				{ID: 2, Name: "task2", Type: "shell", Status: "success"},
@@ -303,9 +307,9 @@ func TestListTasks(t *testing.T) {
 	}
 
 	var resp struct {
-		Code    int                 `json:"code"`
-		Status  string              `json:"status"`
-		Message string              `json:"message"`
+		Code    int    `json:"code"`
+		Status  string `json:"status"`
+		Message string `json:"message"`
 		Data    struct {
 			Items []model.Task `json:"items"`
 		} `json:"data"`

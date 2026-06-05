@@ -242,12 +242,8 @@ func (h *QueryHandler) executeQuery(ctx context.Context, cancel context.CancelFu
 		history.Status = "failed"
 		history.ErrorMessage = "查询返回空结果"
 		h.dsService.RecordQueryHistory(context.Background(), history)
-		slog.Error("query returned nil result", "query_id", queryID, "datasource_id", req.DatasourceID, "datasource_name", ds.Name, "database", req.Database, "execution_time", execTime, "error", err)
-		nilResultMsg := "查询返回空结果，请检查SQL语句或数据源连接"
-		if err != nil {
-			nilResultMsg = fmt.Sprintf("查询返回空结果: %v", err)
-		}
-		h.registry.UpdateError(queryID, nilResultMsg, execTime)
+		slog.Error("query returned nil result", "query_id", queryID, "datasource_id", req.DatasourceID, "datasource_name", ds.Name, "database", req.Database, "execution_time", execTime)
+		h.registry.UpdateError(queryID, "查询返回空结果，请检查SQL语句或数据源连接", execTime)
 		metrics.DatasourceQueries.WithLabelValues(ds.Type, "failed").Inc()
 		return
 	}
@@ -258,7 +254,7 @@ func (h *QueryHandler) executeQuery(ctx context.Context, cancel context.CancelFu
 	slog.Info("query executed successfully", "query_id", queryID, "datasource_id", req.DatasourceID, "datasource_name", ds.Name, "database", req.Database, "row_count", result.RowCount, "execution_time", execTime)
 	metrics.DatasourceQueries.WithLabelValues(ds.Type, "success").Inc()
 
-	if h.cacheService != nil && result != nil {
+	if h.cacheService != nil {
 		if err := h.cacheService.Set(context.Background(), req.DatasourceID, req.SQL, result); err != nil {
 			slog.Warn("failed to cache query result", "query_id", queryID, "datasource_id", req.DatasourceID, "error", err)
 		}
@@ -440,7 +436,7 @@ func (h *QueryHandler) ExportCSV(c *gin.Context) {
 			}
 		}
 
-		if h.cacheService != nil && result != nil {
+		if h.cacheService != nil {
 			if err := h.cacheService.Set(c.Request.Context(), req.DatasourceID, req.SQL, result); err != nil {
 				slog.Warn("export: failed to cache query result", "error", err)
 			}
@@ -454,10 +450,10 @@ func (h *QueryHandler) ExportCSV(c *gin.Context) {
 
 	c.Header("Content-Type", "text/csv; charset=utf-8")
 	c.Header("Content-Disposition", "attachment; filename=query_result.csv")
-	c.Writer.Write([]byte{0xEF, 0xBB, 0xBF})
+	_, _ = c.Writer.Write([]byte{0xEF, 0xBB, 0xBF})
 
 	writer := csv.NewWriter(c.Writer)
-	writer.Write(result.Columns)
+	_ = writer.Write(result.Columns)
 	for _, row := range result.Rows {
 		record := make([]string, len(row))
 		for i, v := range row {
@@ -467,7 +463,7 @@ func (h *QueryHandler) ExportCSV(c *gin.Context) {
 				record[i] = fmt.Sprintf("%v", v)
 			}
 		}
-		writer.Write(record)
+		_ = writer.Write(record)
 	}
 	writer.Flush()
 }

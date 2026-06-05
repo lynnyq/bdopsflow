@@ -92,11 +92,11 @@ func TestGetString(t *testing.T) {
 func TestGetInt(t *testing.T) {
 	cfg := &Config{
 		values: map[string]interface{}{
-			"int_key":     42,
-			"int64_key":   int64(100),
-			"float_key":   3.99,
-			"string_key":  "123",
-			"bad_string":  "not_a_number",
+			"int_key":    42,
+			"int64_key":  int64(100),
+			"float_key":  3.99,
+			"string_key": "123",
+			"bad_string": "not_a_number",
 		},
 	}
 
@@ -395,9 +395,9 @@ func TestFlattenMap(t *testing.T) {
 	result := flattenMap("", input)
 
 	expected := map[string]interface{}{
-		"a":       "value1",
-		"b.c":     "value2",
-		"b.d.e":   "value3",
+		"a":     "value1",
+		"b.c":   "value2",
+		"b.d.e": "value3",
 	}
 
 	for k, v := range expected {
@@ -421,10 +421,10 @@ func TestConfigFile(t *testing.T) {
 func TestGetStringSlice(t *testing.T) {
 	cfg := &Config{
 		values: map[string]interface{}{
-			"slice_key": []interface{}{"a", "b", "c"},
-			"mixed_slice": []interface{}{1, "2", 3.14},
+			"slice_key":              []interface{}{"a", "b", "c"},
+			"mixed_slice":            []interface{}{1, "2", 3.14},
 			"string_comma_separated": "http://node1:4001,http://node2:4001,http://node3:4001",
-			"string_with_spaces": "  a  ,  b  ,  c  ",
+			"string_with_spaces":     "  a  ,  b  ,  c  ",
 		},
 	}
 

@@ -33,9 +33,9 @@ func (h *AuditLogHandler) List(c *gin.Context) {
 	}
 
 	Success(c, gin.H{
-		"items": logs,
-		"total": total,
-		"page":  filter.Page,
+		"items":     logs,
+		"total":     total,
+		"page":      filter.Page,
 		"page_size": filter.PageSize,
 	})
 }
@@ -111,5 +111,3 @@ func (h *AuditLogHandler) GetStats(c *gin.Context) {
 		"total": total,
 	})
 }
-
-

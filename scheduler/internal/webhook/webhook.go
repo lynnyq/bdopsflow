@@ -113,19 +113,19 @@ func (s *Service) SendFromMap(ctx context.Context, configMap map[string]interfac
 	if event, ok := payloadMap["event"].(string); ok {
 		payload.Event = event
 	}
-	
+
 	if timestamp, ok := payloadMap["timestamp"].(int64); ok {
 		payload.Timestamp = timestamp
 	} else if timestamp, ok := payloadMap["timestamp"].(float64); ok {
 		payload.Timestamp = int64(timestamp)
 	}
-	
+
 	if taskID, ok := payloadMap["task_id"].(int64); ok {
 		payload.TaskID = taskID
 	} else if taskID, ok := payloadMap["task_id"].(float64); ok {
 		payload.TaskID = int64(taskID)
 	}
-	
+
 	if executionID, ok := payloadMap["execution_id"].(string); ok {
 		payload.ExecutionID = executionID
 	}
@@ -140,13 +140,13 @@ func (s *Service) SendFromMap(ctx context.Context, configMap map[string]interfac
 	} else {
 		payload.Error = ""
 	}
-	
+
 	if durationMs, ok := payloadMap["duration_ms"].(int64); ok {
 		payload.Duration = durationMs
 	} else if durationMs, ok := payloadMap["duration_ms"].(float64); ok {
 		payload.Duration = int64(durationMs)
 	}
-	
+
 	if metadata, ok := payloadMap["metadata"].(map[string]interface{}); ok {
 		payload.Metadata = metadata
 	}

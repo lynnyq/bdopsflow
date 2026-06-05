@@ -180,36 +180,36 @@ func (h *DatasourceHandler) Get(c *gin.Context) {
 		"config": ds.Config, "description": ds.Description,
 		"domain_id": ds.DomainID, "domain_name": ds.DomainName, "is_enabled": ds.IsEnabled,
 		"allow_write_sql": ds.AllowWriteSQL,
-		"test_status": ds.TestStatus, "last_test_at": formatTimePtr(ds.LastTestAt),
+		"test_status":     ds.TestStatus, "last_test_at": formatTimePtr(ds.LastTestAt),
 		"created_by": ds.CreatedBy, "updated_by": ds.UpdatedBy,
 		"created_at": ds.CreatedAt, "updated_at": ds.UpdatedAt,
 		"connection_mode": ds.ConnectionMode,
-		"zk_hosts": ds.ZkHosts,
-		"zk_path": ds.ZkPath,
-		"rqlite_hosts": ds.RqliteHosts,
+		"zk_hosts":        ds.ZkHosts,
+		"zk_path":         ds.ZkPath,
+		"rqlite_hosts":    ds.RqliteHosts,
 	})
 }
 
 func (h *DatasourceHandler) Create(c *gin.Context) {
 	var req struct {
-		Name          string `json:"name" binding:"required"`
-		Type          string `json:"type" binding:"required"`
-		Host          string `json:"host"`
-		Port          int    `json:"port"`
-		Path          string `json:"path"`
-		Database      string `json:"database"`
-		Username      string `json:"username"`
-		Password      string `json:"password"`
-		AuthType      string `json:"auth_type"`
+		Name           string `json:"name" binding:"required"`
+		Type           string `json:"type" binding:"required"`
+		Host           string `json:"host"`
+		Port           int    `json:"port"`
+		Path           string `json:"path"`
+		Database       string `json:"database"`
+		Username       string `json:"username"`
+		Password       string `json:"password"`
+		AuthType       string `json:"auth_type"`
 		ConnectionMode string `json:"connection_mode"`
-		ZkHosts       string `json:"zk_hosts"`
-		ZkPath        string `json:"zk_path"`
-		RqliteHosts   string `json:"rqlite_hosts"`
-		Config        string `json:"config"`
-		Description   string `json:"description"`
-		DomainID      int64  `json:"domain_id" binding:"required"`
-		IsEnabled     *bool  `json:"is_enabled"`
-		AllowWriteSQL *bool  `json:"allow_write_sql"`
+		ZkHosts        string `json:"zk_hosts"`
+		ZkPath         string `json:"zk_path"`
+		RqliteHosts    string `json:"rqlite_hosts"`
+		Config         string `json:"config"`
+		Description    string `json:"description"`
+		DomainID       int64  `json:"domain_id" binding:"required"`
+		IsEnabled      *bool  `json:"is_enabled"`
+		AllowWriteSQL  *bool  `json:"allow_write_sql"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		BadRequest(c, err.Error())
@@ -260,8 +260,8 @@ func (h *DatasourceHandler) Create(c *gin.Context) {
 		ZkHosts:        req.ZkHosts,
 		ZkPath:         req.ZkPath,
 		RqliteHosts:    req.RqliteHosts,
-		CreatedBy: int64Ptr(uid),
-		UpdatedBy: int64Ptr(uid),
+		CreatedBy:      int64Ptr(uid),
+		UpdatedBy:      int64Ptr(uid),
 	}
 
 	testErr := h.manager.TestConnection(c.Request.Context(), ds)
@@ -301,22 +301,22 @@ func (h *DatasourceHandler) Update(c *gin.Context) {
 	}
 
 	var req struct {
-		Name          *string `json:"name"`
-		Host          *string `json:"host"`
-		Port          *int    `json:"port"`
-		Path          *string `json:"path"`
-		Database      *string `json:"database"`
-		Username      *string `json:"username"`
-		Password      *string `json:"password"`
-		AuthType      *string `json:"auth_type"`
+		Name           *string `json:"name"`
+		Host           *string `json:"host"`
+		Port           *int    `json:"port"`
+		Path           *string `json:"path"`
+		Database       *string `json:"database"`
+		Username       *string `json:"username"`
+		Password       *string `json:"password"`
+		AuthType       *string `json:"auth_type"`
 		ConnectionMode *string `json:"connection_mode"`
-		ZkHosts       *string `json:"zk_hosts"`
-		ZkPath        *string `json:"zk_path"`
-		RqliteHosts   *string `json:"rqlite_hosts"`
-		Config        *string `json:"config"`
-		Description   *string `json:"description"`
-		IsEnabled     *bool   `json:"is_enabled"`
-		AllowWriteSQL *bool   `json:"allow_write_sql"`
+		ZkHosts        *string `json:"zk_hosts"`
+		ZkPath         *string `json:"zk_path"`
+		RqliteHosts    *string `json:"rqlite_hosts"`
+		Config         *string `json:"config"`
+		Description    *string `json:"description"`
+		IsEnabled      *bool   `json:"is_enabled"`
+		AllowWriteSQL  *bool   `json:"allow_write_sql"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		BadRequest(c, err.Error())
@@ -491,7 +491,7 @@ func (h *DatasourceHandler) TestConnectionByParams(c *gin.Context) {
 		ZkPath:         req.ZkPath,
 		RqliteHosts:    req.RqliteHosts,
 		Config:         req.Config,
-		IsEnabled:     true,
+		IsEnabled:      true,
 	}
 
 	if err := h.manager.TestConnection(c.Request.Context(), ds); err != nil {
@@ -736,13 +736,13 @@ func (h *DatasourceHandler) datasourceToMap(ds *model.Datasource) gin.H {
 		"auth_type": ds.AuthType, "description": ds.Description,
 		"domain_id": ds.DomainID, "domain_name": ds.DomainName, "is_enabled": ds.IsEnabled,
 		"allow_write_sql": ds.AllowWriteSQL,
-		"test_status": ds.TestStatus, "last_test_at": formatTimePtr(ds.LastTestAt),
+		"test_status":     ds.TestStatus, "last_test_at": formatTimePtr(ds.LastTestAt),
 		"created_by": ds.CreatedBy, "updated_by": ds.UpdatedBy,
 		"created_at": ds.CreatedAt, "updated_at": ds.UpdatedAt,
 		"connection_mode": ds.ConnectionMode,
-		"zk_hosts": ds.ZkHosts,
-		"zk_path": ds.ZkPath,
-		"rqlite_hosts": ds.RqliteHosts,
+		"zk_hosts":        ds.ZkHosts,
+		"zk_path":         ds.ZkPath,
+		"rqlite_hosts":    ds.RqliteHosts,
 		"user_permission": ds.UserPermission,
 		"created_by_name": "", "updated_by_name": "",
 	}

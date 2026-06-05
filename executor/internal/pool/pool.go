@@ -11,14 +11,14 @@ import (
 type TaskFunc func(ctx context.Context) error
 
 type Pool struct {
-	capacity    int32
-	running     int32
-	taskQueue   chan TaskFunc
-	wg          sync.WaitGroup
-	ctx         context.Context
-	cancel      context.CancelFunc
-	mu          sync.RWMutex
-	workers     []context.CancelFunc
+	capacity  int32
+	running   int32
+	taskQueue chan TaskFunc
+	wg        sync.WaitGroup
+	ctx       context.Context
+	cancel    context.CancelFunc
+	mu        sync.RWMutex
+	workers   []context.CancelFunc
 }
 
 func NewPool(capacity int32) *Pool {

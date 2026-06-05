@@ -13,67 +13,67 @@ func TestRouteParam_ExecutionID_CanBeExtracted(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	tests := []struct {
-		name       string
-		routePath  string
+		name        string
+		routePath   string
 		requestPath string
 		paramName   string
 		wantValue   string
 	}{
 		{
-			name:       "task execution logs uses execution_id",
-			routePath:  "/api/tasks/executions/:execution_id/logs",
+			name:        "task execution logs uses execution_id",
+			routePath:   "/api/tasks/executions/:execution_id/logs",
 			requestPath: "/api/tasks/executions/exec-123/logs",
-			paramName:  "execution_id",
-			wantValue:  "exec-123",
+			paramName:   "execution_id",
+			wantValue:   "exec-123",
 		},
 		{
-			name:       "executor remove domain uses domain_id",
-			routePath:  "/api/executors/:name/domains/:domain_id",
+			name:        "executor remove domain uses domain_id",
+			routePath:   "/api/executors/:name/domains/:domain_id",
 			requestPath: "/api/executors/exec-1/domains/42",
-			paramName:  "domain_id",
-			wantValue:  "42",
+			paramName:   "domain_id",
+			wantValue:   "42",
 		},
 		{
-			name:       "task endpoints use id",
-			routePath:  "/api/tasks/:id",
+			name:        "task endpoints use id",
+			routePath:   "/api/tasks/:id",
 			requestPath: "/api/tasks/1",
-			paramName:  "id",
-			wantValue:  "1",
+			paramName:   "id",
+			wantValue:   "1",
 		},
 		{
-			name:       "executor endpoints use name",
-			routePath:  "/api/executors/:name",
+			name:        "executor endpoints use name",
+			routePath:   "/api/executors/:name",
 			requestPath: "/api/executors/executor-1",
-			paramName:  "name",
-			wantValue:  "executor-1",
+			paramName:   "name",
+			wantValue:   "executor-1",
 		},
 		{
-			name:       "log endpoints use id",
-			routePath:  "/api/logs/:id",
+			name:        "log endpoints use id",
+			routePath:   "/api/logs/:id",
 			requestPath: "/api/logs/99",
-			paramName:  "id",
-			wantValue:  "99",
+			paramName:   "id",
+			wantValue:   "99",
 		},
 		{
-			name:       "datasource permission uses perm_id",
-			routePath:  "/api/datasources/:id/permissions/:perm_id",
+			name:        "datasource permission uses perm_id",
+			routePath:   "/api/datasources/:id/permissions/:perm_id",
 			requestPath: "/api/datasources/1/permissions/5",
-			paramName:  "perm_id",
-			wantValue:  "5",
+			paramName:   "perm_id",
+			wantValue:   "5",
 		},
 		{
-			name:       "query cancel uses query_id",
-			routePath:  "/api/query/cancel/:query_id",
+			name:        "query cancel uses query_id",
+			routePath:   "/api/query/cancel/:query_id",
 			requestPath: "/api/query/cancel/q-123",
-			paramName:  "query_id",
-			wantValue:  "q-123",
+			paramName:   "query_id",
+			wantValue:   "q-123",
 		},
 		{
-			name:       "system config uses key",
-			routePath:  "/api/admin/system-config/:key",
+			name:        "system config uses key",
+			routePath:   "/api/admin/system-config/:key",
 			requestPath: "/api/admin/system-config/web.enabled",
-			paramName:  "key",
-			wantValue:  "web.enabled",
+			paramName:   "key",
+			wantValue:   "web.enabled",
 		},
 	}
 
@@ -101,22 +101,22 @@ func TestRouteParam_OldCamelCaseNamesNotUsed(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	tests := []struct {
-		name       string
-		routePath  string
+		name        string
+		routePath   string
 		requestPath string
-		oldParam   string
+		oldParam    string
 	}{
 		{
-			name:       "task execution logs should NOT use executionId",
-			routePath:  "/api/tasks/executions/:execution_id/logs",
+			name:        "task execution logs should NOT use executionId",
+			routePath:   "/api/tasks/executions/:execution_id/logs",
 			requestPath: "/api/tasks/executions/exec-123/logs",
-			oldParam:   "executionId",
+			oldParam:    "executionId",
 		},
 		{
-			name:       "executor remove domain should NOT use domainId",
-			routePath:  "/api/executors/:name/domains/:domain_id",
+			name:        "executor remove domain should NOT use domainId",
+			routePath:   "/api/executors/:name/domains/:domain_id",
 			requestPath: "/api/executors/exec-1/domains/42",
-			oldParam:   "domainId",
+			oldParam:    "domainId",
 		},
 	}
 

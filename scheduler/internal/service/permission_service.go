@@ -8,8 +8,8 @@ import (
 
 	"github.com/lynnyq/bdopsflow/scheduler/internal/model"
 	"github.com/lynnyq/bdopsflow/scheduler/pkg/database"
-	rqlite "github.com/rqlite/gorqlite"
 	"github.com/redis/go-redis/v9"
+	rqlite "github.com/rqlite/gorqlite"
 )
 
 type PermissionService struct {
@@ -876,8 +876,8 @@ func (s *PermissionService) expandRoleInheritance(ctx context.Context, directRol
 	walk = func(roleIDs []int64) {
 		for _, id := range roleIDs {
 			if visited[id] {
-			slog.Warn("expandRoleInheritance: cycle detected", "module", "permission", "role_id", id)
-			continue
+				slog.Warn("expandRoleInheritance: cycle detected", "module", "permission", "role_id", id)
+				continue
 			}
 			visited[id] = true
 			allRoleIDs = append(allRoleIDs, id)

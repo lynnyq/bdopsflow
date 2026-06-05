@@ -7,7 +7,7 @@ type DomainExecutor struct {
 	ID         int64     `json:"id"`
 	DomainID   int64     `json:"domain_id"`   // 领域ID
 	ExecutorID int64     `json:"executor_id"` // 执行器ID
-	AssignedBy *int64    `json:"assigned_by"`  // 分配者ID
+	AssignedBy *int64    `json:"assigned_by"` // 分配者ID
 	CreatedAt  time.Time `json:"created_at"`
 
 	// 关联数据

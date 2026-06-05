@@ -23,20 +23,20 @@ var writeMethodActions = map[string]string{
 }
 
 var routeAuditRules = map[string]auditRouteRule{
-	"/api/auth/login":                    {Resource: "auth", Action: "login"},
-	"/api/auth/register":                 {Resource: "auth", Action: "register"},
-	"/api/auth/change-password":          {Resource: "auth", Action: "change_password"},
-	"/api/auth/profile":                  {Resource: "auth", Action: "update_profile"},
-	"/api/admin/users":                   {Resource: "user", Action: "create"},
-	"/api/admin/roles":                   {Resource: "role", Action: "create"},
-	"/api/admin/domains":                 {Resource: "domain", Action: "create"},
-	"/api/admin/system-config":           {Resource: "config", Action: "config_change"},
-	"/api/datasources":                   {Resource: "datasource", Action: "create"},
-	"/api/datasources/test":              {Resource: "datasource", Action: "test_connection"},
-	"/api/tasks":                         {Resource: "task", Action: "create"},
-	"/api/query/execute":                 {Resource: "query", Action: "execute"},
-	"/api/query/export":                  {Resource: "query", Action: "export"},
-	"/api/query/saved-sql":              {Resource: "saved_sql", Action: "create"},
+	"/api/auth/login":           {Resource: "auth", Action: "login"},
+	"/api/auth/register":        {Resource: "auth", Action: "register"},
+	"/api/auth/change-password": {Resource: "auth", Action: "change_password"},
+	"/api/auth/profile":         {Resource: "auth", Action: "update_profile"},
+	"/api/admin/users":          {Resource: "user", Action: "create"},
+	"/api/admin/roles":          {Resource: "role", Action: "create"},
+	"/api/admin/domains":        {Resource: "domain", Action: "create"},
+	"/api/admin/system-config":  {Resource: "config", Action: "config_change"},
+	"/api/datasources":          {Resource: "datasource", Action: "create"},
+	"/api/datasources/test":     {Resource: "datasource", Action: "test_connection"},
+	"/api/tasks":                {Resource: "task", Action: "create"},
+	"/api/query/execute":        {Resource: "query", Action: "execute"},
+	"/api/query/export":         {Resource: "query", Action: "export"},
+	"/api/query/saved-sql":      {Resource: "saved_sql", Action: "create"},
 }
 
 var routePrefixRules = []struct {
@@ -85,10 +85,10 @@ func AuditMiddleware(auditService *service.AuditLogService) gin.HandlerFunc {
 		}
 
 		userID, _ := c.Get("user_id")
-	username, _ := c.Get("username")
-	realName, _ := c.Get("real_name")
-	role, _ := c.Get("role")
-	domainID, _ := c.Get("current_domain_id")
+		username, _ := c.Get("username")
+		realName, _ := c.Get("real_name")
+		role, _ := c.Get("role")
+		domainID, _ := c.Get("current_domain_id")
 
 		status := "success"
 		if c.Writer.Status() >= 400 {
@@ -110,23 +110,23 @@ func AuditMiddleware(auditService *service.AuditLogService) gin.HandlerFunc {
 		detail, _ := c.Get("audit_detail")
 
 		auditLog := &model.AuditLog{
-		UserID:        auditUserID,
-		Username:      toString(username),
-		RealName:      toString(realName),
-		Role:          toString(role),
-		DomainID:      auditDomainID,
-		Action:        action,
-		Resource:      resource,
-		ResourceID:    toString(resourceID),
-		ResourceName:  toString(resourceName),
-		Status:        status,
-		IPAddress:     c.ClientIP(),
-		UserAgent:     truncateString(c.Request.UserAgent(), 500),
-		RequestMethod: method,
-		RequestPath:   path,
-		Detail:        toString(detail),
-		CreatedAt:     time.Now(),
-	}
+			UserID:        auditUserID,
+			Username:      toString(username),
+			RealName:      toString(realName),
+			Role:          toString(role),
+			DomainID:      auditDomainID,
+			Action:        action,
+			Resource:      resource,
+			ResourceID:    toString(resourceID),
+			ResourceName:  toString(resourceName),
+			Status:        status,
+			IPAddress:     c.ClientIP(),
+			UserAgent:     truncateString(c.Request.UserAgent(), 500),
+			RequestMethod: method,
+			RequestPath:   path,
+			Detail:        toString(detail),
+			CreatedAt:     time.Now(),
+		}
 
 		slog.Debug("audit event captured",
 			"module", "middleware_audit",

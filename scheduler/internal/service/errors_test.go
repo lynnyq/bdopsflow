@@ -226,8 +226,8 @@ func TestErrorCodeMapCoversAllMappedErrors(t *testing.T) {
 
 func TestErrorCodeMapConsistentWithHandlerCodes(t *testing.T) {
 	type codeMapping struct {
-		err       error
-		wantCode  int
+		err      error
+		wantCode int
 	}
 	mappings := []codeMapping{
 		{ErrUserNotFound, 11001},

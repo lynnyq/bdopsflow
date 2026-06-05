@@ -116,7 +116,7 @@ func (s *ExecutorDomainService) AssignExecutorToDefaultDomain(ctx context.Contex
 	if executor == nil {
 		return fmt.Errorf("执行器不存在: %s", executorName)
 	}
-	
+
 	query := `INSERT INTO bdopsflow_domain_executors (domain_id, executor_id, assigned_by, created_at) VALUES (1, ?, ?, ?)`
 	now := time.Now()
 	stmt := rqlite.ParameterizedStatement{
@@ -233,7 +233,7 @@ func (s *ExecutorDomainService) GetExecutorsWithDomains(ctx context.Context) ([]
 			},
 			IsGlobal: rowBool(row[7]),
 		}
-		
+
 		if t, ok := row[4].(time.Time); ok {
 			executor.LastHeartbeat = rqlite.NullTime{Time: t, Valid: true}
 		}
@@ -386,7 +386,7 @@ func (s *ExecutorDomainService) GetExecutorsByUserRole(ctx context.Context, isAd
 			},
 			IsGlobal: rowBool(row[7]),
 		}
-		
+
 		if t, ok := row[4].(time.Time); ok {
 			executor.LastHeartbeat = rqlite.NullTime{Time: t, Valid: true}
 		}

@@ -16,16 +16,16 @@ import (
 )
 
 type CronScheduler struct {
-	cron            *cron.Cron
-	svc             *service.SchedulerService
-	redis           *redis.Client
-	taskEntries     map[int64]cron.EntryID
-	mu              sync.RWMutex
-	paused          bool
-	isLeader        bool
-	started         bool
-	startTime       time.Time
-	lastRedisSync   time.Time
+	cron              *cron.Cron
+	svc               *service.SchedulerService
+	redis             *redis.Client
+	taskEntries       map[int64]cron.EntryID
+	mu                sync.RWMutex
+	paused            bool
+	isLeader          bool
+	started           bool
+	startTime         time.Time
+	lastRedisSync     time.Time
 	redisSyncInterval time.Duration
 }
 
@@ -43,7 +43,7 @@ func NewCronScheduler(svc *service.SchedulerService, redis *redis.Client) *CronS
 func (cs *CronScheduler) Start() error {
 	// 不立即启动cron，等成为主节点后再启动
 	slog.Info("cron scheduler initialized, waiting to become leader")
-	
+
 	// 从 Redis 加载暂停状态
 	if cs.redis != nil {
 		ctx := context.Background()
@@ -53,7 +53,7 @@ func (cs *CronScheduler) Start() error {
 			slog.Info("cron scheduler initialized in paused state from redis")
 		}
 	}
-	
+
 	return nil
 }
 
@@ -244,12 +244,12 @@ func (cs *CronScheduler) RegisterTask(taskID int64, cronExpr string) {
 
 	var entryID cron.EntryID
 	var err error
-	
+
 	// 先尝试直接添加（可能是6位）
 	entryID, err = cs.cron.AddFunc(cronExpr, func() {
 		cs.executeTask(taskID)
 	})
-	
+
 	// 如果失败，尝试解析为标准的5位表达式并加上秒位0
 	if err != nil {
 		// 先检查是否是标准5位格式
@@ -289,17 +289,17 @@ func (cs *CronScheduler) executeTask(taskID int64) {
 		slog.Debug("Scheduler service is nil, skipping task execution", "task_id", taskID)
 		return
 	}
-	
+
 	// 检查是否是主节点
 	cs.mu.RLock()
 	isLeader := cs.isLeader
 	cs.mu.RUnlock()
-	
+
 	if !isLeader {
 		slog.Debug("not leader, skipping task execution", "task_id", taskID)
 		return
 	}
-	
+
 	// 检查是否暂停（从 Redis 同步最新状态）
 	if cs.redis != nil {
 		cs.syncPausedFromRedis()

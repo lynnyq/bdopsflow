@@ -35,17 +35,17 @@ func TestTaskExecutor_RunningTaskTracking(t *testing.T) {
 		ExecutionId: executionId3,
 	}
 
-	executor.addRunningTask(executionId1, task1)
+	executor.addRunningTask(executionId1, task1, nil)
 	if executor.getRunningCount() != 1 {
 		t.Errorf("expected 1 running task, got %d", executor.getRunningCount())
 	}
 
-	executor.addRunningTask(executionId2, task2)
+	executor.addRunningTask(executionId2, task2, nil)
 	if executor.getRunningCount() != 2 {
 		t.Errorf("expected 2 running tasks, got %d", executor.getRunningCount())
 	}
 
-	executor.addRunningTask(executionId3, task3)
+	executor.addRunningTask(executionId3, task3, nil)
 	if executor.getRunningCount() != 3 {
 		t.Errorf("expected 3 running tasks, got %d", executor.getRunningCount())
 	}
@@ -111,7 +111,7 @@ func TestTaskExecutor_GetRunningTaskStates(t *testing.T) {
 		ExecutionId: executionId,
 	}
 
-	executor.addRunningTask(executionId, task)
+	executor.addRunningTask(executionId, task, nil)
 	states = executor.GetRunningTaskStates()
 	if len(states) != 1 {
 		t.Errorf("expected 1 running task state, got %d", len(states))

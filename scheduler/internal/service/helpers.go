@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	DateTimeFormat = time.RFC3339Nano
+	DateTimeFormat       = time.RFC3339Nano
 	LegacyDateTimeFormat = "2006-01-02 15:04:05"
 )
 
