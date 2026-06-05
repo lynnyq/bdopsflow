@@ -46,7 +46,15 @@ func setupRoutes(router *gin.Engine, app *App) {
 	router.POST("/api/auth/refresh", authHandler.RefreshToken)
 
 	wecomHandler := handler.NewWeComHandler(app.dsConfigService)
-	router.POST("/api/wecom/:wx_group_id", wecomHandler.SendWeComMessage)
+	router.POST("/api/wecom/task/:wx_group_id", wecomHandler.SendWeComMessage)
+	router.POST("/api/wecom/app-message", wecomHandler.SendAppMsg)
+	router.POST("/api/wecom/robot/image", wecomHandler.SendRobotImageMsg)
+	router.POST("/api/wecom/robot/text-people", wecomHandler.SendRobotTextPeopleMsg)
+	router.POST("/api/wecom/robot/markdown", wecomHandler.SendRobotMarkdownMsg)
+	router.POST("/api/wecom/chat/markdown", wecomHandler.SendChatMarkdownMsg)
+	router.POST("/api/wecom/chat/create", wecomHandler.CreateChatGroup)
+	router.GET("/api/wecom/chat/:chat_id", wecomHandler.GetChatGroupInfo)
+	router.PUT("/api/wecom/chat/update", wecomHandler.UpdateChatGroup)
 
 	protected := router.Group("/api")
 	protected.Use(middleware.JWTAuthMiddleware())

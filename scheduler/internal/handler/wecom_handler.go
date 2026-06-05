@@ -1,23 +1,29 @@
 package handler
 
 import (
-	"bytes"
-	"encoding/json"
+	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/datasource"
+	"github.com/lynnyq/bdopsflow/scheduler/internal/wecom"
 )
 
 type WeComHandler struct {
 	configService *datasource.ConfigService
+	wecomService  *wecom.WeComService
 }
 
 func NewWeComHandler(configService *datasource.ConfigService) *WeComHandler {
+	robotURL := configService.Get("wecom.robot_url")
+	appMsgURL := configService.Get("wecom.app_msg_url")
+	ewechatURL := configService.Get("wecom.ewechat_url")
+
 	return &WeComHandler{
 		configService: configService,
+		wecomService:  wecom.NewService(robotURL, appMsgURL, ewechatURL),
 	}
 }
 
@@ -43,9 +49,44 @@ type BdopsFlowEvent struct {
 	Timestamp  int64              `json:"timestamp"`
 }
 
-type WeComRobotResponse struct {
-	RetCode string `json:"retCode"`
-	RetMsg  string `json:"retMsg"`
+type SendAppMsgRequest struct {
+	AgentID      int      `json:"agent_id"`
+	MsgType      string   `json:"msg_type"`
+	MsgContent   string   `json:"msg_content"`
+	PhoneNumList []string `json:"phone_num_list"`
+}
+
+type SendImageMsgRequest struct {
+	GroupID       string `json:"group_id"`
+	ImageBase64   string `json:"image_base64"`
+}
+
+type SendTextPeopleMsgRequest struct {
+	GroupID      string `json:"group_id"`
+	Msg          string `json:"msg"`
+	PhoneNumber  string `json:"phone_number"`
+}
+
+type SendChatMsgRequest struct {
+	ChatID string `json:"chat_id"`
+	Msg    string `json:"msg"`
+}
+
+type CreateChatGroupRequest struct {
+	ChatName string   `json:"chat_name"`
+	UserList []string `json:"user_list"`
+}
+
+type GetChatGroupInfoRequest struct {
+	ChatID string `json:"chat_id"`
+}
+
+type UpdateChatGroupRequest struct {
+	ChatID        string   `json:"chat_id"`
+	OwnerID       string   `json:"owner_id"`
+	AddUserList   []string `json:"add_user_list"`
+	DelUserList   []string `json:"del_user_list"`
+	ChatName      string   `json:"chat_name"`
 }
 
 func (h *WeComHandler) SendWeComMessage(c *gin.Context) {
@@ -71,7 +112,7 @@ func (h *WeComHandler) SendWeComMessage(c *gin.Context) {
 	msg := h.buildMarkdownMessage(eventData)
 	slog.Info("sending wecom message", "wx_group_id", wxGroupID, "msg_preview", truncateString(msg, 100))
 
-	err := h.sendRobotMarkdownMsg(wxGroupID, msg)
+	err := h.wecomService.SendRobotMarkdownMsg(wxGroupID, msg)
 	if err != nil {
 		slog.Error("failed to send wecom message", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -87,13 +128,252 @@ func (h *WeComHandler) SendWeComMessage(c *gin.Context) {
 	})
 }
 
+func (h *WeComHandler) SendAppMsg(c *gin.Context) {
+	var req SendAppMsgRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		slog.Error("invalid request body", "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    400,
+			"message": "invalid request body",
+		})
+		return
+	}
+
+	err := h.wecomService.SendAppMsg(req.AgentID, req.MsgType, req.MsgContent, req.PhoneNumList)
+	if err != nil {
+		slog.Error("failed to send app message", "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    500,
+			"message": fmt.Sprintf("failed to send app message: %v", err),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code":    200,
+		"message": "app message sent successfully",
+	})
+}
+
+func (h *WeComHandler) SendRobotImageMsg(c *gin.Context) {
+	var req SendImageMsgRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		slog.Error("invalid request body", "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    400,
+			"message": "invalid request body",
+		})
+		return
+	}
+
+	imageBytes, err := base64.StdEncoding.DecodeString(req.ImageBase64)
+	if err != nil {
+		slog.Error("invalid base64 image data", "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    400,
+			"message": "invalid base64 image data",
+		})
+		return
+	}
+
+	err = h.wecomService.SendRobotImageMsg(req.GroupID, imageBytes)
+	if err != nil {
+		slog.Error("failed to send image message", "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    500,
+			"message": fmt.Sprintf("failed to send image message: %v", err),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code":    200,
+		"message": "image message sent successfully",
+	})
+}
+
+func (h *WeComHandler) SendRobotTextPeopleMsg(c *gin.Context) {
+	var req SendTextPeopleMsgRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		slog.Error("invalid request body", "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    400,
+			"message": "invalid request body",
+		})
+		return
+	}
+
+	err := h.wecomService.SendRobotTextPeopleMsg(req.GroupID, req.Msg, req.PhoneNumber)
+	if err != nil {
+		slog.Error("failed to send text people message", "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    500,
+			"message": fmt.Sprintf("failed to send text people message: %v", err),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code":    200,
+		"message": "text people message sent successfully",
+	})
+}
+
+type SendRobotMarkdownMsgRequest struct {
+	GroupID string `json:"group_id"`
+	Msg     string `json:"msg"`
+}
+
+func (h *WeComHandler) SendRobotMarkdownMsg(c *gin.Context) {
+	var req SendRobotMarkdownMsgRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		slog.Error("invalid request body", "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    400,
+			"message": "invalid request body",
+		})
+		return
+	}
+
+	err := h.wecomService.SendRobotMarkdownMsg(req.GroupID, req.Msg)
+	if err != nil {
+		slog.Error("failed to send robot markdown message", "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    500,
+			"message": fmt.Sprintf("failed to send robot markdown message: %v", err),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code":    200,
+		"message": "robot markdown message sent successfully",
+	})
+}
+
+func (h *WeComHandler) SendChatMarkdownMsg(c *gin.Context) {
+	var req SendChatMsgRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		slog.Error("invalid request body", "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    400,
+			"message": "invalid request body",
+		})
+		return
+	}
+
+	err := h.wecomService.SendChatMarkdownMsg(req.ChatID, req.Msg)
+	if err != nil {
+		slog.Error("failed to send chat markdown message", "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    500,
+			"message": fmt.Sprintf("failed to send chat markdown message: %v", err),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code":    200,
+		"message": "chat markdown message sent successfully",
+	})
+}
+
+func (h *WeComHandler) CreateChatGroup(c *gin.Context) {
+	var req CreateChatGroupRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		slog.Error("invalid request body", "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    400,
+			"message": "invalid request body",
+		})
+		return
+	}
+
+	result, err := h.wecomService.CreateChatGroup(req.ChatName, req.UserList)
+	if err != nil {
+		slog.Error("failed to create chat group", "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    500,
+			"message": fmt.Sprintf("failed to create chat group: %v", err),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code":    200,
+		"message": "chat group created successfully",
+		"data":    result,
+	})
+}
+
+func (h *WeComHandler) GetChatGroupInfo(c *gin.Context) {
+	chatID := c.Param("chat_id")
+	if chatID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    400,
+			"message": "chat_id is required",
+		})
+		return
+	}
+
+	result, err := h.wecomService.GetChatGroupInfo(chatID)
+	if err != nil {
+		slog.Error("failed to get chat group info", "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    500,
+			"message": fmt.Sprintf("failed to get chat group info: %v", err),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code":    200,
+		"message": "success",
+		"data":    result,
+	})
+}
+
+func (h *WeComHandler) UpdateChatGroup(c *gin.Context) {
+	var req UpdateChatGroupRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		slog.Error("invalid request body", "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    400,
+			"message": "invalid request body",
+		})
+		return
+	}
+
+	if req.ChatID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    400,
+			"message": "chat_id is required",
+		})
+		return
+	}
+
+	result, err := h.wecomService.UpdateChatGroup(req.ChatID, req.OwnerID, req.AddUserList, req.DelUserList, req.ChatName)
+	if err != nil {
+		slog.Error("failed to update chat group", "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    500,
+			"message": fmt.Sprintf("failed to update chat group: %v", err),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code":    200,
+		"message": "chat group updated successfully",
+		"data":    result,
+	})
+}
+
 func (h *WeComHandler) buildMarkdownMessage(eventData BdopsFlowEvent) string {
 	durationSec := float64(eventData.Execution.DurationMs) / 1000
-	// 执行日志和错误日志超过1000个字符时截取前1000个字符再加...
 	output := truncateString(eventData.Execution.Output, 1000)
 	errorMsg := truncateString(eventData.Execution.Error, 1000)
 
-	// 根据状态添加颜色标签和表情
 	var statusDisplay string
 	var statusIcon string
 	switch eventData.Execution.Status {
@@ -108,18 +388,15 @@ func (h *WeComHandler) buildMarkdownMessage(eventData BdopsFlowEvent) string {
 		statusDisplay = eventData.Execution.Status
 	}
 
-	// 根据状态添加日志显示
 	var logsDisplay string
 	if eventData.Execution.Status == "failed" && errorMsg != "" {
 		logsDisplay = "无"
 	} else if output != "" {
-
 		logsDisplay = fmt.Sprintf(`<font color="info">%s</font>`, output)
 	} else {
 		logsDisplay = "无"
 	}
 
-	// 根据状态添加错误日志显示
 	var errorDisplay string
 	if eventData.Execution.Status == "failed" && errorMsg != "" {
 		errorDisplay = fmt.Sprintf(`<font color="warning">%s</font>`, errorMsg)
@@ -151,46 +428,6 @@ func (h *WeComHandler) buildMarkdownMessage(eventData BdopsFlowEvent) string {
 		logsDisplay,
 		errorDisplay,
 	)
-}
-
-func (h *WeComHandler) sendRobotMarkdownMsg(groupID string, msg string) error {
-	robotURL := h.configService.Get("wecom.robot_url")
-	if robotURL == "" {
-		return fmt.Errorf("wecom robot url is not configured")
-	}
-
-	data := map[string]interface{}{
-		"groupId":     groupID,
-		"fromChannel": "HDP",
-		"reqData": map[string]interface{}{
-			"msgtype": "markdown",
-			"ewechatMsg": map[string]string{
-				"content": msg,
-			},
-		},
-	}
-
-	jsonData, err := json.Marshal(data)
-	if err != nil {
-		return fmt.Errorf("failed to marshal data: %w", err)
-	}
-
-	resp, err := http.Post(robotURL, "application/json", bytes.NewBuffer(jsonData))
-	if err != nil {
-		return fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	var result WeComRobotResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	if result.RetCode != "0000" || result.RetMsg != "success" {
-		return fmt.Errorf("message send failed: retCode=%s, retMsg=%s", result.RetCode, result.RetMsg)
-	}
-
-	return nil
 }
 
 func truncateString(s string, maxLen int) string {

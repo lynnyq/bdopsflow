@@ -1232,7 +1232,208 @@ Authorization: Bearer <token>
 | GET | `/api/admin/system-config`      | 获取系统配置列表 | system\_admin |
 | PUT | `/api/admin/system-config/:key` | 更新系统配置   | system\_admin |
 
-### 5.13 公共接口
+### 5.13 企业微信接口
+
+| 方法     | 路径                              | 说明           | 权限 |
+| ------ | ------------------------------- | ------------ | -- |
+| POST   | `/api/wecom/task/:wx_group_id`  | 发送任务执行通知到企业微信群 | 无  |
+| POST   | `/api/wecom/app-message`        | 发送应用消息给指定用户   | 无  |
+| POST   | `/api/wecom/robot/image`        | 发送群机器人图片消息    | 无  |
+| POST   | `/api/wecom/robot/text-people`  | 发送群机器人文本消息（可@用户） | 无  |
+| POST   | `/api/wecom/robot/markdown`     | 发送群机器人markdown消息 | 无  |
+| POST   | `/api/wecom/chat/markdown`      | 发送群聊markdown消息   | 无  |
+| POST   | `/api/wecom/chat/create`        | 创建企业微信群聊     | 无  |
+| GET    | `/api/wecom/chat/:chat_id`      | 获取群聊信息      | 无  |
+| PUT    | `/api/wecom/chat/update`        | 修改群聊（成员/名称/群主） | 无  |
+
+#### 5.13.1 发送任务执行通知
+
+**请求路径**：`POST /api/wecom/task/:wx_group_id`
+
+**请求体**：
+
+```json
+{
+    "delivery_id": "del-xxx",
+    "event": "task_completed",
+    "execution": {
+        "duration_ms": 5000,
+        "error": "",
+        "id": "exec-xxx",
+        "output": "执行结果...",
+        "status": "success"
+    },
+    "task": {
+        "id": 1,
+        "name": "数据同步任务",
+        "type": "http"
+    },
+    "timestamp": 1716422400
+}
+```
+
+**响应**：
+
+```json
+{
+    "code": 200,
+    "message": "message sent successfully"
+}
+```
+
+#### 5.13.2 发送应用消息
+
+**请求路径**：`POST /api/wecom/app-message`
+
+**请求体**：
+
+```json
+{
+    "agent_id": 1000027,
+    "msg_type": "text",
+    "msg_content": "Hello World",
+    "phone_num_list": ["13800138000", "13900139000"]
+}
+```
+
+#### 5.13.3 发送群机器人图片消息
+
+**请求路径**：`POST /api/wecom/robot/image`
+
+**请求体**：
+
+```json
+{
+    "group_id": "group123",
+    "image_base64": "base64_encoded_image_data"
+}
+```
+
+#### 5.13.4 发送群机器人文本消息（可@用户）
+
+**请求路径**：`POST /api/wecom/robot/text-people`
+
+**请求体**：
+
+```json
+{
+    "group_id": "group123",
+    "msg": "提醒：任务执行完成",
+    "phone_number": "13800138000"
+}
+```
+
+#### 5.13.5 发送群机器人markdown消息
+
+**请求路径**：`POST /api/wecom/robot/markdown`
+
+**请求体**：
+
+```json
+{
+    "group_id": "group123",
+    "msg": "### 通知\n\n**任务执行完成**\n\n- 状态：成功\n- 耗时：5秒"
+}
+```
+
+**响应**：
+
+```json
+{
+    "code": 200,
+    "message": "robot markdown message sent successfully"
+}
+```
+
+#### 5.13.6 发送群聊markdown消息
+
+**请求路径**：`POST /api/wecom/chat/markdown`
+
+**请求体**：
+
+```json
+{
+    "chat_id": "chat123",
+    "msg": "### 通知\n\n任务执行完成"
+}
+```
+
+#### 5.13.6 创建企业微信群聊
+
+**请求路径**：`POST /api/wecom/chat/create`
+
+**请求体**：
+
+```json
+{
+    "chat_name": "项目讨论群",
+    "user_list": ["user1", "user2", "user3"]
+}
+```
+
+**响应**：
+
+```json
+{
+    "code": 200,
+    "message": "chat group created successfully",
+    "data": {
+        "chatid": "chat123",
+        "retCode": "0000",
+        "retMsg": "success"
+    }
+}
+```
+
+#### 5.13.7 获取群聊信息
+
+**请求路径**：`GET /api/wecom/chat/:chat_id`
+
+**响应**：
+
+```json
+{
+    "code": 200,
+    "message": "success",
+    "data": {
+        "chatid": "chat123",
+        "name": "项目讨论群",
+        "owner": "user1",
+        "userlist": ["user1", "user2", "user3"]
+    }
+}
+```
+
+#### 5.13.8 修改群聊
+
+**请求路径**：`PUT /api/wecom/chat/update`
+
+**请求体**：
+
+```json
+{
+    "chat_id": "chat123",
+    "owner_id": "user1",
+    "add_user_list": ["user4"],
+    "del_user_list": ["user3"],
+    "chat_name": "新项目讨论群"
+}
+```
+
+**响应**：
+
+```json
+{
+    "code": 200,
+    "message": "chat group updated successfully",
+    "data": {
+        "retCode": "0000",
+        "retMsg": "success"
+    }
+}
+```
+
+### 5.14 公共接口
 
 | 方法  | 路径                  | 说明       | 权限 |
 | --- | ------------------- | -------- | -- |

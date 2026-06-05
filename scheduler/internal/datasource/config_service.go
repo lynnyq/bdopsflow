@@ -31,6 +31,8 @@ var defaultConfigValues = map[string]string{
 	"datasource.test_timeout":            "10",
 	"web.enabled":                        "false",
 	"wecom.robot_url":                    "https://qyapi.weixin.qq.com/cgi-bin/webhook/send",
+	"wecom.app_msg_url":                  "https://qyapi.weixin.qq.com/cgi-bin/webhook/send",
+	"wecom.ewechat_url":                  "https://qyapi.weixin.qq.com/cgi-bin/webhook/send",
 }
 
 type ConfigMeta struct {
@@ -56,6 +58,18 @@ var configMetaList = []ConfigMeta{
 	{
 		Key: "wecom.robot_url", Label: "企业微信群机器人 URL",
 		Description: "用于推送 BDopsFlow 任务执行通知到企业微信群的机器人接口地址",
+		Type:        "text", DefaultValue: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send",
+		Group: "消息通知",
+	},
+	{
+		Key: "wecom.app_msg_url", Label: "企业微信应用消息 URL",
+		Description: "企业微信应用消息推送接口地址，用于发送应用消息给指定用户",
+		Type:        "text", DefaultValue: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send",
+		Group: "消息通知",
+	},
+	{
+		Key: "wecom.ewechat_url", Label: "企业微信网关 URL",
+		Description: "企业微信网关接口地址，用于群聊管理等高级功能",
 		Type:        "text", DefaultValue: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send",
 		Group: "消息通知",
 	},
