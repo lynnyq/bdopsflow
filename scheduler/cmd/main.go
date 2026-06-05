@@ -41,14 +41,32 @@ func main() {
 		cfg.AdvertiseAddr = *advertiseAddr
 	}
 
-	logger.Init(cfg.LogLevel, cfg.LogFormat)
+	if cfg.LogPath != "" {
+		logger.InitWithFile(cfg.LogLevel, cfg.LogFormat, cfg.LogPath)
+	} else {
+		logger.Init(cfg.LogLevel, cfg.LogFormat)
+	}
 
 	app := NewApp(cfg)
 	app.Run()
 
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 
-	app.Shutdown()
+	for {
+		sig := <-sigChan
+		switch sig {
+		case syscall.SIGHUP:
+			logger.Info("received SIGHUP signal, reloading config")
+			if err := app.ReloadConfig(); err != nil {
+				logger.Error("config reload failed", "error", err)
+			} else {
+				logger.Info("config reload succeeded")
+			}
+		case syscall.SIGINT, syscall.SIGTERM:
+			logger.Info("received shutdown signal")
+			app.Shutdown()
+			return
+		}
+	}
 }

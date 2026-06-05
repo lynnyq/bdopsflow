@@ -2,6 +2,7 @@ package config
 
 import (
 	"log/slog"
+	"sync"
 
 	"github.com/lynnyq/bdopsflow/scheduler/pkg/config"
 )
@@ -29,6 +30,7 @@ type Config struct {
 	CORSAllowOrigins      []string
 	LogLevel              string
 	LogFormat             string
+	LogPath               string
 	ConfigFile            string
 	RSAPublicKey          string
 	RSAPrivateKey         string
@@ -37,6 +39,8 @@ type Config struct {
 	SSOPublicKey          string
 	SSOTimeout            int
 	DatasourceCrypto      DatasourceCryptoConfig
+
+	mu sync.RWMutex
 }
 
 type DatasourceCryptoConfig struct {
@@ -93,6 +97,7 @@ func Load(configFile string) *Config {
 		CORSAllowOrigins:      cfg.GetStringSlice("app.cors_allow_origins", []string{}),
 		LogLevel:              cfg.GetString("log.level", "info"),
 		LogFormat:             cfg.GetString("log.format", "json"),
+		LogPath:               cfg.GetString("log.path", ""),
 		ConfigFile:            configured,
 		RSAPublicKey:          cfg.GetString("rsa.public_key", ""),
 		RSAPrivateKey:         cfg.GetString("rsa.private_key", ""),
@@ -108,6 +113,37 @@ func Load(configFile string) *Config {
 			AutoRotateDays: cfg.GetInt("datasource.auto_rotate_days", 0),
 		},
 	}
+}
+
+func (c *Config) Reload() error {
+	if c.ConfigFile == "" {
+		slog.Warn("no config file configured, skipping reload")
+		return nil
+	}
+
+	slog.Info("reloading config file", "config_file", c.ConfigFile)
+
+	newCfg, err := config.New(config.Options{
+		ConfigFile: c.ConfigFile,
+	})
+	if err != nil {
+		return err
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.HTTPPort = newCfg.GetString("app.http_port", c.HTTPPort)
+	c.GRPCPort = newCfg.GetString("app.grpc_port", c.GRPCPort)
+	c.AdvertiseAddr = newCfg.GetString("app.advertise_addr", c.AdvertiseAddr)
+	c.AllowRegister = newCfg.GetBool("app.allow_register", c.AllowRegister)
+	c.CORSAllowOrigins = newCfg.GetStringSlice("app.cors_allow_origins", c.CORSAllowOrigins)
+	c.LogLevel = newCfg.GetString("log.level", c.LogLevel)
+	c.LogFormat = newCfg.GetString("log.format", c.LogFormat)
+	c.LogPath = newCfg.GetString("log.path", c.LogPath)
+
+	slog.Info("config reloaded successfully")
+	return nil
 }
 
 func defaultConfig() *Config {

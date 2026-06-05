@@ -25,6 +25,7 @@ import (
 	"github.com/lynnyq/bdopsflow/scheduler/internal/cron"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/datasource"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/grpcserver"
+	"github.com/lynnyq/bdopsflow/scheduler/internal/logger"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/metrics"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/middleware"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/service"
@@ -464,6 +465,23 @@ func (a *App) Shutdown() {
 	a.dsManager.Close()
 	a.rqliteClient.Close()
 	a.mainCancel()
+}
+
+func (a *App) ReloadConfig() error {
+	slog.Info("initiating config reload")
+
+	if err := a.cfg.Reload(); err != nil {
+		slog.Error("failed to reload config", "error", err)
+		return err
+	}
+
+	if err := logger.ReopenLogFile(); err != nil {
+		slog.Error("failed to reopen log file", "error", err)
+		return err
+	}
+
+	slog.Info("config reload completed successfully")
+	return nil
 }
 
 func corsMiddleware(allowOrigins []string) gin.HandlerFunc {

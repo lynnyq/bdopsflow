@@ -60,6 +60,7 @@ jwt:
 log:
   level: "info"
   format: "json"
+  path: ""
 
 datasource:
   encryption_key: "dev-docker-32byte-key-chg-prod-1"
@@ -118,6 +119,7 @@ jwt:
 log:
   level: "warn"
   format: "json"
+  path: "/var/log/bdopsflow/scheduler.log"
 
 datasource:
   encryption_key: ""
@@ -282,6 +284,86 @@ app:
 |--------|----------|---------|----------|--------|------|
 | 日志级别 | `log.level` | string | 选填 | `"info"` | 日志级别：`debug`、`info`、`warn`、`error` |
 | 日志格式 | `log.format` | string | 选填 | `"json"` | 日志格式：`json` 或 `text` |
+| 日志文件路径 | `log.path` | string | 选填 | `""` | 日志输出文件路径，为空时输出到标准输出（stdout）。配置后支持通过 `kill -HUP` 信号重新打开日志文件，配合 logrotate 使用 |
+
+**日志文件配置说明**
+
+当 `log.path` 配置为非空值时，日志将输出到指定文件。这对于生产环境部署非常有用，可以配合 logrotate 工具进行日志轮转。
+
+配置示例：
+
+```yaml
+log:
+  level: "info"
+  format: "json"
+  path: "/var/log/bdopsflow/scheduler.log"
+```
+
+**SIGHUP 信号处理**
+
+调度中心支持通过 `kill -HUP` 信号触发以下操作：
+
+1. **重新加载配置文件**：重新读取配置文件中的配置项
+2. **重新打开日志文件**：关闭旧的日志文件句柄，打开新的日志文件
+
+这使得 logrotate 可以正常工作，示例 logrotate 配置：
+
+```
+/var/log/bdopsflow/scheduler.log {
+    daily
+    rotate 7
+    compress
+    missingok
+    postrotate
+        systemctl reload bdopsflow-scheduler
+    endscript
+}
+```
+
+**systemd 服务配置示例**
+
+创建 `/etc/systemd/system/bdopsflow-scheduler.service`：
+
+```ini
+[Unit]
+Description=BDopsFlow Scheduler
+After=network.target
+After=rqlite.service
+After=redis.service
+
+[Service]
+Type=simple
+User=bdopsflow
+Group=bdopsflow
+WorkingDirectory=/opt/bdopsflow
+ExecStart=/opt/bdopsflow/scheduler -config /etc/bdopsflow/config.yaml
+Restart=always
+RestartSec=5
+StandardOutput=null
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**注意**：
+- 启用服务并设置开机自启：
+  ```bash
+  systemctl daemon-reload
+  systemctl enable bdopsflow-scheduler
+  systemctl start bdopsflow-scheduler
+  ```
+- 使用 `systemctl reload bdopsflow-scheduler` 可以触发配置重载（systemd 会自动发送 SIGHUP 信号）
+
+**注意**：通过 SIGHUP 重新加载的配置项包括：
+- `log.level` - 日志级别
+- `log.format` - 日志格式  
+- `log.path` - 日志文件路径
+- `app.http_port` - HTTP 端口（不支持热更新，仅记录日志）
+- `app.grpc_port` - gRPC 端口（不支持热更新，仅记录日志）
+- `app.advertise_addr` - 对外宣告地址
+- `app.allow_register` - 允许注册
+- `app.cors_allow_origins` - CORS 来源列表
 
 #### datasource（数据源加密配置）
 
@@ -461,6 +543,7 @@ cfg.Merge(executorName, capacity, schedulerAddr, schedulerAddrs, timeout, hostna
 | `JWT_EXPIRY_HOURS` | `jwt.expiry_hours` | int | `24` |
 | `LOG_LEVEL` | `log.level` | string | `"info"` |
 | `LOG_FORMAT` | `log.format` | string | `"json"` |
+| `LOG_PATH` | `log.path` | string | `""` |
 | `DATASOURCE_ENCRYPTION_KEY` | `datasource.encryption_key` | string | `"change-in-prod-32byte-key1-here1"` |
 | `DATASOURCE_KEY_SOURCE` | `datasource.key_source` | string | `"direct"` |
 | `DATASOURCE_KEY_ENV_VAR` | `datasource.key_env_var` | string | `"BDOPSFLOW_ENCRYPTION_KEY"` |
@@ -920,6 +1003,559 @@ datasource:
 - **低峰期操作**：建议在业务低峰期进行轮换，减少对在线业务的影响
 - **多节点同步**：集群部署时，确保所有节点使用相同的新密钥后再依次重启
 - **密钥来源推荐**：生产环境推荐使用 `key_source: "env"` 或 `key_source: "file"`，避免密钥明文存储在配置文件中
+
+---
+
+## 9. 集群部署指南
+
+### 9.1 集群架构介绍
+
+BDopsFlow 支持高可用集群部署，主要组件包括：
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        Nginx 负载均衡                          │
+│                         192.168.1.50                          │
+└─────────────────────────────────────────────────────────────┘
+                              │
+        ┌─────────────────────┼─────────────────────┐
+        │                     │                     │
+┌───────▼───────┐    ┌────────▼───────┐    ┌────────▼───────┐
+│  Scheduler-1  │    │  Scheduler-2   │    │  Scheduler-3   │
+│ 192.168.1.10  │    │ 192.168.1.11   │    │ 192.168.1.12   │
+└───────────────┘    └───────────────┘    └───────────────┘
+        │                     │                     │
+        └─────────────────────┼─────────────────────┘
+                              │
+        ┌─────────────────────┼─────────────────────┐
+        │                     │                     │
+┌───────▼───────┐    ┌────────▼───────┐    ┌────────▼───────┐
+│ rqlite-node1  │    │ rqlite-node2   │    │ rqlite-node3   │
+│ 192.168.1.100 │    │ 192.168.1.101  │    │ 192.168.1.102  │
+└───────────────┘    └───────────────┘    └───────────────┘
+                              │
+        ┌─────────────────────┼─────────────────────┐
+        │                     │                     │
+┌───────▼───────┐    ┌────────▼───────┐    ┌────────▼───────┐
+│ Sentinel-1    │    │ Sentinel-2     │    │ Sentinel-3     │
+│ 192.168.1.200 │    │ 192.168.1.201  │    │ 192.168.1.202  │
+└───────────────┘    └───────────────┘    └───────────────┘
+        │                     │                     │
+        └─────────────────────┼─────────────────────┘
+                              │
+                     ┌────────▼───────┐
+                     │  Redis Master  │
+                     │  (自动切换)     │
+                     └────────────────┘
+```
+
+**集群特性**：
+- **调度中心**：多个节点通过 leader 选举实现高可用，同一时间只有一个节点作为 leader 执行任务调度
+- **rqlite**：分布式数据库，3 节点保证数据一致性和高可用
+- **Redis**：哨兵模式实现自动故障转移
+- **Nginx**：负载均衡和反向代理
+
+### 9.2 多节点调度中心部署
+
+#### 节点 1 配置 (scheduler-1)
+
+```yaml
+app:
+  http_port: "8080"
+  grpc_port: "50051"
+  node_id: "scheduler-1"
+  advertise_addr: "192.168.1.10:8080"
+  allow_register: false
+  cors_allow_origins:
+    - "https://bdopsflow.example.com"
+
+database:
+  rqlite_addrs:
+    - "http://192.168.1.100:4001"
+    - "http://192.168.1.101:4001"
+    - "http://192.168.1.102:4001"
+
+redis:
+  mode: "sentinel"
+  password: "your-redis-password"
+  db: 0
+  master_name: "mymaster"
+  sentinel_addrs:
+    - "192.168.1.200:26379"
+    - "192.168.1.201:26379"
+    - "192.168.1.202:26379"
+  sentinel_password: ""
+
+log:
+  level: "info"
+  format: "json"
+  path: "/var/log/bdopsflow/scheduler.log"
+```
+
+#### 节点 2 配置 (scheduler-2)
+
+```yaml
+app:
+  http_port: "8080"
+  grpc_port: "50051"
+  node_id: "scheduler-2"
+  advertise_addr: "192.168.1.11:8080"
+  allow_register: false
+  cors_allow_origins:
+    - "https://bdopsflow.example.com"
+
+# 其他配置与节点 1 相同
+```
+
+#### 节点 3 配置 (scheduler-3)
+
+```yaml
+app:
+  http_port: "8080"
+  grpc_port: "50051"
+  node_id: "scheduler-3"
+  advertise_addr: "192.168.1.12:8080"
+  allow_register: false
+  cors_allow_origins:
+    - "https://bdopsflow.example.com"
+
+# 其他配置与节点 1 相同
+```
+
+**关键配置说明**：
+- `node_id`：每个节点必须唯一，用于 leader 选举和标识
+- `advertise_addr`：必须配置为其他节点可访问的地址，格式为 `host:port`
+- 所有节点的 `rqlite_addrs` 和 `redis` 配置必须相同
+
+### 9.3 rqlite 3 节点集群配置
+
+#### rqlite 节点 1 配置
+
+创建 `/etc/rqlite/config.yaml`：
+
+```yaml
+http-addr: "0.0.0.0:4001"
+raft-addr: "0.0.0.0:4002"
+join:
+  - "192.168.1.100:4002"
+  - "192.168.1.101:4002"
+  - "192.168.1.102:4002"
+node-id: "rqlite-node1"
+data-dir: "/var/lib/rqlite"
+```
+
+systemd 服务 `/etc/systemd/system/rqlite.service`：
+
+```ini
+[Unit]
+Description=rqlite - lightweight, distributed relational database
+After=network.target
+
+[Service]
+Type=simple
+User=rqlite
+Group=rqlite
+ExecStart=/usr/local/bin/rqlited -config /etc/rqlite/config.yaml
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+#### rqlite 节点 2 配置
+
+```yaml
+http-addr: "0.0.0.0:4001"
+raft-addr: "0.0.0.0:4002"
+join:
+  - "192.168.1.100:4002"
+  - "192.168.1.101:4002"
+  - "192.168.1.102:4002"
+node-id: "rqlite-node2"
+data-dir: "/var/lib/rqlite"
+```
+
+#### rqlite 节点 3 配置
+
+```yaml
+http-addr: "0.0.0.0:4001"
+raft-addr: "0.0.0.0:4002"
+join:
+  - "192.168.1.100:4002"
+  - "192.168.1.101:4002"
+  - "192.168.1.102:4002"
+node-id: "rqlite-node3"
+data-dir: "/var/lib/rqlite"
+```
+
+**启动步骤**：
+
+1. 首先启动第一个节点，无需 `join` 配置
+2. 启动第二个和第三个节点，配置 `join` 参数连接到集群
+3. 验证集群状态：
+   ```bash
+   curl http://192.168.1.100:4001/status
+   ```
+
+### 9.4 Redis 哨兵模式配置
+
+#### Redis 主节点配置
+
+创建 `/etc/redis/redis.conf`：
+
+```conf
+bind 0.0.0.0
+port 6379
+daemonize no
+supervised systemd
+pidfile /var/run/redis/redis-server.pid
+logfile /var/log/redis/redis-server.log
+dir /var/lib/redis
+requirepass your-redis-password
+```
+
+#### Redis 哨兵配置
+
+创建 `/etc/redis/sentinel.conf`（所有哨兵节点相同）：
+
+```conf
+port 26379
+daemonize no
+pidfile /var/run/redis/redis-sentinel.pid
+logfile /var/log/redis/redis-sentinel.log
+dir /tmp
+
+sentinel monitor mymaster 192.168.1.200 6379 2
+sentinel auth-pass mymaster your-redis-password
+sentinel down-after-milliseconds mymaster 5000
+sentinel parallel-syncs mymaster 1
+sentinel failover-timeout mymaster 10000
+```
+
+**哨兵配置说明**：
+- `sentinel monitor mymaster 192.168.1.200 6379 2`：监控名为 `mymaster` 的 master，2 个哨兵同意即可故障转移
+- `sentinel auth-pass`：master 密码
+- `down-after-milliseconds`：5000ms 无响应视为下线
+- `failover-timeout`：故障转移超时时间 10000ms
+
+#### Redis 哨兵 systemd 服务
+
+创建 `/etc/systemd/system/redis-sentinel.service`：
+
+```ini
+[Unit]
+Description=Redis Sentinel
+After=network.target
+
+[Service]
+Type=simple
+User=redis
+Group=redis
+ExecStart=/usr/bin/redis-sentinel /etc/redis/sentinel.conf
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**启动步骤**：
+
+1. 启动 Redis master
+2. 启动所有 Redis 哨兵节点
+3. 验证哨兵状态：
+   ```bash
+   redis-cli -p 26379 info sentinel
+   ```
+
+### 9.5 Nginx 反向代理和负载均衡配置
+
+创建 `/etc/nginx/conf.d/bdopsflow.conf`：
+
+```nginx
+upstream bdopsflow_schedulers {
+    least_conn;
+    server 192.168.1.10:8080;
+    server 192.168.1.11:8080;
+    server 192.168.1.12:8080;
+    keepalive 32;
+}
+
+server {
+    listen 80;
+    server_name bdopsflow.example.com;
+
+    # 重定向到 HTTPS
+    return 301 https://$server_name$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name bdopsflow.example.com;
+
+    # SSL 证书配置
+    ssl_certificate /etc/nginx/ssl/bdopsflow.crt;
+    ssl_certificate_key /etc/nginx/ssl/bdopsflow.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+
+    # 日志配置
+    access_log /var/log/nginx/bdopsflow_access.log;
+    error_log /var/log/nginx/bdopsflow_error.log;
+
+    # 客户端最大请求体大小（上传 SQL 文件等）
+    client_max_body_size 100M;
+
+    # 核心配置：查询接口单独超时配置
+    # =======================================
+
+    # 1. 查询执行接口 - 最长 30 分钟
+    location ~ ^/api/v?\d*/query/execute$ {
+        proxy_pass http://bdopsflow_schedulers;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+
+        # 关键配置：延长查询超时时间
+        proxy_connect_timeout 60s;       # 连接超时
+        proxy_send_timeout 1800s;        # 发送超时 (30分钟)
+        proxy_read_timeout 1800s;        # 读取超时 (30分钟)
+        proxy_request_buffering off;
+        proxy_buffering off;
+    }
+
+    # 2. 查询取消接口 - 快速响应
+    location ~ ^/api/v?\d*/query/cancel/[^/]+$ {
+        proxy_pass http://bdopsflow_schedulers;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+
+        proxy_connect_timeout 10s;
+        proxy_send_timeout 30s;
+        proxy_read_timeout 30s;
+    }
+
+    # 3. 数据导出接口 - 30分钟
+    location ~ ^/api/v?\d*/query/export$ {
+        proxy_pass http://bdopsflow_schedulers;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 1800s;
+        proxy_read_timeout 1800s;
+    }
+
+    # 4. 数据源元数据查询 - 5分钟
+    location ~ ^/api/v?\d*/datasources/[^/]+/metadata$ {
+        proxy_pass http://bdopsflow_schedulers;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 300s;
+    }
+
+    # 5. SSE 支持（用于日志实时推送）
+    # Server-Sent Events 保持长连接，无需 WebSocket 升级
+    location ~ ^/api/v?\d*/logs/stream$ {
+        proxy_pass http://bdopsflow_schedulers;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+
+        # SSE 关键配置：保持长连接
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 86400s;  # 24小时，适合长连接 SSE
+    }
+
+    # 6. 其他 API - 5 分钟
+    location /api/ {
+        proxy_pass http://bdopsflow_schedulers;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 300s;
+    }
+
+    # 7. 前端静态资源（包含 /assets/* 等）
+    location / {
+        root /var/www/bdopsflow;
+        index index.html;
+        try_files $uri $uri/ /index.html;
+    }
+
+    # 8. 健康检查端点
+    location /health {
+        proxy_pass http://bdopsflow_schedulers/health;
+        access_log off;
+    }
+
+    # 注意：/metrics 指标接口建议直接连接后端节点，不通过 Nginx 代理
+    # 原因：每个调度器节点有独立的指标，需要 Prometheus 直接采集所有节点
+    # Prometheus 配置示例：
+    # scrape_configs:
+    #   - job_name: 'bdopsflow-scheduler'
+    #     static_configs:
+    #       - targets: ['192.168.1.10:8080', '192.168.1.11:8080', '192.168.1.12:8080']
+
+    # 错误页面
+    error_page 500 502 503 504 /50x.html;
+    location = /50x.html {
+        root /usr/share/nginx/html;
+    }
+}
+```
+
+**查询接口超时配置说明**
+
+Hive 等大数据查询可能执行时间超过 1 分钟，需要针对不同接口配置不同的超时时间：
+
+| 接口 | 超时时间 | 说明 |
+|-----|--------|------|
+| `/api/query/execute` | 30 分钟 | 查询执行接口，支持慢查询 |
+| `/api/query/export` | 30 分钟 | 数据导出接口 |
+| `/api/query/cancel/:query_id` | 30 秒 | 查询取消接口，应快速响应 |
+| `/api/datasources/:id/metadata` | 5 分钟 | 元数据查询（表/列等） |
+| `/api/logs/stream` | 24 小时 | SSE 日志推送，长连接 |
+| `/health` | - | 健康检查，禁用日志 |
+| `/metrics` | - | **直接采集**（不通过 Nginx） |
+| 其他 API | 5 分钟 | 通用接口 |
+
+**location 匹配顺序说明**
+
+Nginx location 的匹配顺序非常重要，必须遵循以下原则：
+
+1. **精确匹配的 location**（`=`）放在最前面
+2. **带正则表达式的 location**（`~`）按声明顺序匹配
+3. **前缀匹配的 location**（无修饰符）按最长匹配优先
+
+当前配置顺序：
+```
+1. /api/v?\d*/query/execute$     (正则，查询执行 30分钟)
+2. /api/v?\d*/query/cancel/...   (正则，查询取消 30秒)
+3. /api/v?\d*/query/export$      (正则，数据导出 30分钟)
+4. /api/v?\d*/datasources/...    (正则，元数据查询 5分钟)
+5. /api/v?\d*/logs/stream$        (正则，SSE 24小时)
+6. /api/                          (前缀，其他 API 5分钟)
+7. /                               (前缀，前端 HTML SPA，包含 /assets/*)
+8. /health                        (精确)
+
+注意：/metrics 不通过 Nginx 代理，Prometheus 直接采集所有调度器节点
+```
+
+**关键参数说明**
+
+```nginx
+# 连接超时：建立 TCP 连接的超时时间
+proxy_connect_timeout 60s;
+
+# 发送超时：向后端发送请求的超时时间
+proxy_send_timeout 1800s;  # 30分钟
+
+# 读取超时：从后端读取响应的超时时间
+proxy_read_timeout 1800s;  # 30分钟
+```
+
+**负载均衡策略说明**：
+- `least_conn`：最少连接数策略，将请求转发到当前连接数最少的节点
+- `keepalive`：保持与后端服务器的长连接，提高性能
+
+**验证 Nginx 配置**：
+```bash
+nginx -t
+systemctl reload nginx
+```
+
+**注意事项**：
+1. **前端部署**：前端独立部署，Nginx 直接服务静态文件（`/var/www/bdopsflow`），不通过后端内置 Web
+2. **后端内置 Web 禁用**：默认 `web.enabled: false`，所有 API 请求通过 Nginx 代理到调度器
+3. **后端服务也需要相应配置**：确保后端（scheduler）的查询超时设置也足够长
+4. **生产环境建议**：30分钟足够长，但根据实际业务调整
+5. **SSE 连接超时**：SSE 使用 `/api/*/logs/stream` 接口，超时配置为 24 小时
+6. **监控**：建议监控慢查询，避免恶意查询占用资源
+7. **取消查询**：确保取消查询功能正常，避免查询堆积
+
+### 9.6 完整部署步骤
+
+1. **基础环境准备**
+   ```bash
+   # 在所有节点上安装必要的依赖
+   apt-get update
+   apt-get install -y nginx redis-server rqlite
+   ```
+
+2. **部署 rqlite 集群**
+   - 配置并启动 3 个 rqlite 节点
+   - 验证集群状态
+
+3. **部署 Redis 哨兵集群**
+   - 配置并启动 Redis master
+   - 配置并启动 3 个 Redis 哨兵节点
+   - 验证哨兵状态
+
+4. **构建前端**
+   ```bash
+   cd web
+   npm install
+   npm run build
+   ```
+
+5. **部署前端静态文件**
+   ```bash
+   # 创建前端目录
+   mkdir -p /var/www/bdopsflow
+
+   # 复制前端构建文件
+   cp -r web/dist/* /var/www/bdopsflow/
+
+   # 设置权限
+   chown -R www-data:www-data /var/www/bdopsflow
+   ```
+
+6. **部署调度中心**
+   - 准备配置文件（各节点 node_id 和 advertise_addr 不同）
+   - 配置 systemd 服务（确保 `web.enabled: false`）
+   - 启动所有调度中心节点
+
+7. **配置 Nginx**
+   - 部署 SSL 证书
+   - 配置负载均衡
+   - 验证配置：`nginx -t`
+   - 启动/重载 Nginx：`systemctl reload nginx`
+
+8. **验证部署**
+   - 访问 Web UI 验证
+   - 测试任务调度
+   - 测试故障转移
+
+### 9.7 监控和维护
+
+**健康检查**：
+- 调度中心：访问 `http://<scheduler-addr>/health`
+- rqlite：访问 `http://<rqlite-addr>:4001/status`
+- Redis 哨兵：`redis-cli -p 26379 info sentinel`
+
+**日志轮转**：
+- 参考本文档第 1.2 节中的 logrotate 配置
+
+**配置重载**：
+- 修改配置后使用 `systemctl reload bdopsflow-scheduler` 触发重载
 
 ---
 

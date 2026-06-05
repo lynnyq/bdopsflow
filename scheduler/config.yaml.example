@@ -1,45 +1,120 @@
-app:
-  http_port: "8080"
-  grpc_port: "50051"
-  node_id: ""
-  allow_register: false
-  cors_allow_origins: []
+# =====================================================================
+# BDopsFlow Scheduler 配置文件
+# =====================================================================
+# 配置说明：
+# - 所有配置项都支持通过环境变量覆盖，格式为 CONFIG_KEY（大写，下划线分隔）
+# - 例如：app.http_port 可通过 APP_HTTP_PORT 环境变量覆盖
+# - 敏感配置建议使用环境变量或 secret 管理
+# =====================================================================
 
+app:
+  # HTTP API 监听端口
+  http_port: "8080"
+  
+  # gRPC 服务监听端口（与执行器通信）
+  grpc_port: "50051"
+  
+  # 节点唯一标识（集群部署时必须配置，多节点不能重复）
+  node_id: "scheduler-1"
+  
+  # 集群节点对外宣告地址（格式：host:port）
+  # 多节点部署时必须配置，其他节点通过此地址与该节点通信
+  advertise_addr: "192.168.1.10:8080"
+  
+  # 是否允许用户自注册
+  allow_register: false
+  
+  # CORS 允许的来源列表（空数组表示允许所有）
+  cors_allow_origins:
+    - "https://bdopsflow.example.com"
+    - "https://ops.example.com"
+
+# =====================================================================
+# RSA 密钥配置
+# =====================================================================
+# 用于本地登录密码加密，可通过 `./scheduler keygen` 生成
 rsa:
   public_key: ""
   private_key: ""
 
+# =====================================================================
+# SSO 单点登录配置
+# =====================================================================
 sso:
   enabled: false
   url: ""
   public_key: ""
   timeout: 10
 
+# =====================================================================
+# rqlite 分布式数据库配置
+# =====================================================================
 database:
+  # rqlite 节点地址列表（集群部署时配置多个节点）
   rqlite_addrs:
-    - "http://localhost:4001"
+    - "http://192.168.1.100:4001"
+    - "http://192.168.1.101:4001"
+    - "http://192.168.1.102:4001"
+  
+  # rqlite 认证用户名
   rqlite_user: ""
+  
+  # rqlite 认证密码（支持加密：RSA_ENCRYPTED:<加密密码>）
   rqlite_password: ""
+  
+  # 是否使用 TLS 连接 rqlite
   rqlite_tls: false
 
+# =====================================================================
+# Redis 配置
+# =====================================================================
 redis:
-  mode: "single"
-  addr: "localhost:6379"
-  password: ""
+  # Redis 模式：single（单实例）或 sentinel（哨兵模式）
+  mode: "sentinel"
+  
+  # 单实例模式时的 Redis 地址（哨兵模式时不使用）
+  addr: ""
+  
+  # Redis 密码
+  password: "your-redis-password"
+  
+  # Redis 数据库编号
   db: 0
+  
+  # 哨兵模式：master 名称
+  master_name: "mymaster"
+  
+  # 哨兵模式：哨兵节点地址列表
+  sentinel_addrs:
+    - "192.168.1.200:26379"
+    - "192.168.1.201:26379"
+    - "192.168.1.202:26379"
+  
+  # 哨兵模式：哨兵密码
+  sentinel_password: ""
 
+# =====================================================================
+# JWT Token 配置
+# =====================================================================
 jwt:
-  secret: "dev-secret-key-change-in-production"
+  secret: "your-jwt-secret-change-in-production"
   expiry_hours: 2
   refresh_expiry_hours: 168
 
+# =====================================================================
+# 日志配置
+# =====================================================================
 log:
   level: "info"
   format: "json"
+  path: "/var/log/bdopsflow/scheduler.log"
 
+# =====================================================================
+# 数据源加密配置
+# =====================================================================
 datasource:
-  encryption_key: "dev-docker-32byte-key-chg-prod-1"
-  key_source: "direct"
+  encryption_key: "change-in-prod-32byte-key1-here1"
+  key_source: "env"
   key_env_var: "BDOPSFLOW_ENCRYPTION_KEY"
   key_file: ""
-  auto_rotate_days: 0
+  auto_rotate_days: 90
