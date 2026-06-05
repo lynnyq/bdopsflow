@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lynnyq/bdopsflow/scheduler/internal/metrics"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/model"
 	rqlite "github.com/rqlite/gorqlite"
 )
@@ -53,6 +54,16 @@ func (s *SchedulerService) UpdateExecutionResult(ctx context.Context, executionI
 		"execution_id", executionID,
 		"status", status,
 	)
+
+	// 记录 Prometheus 指标
+	switch status {
+	case "success":
+		metrics.TasksCompleted.Inc()
+	case "failed":
+		metrics.TasksFailed.WithLabelValues("failed").Inc()
+	case "timeout":
+		metrics.TasksFailed.WithLabelValues("timeout").Inc()
+	}
 
 	return nil
 }

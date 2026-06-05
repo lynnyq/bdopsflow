@@ -20,9 +20,10 @@ type DatasourceHandler struct {
 	instancePermSvc *service.InstancePermissionService
 	permSvc         *service.PermissionService
 	domainSvc       *service.DomainAdminService
+	userAdminSvc    *service.UserAdminService
 }
 
-func NewDatasourceHandler(dsService *datasource.DatasourceService, manager *datasource.Manager, config *datasource.ConfigService, instancePermSvc *service.InstancePermissionService, permSvc *service.PermissionService, domainSvc *service.DomainAdminService) *DatasourceHandler {
+func NewDatasourceHandler(dsService *datasource.DatasourceService, manager *datasource.Manager, config *datasource.ConfigService, instancePermSvc *service.InstancePermissionService, permSvc *service.PermissionService, domainSvc *service.DomainAdminService, userAdminSvc *service.UserAdminService) *DatasourceHandler {
 	return &DatasourceHandler{
 		dsService:       dsService,
 		manager:         manager,
@@ -30,6 +31,7 @@ func NewDatasourceHandler(dsService *datasource.DatasourceService, manager *data
 		instancePermSvc: instancePermSvc,
 		permSvc:         permSvc,
 		domainSvc:       domainSvc,
+		userAdminSvc:    userAdminSvc,
 	}
 }
 
@@ -727,7 +729,7 @@ func pickHigherPermission(a, b string) string {
 }
 
 func (h *DatasourceHandler) datasourceToMap(ds *model.Datasource) gin.H {
-	return gin.H{
+	m := gin.H{
 		"id": ds.ID, "name": ds.Name, "type": ds.Type,
 		"host": ds.Host, "port": ds.Port, "path": ds.Path,
 		"database": ds.Database, "username": ds.Username,
@@ -742,7 +744,24 @@ func (h *DatasourceHandler) datasourceToMap(ds *model.Datasource) gin.H {
 		"zk_path": ds.ZkPath,
 		"rqlite_hosts": ds.RqliteHosts,
 		"user_permission": ds.UserPermission,
+		"created_by_name": "", "updated_by_name": "",
 	}
+
+	// 查询创建者和更新者的 real_name
+	if h.userAdminSvc != nil {
+		if ds.CreatedBy != nil && *ds.CreatedBy > 0 {
+			if user, err := h.userAdminSvc.GetUserByID(context.Background(), *ds.CreatedBy); err == nil && user != nil {
+				m["created_by_name"] = user.RealName
+			}
+		}
+		if ds.UpdatedBy != nil && *ds.UpdatedBy > 0 {
+			if user, err := h.userAdminSvc.GetUserByID(context.Background(), *ds.UpdatedBy); err == nil && user != nil {
+				m["updated_by_name"] = user.RealName
+			}
+		}
+	}
+
+	return m
 }
 
 func int64Ptr(v int64) *int64 {

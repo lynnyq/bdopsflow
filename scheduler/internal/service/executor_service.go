@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lynnyq/bdopsflow/scheduler/internal/metrics"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/model"
 	rqlite "github.com/rqlite/gorqlite"
 )
@@ -122,6 +123,7 @@ func (s *SchedulerService) RegisterExecutor(ctx context.Context, name, address s
 			"address", address,
 			"capacity", capacity,
 		)
+		s.updateExecutorMetrics(ctx)
 		return name, nil
 	}
 
@@ -156,6 +158,8 @@ func (s *SchedulerService) RegisterExecutor(ctx context.Context, name, address s
 		"address", address,
 		"capacity", capacity,
 	)
+
+	s.updateExecutorMetrics(ctx)
 
 	return name, nil
 }
@@ -208,6 +212,8 @@ func (s *SchedulerService) SetExecutorStatusByName(ctx context.Context, name str
 	if result.Err != nil {
 		return result.Err
 	}
+
+	s.updateExecutorMetrics(ctx)
 
 	return nil
 }
@@ -489,4 +495,33 @@ func (s *SchedulerService) ListExecutorsByDomain(ctx context.Context, domainID i
 	}
 
 	return executors, nil
+}
+
+// updateExecutorMetrics 更新执行器在线/离线 Prometheus 指标
+func (s *SchedulerService) updateExecutorMetrics(ctx context.Context) {
+	query := `SELECT status, COUNT(*) FROM bdopsflow_executors GROUP BY status`
+	qr, err := s.DB.QueryOne(query)
+	if err != nil || qr.Err != nil {
+		slog.Warn("failed to query executor status counts for metrics", "error", err)
+		return
+	}
+
+	var online, offline float64
+	for qr.Next() {
+		row, err := qr.Slice()
+		if err != nil {
+			continue
+		}
+		status := rowString(row[0])
+		count := rowInt64(row[1])
+		switch status {
+		case "online":
+			online = float64(count)
+		default:
+			offline += float64(count)
+		}
+	}
+
+	metrics.ExecutorsOnline.Set(online)
+	metrics.ExecutorsOffline.Set(offline)
 }

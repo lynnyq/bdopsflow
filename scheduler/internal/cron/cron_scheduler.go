@@ -11,6 +11,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/robfig/cron/v3"
 
+	"github.com/lynnyq/bdopsflow/scheduler/internal/metrics"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/service"
 )
 
@@ -360,6 +361,8 @@ func (cs *CronScheduler) executeTask(taskID int64) {
 			"task_id", taskID,
 			"execution_id", executionID,
 		)
+		metrics.CronTriggers.WithLabelValues("success").Inc()
+		metrics.TasksTriggered.WithLabelValues("cron").Inc()
 		return
 	}
 
@@ -368,6 +371,7 @@ func (cs *CronScheduler) executeTask(taskID int64) {
 			"task_id", taskID,
 			"error", err,
 		)
+		metrics.CronTriggers.WithLabelValues("skipped").Inc()
 		return
 	}
 
@@ -375,6 +379,7 @@ func (cs *CronScheduler) executeTask(taskID int64) {
 		"task_id", taskID,
 		"error", err,
 	)
+	metrics.CronTriggers.WithLabelValues("failed").Inc()
 }
 
 // acquireTaskLock 尝试获取任务执行锁

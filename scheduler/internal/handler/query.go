@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/datasource"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/datasource/driver"
+	"github.com/lynnyq/bdopsflow/scheduler/internal/metrics"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/model"
 )
 
@@ -196,6 +197,8 @@ func (h *QueryHandler) executeQuery(ctx context.Context, cancel context.CancelFu
 	result, err := drv.Query(ctx, normalizedSQL)
 	execTime := time.Since(startTime).Seconds()
 
+	metrics.DatasourceQueryDurationSeconds.Observe(execTime)
+
 	if req.Database != "" && ds.Database != req.Database {
 		restoreCtx, restoreCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		if restoreErr := drv.UseDatabase(restoreCtx, ds.Database); restoreErr != nil {
@@ -220,6 +223,7 @@ func (h *QueryHandler) executeQuery(ctx context.Context, cancel context.CancelFu
 		history.ErrorMessage = "查询已被用户取消"
 		h.dsService.RecordQueryHistory(context.Background(), history)
 		h.registry.UpdateError(queryID, "查询已被用户取消", execTime)
+		metrics.DatasourceQueries.WithLabelValues(ds.Type, "cancelled").Inc()
 		slog.Info("query cancelled by user", "query_id", queryID, "datasource_id", req.DatasourceID, "execution_time", execTime)
 		return
 	}
@@ -230,6 +234,7 @@ func (h *QueryHandler) executeQuery(ctx context.Context, cancel context.CancelFu
 		h.dsService.RecordQueryHistory(context.Background(), history)
 		slog.Error("query execution failed", "query_id", queryID, "datasource_id", req.DatasourceID, "datasource_name", ds.Name, "database", req.Database, "execution_time", execTime, "error", err)
 		h.registry.UpdateError(queryID, err.Error(), execTime)
+		metrics.DatasourceQueries.WithLabelValues(ds.Type, "failed").Inc()
 		return
 	}
 
@@ -243,6 +248,7 @@ func (h *QueryHandler) executeQuery(ctx context.Context, cancel context.CancelFu
 			nilResultMsg = fmt.Sprintf("查询返回空结果: %v", err)
 		}
 		h.registry.UpdateError(queryID, nilResultMsg, execTime)
+		metrics.DatasourceQueries.WithLabelValues(ds.Type, "failed").Inc()
 		return
 	}
 
@@ -250,6 +256,7 @@ func (h *QueryHandler) executeQuery(ctx context.Context, cancel context.CancelFu
 	history.RowCount = int(result.RowCount)
 	h.dsService.RecordQueryHistory(context.Background(), history)
 	slog.Info("query executed successfully", "query_id", queryID, "datasource_id", req.DatasourceID, "datasource_name", ds.Name, "database", req.Database, "row_count", result.RowCount, "execution_time", execTime)
+	metrics.DatasourceQueries.WithLabelValues(ds.Type, "success").Inc()
 
 	if h.cacheService != nil && result != nil {
 		if err := h.cacheService.Set(context.Background(), req.DatasourceID, req.SQL, result); err != nil {

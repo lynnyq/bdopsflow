@@ -10,6 +10,7 @@ import (
 	"time"
 
 	pb "github.com/lynnyq/bdopsflow/proto"
+	"github.com/lynnyq/bdopsflow/scheduler/internal/metrics"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/service"
 	"google.golang.org/grpc"
 )
@@ -126,6 +127,8 @@ func (s *Server) Register(ctx context.Context, req *pb.RegisterRequest) (*pb.Reg
 
 	slog.Info("executor registered successfully", "executor_name", executorName)
 
+	metrics.ExecutorRegistrations.Inc()
+
 	return &pb.RegisterResponse{
 		Success:      true,
 		Message:      "registered",
@@ -134,6 +137,8 @@ func (s *Server) Register(ctx context.Context, req *pb.RegisterRequest) (*pb.Reg
 }
 
 func (s *Server) Heartbeat(ctx context.Context, req *pb.HeartbeatRequest) (*pb.HeartbeatResponse, error) {
+	metrics.ExecutorHeartbeats.Inc()
+
 	if req.ExecutorName == "" {
 		// 只返回基本信息的心跳响应
 		s.mu.RLock()
@@ -252,6 +257,15 @@ func (s *Server) ReportTaskResult(ctx context.Context, req *pb.ReportTaskResultR
 	)
 
 	s.scheduler.UpdateExecutionResult(ctx, req.ExecutionId, req.Status, req.Output, req.Error)
+
+	// 记录任务执行时长指标
+	if req.StartTime > 0 && req.EndTime > 0 {
+		duration := time.Unix(req.EndTime, 0).Sub(time.Unix(req.StartTime, 0))
+		metrics.TaskDurationSeconds.Observe(duration.Seconds())
+	} else if req.StartTime > 0 {
+		duration := time.Since(time.Unix(req.StartTime, 0))
+		metrics.TaskDurationSeconds.Observe(duration.Seconds())
+	}
 
 	if req.Status == "failed" {
 		slog.Info("task execution failed, checking retry policy",

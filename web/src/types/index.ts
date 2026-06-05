@@ -216,6 +216,8 @@ export interface Datasource {
   last_test_at: string | null
   created_by: number
   updated_by: number
+  created_by_name: string
+  updated_by_name: string
   created_at: string
   updated_at: string
 }

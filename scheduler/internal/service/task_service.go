@@ -7,6 +7,7 @@ import (
 	"time"
 
 	pb "github.com/lynnyq/bdopsflow/proto"
+	"github.com/lynnyq/bdopsflow/scheduler/internal/metrics"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/model"
 	rqlite "github.com/rqlite/gorqlite"
 )
@@ -35,6 +36,8 @@ func (s *SchedulerService) CreateTask(ctx context.Context, query string, args ..
 	} else if s.cronScheduler != nil && !s.IsLeader() && s.redis != nil {
 		s.redis.Set(ctx, "cron:needs_reload", time.Now().Unix(), 5*time.Minute)
 	}
+
+	metrics.TasksCreated.Inc()
 
 	return task, nil
 }
@@ -738,6 +741,7 @@ func (s *SchedulerService) HandleTaskFailure(ctx context.Context, taskID int64, 
 			"max_retries", maxRetries,
 			"retry_interval", task.RetryInterval,
 		)
+		metrics.TaskRetries.Inc()
 
 		go func() {
 			defer s.redis.Del(context.Background(), retryLockKey)

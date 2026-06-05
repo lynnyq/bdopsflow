@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lynnyq/bdopsflow/scheduler/internal/metrics"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/model"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/service"
 )
@@ -603,6 +604,7 @@ func (h *TaskHandler) Trigger(c *gin.Context) {
 	}
 
 	slog.Info("TaskHandler.Trigger: task triggered", "task_id", id, "execution_id", executionID)
+	metrics.TasksTriggered.WithLabelValues("manual").Inc()
 	Success(c, gin.H{"message": "triggered", "execution_id": executionID})
 }
 

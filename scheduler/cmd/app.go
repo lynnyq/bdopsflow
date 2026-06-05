@@ -25,6 +25,7 @@ import (
 	"github.com/lynnyq/bdopsflow/scheduler/internal/cron"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/datasource"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/grpcserver"
+	"github.com/lynnyq/bdopsflow/scheduler/internal/metrics"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/middleware"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/service"
 	"github.com/lynnyq/bdopsflow/scheduler/pkg/database"
@@ -362,17 +363,22 @@ func NewApp(cfg *config.Config) *App {
 		grpcSrv.SetLeader(true)
 		schedulerService.SetLeader(true)
 		cronScheduler.OnBecomeLeader()
+		metrics.SetLeaderStatus(nodeID, true)
 	})
 	leaderElection.OnRelease(func() {
 		slog.Info("this node lost leadership", "node_id", nodeID)
 		grpcSrv.SetLeader(false)
 		schedulerService.SetLeader(false)
 		cronScheduler.OnLoseLeader()
+		metrics.SetLeaderStatus(nodeID, false)
 	})
 
 	mainCtx, mainCancel := context.WithCancel(context.Background())
 	leaderElection.Start(mainCtx)
 	app.mainCancel = mainCancel
+
+	// 初始化 Prometheus leader 状态指标（默认为 follower）
+	metrics.SetLeaderStatus(nodeID, false)
 
 	gin.SetMode(gin.ReleaseMode)
 

@@ -8,6 +8,7 @@ import (
 
 	"github.com/lynnyq/bdopsflow/scheduler/internal/datasource"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/handler"
+	"github.com/lynnyq/bdopsflow/scheduler/internal/metrics"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/middleware"
 	"github.com/lynnyq/bdopsflow/scheduler/web"
 )
@@ -30,6 +31,9 @@ func setupRoutes(router *gin.Engine, app *App) {
 			c.JSON(http.StatusServiceUnavailable, healthData)
 		}
 	})
+
+	// Prometheus metrics 端点，无需认证，使用自定义 Registry（不含 Go runtime 指标）
+	router.GET("/metrics", gin.WrapH(metrics.Handler().(http.Handler)))
 
 	authHandler := handler.NewAuthHandler(app.logDB, app.permissionService, app.rsaUtil, app.cfg.SSOEnabled, app.cfg.SSOUrl, app.ssoRsaUtil, app.cfg.SSOTimeout)
 	userAdminHandler := handler.NewUserAdminHandler(app.userAdminService)
@@ -161,7 +165,7 @@ func setupRoutes(router *gin.Engine, app *App) {
 			webhooks.POST("/:id/test", middleware.RequirePermission(app.permissionService, "webhook", "create"), webhookHandler.Test)
 		}
 
-		dsHandler := handler.NewDatasourceHandler(app.dsService, app.dsManager, app.dsConfigService, app.instancePermSvc, app.permissionService, app.domainAdminService)
+		dsHandler := handler.NewDatasourceHandler(app.dsService, app.dsManager, app.dsConfigService, app.instancePermSvc, app.permissionService, app.domainAdminService, app.userAdminService)
 		queryHandler := handler.NewQueryHandler(app.dsService, app.dsManager, app.dsConfigService, app.dsCacheService, app.dsConcurrentService)
 
 		datasources := protected.Group("/datasources")

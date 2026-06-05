@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lynnyq/bdopsflow/scheduler/internal/metrics"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/model"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/webhook"
 	"github.com/lynnyq/bdopsflow/scheduler/pkg/database"
@@ -352,22 +353,27 @@ func sendWebhookRequest(method, url, headersJSON, signature string, jsonData []b
 	client := &http.Client{Timeout: 30 * time.Second}
 	start := time.Now()
 	resp, err := client.Do(req)
-	elapsed := time.Since(start).Milliseconds()
+	elapsed := time.Since(start)
+
+	metrics.WebhookDurationSeconds.Observe(elapsed.Seconds())
 
 	if err != nil {
-		return &WebhookTestResult{Error: err.Error(), ResponseTimeMs: elapsed}, fmt.Errorf("webhook request failed: %w", err)
+		metrics.WebhookSent.WithLabelValues("error").Inc()
+		return &WebhookTestResult{Error: err.Error(), ResponseTimeMs: elapsed.Milliseconds()}, fmt.Errorf("webhook request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	result := &WebhookTestResult{
 		StatusCode:     resp.StatusCode,
-		ResponseTimeMs: elapsed,
+		ResponseTimeMs: elapsed.Milliseconds(),
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		metrics.WebhookSent.WithLabelValues("error").Inc()
 		result.Error = fmt.Sprintf("webhook returned non-2xx status: %d", resp.StatusCode)
 		return result, fmt.Errorf("webhook returned non-2xx status: %d", resp.StatusCode)
 	}
 
+	metrics.WebhookSent.WithLabelValues("success").Inc()
 	return result, nil
 }

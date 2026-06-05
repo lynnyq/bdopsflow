@@ -35,7 +35,7 @@
         </el-table-column>
         <el-table-column label="主机" :min-width="150" show-overflow-tooltip>
           <template #default="{ row }">
-            {{ row.type === 'sqlite' ? row.path : row.host }}
+            {{ getHostDisplay(row) }}
           </template>
         </el-table-column>
         <el-table-column prop="port" label="端口" width="90" align="center">
@@ -64,6 +64,11 @@
         <el-table-column prop="domain_name" label="所属领域" width="130" show-overflow-tooltip>
           <template #default="{ row }">
             {{ row.domain_name || '-' }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="created_by_name" label="创建者" width="100" show-overflow-tooltip>
+          <template #default="{ row }">
+            {{ row.created_by_name || '-' }}
           </template>
         </el-table-column>
         <el-table-column prop="allow_write_sql" label="DML" width="90" align="center">
@@ -225,6 +230,13 @@ const formatDateTime = (dateStr: string) => {
     minute: '2-digit',
     second: '2-digit'
   })
+}
+
+const getHostDisplay = (row: Datasource): string => {
+  if (row.type === 'sqlite') return row.path || '-'
+  if (row.type === 'rqlite') return row.rqlite_hosts || row.host || '-'
+  if (['hive', 'kyuubi', 'spark'].includes(row.type)) return row.zk_hosts || row.host || '-'
+  return row.host || '-'
 }
 
 const loadDatasources = async () => {

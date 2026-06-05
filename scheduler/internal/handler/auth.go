@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lynnyq/bdopsflow/scheduler/internal/metrics"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/middleware"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/model"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/service"
@@ -85,6 +86,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	if !qr.Next() {
 		slog.Warn("Login: user not found", "module", "handler_auth", "username", req.Username)
+		metrics.AuthAttempts.WithLabelValues("local", "failed").Inc()
 		Fail(c, CodeInvalidCredentials, "用户名或密码错误")
 		return
 	}
@@ -113,6 +115,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	if err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(decryptedPassword)); err != nil {
 		slog.Warn("Login: password comparison failed", "module", "handler_auth", "username", req.Username, "error", err)
+		metrics.AuthAttempts.WithLabelValues("local", "failed").Inc()
 		Fail(c, CodeInvalidCredentials, "用户名或密码错误")
 		return
 	}
@@ -179,6 +182,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 
 	slog.Info("Login: success", "user_id", userID, "username", username, "domain_id", currentDomainID, "permissions_count", len(permissions), "domains_count", len(domains))
+	metrics.AuthAttempts.WithLabelValues("local", "success").Inc()
 
 	Success(c, gin.H{
 		"token":         tokenString,
@@ -612,6 +616,7 @@ func (h *AuthHandler) SSOLogin(c *gin.Context) {
 			errMsg = "SSO登录失败"
 		}
 		slog.Warn("SSOLogin: SSO authentication failed", "code", ssoResp.Code, "message", errMsg)
+		metrics.AuthAttempts.WithLabelValues("sso", "failed").Inc()
 		Fail(c, CodeInvalidCredentials, errMsg)
 		return
 	}
@@ -761,6 +766,8 @@ func (h *AuthHandler) SSOLogin(c *gin.Context) {
 	if roleCodes == nil {
 		roleCodes = []string{}
 	}
+
+	metrics.AuthAttempts.WithLabelValues("sso", "success").Inc()
 
 	Success(c, gin.H{
 		"token":         tokenString,
