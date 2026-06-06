@@ -227,7 +227,7 @@
           <div class="section-body">
             <el-form :model="addForm" :rules="addRules" label-position="top" class="dialog-form">
               <el-form-item label="权限类型" prop="permission_type">
-                <el-select v-model="addForm.permission_type" placeholder="请选择权限类型" style="width: 100%">
+                <el-select v-model="addForm.permission_type" placeholder="请选择权限类型" style="width: 100%" teleported popper-class="permission-select-popper">
                   <el-option
                     v-for="(label, key) in permissionLabels"
                     :key="key"
@@ -305,7 +305,7 @@
           <div class="section-body">
             <el-form ref="editFormRef" :model="editForm" :rules="editRules" label-position="top" class="dialog-form">
               <el-form-item label="权限类型" prop="permission_type">
-                <el-select v-model="editForm.permission_type" placeholder="请选择权限类型" style="width: 100%">
+                <el-select v-model="editForm.permission_type" placeholder="请选择权限类型" style="width: 100%" teleported popper-class="permission-select-popper">
                   <el-option
                     v-for="(label, key) in permissionLabels"
                     :key="key"
@@ -1356,5 +1356,77 @@ onMounted(async () => {
 .dialog-footer :deep(.el-button--primary:hover) {
   filter: brightness(1.05);
   box-shadow: 0 6px 16px rgba(59, 130, 246, 0.4);
+}
+</style>
+
+<style>
+.permission-select-popper {
+  z-index: 9999 !important;
+}
+
+.permission-select-popper .el-select-dropdown__item {
+  height: auto !important;
+  padding: 10px 12px !important;
+}
+
+.permission-select-popper .perm-select-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.permission-select-popper .perm-select-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.permission-select-popper .perm-select-label {
+  font-weight: 500;
+}
+
+.permission-select-popper .perm-select-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.permission-select-popper .perm-badge-mini {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
+.permission-select-popper .perm-badge-mini.permission-read {
+  background: rgba(59, 130, 246, 0.1);
+  color: #3b82f6;
+}
+
+.permission-select-popper .perm-badge-mini.permission-query {
+  background: rgba(99, 102, 241, 0.1);
+  color: #6366f1;
+}
+
+.permission-select-popper .perm-badge-mini.permission-download {
+  background: rgba(34, 197, 94, 0.1);
+  color: #22c55e;
+}
+
+.permission-select-popper .perm-badge-mini.permission-update {
+  background: rgba(245, 158, 11, 0.1);
+  color: #f59e0b;
+}
+
+.permission-select-popper .perm-badge-mini.permission-delete {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
+.permission-select-popper .perm-badge-mini.permission-manage {
+  background: rgba(139, 92, 246, 0.1);
+  color: #8b5cf6;
 }
 </style>
