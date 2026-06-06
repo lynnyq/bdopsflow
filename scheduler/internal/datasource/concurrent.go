@@ -3,32 +3,68 @@ package datasource
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
+
+	sysconfig "github.com/lynnyq/bdopsflow/scheduler/internal/system_config"
 )
 
 type ConcurrentService struct {
 	redis  *redis.Client
-	config *ConfigService
+	config *sysconfig.Service
+
+	// 运行时配置缓存
+	runtimeMaxPerUser int
+	runtimeMaxGlobal  int
+	mu                sync.RWMutex
 }
 
-func NewConcurrentService(redis *redis.Client, config *ConfigService) *ConcurrentService {
-	return &ConcurrentService{
+func NewConcurrentService(redis *redis.Client, config *sysconfig.Service) *ConcurrentService {
+	s := &ConcurrentService{
 		redis:  redis,
 		config: config,
+	}
+
+	// 初始化运行时配置
+	s.refreshRuntimeConfig()
+
+	// 注册为配置观察者
+	config.RegisterObserver(s)
+
+	return s
+}
+
+// OnConfigChanged 实现 sysconfig.ConfigObserver 接口
+func (s *ConcurrentService) OnConfigChanged(key, value string) {
+	if key == "datasource.max_concurrent_per_user" || key == "datasource.max_concurrent_global" {
+		s.refreshRuntimeConfig()
+		slog.Info("concurrent service config updated", "key", key, "value", value)
+	}
+}
+
+// refreshRuntimeConfig 刷新运行时配置缓存
+func (s *ConcurrentService) refreshRuntimeConfig() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.runtimeMaxPerUser = s.config.GetInt("datasource.max_concurrent_per_user")
+	s.runtimeMaxGlobal = s.config.GetInt("datasource.max_concurrent_global")
+
+	if s.runtimeMaxPerUser <= 0 {
+		s.runtimeMaxPerUser = 5
+	}
+	if s.runtimeMaxGlobal <= 0 {
+		s.runtimeMaxGlobal = 50
 	}
 }
 
 func (s *ConcurrentService) Acquire(ctx context.Context, userID int64) (func(), error) {
-	maxPerUser := s.config.GetInt("datasource.max_concurrent_per_user")
-	maxGlobal := s.config.GetInt("datasource.max_concurrent_global")
-	if maxPerUser <= 0 {
-		maxPerUser = 5
-	}
-	if maxGlobal <= 0 {
-		maxGlobal = 50
-	}
+	s.mu.RLock()
+	maxPerUser := s.runtimeMaxPerUser
+	maxGlobal := s.runtimeMaxGlobal
+	s.mu.RUnlock()
 
 	userKey := fmt.Sprintf("datasource:query:concurrent:user:%d", userID)
 	globalKey := "datasource:query:concurrent:global"

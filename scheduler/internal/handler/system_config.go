@@ -4,14 +4,14 @@ import (
 	"log/slog"
 
 	"github.com/gin-gonic/gin"
-	"github.com/lynnyq/bdopsflow/scheduler/internal/datasource"
+	sysconfig "github.com/lynnyq/bdopsflow/scheduler/internal/system_config"
 )
 
 type SystemConfigHandler struct {
-	configService *datasource.ConfigService
+	configService *sysconfig.Service
 }
 
-func NewSystemConfigHandler(configService *datasource.ConfigService) *SystemConfigHandler {
+func NewSystemConfigHandler(configService *sysconfig.Service) *SystemConfigHandler {
 	return &SystemConfigHandler{
 		configService: configService,
 	}

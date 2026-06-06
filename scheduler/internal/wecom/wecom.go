@@ -9,24 +9,64 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
+
+	sysconfig "github.com/lynnyq/bdopsflow/scheduler/internal/system_config"
 )
 
 type WeComService struct {
-	robotMsgURL string
-	appMsgURL   string
-	ewechatURL  string
+	config      *sysconfig.Service
 	httpClient  *http.Client
+
+	// 运行时配置缓存
+	runtimeRobotURL  string
+	runtimeAppMsgURL string
+	runtimeEwechatURL string
+	mu               sync.RWMutex
 }
 
-func NewService(robotMsgURL, appMsgURL, ewechatURL string) *WeComService {
-	return &WeComService{
-		robotMsgURL: robotMsgURL,
-		appMsgURL:   appMsgURL,
-		ewechatURL:  ewechatURL,
+func NewService(config *sysconfig.Service) *WeComService {
+	s := &WeComService{
+		config: config,
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
+	}
+
+	// 初始化运行时配置
+	s.refreshRuntimeConfig()
+
+	// 注册为配置观察者
+	config.RegisterObserver(s)
+
+	return s
+}
+
+// OnConfigChanged 实现 sysconfig.ConfigObserver 接口
+func (s *WeComService) OnConfigChanged(key, value string) {
+	if key == "wecom.robot_url" || key == "wecom.app_msg_url" || key == "wecom.ewechat_url" {
+		s.refreshRuntimeConfig()
+		slog.Info("wecom service config updated", "key", key, "value", value)
+	}
+}
+
+// refreshRuntimeConfig 刷新运行时配置缓存
+func (s *WeComService) refreshRuntimeConfig() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.runtimeRobotURL = s.config.Get("wecom.robot_url")
+	s.runtimeAppMsgURL = s.config.Get("wecom.app_msg_url")
+	s.runtimeEwechatURL = s.config.Get("wecom.ewechat_url")
+
+	if s.runtimeRobotURL == "" {
+		s.runtimeRobotURL = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send"
+	}
+	if s.runtimeAppMsgURL == "" {
+		s.runtimeAppMsgURL = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send"
+	}
+	if s.runtimeEwechatURL == "" {
+		s.runtimeEwechatURL = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send"
 	}
 }
 
@@ -36,6 +76,10 @@ type WeComResponse struct {
 }
 
 func (s *WeComService) SendAppMsg(agentID int, msgType, msgContent string, phoneNumList []string) error {
+	s.mu.RLock()
+	appMsgURL := s.runtimeAppMsgURL
+	s.mu.RUnlock()
+
 	data := map[string]interface{}{
 		"agentId":      fmt.Sprintf("%d", agentID),
 		"fromChannel": "HDP",
@@ -54,10 +98,14 @@ func (s *WeComService) SendAppMsg(agentID int, msgType, msgContent string, phone
 		},
 	}
 
-	return s.sendRequest(s.appMsgURL, data)
+	return s.sendRequest(appMsgURL, data)
 }
 
 func (s *WeComService) SendRobotMarkdownMsg(groupID string, msg string) error {
+	s.mu.RLock()
+	robotURL := s.runtimeRobotURL
+	s.mu.RUnlock()
+
 	data := map[string]interface{}{
 		"groupId":     groupID,
 		"fromChannel": "HDP",
@@ -69,10 +117,14 @@ func (s *WeComService) SendRobotMarkdownMsg(groupID string, msg string) error {
 		},
 	}
 
-	return s.sendRequest(s.robotMsgURL, data)
+	return s.sendRequest(robotURL, data)
 }
 
 func (s *WeComService) SendRobotImageMsg(groupID string, pictureBytes []byte) error {
+	s.mu.RLock()
+	robotURL := s.runtimeRobotURL
+	s.mu.RUnlock()
+
 	b64Value := base64.StdEncoding.EncodeToString(pictureBytes)
 	md := md5.New()
 	md.Write(pictureBytes)
@@ -90,10 +142,14 @@ func (s *WeComService) SendRobotImageMsg(groupID string, pictureBytes []byte) er
 		},
 	}
 
-	return s.sendRequest(s.robotMsgURL, data)
+	return s.sendRequest(robotURL, data)
 }
 
 func (s *WeComService) SendRobotTextPeopleMsg(groupID, msg string, phoneNumber string) error {
+	s.mu.RLock()
+	robotURL := s.runtimeRobotURL
+	s.mu.RUnlock()
+
 	data := map[string]interface{}{
 		"groupId":     groupID,
 		"fromChannel": "HDP",
@@ -106,10 +162,14 @@ func (s *WeComService) SendRobotTextPeopleMsg(groupID, msg string, phoneNumber s
 		},
 	}
 
-	return s.sendRequest(s.robotMsgURL, data)
+	return s.sendRequest(robotURL, data)
 }
 
 func (s *WeComService) SendChatMarkdownMsg(chatID, msg string) error {
+	s.mu.RLock()
+	ewechatURL := s.runtimeEwechatURL
+	s.mu.RUnlock()
+
 	msgData := map[string]interface{}{
 		"fromChannel": "HDP",
 		"agentId":     "1000027",
@@ -126,10 +186,14 @@ func (s *WeComService) SendChatMarkdownMsg(chatID, msg string) error {
 		},
 	}
 
-	return s.sendRequest(s.ewechatURL, msgData)
+	return s.sendRequest(ewechatURL, msgData)
 }
 
 func (s *WeComService) CreateChatGroup(chatName string, userList []string) (map[string]interface{}, error) {
+	s.mu.RLock()
+	ewechatURL := s.runtimeEwechatURL
+	s.mu.RUnlock()
+
 	data := map[string]interface{}{
 		"fromChannel": "HDP",
 		"agentId":     "1000027",
@@ -144,10 +208,14 @@ func (s *WeComService) CreateChatGroup(chatName string, userList []string) (map[
 		},
 	}
 
-	return s.sendRequestWithResult(s.ewechatURL, data)
+	return s.sendRequestWithResult(ewechatURL, data)
 }
 
 func (s *WeComService) GetChatGroupInfo(chatID string) (map[string]interface{}, error) {
+	s.mu.RLock()
+	ewechatURL := s.runtimeEwechatURL
+	s.mu.RUnlock()
+
 	data := map[string]interface{}{
 		"fromChannel": "HDP",
 		"agentId":     "1000027",
@@ -156,10 +224,14 @@ func (s *WeComService) GetChatGroupInfo(chatID string) (map[string]interface{}, 
 		"apiName":     "获取群聊会话",
 	}
 
-	return s.sendRequestWithResult(s.ewechatURL, data)
+	return s.sendRequestWithResult(ewechatURL, data)
 }
 
 func (s *WeComService) UpdateChatGroup(chatID, ownerID string, addUserList, delUserList []string, chatName string) (map[string]interface{}, error) {
+	s.mu.RLock()
+	ewechatURL := s.runtimeEwechatURL
+	s.mu.RUnlock()
+
 	data := map[string]interface{}{
 		"fromChannel": "HDP",
 		"agentId":     "1000027",
@@ -175,7 +247,7 @@ func (s *WeComService) UpdateChatGroup(chatID, ownerID string, addUserList, delU
 		},
 	}
 
-	return s.sendRequestWithResult(s.ewechatURL, data)
+	return s.sendRequestWithResult(ewechatURL, data)
 }
 
 func (s *WeComService) sendRequest(url string, data map[string]interface{}) error {

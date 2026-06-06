@@ -7,23 +7,19 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/lynnyq/bdopsflow/scheduler/internal/datasource"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/wecom"
+	sysconfig "github.com/lynnyq/bdopsflow/scheduler/internal/system_config"
 )
 
 type WeComHandler struct {
-	configService *datasource.ConfigService
+	configService *sysconfig.Service
 	wecomService  *wecom.WeComService
 }
 
-func NewWeComHandler(configService *datasource.ConfigService) *WeComHandler {
-	robotURL := configService.Get("wecom.robot_url")
-	appMsgURL := configService.Get("wecom.app_msg_url")
-	ewechatURL := configService.Get("wecom.ewechat_url")
-
+func NewWeComHandler(configService *sysconfig.Service) *WeComHandler {
 	return &WeComHandler{
 		configService: configService,
-		wecomService:  wecom.NewService(robotURL, appMsgURL, ewechatURL),
+		wecomService:  wecom.NewService(configService),
 	}
 }
 

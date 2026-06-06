@@ -3,6 +3,8 @@ package driver
 import (
 	"context"
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -184,4 +186,92 @@ func extractGohiveError(err error, wrapMsg string) error {
 		return fmt.Errorf("%s: 查询执行失败，Hive未返回详细错误信息，请检查SQL语法或数据源权限", wrapMsg)
 	}
 	return errors.Wrap(err, wrapMsg)
+}
+
+// ApplyLimitToSQL 参考Superset的方式，在SQL语句末尾添加LIMIT
+// 支持多种SQL语法：
+//   - MySQL/PostgreSQL/SQLite/StarRocks/Doris/Trino: LIMIT x 或 LIMIT x OFFSET y
+//   - Hive/Kyuubi/Spark: 仅支持 LIMIT x（不支持 OFFSET，会自动去除）
+// 如果用户SQL中已有LIMIT，则取用户LIMIT和系统限制的较小值
+func ApplyLimitToSQL(sql string, limit int, dsType string) string {
+	if limit <= 0 {
+		return sql
+	}
+
+	normalized := NormalizeSQLForType(sql, dsType)
+	upperSQL := strings.ToUpper(normalized)
+
+	// 检查是否是SELECT查询（避免修改其他类型的SQL）
+	if !strings.HasPrefix(upperSQL, "SELECT ") &&
+		!strings.HasPrefix(upperSQL, "WITH ") &&
+		!strings.HasPrefix(upperSQL, "SHOW ") &&
+		!strings.HasPrefix(upperSQL, "DESCRIBE ") &&
+		!strings.HasPrefix(upperSQL, "DESC ") &&
+		!strings.HasPrefix(upperSQL, "EXPLAIN ") {
+		// 非SELECT查询，不添加LIMIT
+		return sql
+	}
+
+	// 检查是否已经有LIMIT子句
+	if strings.Contains(upperSQL, " LIMIT ") {
+		// 提取用户指定的LIMIT值
+		userLimit := extractUserLimit(upperSQL)
+		if userLimit > 0 {
+			// 如果用户LIMIT大于系统限制，则替换为系统限制
+			if limit < userLimit {
+				// 替换SQL中的LIMIT值为系统限制
+				// 对于Hive/SparkSQL，如果原SQL包含OFFSET，会自动去除
+				return replaceLimitValue(normalized, userLimit, limit)
+			}
+			// 用户LIMIT小于等于系统限制，保持原样
+			return sql
+		}
+		// 如果无法提取LIMIT值，添加系统限制
+		return fmt.Sprintf("%s LIMIT %d", normalized, limit)
+	}
+
+	// 没有LIMIT子句，添加系统限制
+	// 对于Hive/SparkSQL，仅使用 LIMIT（不支持 OFFSET）
+	switch dsType {
+	case "mysql", "sqlite", "rqlite", "starrocks", "doris", "trino":
+		// 标准LIMIT语法
+		return fmt.Sprintf("%s LIMIT %d", normalized, limit)
+	case "hive", "kyuubi", "spark":
+		// Hive/Spark仅支持 LIMIT
+		return fmt.Sprintf("%s LIMIT %d", normalized, limit)
+	default:
+		// 默认使用LIMIT
+		return fmt.Sprintf("%s LIMIT %d", normalized, limit)
+	}
+}
+
+// extractUserLimit 从SQL中提取用户指定的LIMIT值
+// 支持格式：LIMIT 100, LIMIT 100 OFFSET 200, LIMIT 100,200
+func extractUserLimit(sql string) int {
+	// 匹配 LIMIT 数字（可能包含逗号分隔或OFFSET）的模式
+	// 支持: LIMIT 100, LIMIT 100 OFFSET 200, LIMIT 100,200
+	re := regexp.MustCompile(`(?i)\s+LIMIT\s+(\d+)`)
+	matches := re.FindStringSubmatch(sql)
+	if len(matches) >= 2 {
+		limit, err := strconv.Atoi(matches[1])
+		if err == nil {
+			return limit
+		}
+	}
+	return 0
+}
+
+// replaceLimitValue 替换SQL中的LIMIT值为新值
+// 如果原SQL包含OFFSET，替换时保留LIMIT部分（去除OFFSET以兼容Hive/SparkSQL）
+func replaceLimitValue(sql string, oldLimit, newLimit int) string {
+	// 先尝试匹配带OFFSET的情况：LIMIT 2000 OFFSET 100 或 LIMIT 2000,100
+	offsetPattern := regexp.MustCompile(fmt.Sprintf(`(?i)\s+LIMIT\s+%d\s*,?\s*\d*\s*(?:OFFSET\s+\d+)?`, oldLimit))
+	if offsetPattern.MatchString(sql) {
+		// 替换为简单的 LIMIT newLimit（去除 OFFSET）
+		return offsetPattern.ReplaceAllString(sql, fmt.Sprintf(" LIMIT %d", newLimit))
+	}
+
+	// 普通情况：LIMIT 2000
+	pattern := regexp.MustCompile(fmt.Sprintf(`(?i)\s+LIMIT\s+%d\b`, oldLimit))
+	return pattern.ReplaceAllString(sql, fmt.Sprintf(" LIMIT %d", newLimit))
 }

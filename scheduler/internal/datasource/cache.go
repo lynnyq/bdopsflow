@@ -5,27 +5,60 @@ import (
 	"crypto/md5"
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 
 	"github.com/lynnyq/bdopsflow/scheduler/internal/datasource/driver"
+	sysconfig "github.com/lynnyq/bdopsflow/scheduler/internal/system_config"
 )
 
 type CacheService struct {
 	redis  *redis.Client
-	config *ConfigService
+	config *sysconfig.Service
+
+	// 运行时配置缓存
+	runtimeCacheTTL int
+	mu              sync.RWMutex
 }
 
-func NewCacheService(redis *redis.Client, config *ConfigService) *CacheService {
-	return &CacheService{
+func NewCacheService(redis *redis.Client, config *sysconfig.Service) *CacheService {
+	s := &CacheService{
 		redis:  redis,
 		config: config,
 	}
+
+	// 初始化运行时配置
+	s.refreshRuntimeConfig()
+
+	// 注册为配置观察者
+	config.RegisterObserver(s)
+
+	return s
+}
+
+// OnConfigChanged 实现 sysconfig.ConfigObserver 接口
+func (s *CacheService) OnConfigChanged(key, value string) {
+	if key == "datasource.cache_ttl" || key == "datasource.cache_max_size" {
+		s.refreshRuntimeConfig()
+		slog.Info("cache service config updated", "key", key, "value", value)
+	}
+}
+
+// refreshRuntimeConfig 刷新运行时配置缓存
+func (s *CacheService) refreshRuntimeConfig() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.runtimeCacheTTL = s.config.GetInt("datasource.cache_ttl")
 }
 
 func (s *CacheService) Get(ctx context.Context, datasourceID int64, sql string) (*driver.QueryResult, bool, error) {
-	ttl := s.config.GetInt("datasource.cache_ttl")
+	s.mu.RLock()
+	ttl := s.runtimeCacheTTL
+	s.mu.RUnlock()
+
 	if ttl <= 0 {
 		return nil, false, nil
 	}
@@ -48,7 +81,10 @@ func (s *CacheService) Get(ctx context.Context, datasourceID int64, sql string) 
 }
 
 func (s *CacheService) Set(ctx context.Context, datasourceID int64, sql string, result *driver.QueryResult) error {
-	ttl := s.config.GetInt("datasource.cache_ttl")
+	s.mu.RLock()
+	ttl := s.runtimeCacheTTL
+	s.mu.RUnlock()
+
 	if ttl <= 0 {
 		return nil
 	}

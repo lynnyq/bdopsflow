@@ -45,7 +45,7 @@ func setupRoutes(router *gin.Engine, app *App) {
 	router.GET("/api/auth/public-key", authHandler.GetPublicKey)
 	router.POST("/api/auth/refresh", authHandler.RefreshToken)
 
-	wecomHandler := handler.NewWeComHandler(app.dsConfigService)
+	wecomHandler := handler.NewWeComHandler(app.sysConfigService)
 	router.POST("/api/wecom/task/:wx_group_id", wecomHandler.SendWeComMessage)
 	router.POST("/api/wecom/app-message", wecomHandler.SendAppMsg)
 	router.POST("/api/wecom/robot/image", wecomHandler.SendRobotImageMsg)
@@ -151,7 +151,7 @@ func setupRoutes(router *gin.Engine, app *App) {
 			admin.PUT("/domains/:id", middleware.RequirePermission(app.permissionService, "domain", "update"), domainAdminHandler.UpdateDomain)
 			admin.DELETE("/domains/:id", middleware.RequireSystemAdmin(app.permissionService), domainAdminHandler.DeleteDomain)
 
-			systemConfigHandler := handler.NewSystemConfigHandler(app.dsConfigService)
+			systemConfigHandler := handler.NewSystemConfigHandler(app.sysConfigService)
 			admin.GET("/system-config", middleware.RequireSystemAdmin(app.permissionService), systemConfigHandler.List)
 			admin.PUT("/system-config/:key", middleware.RequireSystemAdmin(app.permissionService), systemConfigHandler.Update)
 
@@ -174,7 +174,7 @@ func setupRoutes(router *gin.Engine, app *App) {
 		}
 
 		dsHandler := handler.NewDatasourceHandler(app.dsService, app.dsManager, app.dsConfigService, app.instancePermSvc, app.permissionService, app.domainAdminService, app.userAdminService)
-		queryHandler := handler.NewQueryHandler(app.dsService, app.dsManager, app.dsConfigService, app.dsCacheService, app.dsConcurrentService)
+		queryHandler := handler.NewQueryHandler(app.dsService, app.dsManager, app.sysConfigService, app.dsCacheService, app.dsConcurrentService)
 
 		datasources := protected.Group("/datasources")
 		{

@@ -29,6 +29,7 @@ import (
 	"github.com/lynnyq/bdopsflow/scheduler/internal/metrics"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/middleware"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/service"
+	"github.com/lynnyq/bdopsflow/scheduler/internal/system_config"
 	"github.com/lynnyq/bdopsflow/scheduler/pkg/database"
 	"github.com/lynnyq/bdopsflow/scheduler/pkg/election"
 	"github.com/lynnyq/bdopsflow/scheduler/pkg/rsautil"
@@ -146,6 +147,8 @@ type App struct {
 	dsService           *datasource.DatasourceService
 	dsCacheService      *datasource.CacheService
 	dsConcurrentService *datasource.ConcurrentService
+
+	sysConfigService *system_config.Service  // 全局系统配置服务
 
 	leaderElection *election.LeaderElection
 	grpcSrv        *grpcserver.Server
@@ -303,6 +306,11 @@ func NewApp(cfg *config.Config) *App {
 	}
 	app.dsCrypto = dsCrypto
 
+	// 初始化全局系统配置服务（支持热更新）
+	sysConfigService := system_config.InitGlobalService(logDB)
+	sysConfigService.StartReloadTicker(5 * time.Minute)
+	app.sysConfigService = sysConfigService
+
 	dsConfigService := datasource.NewConfigService(logDB)
 	dsConfigService.StartReloadTicker(5 * time.Minute)
 	app.dsConfigService = dsConfigService
@@ -313,10 +321,11 @@ func NewApp(cfg *config.Config) *App {
 	dsService := datasource.NewDatasourceService(logDB, dsCrypto, dsConfigService, dsManager)
 	app.dsService = dsService
 
-	dsCacheService := datasource.NewCacheService(redisClient, dsConfigService)
+	// 使用全局系统配置服务创建缓存和并发服务（支持热更新）
+	dsCacheService := datasource.NewCacheService(redisClient, sysConfigService)
 	app.dsCacheService = dsCacheService
 
-	dsConcurrentService := datasource.NewConcurrentService(redisClient, dsConfigService)
+	dsConcurrentService := datasource.NewConcurrentService(redisClient, sysConfigService)
 	app.dsConcurrentService = dsConcurrentService
 
 	schedulerService.StartCleanupRoutine()

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -15,28 +16,72 @@ import (
 	"github.com/lynnyq/bdopsflow/scheduler/internal/datasource/driver"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/metrics"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/model"
+	sysconfig "github.com/lynnyq/bdopsflow/scheduler/internal/system_config"
 )
 
 type QueryHandler struct {
 	dsService         *datasource.DatasourceService
 	manager           *datasource.Manager
-	config            *datasource.ConfigService
+	configService     *sysconfig.Service
 	cacheService      *datasource.CacheService
 	concurrentService *datasource.ConcurrentService
 	registry          *QueryRegistry
+
+	// 运行时配置缓存（用于热更新）
+	runtimeConfig struct {
+		defaultLimit int
+		maxExportRows int
+		queryTimeout int
+		maxSQLLength int
+		maxConcurrentPerUser int
+		maxConcurrentGlobal int
+		allowWriteSQL bool
+		metadataTimeout int
+		mu sync.RWMutex
+	}
 }
 
-func NewQueryHandler(dsService *datasource.DatasourceService, manager *datasource.Manager, config *datasource.ConfigService, cacheService *datasource.CacheService, concurrentService *datasource.ConcurrentService) *QueryHandler {
+func NewQueryHandler(dsService *datasource.DatasourceService, manager *datasource.Manager, configService *sysconfig.Service, cacheService *datasource.CacheService, concurrentService *datasource.ConcurrentService) *QueryHandler {
 	registry := NewQueryRegistry()
 	registry.StartCleanupLoop(5*time.Minute, 30*time.Minute)
-	return &QueryHandler{
+
+	h := &QueryHandler{
 		dsService:         dsService,
 		manager:           manager,
-		config:            config,
+		configService:     configService,
 		cacheService:      cacheService,
 		concurrentService: concurrentService,
 		registry:          registry,
 	}
+
+	// 初始化运行时配置
+	h.refreshRuntimeConfig()
+
+	// 注册为配置观察者，实现热更新
+	configService.RegisterObserver(h)
+
+	return h
+}
+
+// OnConfigChanged 实现 ConfigObserver 接口，配置变更时自动更新
+func (h *QueryHandler) OnConfigChanged(key, value string) {
+	h.refreshRuntimeConfig()
+	slog.Info("query handler config updated", "key", key, "value", value)
+}
+
+// refreshRuntimeConfig 刷新运行时配置缓存
+func (h *QueryHandler) refreshRuntimeConfig() {
+	h.runtimeConfig.mu.Lock()
+	defer h.runtimeConfig.mu.Unlock()
+
+	h.runtimeConfig.defaultLimit = h.configService.GetInt("datasource.default_limit")
+	h.runtimeConfig.maxExportRows = h.configService.GetInt("datasource.max_export_rows")
+	h.runtimeConfig.queryTimeout = h.configService.GetInt("datasource.query_timeout")
+	h.runtimeConfig.maxSQLLength = h.configService.GetInt("datasource.max_sql_length")
+	h.runtimeConfig.maxConcurrentPerUser = h.configService.GetInt("datasource.max_concurrent_per_user")
+	h.runtimeConfig.maxConcurrentGlobal = h.configService.GetInt("datasource.max_concurrent_global")
+	h.runtimeConfig.allowWriteSQL = h.configService.GetBool("datasource.allow_write_sql")
+	h.runtimeConfig.metadataTimeout = h.configService.GetInt("datasource.metadata_timeout")
 }
 
 func (h *QueryHandler) Execute(c *gin.Context) {
@@ -56,7 +101,10 @@ func (h *QueryHandler) Execute(c *gin.Context) {
 	}
 	slog.Debug("query execute request", "datasource_id", req.DatasourceID, "database", req.Database, "sql_preview", sqlPreview)
 
-	maxSQLLength := h.config.GetInt("datasource.max_sql_length")
+	h.runtimeConfig.mu.RLock()
+	maxSQLLength := h.runtimeConfig.maxSQLLength
+	h.runtimeConfig.mu.RUnlock()
+
 	if maxSQLLength > 0 && len(req.SQL) > maxSQLLength {
 		slog.Warn("sql exceeds max length", "datasource_id", req.DatasourceID, "sql_length", len(req.SQL), "max_length", maxSQLLength)
 		Fail(c, CodeQueryNoDatasource, "SQL语句超过最大长度限制")
@@ -124,7 +172,11 @@ func (h *QueryHandler) Execute(c *gin.Context) {
 	}
 
 	queryID := "q_" + time.Now().Format("20060102") + "_" + uuid.New().String()[:8]
-	queryTimeout := h.config.GetInt("datasource.query_timeout")
+
+	h.runtimeConfig.mu.RLock()
+	queryTimeout := h.runtimeConfig.queryTimeout
+	h.runtimeConfig.mu.RUnlock()
+
 	if queryTimeout <= 0 {
 		queryTimeout = 60
 	}
@@ -193,8 +245,13 @@ func (h *QueryHandler) executeQuery(ctx context.Context, cancel context.CancelFu
 	}
 
 	startTime := time.Now()
-	normalizedSQL := driver.NormalizeSQLForType(req.SQL, ds.Type)
-	result, err := drv.Query(ctx, normalizedSQL)
+	// 应用默认查询行数限制（从运行时配置读取，支持热更新）
+	h.runtimeConfig.mu.RLock()
+	defaultLimit := h.runtimeConfig.defaultLimit
+	h.runtimeConfig.mu.RUnlock()
+
+	querySQL := driver.ApplyLimitToSQL(req.SQL, defaultLimit, ds.Type)
+	result, err := drv.Query(ctx, querySQL)
 	execTime := time.Since(startTime).Seconds()
 
 	metrics.DatasourceQueryDurationSeconds.Observe(execTime)
@@ -283,10 +340,12 @@ func (h *QueryHandler) GetMetadata(c *gin.Context) {
 		return
 	}
 
-	metadataTimeout := h.config.GetInt("datasource.metadata_timeout")
-	if metadataTimeout <= 0 {
-		metadataTimeout = 60
+	metadataTimeout := 60
+	h.runtimeConfig.mu.RLock()
+	if mt := h.runtimeConfig.metadataTimeout; mt > 0 {
+		metadataTimeout = mt
 	}
+	h.runtimeConfig.mu.RUnlock()
 	ctx, cancel := context.WithTimeout(c.Request.Context(), time.Duration(metadataTimeout)*time.Second)
 	defer cancel()
 
@@ -369,7 +428,11 @@ func (h *QueryHandler) ExportCSV(c *gin.Context) {
 		return
 	}
 
-	maxExportRows := h.config.GetInt("datasource.max_export_rows")
+	maxExportRows := 1000
+	h.runtimeConfig.mu.RLock()
+	maxExportRows = h.runtimeConfig.maxExportRows
+	h.runtimeConfig.mu.RUnlock()
+
 	if req.MaxRows > 0 && req.MaxRows < maxExportRows {
 		maxExportRows = req.MaxRows
 	}
@@ -398,10 +461,13 @@ func (h *QueryHandler) ExportCSV(c *gin.Context) {
 	}
 
 	if result == nil {
-		queryTimeout := h.config.GetInt("datasource.query_timeout")
-		if queryTimeout <= 0 {
-			queryTimeout = 60
+		queryTimeout := 60
+		h.runtimeConfig.mu.RLock()
+		if qt := h.runtimeConfig.queryTimeout; qt > 0 {
+			queryTimeout = qt
 		}
+		h.runtimeConfig.mu.RUnlock()
+
 		ctx, cancel := context.WithTimeout(c.Request.Context(), time.Duration(queryTimeout)*time.Second)
 		defer cancel()
 
@@ -419,7 +485,9 @@ func (h *QueryHandler) ExportCSV(c *gin.Context) {
 			}
 		}
 
-		result, err = drv.Query(ctx, req.SQL)
+		// 应用导出行数限制到SQL层面
+		querySQL := driver.ApplyLimitToSQL(req.SQL, maxExportRows, ds.Type)
+		result, err = drv.Query(ctx, querySQL)
 		if err != nil {
 			Fail(c, CodeQueryError, fmt.Sprintf("查询执行失败: %v", err))
 			return
@@ -441,11 +509,6 @@ func (h *QueryHandler) ExportCSV(c *gin.Context) {
 				slog.Warn("export: failed to cache query result", "error", err)
 			}
 		}
-	}
-
-	if int(result.RowCount) > maxExportRows {
-		FailWithData(c, CodeQueryTimeout, "export row count exceeds maximum limit", gin.H{"max": maxExportRows})
-		return
 	}
 
 	c.Header("Content-Type", "text/csv; charset=utf-8")
