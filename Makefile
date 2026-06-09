@@ -59,7 +59,7 @@ build-frontend:
 # Build scheduler (with embedded frontend)
 build-scheduler:
 	@echo "Building scheduler..."
-	@CGO_ENABLED=0 go build -ldflags "-s -w" -o scheduler/bin/scheduler ./scheduler/cmd
+	@CGO_ENABLED=1 go build -ldflags "-s -w" -o scheduler/bin/scheduler ./scheduler/cmd
 	@echo "✅ Scheduler built successfully!"
 
 # Build executor
