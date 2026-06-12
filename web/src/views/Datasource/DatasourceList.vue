@@ -105,6 +105,9 @@
             <el-button v-if="canManage(row)" type="warning" link size="small" @click="handlePermission(row)">
               <el-icon><Lock /></el-icon> 权限
             </el-button>
+            <el-button type="info" link size="small" @click="handlePoolStats(row)">
+              <el-icon><Odometer /></el-icon> 连接池
+            </el-button>
             <el-button v-if="canDelete(row)" type="danger" link size="small" @click="handleDelete(row)">
               <el-icon><Delete /></el-icon> 删除
             </el-button>
@@ -129,15 +132,90 @@
         :pager-count="5"
       />
     </div>
+
+    <el-dialog
+      v-model="poolDialogVisible"
+      :title="`连接池监控 - ${poolDatasourceName}`"
+      width="560px"
+      :close-on-click-modal="false"
+      @close="stopPoolAutoRefresh"
+    >
+      <div v-if="poolLoading" class="pool-loading">
+        <el-icon class="is-loading" :size="24"><Refresh /></el-icon>
+        <span>加载中...</span>
+      </div>
+      <div v-else-if="!poolData?.has_pool" class="pool-no-support">
+        <el-icon :size="32" color="var(--el-color-info)"><WarningFilled /></el-icon>
+        <p>{{ poolData?.message || '该数据源类型不支持连接池统计' }}</p>
+      </div>
+      <div v-else class="pool-stats-content">
+        <div class="pool-stats-header">
+          <span class="pool-auto-refresh">
+            <el-switch v-model="poolAutoRefresh" active-text="自动刷新" @change="togglePoolAutoRefresh" />
+          </span>
+        </div>
+
+        <div class="pool-gauges">
+          <div class="pool-gauge">
+            <div class="gauge-ring" :style="getGaugeStyle(poolData?.pool_stats?.open_count || 0, poolData?.pool_config?.max_open || 1)">
+              <div class="gauge-inner">
+                <span class="gauge-value">{{ poolData?.pool_stats?.open_count ?? '-' }}</span>
+                <span class="gauge-label">活跃</span>
+              </div>
+            </div>
+            <span class="gauge-title">打开连接</span>
+            <span class="gauge-sub">上限 {{ poolData?.pool_config?.max_open || '-' }}</span>
+          </div>
+          <div class="pool-gauge">
+            <div class="gauge-ring gauge-idle" :style="getGaugeStyle(poolData?.pool_stats?.idle_count || 0, poolData?.pool_config?.max_open || 1)">
+              <div class="gauge-inner">
+                <span class="gauge-value">{{ poolData?.pool_stats?.idle_count ?? '-' }}</span>
+                <span class="gauge-label">空闲</span>
+              </div>
+            </div>
+            <span class="gauge-title">空闲连接</span>
+            <span class="gauge-sub">最小 {{ poolData?.pool_config?.min_idle || '-' }}</span>
+          </div>
+          <div class="pool-gauge">
+            <div class="gauge-ring gauge-active" :style="getGaugeStyle(getActiveCount(), poolData?.pool_config?.max_open || 1)">
+              <div class="gauge-inner">
+                <span class="gauge-value">{{ getActiveCount() }}</span>
+                <span class="gauge-label">使用中</span>
+              </div>
+            </div>
+            <span class="gauge-title">使用中</span>
+            <span class="gauge-sub">打开 - 空闲</span>
+          </div>
+        </div>
+
+        <el-descriptions :column="2" border size="small" class="pool-config-table">
+          <el-descriptions-item label="最大连接数">{{ poolData?.pool_config?.max_open ?? '-' }}</el-descriptions-item>
+          <el-descriptions-item label="最小空闲连接">{{ poolData?.pool_config?.min_idle ?? '-' }}</el-descriptions-item>
+          <el-descriptions-item label="连接最大生命周期">{{ formatLifetime(poolData?.pool_config?.max_lifetime) }}</el-descriptions-item>
+          <el-descriptions-item label="使用率">
+            <el-progress
+              :percentage="getUsagePercent()"
+              :color="getUsageColor()"
+              :stroke-width="12"
+              :format="(p: number) => p + '%'"
+            />
+          </el-descriptions-item>
+        </el-descriptions>
+      </div>
+      <template #footer>
+        <el-button @click="poolDialogVisible = false">关闭</el-button>
+        <el-button type="primary" @click="loadPoolStats(poolDatasourceId)" :loading="poolLoading">刷新</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  Plus, Edit, Delete, Document, Search, Refresh, Connection, Lock
+  Plus, Edit, Delete, Document, Search, Refresh, Connection, Lock, Odometer, WarningFilled
 } from '@element-plus/icons-vue'
 import { datasourceAPI } from '@/api'
 import { isHandledError } from '@/utils/api'
@@ -299,6 +377,97 @@ const handleDelete = async (row: Datasource) => {
 
 watch([searchQuery, filterType], () => {
   currentPage.value = 1
+})
+
+// 连接池监控
+const poolDialogVisible = ref(false)
+const poolLoading = ref(false)
+const poolDatasourceId = ref(0)
+const poolDatasourceName = ref('')
+const poolAutoRefresh = ref(false)
+let poolRefreshTimer: ReturnType<typeof setInterval> | null = null
+const poolData = ref<{
+  datasource_id: number
+  has_pool: boolean
+  message?: string
+  pool_stats?: { open_count: number; idle_count: number; max_open: number }
+  pool_config?: { max_open: number; min_idle: number; max_lifetime: number }
+} | null>(null)
+
+const handlePoolStats = (row: Datasource) => {
+  poolDatasourceId.value = row.id
+  poolDatasourceName.value = row.name
+  poolDialogVisible.value = true
+  loadPoolStats(row.id)
+}
+
+const loadPoolStats = async (id: number) => {
+  poolLoading.value = true
+  try {
+    const res = await datasourceAPI.getPoolStats(id)
+    poolData.value = (res as any).data as typeof poolData.value
+  } catch (err: any) {
+    if (!isHandledError(err)) {
+      ElMessage.error(err.response?.data?.error || '获取连接池状态失败')
+    }
+  } finally {
+    poolLoading.value = false
+  }
+}
+
+const getActiveCount = () => {
+  if (!poolData.value?.pool_stats) return 0
+  return (poolData.value.pool_stats.open_count || 0) - (poolData.value.pool_stats.idle_count || 0)
+}
+
+const getUsagePercent = () => {
+  if (!poolData.value?.pool_stats || !poolData.value?.pool_config) return 0
+  const maxOpen = poolData.value.pool_config.max_open || 1
+  return Math.round((poolData.value.pool_stats.open_count / maxOpen) * 100)
+}
+
+const getUsageColor = () => {
+  const p = getUsagePercent()
+  if (p >= 90) return '#f56c6c'
+  if (p >= 70) return '#e6a23c'
+  return '#67c23a'
+}
+
+const getGaugeStyle = (value: number, max: number) => {
+  const percent = Math.min(Math.round((value / (max || 1)) * 100), 100)
+  const deg = (percent / 100) * 360
+  return { '--gauge-deg': `${deg}deg` }
+}
+
+const formatLifetime = (seconds?: number) => {
+  if (seconds == null) return '-'
+  if (seconds < 60) return `${seconds}秒`
+  if (seconds < 3600) return `${Math.round(seconds / 60)}分钟`
+  return `${Math.round(seconds / 3600)}小时`
+}
+
+const togglePoolAutoRefresh = (val: boolean) => {
+  if (val) {
+    poolRefreshTimer = setInterval(() => {
+      if (poolDatasourceId.value) {
+        loadPoolStats(poolDatasourceId.value)
+      }
+    }, 5000)
+  } else {
+    stopPoolAutoRefresh()
+  }
+}
+
+const stopPoolAutoRefresh = () => {
+  poolAutoRefresh.value = false
+  if (poolRefreshTimer) {
+    clearInterval(poolRefreshTimer)
+    poolRefreshTimer = null
+  }
+}
+
+onUnmounted(() => {
+  stopPoolAutoRefresh()
 })
 
 onMounted(() => {
@@ -484,5 +653,121 @@ onMounted(() => {
   background: linear-gradient(135deg, var(--accent-primary), #6366f1);
   color: white;
   box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+}
+
+/* 连接池监控 */
+.pool-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 40px 0;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.pool-no-support {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 0;
+  gap: 12px;
+  color: var(--text-muted);
+}
+
+.pool-no-support p {
+  margin: 0;
+  font-size: 14px;
+}
+
+.pool-stats-content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.pool-stats-header {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.pool-gauges {
+  display: flex;
+  justify-content: space-around;
+  gap: 16px;
+}
+
+.pool-gauge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.gauge-ring {
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  background: conic-gradient(
+    var(--accent-primary) 0deg var(--gauge-deg, 0deg),
+    var(--bg-secondary) var(--gauge-deg, 0deg) 360deg
+  );
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: --gauge-deg 0.6s ease;
+}
+
+.gauge-ring.gauge-idle {
+  background: conic-gradient(
+    #67c23a 0deg var(--gauge-deg, 0deg),
+    var(--bg-secondary) var(--gauge-deg, 0deg) 360deg
+  );
+}
+
+.gauge-ring.gauge-active {
+  background: conic-gradient(
+    #e6a23c 0deg var(--gauge-deg, 0deg),
+    var(--bg-secondary) var(--gauge-deg, 0deg) 360deg
+  );
+}
+
+.gauge-inner {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: var(--bg-card);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.gauge-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+
+.gauge-label {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.gauge-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.gauge-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.pool-config-table {
+  margin-top: 4px;
 }
 </style>

@@ -32,6 +32,14 @@ export const datasourceAPI = {
     api.get<TableInfo[]>(`/datasources/${id}/metadata`, { params: { level: 'tables', database }, timeout: 60000, signal }),
   getColumns: (id: number, database: string, table: string, signal?: AbortSignal) =>
     api.get<ColumnInfo[]>(`/datasources/${id}/metadata`, { params: { level: 'columns', database, table }, timeout: 60000, signal }),
+  getPoolStats: (id: number) =>
+    api.get<{
+      datasource_id: number
+      has_pool: boolean
+      message?: string
+      pool_stats?: { open_count: number; idle_count: number; max_open: number }
+      pool_config?: { max_open: number; min_idle: number; max_lifetime: number }
+    }>(`/query/pool-stats/${id}`),
 }
 
 export const queryAPI = {
