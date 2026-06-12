@@ -39,11 +39,17 @@ export const queryAPI = {
     api.post<QueryResult>('/query/execute', data, { timeout: 120000 }),
   getResult: (queryId: string) =>
     api.get<any>(`/query/result/${queryId}`),
+  streamResult: (queryId: string): EventSource => {
+    const baseURL = api.defaults.baseURL || '/api'
+    const token = sessionStorage.getItem('token') || ''
+    const url = `${baseURL}/query/stream/${queryId}?token=${encodeURIComponent(token)}`
+    return new EventSource(url)
+  },
   cancel: (queryId: string) =>
     api.post(`/query/cancel/${queryId}`),
   exportCSV: (data: { datasource_id: number; sql: string; database?: string; max_rows?: number }, onDownloadProgress?: (event: any) => void) =>
     api.post('/query/export', data, { responseType: 'blob', timeout: 120000, onDownloadProgress }),
-  getHistory: (params?: { domain_id?: number; page?: number; page_size?: number }) =>
+  getHistory: (params?: { domain_id?: number; page?: number; page_size?: number; datasource_id?: number; status?: string; start_time?: string; end_time?: string }) =>
     api.get<{ items: QueryHistory[]; total: number; page: number; page_size: number }>('/query/history', { params }),
   deleteHistory: (id: number) =>
     api.delete(`/query/history/${id}`),

@@ -20,6 +20,7 @@ var defaultConfigValues = map[string]string{
 	"datasource.query_timeout":           "60",
 	"datasource.max_concurrent_per_user": "5",
 	"datasource.max_concurrent_global":   "50",
+	"datasource.max_concurrent_per_datasource": "10",
 	"datasource.allow_write_sql":         "false",
 	"datasource.history_retention_days":  "30",
 	"datasource.connection_max_idle":     "5",
@@ -29,6 +30,7 @@ var defaultConfigValues = map[string]string{
 	"datasource.max_cell_size":           "65536",
 	"datasource.health_check_interval":   "300",
 	"datasource.test_timeout":            "10",
+	"datasource.metadata_timeout":        "60",
 	"web.enabled":                        "false",
 	"wecom.robot_url":                    "https://qyapi.weixin.qq.com/cgi-bin/webhook/send",
 	"wecom.app_msg_url":                  "https://qyapi.weixin.qq.com/cgi-bin/webhook/send",
@@ -116,6 +118,12 @@ var configMetaList = []ConfigMeta{
 		Group: "并发",
 	},
 	{
+		Key: "datasource.max_concurrent_per_datasource", Label: "单数据源最大并发查询",
+		Description: "单个数据源同时执行查询的最大数量，超过限制将排队等待",
+		Type:        "number", DefaultValue: "10", MinValue: intPtr(1), MaxValue: intPtr(100), Unit: "个",
+		Group: "并发",
+	},
+	{
 		Key: "datasource.allow_write_sql", Label: "允许 DML 语句（全局）",
 		Description: "全局开关，控制是否允许执行 INSERT/UPDATE/DELETE 等 DML 语句。注意：每个数据源可独立设置 DML 权限，此选项为全局兜底控制",
 		Type:        "boolean", DefaultValue: "false",
@@ -123,7 +131,7 @@ var configMetaList = []ConfigMeta{
 	},
 	{
 		Key: "datasource.cache_ttl", Label: "缓存过期时间",
-		Description: "数据源元数据（表结构、列信息等）缓存的存活时间，过期后下次查询将重新获取",
+		Description: "SQL 查询结果和数据源元数据（表结构、列信息等）缓存的存活时间，过期后下次查询将重新获取",
 		Type:        "number", DefaultValue: "300", MinValue: intPtr(0), MaxValue: intPtr(86400), Unit: "秒",
 		Group: "缓存",
 	},
@@ -162,6 +170,12 @@ var configMetaList = []ConfigMeta{
 		Description: "测试数据源连接时的超时时间，超时未响应视为连接失败",
 		Type:        "number", DefaultValue: "10", MinValue: intPtr(1), MaxValue: intPtr(120), Unit: "秒",
 		Group: "连接池",
+	},
+	{
+		Key: "datasource.metadata_timeout", Label: "元数据查询超时",
+		Description: "获取数据源元数据（数据库列表、表列表、字段列表）时的超时时间，超时后返回错误提示",
+		Type:        "number", DefaultValue: "60", MinValue: intPtr(5), MaxValue: intPtr(300), Unit: "秒",
+		Group: "查询",
 	},
 	{
 		Key: "datasource.history_retention_days", Label: "历史记录保留天数",
@@ -275,6 +289,20 @@ func (s *ConfigService) Set(ctx context.Context, key, value string, changedBy in
 			return nil
 		},
 		"datasource.max_concurrent_global": func(v string) error {
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 1 {
+				return fmt.Errorf("must be positive integer")
+			}
+			return nil
+		},
+		"datasource.max_concurrent_per_datasource": func(v string) error {
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 1 {
+				return fmt.Errorf("must be positive integer")
+			}
+			return nil
+		},
+		"datasource.metadata_timeout": func(v string) error {
 			n, err := strconv.Atoi(v)
 			if err != nil || n < 1 {
 				return fmt.Errorf("must be positive integer")

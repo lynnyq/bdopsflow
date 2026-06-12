@@ -1,5 +1,5 @@
 <template>
-  <el-container class="main-layout">
+  <el-container v-if="authStore.user" class="main-layout">
     <el-aside class="sidebar" :width="isCollapse ? '72px' : sidebarExpandedWidth">
       <div class="sidebar-header">
         <div class="logo">

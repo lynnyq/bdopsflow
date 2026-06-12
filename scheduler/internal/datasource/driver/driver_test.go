@@ -610,9 +610,10 @@ func TestTruncateSQL(t *testing.T) {
 
 func TestHiveDriverUseDatabaseWithoutConnect(t *testing.T) {
 	d := NewHiveDriver()
+	// 在连接池架构下，UseDatabase 只更新 defaultDB，不需要连接
 	err := d.UseDatabase(context.Background(), "test_db")
-	if err == nil {
-		t.Error("HiveDriver.UseDatabase() on unconnected driver should return error")
+	if err != nil {
+		t.Errorf("HiveDriver.UseDatabase() should not error in pool architecture, got: %v", err)
 	}
 }
 
@@ -634,9 +635,10 @@ func TestHiveDriverUseDatabaseEmpty(t *testing.T) {
 
 func TestSparkDriverUseDatabaseWithoutConnect(t *testing.T) {
 	d := NewSparkDriver()
+	// 在连接池架构下，UseDatabase 只更新 defaultDB，不需要连接
 	err := d.UseDatabase(context.Background(), "test_db")
-	if err == nil {
-		t.Error("SparkDriver.UseDatabase() on unconnected driver should return error")
+	if err != nil {
+		t.Errorf("SparkDriver.UseDatabase() should not error in pool architecture, got: %v", err)
 	}
 }
 
@@ -650,9 +652,10 @@ func TestSparkDriverUseDatabaseEmpty(t *testing.T) {
 
 func TestKyuubiDriverUseDatabaseWithoutConnect(t *testing.T) {
 	d := NewKyuubiDriver()
+	// 在连接池架构下，UseDatabase 只更新 defaultDB，不需要连接
 	err := d.UseDatabase(context.Background(), "test_db")
-	if err == nil {
-		t.Error("KyuubiDriver.UseDatabase() on unconnected driver should return error")
+	if err != nil {
+		t.Errorf("KyuubiDriver.UseDatabase() should not error in pool architecture, got: %v", err)
 	}
 }
 

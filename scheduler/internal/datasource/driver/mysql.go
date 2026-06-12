@@ -173,6 +173,20 @@ func (d *MySQLDriver) SupportsCancel() bool {
 	return true
 }
 
+func (d *MySQLDriver) QueryWithDB(ctx context.Context, query string, database string) (*QueryResult, error) {
+	if database == "" {
+		return d.Query(ctx, query)
+	}
+	if err := d.UseDatabase(ctx, database); err != nil {
+		return nil, err
+	}
+	result, err := d.Query(ctx, query)
+	if d.config.Database != "" && d.config.Database != database {
+		_ = d.UseDatabase(ctx, d.config.Database)
+	}
+	return result, err
+}
+
 func (d *MySQLDriver) UseDatabase(ctx context.Context, database string) error {
 	if database == "" {
 		return nil

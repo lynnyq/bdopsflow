@@ -709,13 +709,33 @@ func (s *DatasourceService) RecordQueryHistory(ctx context.Context, history *mod
 	return nil
 }
 
-func (s *DatasourceService) GetQueryHistory(ctx context.Context, domainID int64, page, pageSize int) ([]*model.QueryHistory, int64, error) {
+func (s *DatasourceService) GetQueryHistory(ctx context.Context, domainID int64, page, pageSize int, datasourceID int64, status string, startTime string, endTime string) ([]*model.QueryHistory, int64, error) {
 	whereClause := " WHERE 1=1"
 	var args []interface{}
 
 	if domainID > 0 {
 		whereClause += " AND domain_id = ?"
 		args = append(args, domainID)
+	}
+
+	if datasourceID > 0 {
+		whereClause += " AND datasource_id = ?"
+		args = append(args, datasourceID)
+	}
+
+	if status != "" {
+		whereClause += " AND status = ?"
+		args = append(args, status)
+	}
+
+	if startTime != "" {
+		whereClause += " AND created_at >= ?"
+		args = append(args, startTime+" 00:00:00")
+	}
+
+	if endTime != "" {
+		whereClause += " AND created_at <= ?"
+		args = append(args, endTime+" 23:59:59")
 	}
 
 	countQuery := "SELECT COUNT(*) FROM bdopsflow_query_history" + whereClause

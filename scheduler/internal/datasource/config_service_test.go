@@ -18,6 +18,7 @@ func TestDefaultConfigValues(t *testing.T) {
 		"datasource.query_timeout",
 		"datasource.max_concurrent_per_user",
 		"datasource.max_concurrent_global",
+		"datasource.max_concurrent_per_datasource",
 		"datasource.allow_write_sql",
 		"datasource.history_retention_days",
 		"datasource.connection_max_idle",
@@ -27,7 +28,11 @@ func TestDefaultConfigValues(t *testing.T) {
 		"datasource.max_cell_size",
 		"datasource.health_check_interval",
 		"datasource.test_timeout",
+		"datasource.metadata_timeout",
 		"web.enabled",
+		"wecom.robot_url",
+		"wecom.app_msg_url",
+		"wecom.ewechat_url",
 	}
 
 	for _, key := range expectedKeys {
@@ -499,7 +504,7 @@ func TestConfigMetaList_JSONFieldNames(t *testing.T) {
 }
 
 func TestConfigMetaList_AllTypesValid(t *testing.T) {
-	validTypes := map[string]bool{"number": true, "boolean": true}
+	validTypes := map[string]bool{"number": true, "boolean": true, "text": true}
 
 	for _, m := range configMetaList {
 		if !validTypes[m.Type] {
@@ -694,6 +699,7 @@ func TestConfigService_AllMetaGroups(t *testing.T) {
 		"连接池": true,
 		"其他":  true,
 		"系统":  true,
+		"消息通知": true,
 	}
 
 	foundGroups := make(map[string]bool)

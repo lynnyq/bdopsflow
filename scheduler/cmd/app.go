@@ -318,6 +318,9 @@ func NewApp(cfg *config.Config) *App {
 	dsManager := datasource.NewManager(dsCrypto, dsConfigService)
 	app.dsManager = dsManager
 
+	// 注册 Manager 为全局配置观察者，连接池配置变更时动态更新
+	sysConfigService.RegisterObserver(dsManager)
+
 	dsService := datasource.NewDatasourceService(logDB, dsCrypto, dsConfigService, dsManager)
 	app.dsService = dsService
 

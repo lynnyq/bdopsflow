@@ -34,14 +34,21 @@ type RunningQuery struct {
 	CreatedAt     time.Time
 }
 
+// QueryObserver 查询状态变更观察者，用于 SSE 推送
+type QueryObserver interface {
+	OnQueryUpdate(queryID string, query *RunningQuery)
+}
+
 type QueryRegistry struct {
-	mu      sync.RWMutex
-	queries map[string]*RunningQuery
+	mu        sync.RWMutex
+	queries   map[string]*RunningQuery
+	observers map[QueryObserver]struct{}
 }
 
 func NewQueryRegistry() *QueryRegistry {
 	return &QueryRegistry{
-		queries: make(map[string]*RunningQuery),
+		queries:   make(map[string]*RunningQuery),
+		observers: make(map[QueryObserver]struct{}),
 	}
 }
 
@@ -66,6 +73,7 @@ func (r *QueryRegistry) UpdateResult(queryID string, result *driver.QueryResult,
 		q.Status = QueryStatusCompleted
 		q.Result = result
 		q.ExecutionTime = execTime
+		r.notifyObservers(queryID, q)
 	}
 }
 
@@ -76,6 +84,7 @@ func (r *QueryRegistry) UpdateError(queryID string, errMsg string, execTime floa
 		q.Status = QueryStatusFailed
 		q.Error = errMsg
 		q.ExecutionTime = execTime
+		r.notifyObservers(queryID, q)
 	}
 }
 
@@ -91,6 +100,7 @@ func (r *QueryRegistry) Cancel(queryID string) bool {
 		if q.CancelFunc != nil {
 			q.CancelFunc()
 		}
+		r.notifyObservers(queryID, q)
 		return true
 	}
 	return false
@@ -102,6 +112,7 @@ func (r *QueryRegistry) SetRunning(queryID string) {
 	if q, ok := r.queries[queryID]; ok {
 		q.Status = QueryStatusRunning
 		q.StartTime = time.Now()
+		r.notifyObservers(queryID, q)
 	}
 }
 
@@ -126,4 +137,25 @@ func (r *QueryRegistry) StartCleanupLoop(interval, maxAge time.Duration) {
 			r.Cleanup(maxAge)
 		}
 	}()
+}
+
+// RegisterObserver 注册查询状态变更观察者
+func (r *QueryRegistry) RegisterObserver(observer QueryObserver) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.observers[observer] = struct{}{}
+}
+
+// UnregisterObserver 注销查询状态变更观察者
+func (r *QueryRegistry) UnregisterObserver(observer QueryObserver) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.observers, observer)
+}
+
+// notifyObservers 通知所有观察者（调用方必须持有锁）
+func (r *QueryRegistry) notifyObservers(queryID string, query *RunningQuery) {
+	for observer := range r.observers {
+		go observer.OnQueryUpdate(queryID, query)
+	}
 }

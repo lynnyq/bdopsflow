@@ -54,7 +54,7 @@ func (s *CacheService) refreshRuntimeConfig() {
 	s.runtimeCacheTTL = s.config.GetInt("datasource.cache_ttl")
 }
 
-func (s *CacheService) Get(ctx context.Context, datasourceID int64, sql string) (*driver.QueryResult, bool, error) {
+func (s *CacheService) Get(ctx context.Context, datasourceID int64, database, sql string) (*driver.QueryResult, bool, error) {
 	s.mu.RLock()
 	ttl := s.runtimeCacheTTL
 	s.mu.RUnlock()
@@ -63,7 +63,7 @@ func (s *CacheService) Get(ctx context.Context, datasourceID int64, sql string) 
 		return nil, false, nil
 	}
 
-	key := s.buildKey(datasourceID, sql)
+	key := s.buildKey(datasourceID, database, sql)
 	data, err := s.redis.Get(ctx, key).Bytes()
 	if err == redis.Nil {
 		return nil, false, nil
@@ -80,7 +80,7 @@ func (s *CacheService) Get(ctx context.Context, datasourceID int64, sql string) 
 	return &result, true, nil
 }
 
-func (s *CacheService) Set(ctx context.Context, datasourceID int64, sql string, result *driver.QueryResult) error {
+func (s *CacheService) Set(ctx context.Context, datasourceID int64, database, sql string, result *driver.QueryResult) error {
 	s.mu.RLock()
 	ttl := s.runtimeCacheTTL
 	s.mu.RUnlock()
@@ -94,7 +94,7 @@ func (s *CacheService) Set(ctx context.Context, datasourceID int64, sql string, 
 		return fmt.Errorf("cache marshal error: %w", err)
 	}
 
-	key := s.buildKey(datasourceID, sql)
+	key := s.buildKey(datasourceID, database, sql)
 	return s.redis.Set(ctx, key, data, time.Duration(ttl)*time.Second).Err()
 }
 
@@ -119,7 +119,65 @@ func (s *CacheService) Invalidate(ctx context.Context, datasourceID int64) error
 	return nil
 }
 
-func (s *CacheService) buildKey(datasourceID int64, sql string) string {
-	hash := md5.Sum([]byte(sql))
+func (s *CacheService) buildKey(datasourceID int64, database, sql string) string {
+	hash := md5.Sum([]byte(database + ":" + sql))
 	return fmt.Sprintf("datasource:query:cache:%d:%x", datasourceID, hash)
+}
+
+// GetMetadata 获取元数据缓存
+func (s *CacheService) GetMetadata(ctx context.Context, datasourceID int64, level, key string) ([]byte, bool, error) {
+	s.mu.RLock()
+	ttl := s.runtimeCacheTTL
+	s.mu.RUnlock()
+
+	if ttl <= 0 {
+		return nil, false, nil
+	}
+
+	cacheKey := fmt.Sprintf("datasource:metadata:cache:%d:%s:%s", datasourceID, level, key)
+	data, err := s.redis.Get(ctx, cacheKey).Bytes()
+	if err == redis.Nil {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("metadata cache get error: %w", err)
+	}
+
+	return data, true, nil
+}
+
+// SetMetadata 设置元数据缓存
+func (s *CacheService) SetMetadata(ctx context.Context, datasourceID int64, level, key string, data []byte) error {
+	s.mu.RLock()
+	ttl := s.runtimeCacheTTL
+	s.mu.RUnlock()
+
+	if ttl <= 0 {
+		return nil
+	}
+
+	cacheKey := fmt.Sprintf("datasource:metadata:cache:%d:%s:%s", datasourceID, level, key)
+	return s.redis.Set(ctx, cacheKey, data, time.Duration(ttl)*time.Second).Err()
+}
+
+// InvalidateMetadata 清除指定数据源的元数据缓存
+func (s *CacheService) InvalidateMetadata(ctx context.Context, datasourceID int64) error {
+	pattern := fmt.Sprintf("datasource:metadata:cache:%d:*", datasourceID)
+	var cursor uint64
+	for {
+		keys, nextCursor, err := s.redis.Scan(ctx, cursor, pattern, 100).Result()
+		if err != nil {
+			return fmt.Errorf("metadata cache scan error: %w", err)
+		}
+		if len(keys) > 0 {
+			if err := s.redis.Del(ctx, keys...).Err(); err != nil {
+				return fmt.Errorf("metadata cache delete error: %w", err)
+			}
+		}
+		cursor = nextCursor
+		if cursor == 0 {
+			break
+		}
+	}
+	return nil
 }

@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -130,7 +131,7 @@ func (h *QueryHandler) Execute(c *gin.Context) {
 	}
 
 	if h.cacheService != nil {
-		cached, hit, err := h.cacheService.Get(c.Request.Context(), req.DatasourceID, req.SQL)
+		cached, hit, err := h.cacheService.Get(c.Request.Context(), req.DatasourceID, req.Database, req.SQL)
 		if err == nil && hit {
 			slog.Debug("query cache hit", "datasource_id", req.DatasourceID, "row_count", cached.RowCount)
 			queryID := "q_" + time.Now().Format("20060102") + "_" + uuid.New().String()[:8]
@@ -157,11 +158,21 @@ func (h *QueryHandler) Execute(c *gin.Context) {
 	}
 
 	if h.concurrentService != nil {
-		release, err := h.concurrentService.Acquire(c.Request.Context(), uid)
+		release, err := h.concurrentService.AcquireForDatasource(c.Request.Context(), uid, req.DatasourceID)
 		if err != nil {
+			if err == datasource.ErrDatasourceConcurrentLimit {
+				slog.Warn("datasource concurrent query limit reached", "user_id", userID, "datasource_id", req.DatasourceID)
+				Fail(c, CodeConcurrentLimit, "该数据源并发查询数已达上限，请稍后重试")
+				return
+			}
 			if err == datasource.ErrConcurrentLimit {
 				slog.Warn("concurrent query limit reached", "user_id", userID, "datasource_id", req.DatasourceID)
-				Fail(c, CodeQuerySelectOnly, "并发查询数量已达上限，请稍后重试")
+				Fail(c, CodeConcurrentLimit, "并发查询数量已达上限，请稍后重试")
+				return
+			}
+			if err == datasource.ErrPoolExhausted {
+				slog.Warn("datasource connection pool exhausted", "user_id", userID, "datasource_id", req.DatasourceID)
+				Fail(c, CodeConcurrentLimit, "数据源连接池已满，请稍后重试")
 				return
 			}
 			slog.Error("concurrent check failed", "user_id", userID, "datasource_id", req.DatasourceID, "error", err)
@@ -235,15 +246,6 @@ func (h *QueryHandler) executeQuery(ctx context.Context, cancel context.CancelFu
 		return
 	}
 
-	if req.Database != "" {
-		if useErr := drv.UseDatabase(ctx, req.Database); useErr != nil {
-			slog.Error("failed to switch database", "query_id", queryID, "datasource_id", req.DatasourceID, "database", req.Database, "error", useErr)
-			h.registry.UpdateError(queryID, fmt.Sprintf("切换数据库失败: %v", useErr), 0)
-			return
-		}
-		slog.Debug("switched database context", "query_id", queryID, "datasource_id", req.DatasourceID, "database", req.Database)
-	}
-
 	startTime := time.Now()
 	// 应用默认查询行数限制（从运行时配置读取，支持热更新）
 	h.runtimeConfig.mu.RLock()
@@ -251,18 +253,10 @@ func (h *QueryHandler) executeQuery(ctx context.Context, cancel context.CancelFu
 	h.runtimeConfig.mu.RUnlock()
 
 	querySQL := driver.ApplyLimitToSQL(req.SQL, defaultLimit, ds.Type)
-	result, err := drv.Query(ctx, querySQL)
+	result, err := drv.QueryWithDB(ctx, querySQL, req.Database)
 	execTime := time.Since(startTime).Seconds()
 
 	metrics.DatasourceQueryDurationSeconds.Observe(execTime)
-
-	if req.Database != "" && ds.Database != req.Database {
-		restoreCtx, restoreCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		if restoreErr := drv.UseDatabase(restoreCtx, ds.Database); restoreErr != nil {
-			slog.Warn("failed to restore database context", "query_id", queryID, "datasource_id", req.DatasourceID, "original_database", ds.Database, "error", restoreErr)
-		}
-		restoreCancel()
-	}
 
 	history := &model.QueryHistory{
 		QueryID:        queryID,
@@ -312,7 +306,7 @@ func (h *QueryHandler) executeQuery(ctx context.Context, cancel context.CancelFu
 	metrics.DatasourceQueries.WithLabelValues(ds.Type, "success").Inc()
 
 	if h.cacheService != nil {
-		if err := h.cacheService.Set(context.Background(), req.DatasourceID, req.SQL, result); err != nil {
+		if err := h.cacheService.Set(context.Background(), req.DatasourceID, req.Database, req.SQL, result); err != nil {
 			slog.Warn("failed to cache query result", "query_id", queryID, "datasource_id", req.DatasourceID, "error", err)
 		}
 	}
@@ -358,15 +352,28 @@ func (h *QueryHandler) GetMetadata(c *gin.Context) {
 
 	switch level {
 	case "databases":
+		// 尝试从服务端缓存获取
+		if h.cacheService != nil {
+			cachedData, hit, cacheErr := h.cacheService.GetMetadata(ctx, dsID, "databases", "")
+			if cacheErr != nil {
+				slog.Debug("GetMetadata: databases cache lookup failed", "datasource_id", dsID, "error", cacheErr)
+			}
+			if hit && cachedData != nil {
+				var dbs []string
+				if err := json.Unmarshal(cachedData, &dbs); err == nil {
+					slog.Debug("GetMetadata: databases cache hit", "datasource_id", dsID, "count", len(dbs), "elapsed", time.Since(startTime))
+					Success(c, dbs)
+					return
+				}
+			}
+		}
+
 		dbs, err := drv.GetDatabases(ctx)
 		if err != nil {
 			elapsed := time.Since(startTime)
 			if ctx.Err() == context.DeadlineExceeded {
 				slog.Warn("GetMetadata: databases timeout", "module", "query", "datasource_id", dsID, "type", ds.Type, "elapsed", elapsed)
-				Fail(c, CodeQueryError, "获取数据库列表超时，数据源可能正在执行其他查询，请稍后重试")
-			} else if strings.Contains(err.Error(), "another query is running") {
-				slog.Warn("GetMetadata: databases blocked by running query", "module", "query", "datasource_id", dsID, "elapsed", elapsed)
-				Fail(c, CodeQueryError, "数据源正在执行其他查询，无法获取数据库列表，请稍后重试")
+				Fail(c, CodeQueryError, "获取数据库列表超时，请稍后重试")
 			} else {
 				slog.Error("GetMetadata: databases failed", "module", "query", "datasource_id", dsID, "type", ds.Type, "error", err, "elapsed", elapsed)
 				Fail(c, CodeQueryError, "获取数据库列表失败: "+err.Error())
@@ -374,17 +381,40 @@ func (h *QueryHandler) GetMetadata(c *gin.Context) {
 			return
 		}
 		slog.Debug("GetMetadata: databases success", "module", "query", "datasource_id", dsID, "count", len(dbs), "elapsed", time.Since(startTime))
+
+		// 写入服务端缓存
+		if h.cacheService != nil {
+			if data, marshalErr := json.Marshal(dbs); marshalErr == nil {
+				if cacheErr := h.cacheService.SetMetadata(ctx, dsID, "databases", "", data); cacheErr != nil {
+					slog.Debug("GetMetadata: failed to cache databases", "datasource_id", dsID, "error", cacheErr)
+				}
+			}
+		}
+
 		Success(c, dbs)
 	case "tables":
+		// 尝试从服务端缓存获取
+		if h.cacheService != nil && database != "" {
+			cachedData, hit, cacheErr := h.cacheService.GetMetadata(ctx, dsID, "tables", database)
+			if cacheErr != nil {
+				slog.Debug("GetMetadata: tables cache lookup failed", "datasource_id", dsID, "database", database, "error", cacheErr)
+			}
+			if hit && cachedData != nil {
+				var tables []driver.TableInfo
+				if err := json.Unmarshal(cachedData, &tables); err == nil {
+					slog.Debug("GetMetadata: tables cache hit", "datasource_id", dsID, "database", database, "count", len(tables), "elapsed", time.Since(startTime))
+					Success(c, tables)
+					return
+				}
+			}
+		}
+
 		tables, err := drv.GetTables(ctx, database)
 		if err != nil {
 			elapsed := time.Since(startTime)
 			if ctx.Err() == context.DeadlineExceeded {
 				slog.Warn("GetMetadata: tables timeout", "module", "query", "datasource_id", dsID, "database", database, "elapsed", elapsed)
-				Fail(c, CodeQueryError, "获取数据表列表超时，数据源可能正在执行其他查询，请稍后重试")
-			} else if strings.Contains(err.Error(), "another query is running") {
-				slog.Warn("GetMetadata: tables blocked by running query", "module", "query", "datasource_id", dsID, "database", database, "elapsed", elapsed)
-				Fail(c, CodeQueryError, "数据源正在执行其他查询，无法获取数据表列表，请稍后重试")
+				Fail(c, CodeQueryError, "获取数据表列表超时，请稍后重试")
 			} else {
 				slog.Error("GetMetadata: tables failed", "module", "query", "datasource_id", dsID, "database", database, "error", err, "elapsed", elapsed)
 				Fail(c, CodeQueryError, "获取数据表列表失败: "+err.Error())
@@ -392,17 +422,40 @@ func (h *QueryHandler) GetMetadata(c *gin.Context) {
 			return
 		}
 		slog.Debug("GetMetadata: tables success", "module", "query", "datasource_id", dsID, "database", database, "count", len(tables), "elapsed", time.Since(startTime))
+
+		// 写入服务端缓存
+		if h.cacheService != nil && database != "" {
+			if data, marshalErr := json.Marshal(tables); marshalErr == nil {
+				if cacheErr := h.cacheService.SetMetadata(ctx, dsID, "tables", database, data); cacheErr != nil {
+					slog.Debug("GetMetadata: failed to cache tables", "datasource_id", dsID, "database", database, "error", cacheErr)
+				}
+			}
+		}
+
 		Success(c, tables)
 	case "columns":
+		// 尝试从服务端缓存获取
+		if h.cacheService != nil && database != "" && table != "" {
+			cachedData, hit, cacheErr := h.cacheService.GetMetadata(ctx, dsID, "columns", database+"."+table)
+			if cacheErr != nil {
+				slog.Debug("GetMetadata: columns cache lookup failed", "datasource_id", dsID, "database", database, "table", table, "error", cacheErr)
+			}
+			if hit && cachedData != nil {
+				var columns []driver.ColumnInfo
+				if err := json.Unmarshal(cachedData, &columns); err == nil {
+					slog.Debug("GetMetadata: columns cache hit", "datasource_id", dsID, "database", database, "table", table, "count", len(columns), "elapsed", time.Since(startTime))
+					Success(c, columns)
+					return
+				}
+			}
+		}
+
 		columns, err := drv.GetColumns(ctx, database, table)
 		if err != nil {
 			elapsed := time.Since(startTime)
 			if ctx.Err() == context.DeadlineExceeded {
 				slog.Warn("GetMetadata: columns timeout", "module", "query", "datasource_id", dsID, "database", database, "table", table, "elapsed", elapsed)
-				Fail(c, CodeQueryError, "获取字段列表超时，数据源可能正在执行其他查询，请稍后重试")
-			} else if strings.Contains(err.Error(), "another query is running") {
-				slog.Warn("GetMetadata: columns blocked by running query", "module", "query", "datasource_id", dsID, "database", database, "table", table, "elapsed", elapsed)
-				Fail(c, CodeQueryError, "数据源正在执行其他查询，无法获取字段列表，请稍后重试")
+				Fail(c, CodeQueryError, "获取字段列表超时，请稍后重试")
 			} else {
 				slog.Error("GetMetadata: columns failed", "module", "query", "datasource_id", dsID, "database", database, "table", table, "error", err, "elapsed", elapsed)
 				Fail(c, CodeQueryError, "获取字段列表失败: "+err.Error())
@@ -410,6 +463,16 @@ func (h *QueryHandler) GetMetadata(c *gin.Context) {
 			return
 		}
 		slog.Debug("GetMetadata: columns success", "module", "query", "datasource_id", dsID, "database", database, "table", table, "count", len(columns), "elapsed", time.Since(startTime))
+
+		// 写入服务端缓存
+		if h.cacheService != nil && database != "" && table != "" {
+			if data, marshalErr := json.Marshal(columns); marshalErr == nil {
+				if cacheErr := h.cacheService.SetMetadata(ctx, dsID, "columns", database+"."+table, data); cacheErr != nil {
+					slog.Debug("GetMetadata: failed to cache columns", "datasource_id", dsID, "database", database, "table", table, "error", cacheErr)
+				}
+			}
+		}
+
 		Success(c, columns)
 	default:
 		BadRequest(c, "无效的元数据层级，必须是 databases/tables/columns")
@@ -451,7 +514,7 @@ func (h *QueryHandler) ExportCSV(c *gin.Context) {
 	var result *driver.QueryResult
 
 	if h.cacheService != nil {
-		cached, hit, cacheErr := h.cacheService.Get(c.Request.Context(), req.DatasourceID, req.SQL)
+		cached, hit, cacheErr := h.cacheService.Get(c.Request.Context(), req.DatasourceID, req.Database, req.SQL)
 		if cacheErr != nil {
 			slog.Warn("export: cache lookup failed, will re-execute query", "error", cacheErr)
 		}
@@ -477,17 +540,9 @@ func (h *QueryHandler) ExportCSV(c *gin.Context) {
 			return
 		}
 
-		if req.Database != "" {
-			if useErr := drv.UseDatabase(ctx, req.Database); useErr != nil {
-				slog.Error("export: failed to switch database", "datasource_id", req.DatasourceID, "database", req.Database, "error", useErr)
-				Fail(c, CodeQueryError, fmt.Sprintf("切换数据库失败: %v", useErr))
-				return
-			}
-		}
-
 		// 应用导出行数限制到SQL层面
 		querySQL := driver.ApplyLimitToSQL(req.SQL, maxExportRows, ds.Type)
-		result, err = drv.Query(ctx, querySQL)
+		result, err = drv.QueryWithDB(ctx, querySQL, req.Database)
 		if err != nil {
 			Fail(c, CodeQueryError, fmt.Sprintf("查询执行失败: %v", err))
 			return
@@ -498,14 +553,8 @@ func (h *QueryHandler) ExportCSV(c *gin.Context) {
 			return
 		}
 
-		if req.Database != "" && ds.Database != req.Database {
-			if restoreErr := drv.UseDatabase(ctx, ds.Database); restoreErr != nil {
-				slog.Warn("export: failed to restore database context", "datasource_id", req.DatasourceID, "original_database", ds.Database, "error", restoreErr)
-			}
-		}
-
 		if h.cacheService != nil {
-			if err := h.cacheService.Set(c.Request.Context(), req.DatasourceID, req.SQL, result); err != nil {
+			if err := h.cacheService.Set(c.Request.Context(), req.DatasourceID, req.Database, req.SQL, result); err != nil {
 				slog.Warn("export: failed to cache query result", "error", err)
 			}
 		}
@@ -513,22 +562,36 @@ func (h *QueryHandler) ExportCSV(c *gin.Context) {
 
 	c.Header("Content-Type", "text/csv; charset=utf-8")
 	c.Header("Content-Disposition", "attachment; filename=query_result.csv")
+	c.Header("Transfer-Encoding", "chunked")
+
+	// 写入 BOM 头
 	_, _ = c.Writer.Write([]byte{0xEF, 0xBB, 0xBF})
+	c.Writer.Flush()
 
 	writer := csv.NewWriter(c.Writer)
 	_ = writer.Write(result.Columns)
-	for _, row := range result.Rows {
+	writer.Flush()
+	c.Writer.Flush()
+
+	// 分批写入数据行，每 1000 行刷新一次，避免大内存分配
+	const batchSize = 1000
+	for i, row := range result.Rows {
 		record := make([]string, len(row))
-		for i, v := range row {
+		for j, v := range row {
 			if v == nil {
-				record[i] = ""
+				record[j] = ""
 			} else {
-				record[i] = fmt.Sprintf("%v", v)
+				record[j] = fmt.Sprintf("%v", v)
 			}
 		}
 		_ = writer.Write(record)
+		if (i+1)%batchSize == 0 {
+			writer.Flush()
+			c.Writer.Flush()
+		}
 	}
 	writer.Flush()
+	c.Writer.Flush()
 }
 
 func (h *QueryHandler) GetHistory(c *gin.Context) {
@@ -563,7 +626,15 @@ func (h *QueryHandler) GetHistory(c *gin.Context) {
 		pageSize = 20
 	}
 
-	histories, total, err := h.dsService.GetQueryHistory(c.Request.Context(), queryDomainID, page, pageSize)
+	var datasourceID int64
+	if dsID := c.Query("datasource_id"); dsID != "" {
+		datasourceID, _ = strconv.ParseInt(dsID, 10, 64)
+	}
+	filterStatus := c.Query("status")
+	startTime := c.Query("start_time")
+	endTime := c.Query("end_time")
+
+	histories, total, err := h.dsService.GetQueryHistory(c.Request.Context(), queryDomainID, page, pageSize, datasourceID, filterStatus, startTime, endTime)
 	if err != nil {
 		Fail(c, CodeQueryError, "获取查询历史失败")
 		return
@@ -769,6 +840,103 @@ func (h *QueryHandler) GetResult(c *gin.Context) {
 	Success(c, resp)
 }
 
+// StreamResult SSE 推送查询结果，替代轮询
+func (h *QueryHandler) StreamResult(c *gin.Context) {
+	queryID := c.Param("query_id")
+	if queryID == "" {
+		BadRequest(c, "query_id不能为空")
+		return
+	}
+
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+
+	// 先检查查询是否已经完成
+	q, ok := h.registry.Get(queryID)
+	if !ok {
+		c.SSEvent("error", gin.H{"query_id": queryID, "error": "查询不存在或已过期"})
+		c.Writer.Flush()
+		return
+	}
+
+	// 如果查询已经终态，直接推送结果
+	if q.Status == QueryStatusCompleted || q.Status == QueryStatusFailed || q.Status == QueryStatusCancelled {
+		h.sendSSEEvent(c, q)
+		c.Writer.Flush()
+		return
+	}
+
+	// 注册观察者等待状态变更
+	ctx := c.Request.Context()
+	eventCh := make(chan *RunningQuery, 10)
+
+	observer := &sseQueryObserver{queryID: queryID, ch: eventCh}
+	h.registry.RegisterObserver(observer)
+	defer h.registry.UnregisterObserver(observer)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case q := <-eventCh:
+			h.sendSSEEvent(c, q)
+			c.Writer.Flush()
+			// 终态后关闭连接
+			if q.Status == QueryStatusCompleted || q.Status == QueryStatusFailed || q.Status == QueryStatusCancelled {
+				return
+			}
+		}
+	}
+}
+
+// sendSSEEvent 发送 SSE 事件
+func (h *QueryHandler) sendSSEEvent(c *gin.Context, q *RunningQuery) {
+	data := gin.H{
+		"query_id": q.QueryID,
+		"status":   string(q.Status),
+	}
+
+	switch q.Status {
+	case QueryStatusCompleted:
+		if q.Result != nil {
+			data["columns"] = q.Result.Columns
+			data["rows"] = q.Result.Rows
+			data["row_count"] = q.Result.RowCount
+		} else {
+			data["columns"] = []string{}
+			data["rows"] = [][]interface{}{}
+			data["row_count"] = 0
+		}
+		data["execution_time"] = q.ExecutionTime
+		data["from_cache"] = q.FromCache
+	case QueryStatusFailed:
+		data["error"] = q.Error
+		data["execution_time"] = q.ExecutionTime
+	case QueryStatusCancelled:
+		data["error"] = q.Error
+		data["execution_time"] = q.ExecutionTime
+	}
+
+	c.SSEvent("query_update", data)
+}
+
+// sseQueryObserver 实现 QueryObserver 接口，通过 channel 传递事件
+type sseQueryObserver struct {
+	queryID string
+	ch      chan *RunningQuery
+}
+
+func (o *sseQueryObserver) OnQueryUpdate(queryID string, query *RunningQuery) {
+	if queryID == o.queryID {
+		select {
+		case o.ch <- query:
+		default:
+			// channel 满则丢弃（SSE 客户端可能已断开）
+		}
+	}
+}
+
 func (h *QueryHandler) Cancel(c *gin.Context) {
 	queryID := c.Param("query_id")
 	if queryID == "" {
@@ -801,6 +969,56 @@ func (h *QueryHandler) Cancel(c *gin.Context) {
 
 	slog.Info("query cancel signal sent", "query_id", queryID)
 	Success(c, nil)
+}
+
+// GetPoolStats 获取数据源连接池统计信息
+func (h *QueryHandler) GetPoolStats(c *gin.Context) {
+	dsID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		BadRequest(c, "无效的数据源ID")
+		return
+	}
+
+	ds, err := h.dsService.GetByID(c.Request.Context(), dsID)
+	if err != nil {
+		NotFound(c, "数据源不存在")
+		return
+	}
+
+	drv, err := h.manager.GetDriver(c.Request.Context(), ds)
+	if err != nil {
+		slog.Error("failed to get datasource driver for pool stats", "datasource_id", dsID, "error", err)
+		Fail(c, CodeDatasourceConnectFailed, "连接数据源失败，无法获取连接池信息")
+		return
+	}
+
+	poolUpdater, ok := drv.(driver.PoolConfigUpdater)
+	if !ok {
+		Success(c, gin.H{
+			"datasource_id": dsID,
+			"has_pool":      false,
+			"message":       "该数据源类型不支持连接池统计",
+		})
+		return
+	}
+
+	openCount, idleCount, maxOpen := poolUpdater.GetPoolStats()
+	poolCfg := poolUpdater.GetPoolConfig()
+
+	Success(c, gin.H{
+		"datasource_id": dsID,
+		"has_pool":      true,
+		"pool_stats": gin.H{
+			"open_count": openCount,
+			"idle_count": idleCount,
+			"max_open":   maxOpen,
+		},
+		"pool_config": gin.H{
+			"max_open":     poolCfg.MaxOpen,
+			"min_idle":     poolCfg.MinIdle,
+			"max_lifetime": int(poolCfg.MaxLifetime.Seconds()),
+		},
+	})
 }
 
 func (h *QueryHandler) isSelectOnly(sql string, allowWriteSQL bool) bool {

@@ -214,6 +214,10 @@ func (d *RqliteDriver) SupportsCancel() bool {
 	return false
 }
 
+func (d *RqliteDriver) QueryWithDB(ctx context.Context, query string, database string) (*QueryResult, error) {
+	return d.Query(ctx, query)
+}
+
 func (d *RqliteDriver) UseDatabase(ctx context.Context, database string) error {
 	return nil
 }

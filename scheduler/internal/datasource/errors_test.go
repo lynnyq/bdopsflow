@@ -37,6 +37,7 @@ func TestGetErrorCode(t *testing.T) {
 		{ErrMetadataFailed, 3024},
 		{ErrPermissionServiceError, 3025},
 		{ErrInvalidPermissionType, 3027},
+		{ErrDatasourceConcurrentLimit, 3028},
 	}
 
 	for _, tt := range tests {
@@ -127,6 +128,7 @@ func TestAllErrorsDefined(t *testing.T) {
 		ErrMetadataFailed,
 		ErrPermissionServiceError,
 		ErrInvalidPermissionType,
+		ErrDatasourceConcurrentLimit,
 	}
 
 	for _, errVar := range errorVars {

@@ -247,6 +247,46 @@ func (m *Manager) Close() {
 	}
 }
 
+// OnConfigChanged 实现 ConfigObserver 接口，配置变更时动态更新连接池
+func (m *Manager) OnConfigChanged(key, value string) {
+	switch key {
+	case "datasource.connection_max_open", "datasource.connection_max_idle", "datasource.connection_max_lifetime":
+		m.updatePoolConfigFromSystemSettings()
+	}
+}
+
+// updatePoolConfigFromSystemSettings 从系统设置更新所有驱动的连接池配置
+func (m *Manager) updatePoolConfigFromSystemSettings() {
+	cfg := m.getPoolConfigFromSystemSettings()
+
+	m.poolMu.RLock()
+	defer m.poolMu.RUnlock()
+
+	for id, drv := range m.pools {
+		if updater, ok := drv.(driver.PoolConfigUpdater); ok {
+			updater.UpdatePoolConfig(cfg)
+			slog.Debug("updated pool config for datasource", "datasource_id", id, "max_open", cfg.MaxOpen, "min_idle", cfg.MinIdle, "max_lifetime", cfg.MaxLifetime)
+		}
+	}
+}
+
+// getPoolConfigFromSystemSettings 从系统设置构建连接池配置
+func (m *Manager) getPoolConfigFromSystemSettings() driver.PoolConfig {
+	cfg := driver.DefaultPoolConfig()
+
+	if maxOpen := m.config.GetInt("datasource.connection_max_open"); maxOpen > 0 {
+		cfg.MaxOpen = maxOpen
+	}
+	if minIdle := m.config.GetInt("datasource.connection_max_idle"); minIdle > 0 {
+		cfg.MinIdle = minIdle
+	}
+	if maxLifetime := m.config.GetInt("datasource.connection_max_lifetime"); maxLifetime > 0 {
+		cfg.MaxLifetime = time.Duration(maxLifetime) * time.Second
+	}
+
+	return cfg
+}
+
 func (m *Manager) ActiveConnections() map[int64]string {
 	m.poolMu.RLock()
 	defer m.poolMu.RUnlock()

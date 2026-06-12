@@ -139,6 +139,10 @@ func (d *SQLiteDriver) SupportsCancel() bool {
 	return true
 }
 
+func (d *SQLiteDriver) QueryWithDB(ctx context.Context, query string, database string) (*QueryResult, error) {
+	return d.Query(ctx, query)
+}
+
 func (d *SQLiteDriver) UseDatabase(ctx context.Context, database string) error {
 	return nil
 }

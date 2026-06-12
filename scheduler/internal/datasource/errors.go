@@ -13,6 +13,7 @@ var (
 	ErrSQLTooLong               = errors.New("SQL text exceeds maximum length")
 	ErrQueryTimeout             = errors.New("query execution timeout")
 	ErrConcurrentLimit          = errors.New("concurrent query limit exceeded")
+	ErrDatasourceConcurrentLimit = errors.New("datasource concurrent query limit exceeded")
 	ErrExportRowLimit           = errors.New("export row count exceeds maximum limit")
 	ErrNoQueryPermission        = errors.New("no datasource query permission")
 	ErrNoDownloadPermission     = errors.New("no datasource download permission")
@@ -61,6 +62,7 @@ var errorCodes = map[error]int{
 	ErrSQLTooLong:               3008,
 	ErrQueryTimeout:             3009,
 	ErrConcurrentLimit:          3010,
+	ErrDatasourceConcurrentLimit: 3028,
 	ErrExportRowLimit:           3011,
 	ErrNoQueryPermission:        3012,
 	ErrNoDownloadPermission:     3013,

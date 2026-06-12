@@ -9,10 +9,28 @@
           class="search-input"
           clearable
         />
+        <el-select v-model="filterDatasourceID" placeholder="数据源" clearable class="filter-select filter-datasource">
+          <el-option
+            v-for="ds in datasourceList"
+            :key="ds.id"
+            :label="ds.name"
+            :value="ds.id"
+          />
+        </el-select>
         <el-select v-model="filterStatus" placeholder="状态" clearable class="filter-select">
           <el-option label="成功" value="success" />
           <el-option label="失败" value="failed" />
         </el-select>
+        <el-date-picker
+          v-model="dateRange"
+          type="daterange"
+          range-separator="至"
+          start-placeholder="开始日期"
+          end-placeholder="结束日期"
+          value-format="YYYY-MM-DD"
+          class="filter-datepicker"
+          :clearable="true"
+        />
       </div>
       <div class="toolbar-right">
         <el-button
@@ -105,20 +123,23 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Refresh, Document, VideoPlay, Delete } from '@element-plus/icons-vue'
-import { queryAPI } from '@/api'
+import { queryAPI, datasourceAPI } from '@/api'
 import { isHandledError } from '@/utils/api'
-import type { QueryHistory } from '@/types'
+import type { QueryHistory, Datasource } from '@/types'
 
 const router = useRouter()
 
 const historyList = ref<QueryHistory[]>([])
 const loading = ref(false)
 const searchQuery = ref('')
+const filterDatasourceID = ref<number | null>(null)
 const filterStatus = ref<string | null>(null)
+const dateRange = ref<[string, string] | null>(null)
+const datasourceList = ref<Datasource[]>([])
 const currentPage = ref(1)
 const pageSize = ref(20)
 const total = ref(0)
@@ -130,15 +151,12 @@ const filteredList = computed(() => {
     const matchSearch = !searchQuery.value ||
       item.sql_text.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
       (item.datasource_name || '').toLowerCase().includes(searchQuery.value.toLowerCase())
-    const matchStatus = !filterStatus.value || item.status === filterStatus.value
-    return matchSearch && matchStatus
+    return matchSearch
   })
 })
 
 const pagedList = computed(() => {
-  const start = (currentPage.value - 1) * pageSize.value
-  const end = start + pageSize.value
-  return filteredList.value.slice(start, end)
+  return filteredList.value
 })
 
 const formatDateTime = (dateStr: string) => {
@@ -157,10 +175,23 @@ const formatDateTime = (dateStr: string) => {
 const loadHistory = async () => {
   loading.value = true
   try {
-    const res = await queryAPI.getHistory({
+    const params: Record<string, any> = {
       page: currentPage.value,
       page_size: pageSize.value,
-    })
+    }
+    if (filterDatasourceID.value) {
+      params.datasource_id = filterDatasourceID.value
+    }
+    if (filterStatus.value) {
+      params.status = filterStatus.value
+    }
+    if (dateRange.value && dateRange.value[0]) {
+      params.start_time = dateRange.value[0]
+    }
+    if (dateRange.value && dateRange.value[1]) {
+      params.end_time = dateRange.value[1]
+    }
+    const res = await queryAPI.getHistory(params)
     historyList.value = res.data.items || []
     total.value = res.data.total || 0
   } catch (err: any) {
@@ -171,6 +202,21 @@ const loadHistory = async () => {
     loading.value = false
   }
 }
+
+const loadDatasources = async () => {
+  try {
+    const res = await datasourceAPI.list({ page: 1, page_size: 200 })
+    datasourceList.value = res.data.items || []
+  } catch (err: any) {
+    // 数据源列表加载失败不影响主流程
+  }
+}
+
+// 监听过滤条件变化，重新加载数据
+watch([filterDatasourceID, filterStatus, dateRange], () => {
+  currentPage.value = 1
+  loadHistory()
+})
 
 const handleSelectionChange = (selection: QueryHistory[]) => {
   selectedIds.value = selection.map(item => item.id)
@@ -226,6 +272,7 @@ const handleBatchDelete = async () => {
 }
 
 onMounted(() => {
+  loadDatasources()
   loadHistory()
 })
 </script>
@@ -291,6 +338,14 @@ onMounted(() => {
 
 .filter-select {
   width: 120px;
+}
+
+.filter-datasource {
+  width: 160px;
+}
+
+.filter-datepicker {
+  width: 260px;
 }
 
 .refresh-btn {

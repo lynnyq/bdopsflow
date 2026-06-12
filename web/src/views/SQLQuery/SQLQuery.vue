@@ -527,6 +527,7 @@ const exportProgress = ref(0);
 const allowWriteSQL = ref(false);
 
 const pollTimers = new Map<string, ReturnType<typeof setInterval>>();
+const sseConnections = new Map<string, EventSource>();
 
 const executing = computed(() => activeTab.value.executing);
 const canceling = computed(() => activeTab.value.canceling);
@@ -1811,6 +1812,11 @@ const stopPolling = (tabId?: string) => {
     clearInterval(timer);
     pollTimers.delete(id);
   }
+  const es = sseConnections.get(id);
+  if (es) {
+    es.close();
+    sseConnections.delete(id);
+  }
 };
 
 const stopAllPolling = () => {
@@ -1818,6 +1824,45 @@ const stopAllPolling = () => {
     clearInterval(timer);
   }
   pollTimers.clear();
+  for (const [_id, es] of sseConnections) {
+    es.close();
+  }
+  sseConnections.clear();
+};
+
+const startPolling = (tabId: string, queryId: string) => {
+  const tab = tabs.value.find(t => t.id === tabId);
+  if (!tab) return;
+
+  const timer = setInterval(async () => {
+    try {
+      const pollRes = await queryAPI.getResult(queryId);
+      const pollData = (pollRes as any).data as any;
+
+      if (pollData.status === 'completed') {
+        stopPolling(tabId);
+        tab.queryResult = pollData;
+        tab.executing = false;
+        loadRecentHistory();
+      } else if (pollData.status === 'failed') {
+        stopPolling(tabId);
+        tab.errorMessage = pollData.error || '查询失败';
+        tab.queryResult = null;
+        tab.executing = false;
+      } else if (pollData.status === 'cancelled') {
+        stopPolling(tabId);
+        tab.errorMessage = pollData.error || '查询已取消';
+        tab.queryResult = null;
+        tab.executing = false;
+      }
+    } catch (err: any) {
+      stopPolling(tabId);
+      tab.errorMessage = err?.response?.data?.error || err?.message || '轮询查询结果失败';
+      tab.queryResult = null;
+      tab.executing = false;
+    }
+  }, 1000);
+  pollTimers.set(tabId, timer);
 };
 
 const handleExecute = async () => {
@@ -1852,35 +1897,48 @@ const handleExecute = async () => {
 
     tab.queryId = queryId;
 
-    const timer = setInterval(async () => {
-      try {
-        const pollRes = await queryAPI.getResult(queryId);
-        const pollData = (pollRes as any).data as any;
+    // 优先使用 SSE 推送，降级到轮询
+    try {
+      const eventSource = queryAPI.streamResult(queryId);
+      sseConnections.set(tab.id, eventSource);
 
-        if (pollData.status === 'completed') {
-          stopPolling(tab.id);
-          tab.queryResult = pollData;
-          tab.executing = false;
-          loadRecentHistory();
-        } else if (pollData.status === 'failed') {
-          stopPolling(tab.id);
-          tab.errorMessage = pollData.error || '查询失败';
-          tab.queryResult = null;
-          tab.executing = false;
-        } else if (pollData.status === 'cancelled') {
-          stopPolling(tab.id);
-          tab.errorMessage = pollData.error || '查询已取消';
-          tab.queryResult = null;
-          tab.executing = false;
+      eventSource.addEventListener('query_update', (event: MessageEvent) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.status === 'completed') {
+            stopPolling(tab.id);
+            tab.queryResult = data;
+            tab.executing = false;
+            loadRecentHistory();
+            eventSource.close();
+          } else if (data.status === 'failed') {
+            stopPolling(tab.id);
+            tab.errorMessage = data.error || '查询失败';
+            tab.queryResult = null;
+            tab.executing = false;
+            eventSource.close();
+          } else if (data.status === 'cancelled') {
+            stopPolling(tab.id);
+            tab.errorMessage = data.error || '查询已取消';
+            tab.queryResult = null;
+            tab.executing = false;
+            eventSource.close();
+          }
+        } catch (parseErr) {
+          // JSON 解析失败，忽略
         }
-      } catch (err: any) {
-        stopPolling(tab.id);
-        tab.errorMessage = err?.response?.data?.error || err?.message || '轮询查询结果失败';
-        tab.queryResult = null;
-        tab.executing = false;
-      }
-    }, 1000);
-    pollTimers.set(tab.id, timer);
+      });
+
+      eventSource.onerror = () => {
+        // SSE 连接失败，降级到轮询
+        eventSource.close();
+        sseConnections.delete(tab.id);
+        startPolling(tab.id, queryId);
+      };
+    } catch {
+      // SSE 不可用，降级到轮询
+      startPolling(tab.id, queryId);
+    }
   } catch (err: any) {
     tab.errorMessage = err?.response?.data?.error || err?.message || '查询失败，请检查网络连接';
     tab.queryResult = null;

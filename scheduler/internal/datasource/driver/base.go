@@ -16,12 +16,21 @@ type UnhealthyChecker interface {
 	IsUnhealthy() bool
 }
 
+// PoolConfigUpdater 连接池配置动态更新接口
+// 支持 Hive/Kyuubi/Spark 等使用自定义连接池的驱动
+type PoolConfigUpdater interface {
+	UpdatePoolConfig(cfg PoolConfig)
+	GetPoolConfig() PoolConfig
+	GetPoolStats() (openCount int, idleCount int, maxOpen int)
+}
+
 type Driver interface {
 	Connect(ctx context.Context, config DatasourceConfig) error
 	TestConnection(ctx context.Context) error
 	Ping(ctx context.Context) error
 	Close() error
 	Query(ctx context.Context, sql string, args ...interface{}) (*QueryResult, error)
+	QueryWithDB(ctx context.Context, sql string, database string) (*QueryResult, error)
 	GetDatabases(ctx context.Context) ([]string, error)
 	GetTables(ctx context.Context, database string) ([]TableInfo, error)
 	GetColumns(ctx context.Context, database, table string) ([]ColumnInfo, error)
