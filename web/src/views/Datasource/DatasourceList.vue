@@ -155,50 +155,53 @@
           </span>
         </div>
 
-        <div class="pool-gauges">
-          <div class="pool-gauge">
-            <div class="gauge-ring" :style="getGaugeStyle(poolData?.pool_stats?.open_count || 0, poolData?.pool_config?.max_open || 1)">
-              <div class="gauge-inner">
-                <span class="gauge-value">{{ poolData?.pool_stats?.open_count ?? '-' }}</span>
-                <span class="gauge-label">活跃</span>
-              </div>
+        <div class="pool-overview">
+          <div class="pool-gauge-main">
+            <svg class="gauge-svg-main" viewBox="0 0 120 120">
+              <circle class="gauge-track" cx="60" cy="60" r="50" />
+              <circle class="gauge-fill" :class="getUsageGaugeClass()" cx="60" cy="60" r="50"
+                :stroke-dasharray="getGaugeDash(poolData?.pool_stats?.open_count || 0, poolData?.pool_config?.max_open)" />
+            </svg>
+            <div class="gauge-center">
+              <span class="gauge-value">{{ poolData?.pool_stats?.open_count ?? '-' }}</span>
+              <span class="gauge-label">打开连接</span>
             </div>
-            <span class="gauge-title">打开连接</span>
-            <span class="gauge-sub">上限 {{ poolData?.pool_config?.max_open || '-' }}</span>
+            <span class="gauge-title">连接池使用率</span>
+            <span class="gauge-sub">{{ poolData?.pool_config?.max_open ? `上限 ${poolData.pool_config.max_open}` : '无限制' }}</span>
           </div>
-          <div class="pool-gauge">
-            <div class="gauge-ring gauge-idle" :style="getGaugeStyle(poolData?.pool_stats?.idle_count || 0, poolData?.pool_config?.max_open || 1)">
-              <div class="gauge-inner">
-                <span class="gauge-value">{{ poolData?.pool_stats?.idle_count ?? '-' }}</span>
-                <span class="gauge-label">空闲</span>
-              </div>
+          <div class="pool-breakdown">
+            <div class="breakdown-item">
+              <span class="breakdown-dot breakdown-dot-green"></span>
+              <span class="breakdown-label">空闲</span>
+              <span class="breakdown-value">{{ poolData?.pool_stats?.idle_count ?? '-' }}</span>
             </div>
-            <span class="gauge-title">空闲连接</span>
-            <span class="gauge-sub">最小 {{ poolData?.pool_config?.min_idle || '-' }}</span>
-          </div>
-          <div class="pool-gauge">
-            <div class="gauge-ring gauge-active" :style="getGaugeStyle(getActiveCount(), poolData?.pool_config?.max_open || 1)">
-              <div class="gauge-inner">
-                <span class="gauge-value">{{ getActiveCount() }}</span>
-                <span class="gauge-label">使用中</span>
-              </div>
+            <div class="breakdown-item">
+              <span class="breakdown-dot breakdown-dot-orange"></span>
+              <span class="breakdown-label">使用中</span>
+              <span class="breakdown-value">{{ getActiveCount() }}</span>
             </div>
-            <span class="gauge-title">使用中</span>
-            <span class="gauge-sub">打开 - 空闲</span>
+            <div class="breakdown-divider"></div>
+            <div class="breakdown-item">
+              <span class="breakdown-label">合计</span>
+              <span class="breakdown-value breakdown-total">{{ poolData?.pool_stats?.open_count ?? '-' }}</span>
+            </div>
           </div>
         </div>
 
         <el-descriptions :column="2" border size="small" class="pool-config-table">
-          <el-descriptions-item label="最大连接数">{{ poolData?.pool_config?.max_open ?? '-' }}</el-descriptions-item>
-          <el-descriptions-item label="最小空闲连接">{{ poolData?.pool_config?.min_idle ?? '-' }}</el-descriptions-item>
+          <el-descriptions-item label="最大连接数">{{ poolData?.pool_config?.max_open || '无限制' }}</el-descriptions-item>
+          <el-descriptions-item label="最大空闲连接数">{{ poolData?.pool_config?.max_idle ?? '-' }}</el-descriptions-item>
           <el-descriptions-item label="连接最大生命周期">{{ formatLifetime(poolData?.pool_config?.max_lifetime) }}</el-descriptions-item>
           <el-descriptions-item label="使用率">
-            <el-progress
-              :percentage="getUsagePercent()"
-              :color="getUsageColor()"
-              :stroke-width="12"
-              :format="(p: number) => p + '%'"
-            />
+            <template v-if="poolData?.pool_config?.max_open">
+              <el-progress
+                :percentage="getUsagePercent()"
+                :color="getUsageColor()"
+                :stroke-width="12"
+                :format="(p: number) => p + '%'"
+              />
+            </template>
+            <span v-else class="unlimited-hint">无限制</span>
           </el-descriptions-item>
         </el-descriptions>
       </div>
@@ -390,8 +393,8 @@ const poolData = ref<{
   datasource_id: number
   has_pool: boolean
   message?: string
-  pool_stats?: { open_count: number; idle_count: number; max_open: number }
-  pool_config?: { max_open: number; min_idle: number; max_lifetime: number }
+  pool_stats?: { open_count: number; idle_count: number; in_use: number; max_open: number }
+  pool_config?: { max_open: number; max_idle: number; max_lifetime: number }
 } | null>(null)
 
 const handlePoolStats = (row: Datasource) => {
@@ -417,12 +420,23 @@ const loadPoolStats = async (id: number) => {
 
 const getActiveCount = () => {
   if (!poolData.value?.pool_stats) return 0
-  return (poolData.value.pool_stats.open_count || 0) - (poolData.value.pool_stats.idle_count || 0)
+  const inUse = poolData.value.pool_stats.in_use
+  if (inUse !== undefined) return inUse
+  return Math.max(0, (poolData.value.pool_stats.open_count || 0) - (poolData.value.pool_stats.idle_count || 0))
 }
 
 const getUsagePercent = () => {
   if (!poolData.value?.pool_stats || !poolData.value?.pool_config) return 0
-  const maxOpen = poolData.value.pool_config.max_open || 1
+  const maxOpen = poolData.value.pool_config.max_open
+  if (!maxOpen) return 0 // max_open=0 表示无限制，不计算使用率
+  // 使用率 = 使用中连接数 / 最大连接数，反映实际查询负载
+  return Math.round((getActiveCount() / maxOpen) * 100)
+}
+
+const getPoolPercent = () => {
+  if (!poolData.value?.pool_stats || !poolData.value?.pool_config) return 0
+  const maxOpen = poolData.value.pool_config.max_open
+  if (!maxOpen) return 0
   return Math.round((poolData.value.pool_stats.open_count / maxOpen) * 100)
 }
 
@@ -433,10 +447,19 @@ const getUsageColor = () => {
   return '#67c23a'
 }
 
-const getGaugeStyle = (value: number, max: number) => {
-  const percent = Math.min(Math.round((value / (max || 1)) * 100), 100)
-  const deg = (percent / 100) * 360
-  return { '--gauge-deg': `${deg}deg` }
+const getUsageGaugeClass = () => {
+  const p = getPoolPercent()
+  if (p >= 90) return 'gauge-fill-red'
+  if (p >= 70) return 'gauge-fill-orange'
+  return 'gauge-fill-green'
+}
+
+const getGaugeDash = (value: number, max: number | undefined) => {
+  const circumference = 2 * Math.PI * 50 // r=50
+  if (!max) return `0 ${circumference}`
+  const percent = Math.min(value / max, 1)
+  const filled = circumference * percent
+  return `${filled} ${circumference - filled}`
 }
 
 const formatLifetime = (seconds?: number) => {
@@ -692,52 +715,115 @@ onMounted(() => {
   justify-content: flex-end;
 }
 
-.pool-gauges {
+.pool-overview {
   display: flex;
-  justify-content: space-around;
-  gap: 16px;
+  align-items: center;
+  gap: 32px;
+  justify-content: center;
 }
 
-.pool-gauge {
+.pool-gauge-main {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 6px;
+  position: relative;
 }
 
-.gauge-ring {
-  width: 100px;
-  height: 100px;
-  border-radius: 50%;
-  background: conic-gradient(
-    var(--accent-primary) 0deg var(--gauge-deg, 0deg),
-    var(--bg-secondary) var(--gauge-deg, 0deg) 360deg
-  );
+.gauge-svg-main {
+  width: 130px;
+  height: 130px;
+  transform: rotate(-90deg);
+}
+
+.pool-breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 120px;
+}
+
+.breakdown-item {
   display: flex;
   align-items: center;
-  justify-content: center;
-  transition: --gauge-deg 0.6s ease;
+  gap: 8px;
 }
 
-.gauge-ring.gauge-idle {
-  background: conic-gradient(
-    #67c23a 0deg var(--gauge-deg, 0deg),
-    var(--bg-secondary) var(--gauge-deg, 0deg) 360deg
-  );
-}
-
-.gauge-ring.gauge-active {
-  background: conic-gradient(
-    #e6a23c 0deg var(--gauge-deg, 0deg),
-    var(--bg-secondary) var(--gauge-deg, 0deg) 360deg
-  );
-}
-
-.gauge-inner {
-  width: 72px;
-  height: 72px;
+.breakdown-dot {
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
-  background: var(--bg-card);
+  flex-shrink: 0;
+}
+
+.breakdown-dot-green {
+  background: var(--accent-success, #67c23a);
+}
+
+.breakdown-dot-orange {
+  background: var(--accent-warning, #e6a23c);
+}
+
+.breakdown-label {
+  font-size: 13px;
+  color: var(--text-muted);
+  min-width: 40px;
+}
+
+.breakdown-value {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-left: auto;
+}
+
+.breakdown-total {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.breakdown-divider {
+  height: 1px;
+  background: var(--border-secondary, #ebeef5);
+  margin: 2px 0;
+}
+
+.gauge-svg {
+  width: 100px;
+  height: 100px;
+  transform: rotate(-90deg);
+}
+
+.gauge-track {
+  fill: none;
+  stroke: var(--bg-tertiary);
+  stroke-width: 8;
+}
+
+.gauge-fill {
+  fill: none;
+  stroke-width: 8;
+  stroke-linecap: round;
+  transition: stroke-dasharray 0.6s ease;
+}
+
+.gauge-fill-green {
+  stroke: var(--accent-success, #67c23a);
+}
+
+.gauge-fill-orange {
+  stroke: var(--accent-warning, #e6a23c);
+}
+
+.gauge-fill-red {
+  stroke: var(--accent-danger, #f56c6c);
+}
+
+.gauge-center {
+  position: absolute;
+  top: 16px;
+  width: 130px;
+  height: 90px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -769,5 +855,10 @@ onMounted(() => {
 
 .pool-config-table {
   margin-top: 4px;
+}
+
+.unlimited-hint {
+  color: var(--text-muted);
+  font-size: 13px;
 }
 </style>

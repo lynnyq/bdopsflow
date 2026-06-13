@@ -37,9 +37,11 @@ export const datasourceAPI = {
       datasource_id: number
       has_pool: boolean
       message?: string
-      pool_stats?: { open_count: number; idle_count: number; max_open: number }
-      pool_config?: { max_open: number; min_idle: number; max_lifetime: number }
+      pool_stats?: { open_count: number; idle_count: number; in_use: number; max_open: number }
+      pool_config?: { max_open: number; max_idle: number; max_lifetime: number }
     }>(`/query/pool-stats/${id}`),
+  clearCache: (id: number) =>
+    api.post<{ datasource_id: number; message: string }>(`/query/clear-cache/${id}`),
 }
 
 export const queryAPI = {

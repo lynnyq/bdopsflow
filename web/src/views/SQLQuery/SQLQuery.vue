@@ -7,15 +7,38 @@
             <el-icon :size="18"><DataLine /></el-icon>
             <span>数据源</span>
           </div>
-          <el-button
-            link
-            type="primary"
-            size="small"
-            @click="refreshMetadata"
-            :disabled="!selectedDatasourceId"
-          >
-            <el-icon><Refresh /></el-icon>
-          </el-button>
+          <div class="panel-actions">
+            <el-tooltip content="刷新元数据" placement="top" :show-after="500">
+              <el-button
+                link
+                type="primary"
+                size="small"
+                @click="refreshMetadata"
+                :disabled="!selectedDatasourceId"
+              >
+                <el-icon><Refresh /></el-icon>
+              </el-button>
+            </el-tooltip>
+            <el-popconfirm
+              title="确定清除该数据源的缓存？清除后下次查询将重新从数据源获取最新数据。"
+              confirm-button-text="确定"
+              cancel-button-text="取消"
+              @confirm="handleClearCache"
+              :disabled="!selectedDatasourceId"
+            >
+              <template #reference>
+                <el-button
+                  link
+                  type="primary"
+                  size="small"
+                  :disabled="!selectedDatasourceId || clearingCache"
+                  :loading="clearingCache"
+                >
+                  <el-icon><Delete /></el-icon>
+                </el-button>
+              </template>
+            </el-popconfirm>
+          </div>
         </div>
 
         <div class="panel-section selector-section" :class="{ collapsed: selectorCollapsed }">
@@ -522,9 +545,10 @@ const editorHeight = ref(200);
 const isResizing = ref(false);
 const sqlText = ref(activeTab.value.sql);
 const selectorCollapsed = ref(false);
-const exporting = ref(false);
-const exportProgress = ref(0);
-const allowWriteSQL = ref(false);
+const exporting = ref(false)
+const exportProgress = ref(0)
+const allowWriteSQL = ref(false)
+const clearingCache = ref(false);
 
 const pollTimers = new Map<string, ReturnType<typeof setInterval>>();
 const sseConnections = new Map<string, EventSource>();
@@ -1713,6 +1737,33 @@ const refreshMetadata = async () => {
   }
 };
 
+const handleClearCache = async () => {
+  if (!selectedDatasourceId.value) return;
+
+  clearingCache.value = true;
+  try {
+    await datasourceAPI.clearCache(selectedDatasourceId.value as number);
+
+    // 同时清除前端元数据缓存
+    clearMetadataCache(`databases_${selectedDatasourceId.value}`);
+    if (selectedDatabase.value) {
+      clearMetadataCache(`tables_${selectedDatasourceId.value}_${selectedDatabase.value}`);
+    }
+    if (selectedTable.value) {
+      clearMetadataCache(`columns_${selectedDatasourceId.value}_${selectedDatabase.value}_${selectedTable.value}`);
+    }
+
+    ElMessage.success('缓存已清除，下次查询将获取最新数据');
+  } catch (err: any) {
+    if (!isHandledError(err)) {
+      const msg = err?.response?.data?.message || err?.message || '清除缓存失败';
+      ElMessage.error(msg);
+    }
+  } finally {
+    clearingCache.value = false;
+  }
+};
+
 const insertColumn = (column: { name: string }) => {
   if (!editorView) return;
   const cursor = editorView.state.selection.main.head;
@@ -2177,6 +2228,12 @@ window.addEventListener('beforeunload', handleBeforeUnload);
   font-weight: 600;
   font-size: var(--font-size-md);
   color: var(--text-primary);
+}
+
+.panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 
 .panel-section {
