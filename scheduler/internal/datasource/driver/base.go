@@ -17,11 +17,11 @@ type UnhealthyChecker interface {
 }
 
 // PoolConfigUpdater 连接池配置动态更新接口
-// 支持 Hive/Kyuubi/Spark 等使用自定义连接池的驱动
+// 支持所有使用连接池的驱动（Hive/Kyuubi/Spark 自定义池，以及 database/sql 内置池）
 type PoolConfigUpdater interface {
 	UpdatePoolConfig(cfg PoolConfig)
 	GetPoolConfig() PoolConfig
-	GetPoolStats() (openCount int, idleCount int, maxOpen int)
+	GetPoolStats() (openCount int, idleCount int, inUse int, maxOpen int)
 }
 
 type Driver interface {
@@ -198,6 +198,8 @@ func extractGohiveError(err error, wrapMsg string) error {
 }
 
 // ApplyLimitToSQL 参考Superset的方式，在SQL语句末尾添加LIMIT
+// Superset 使用 sqlglot 解析 SQL，只有 SELECT/WITH 语句才会添加 LIMIT，
+// SHOW/DESCRIBE/EXPLAIN 等语句不支持 LIMIT，不添加。
 // 支持多种SQL语法：
 //   - MySQL/PostgreSQL/SQLite/StarRocks/Doris/Trino: LIMIT x 或 LIMIT x OFFSET y
 //   - Hive/Kyuubi/Spark: 仅支持 LIMIT x（不支持 OFFSET，会自动去除）
@@ -210,14 +212,10 @@ func ApplyLimitToSQL(sql string, limit int, dsType string) string {
 	normalized := NormalizeSQLForType(sql, dsType)
 	upperSQL := strings.ToUpper(normalized)
 
-	// 检查是否是SELECT查询（避免修改其他类型的SQL）
+	// 参考 Superset：只对 SELECT 和 WITH(CTE) 语句添加 LIMIT
+	// SHOW/DESCRIBE/DESC/EXPLAIN 等语句不支持 LIMIT，不添加
 	if !strings.HasPrefix(upperSQL, "SELECT ") &&
-		!strings.HasPrefix(upperSQL, "WITH ") &&
-		!strings.HasPrefix(upperSQL, "SHOW ") &&
-		!strings.HasPrefix(upperSQL, "DESCRIBE ") &&
-		!strings.HasPrefix(upperSQL, "DESC ") &&
-		!strings.HasPrefix(upperSQL, "EXPLAIN ") {
-		// 非SELECT查询，不添加LIMIT
+		!strings.HasPrefix(upperSQL, "WITH ") {
 		return sql
 	}
 

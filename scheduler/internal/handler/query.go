@@ -1002,8 +1002,15 @@ func (h *QueryHandler) GetPoolStats(c *gin.Context) {
 		return
 	}
 
-	openCount, idleCount, maxOpen := poolUpdater.GetPoolStats()
+	openCount, idleCount, inUse, maxOpen := poolUpdater.GetPoolStats()
 	poolCfg := poolUpdater.GetPoolConfig()
+
+	// max_idle: database/sql 驱动 MaxIdleConns=MaxOpen（最大化复用），
+	// Hive/Kyuubi/Spark 自定义池 MinIdle 为常驻连接数
+	maxIdle := poolCfg.MaxOpen // database/sql 默认
+	if poolCfg.MinIdle > 0 && poolCfg.MinIdle < poolCfg.MaxOpen {
+		maxIdle = poolCfg.MinIdle // Hive/Kyuubi/Spark 自定义池
+	}
 
 	Success(c, gin.H{
 		"datasource_id": dsID,
@@ -1011,14 +1018,52 @@ func (h *QueryHandler) GetPoolStats(c *gin.Context) {
 		"pool_stats": gin.H{
 			"open_count": openCount,
 			"idle_count": idleCount,
+			"in_use":     inUse,
 			"max_open":   maxOpen,
 		},
 		"pool_config": gin.H{
 			"max_open":     poolCfg.MaxOpen,
-			"min_idle":     poolCfg.MinIdle,
+			"max_idle":     maxIdle,
 			"max_lifetime": int(poolCfg.MaxLifetime.Seconds()),
 		},
 	})
+}
+
+// ClearCache 清除指定数据源的查询缓存和元数据缓存
+func (h *QueryHandler) ClearCache(c *gin.Context) {
+	dsID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		BadRequest(c, "无效的数据源ID")
+		return
+	}
+
+	ds, err := h.dsService.GetByID(c.Request.Context(), dsID)
+	if err != nil {
+		NotFound(c, "数据源不存在")
+		return
+	}
+
+	if h.cacheService == nil {
+		Success(c, gin.H{"datasource_id": dsID, "message": "缓存服务未启用"})
+		return
+	}
+
+	// 清除查询结果缓存
+	if err := h.cacheService.Invalidate(c.Request.Context(), dsID); err != nil {
+		slog.Error("failed to invalidate query cache", "datasource_id", dsID, "datasource_name", ds.Name, "error", err)
+		Fail(c, CodeQueryError, "清除查询缓存失败")
+		return
+	}
+
+	// 清除元数据缓存
+	if err := h.cacheService.InvalidateMetadata(c.Request.Context(), dsID); err != nil {
+		slog.Error("failed to invalidate metadata cache", "datasource_id", dsID, "datasource_name", ds.Name, "error", err)
+		Fail(c, CodeQueryError, "清除元数据缓存失败")
+		return
+	}
+
+	slog.Info("cache cleared for datasource", "datasource_id", dsID, "datasource_name", ds.Name)
+	Success(c, gin.H{"datasource_id": dsID, "message": "缓存已清除"})
 }
 
 func (h *QueryHandler) isSelectOnly(sql string, allowWriteSQL bool) bool {

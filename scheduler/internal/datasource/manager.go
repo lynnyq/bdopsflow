@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/lynnyq/bdopsflow/scheduler/internal/datasource/driver"
+	sysconfig "github.com/lynnyq/bdopsflow/scheduler/internal/system_config"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/model"
 )
 
@@ -17,6 +18,7 @@ type Manager struct {
 	poolMu     sync.RWMutex
 	crypto     *Crypto
 	config     *ConfigService
+	sysConfig  *sysconfig.Service
 	closed     bool
 	closeMu    sync.Mutex
 	lastCheck  map[int64]time.Time
@@ -25,11 +27,12 @@ type Manager struct {
 	connectMu  sync.Mutex
 }
 
-func NewManager(crypto *Crypto, config *ConfigService) *Manager {
+func NewManager(crypto *Crypto, config *ConfigService, sysConfig *sysconfig.Service) *Manager {
 	return &Manager{
 		pools:      make(map[int64]driver.Driver),
 		crypto:     crypto,
 		config:     config,
+		sysConfig:  sysConfig,
 		lastCheck:  make(map[int64]time.Time),
 		connecting: make(map[int64]struct{}),
 	}
@@ -152,6 +155,13 @@ func (m *Manager) connect(ctx context.Context, ds *model.Datasource) (driver.Dri
 		return nil, fmt.Errorf("%w: %v", ErrDatasourceConnFailed, err)
 	}
 
+	// 连接成功后，立即应用系统配置的连接池参数
+	if updater, ok := drv.(driver.PoolConfigUpdater); ok {
+		poolCfg := m.getPoolConfigFromSystemSettings()
+		updater.UpdatePoolConfig(poolCfg)
+		slog.Debug("applied pool config after connect", "datasource_id", ds.ID, "max_open", poolCfg.MaxOpen, "min_idle", poolCfg.MinIdle)
+	}
+
 	m.poolMu.Lock()
 	m.pools[ds.ID] = drv
 	m.poolMu.Unlock()
@@ -271,17 +281,30 @@ func (m *Manager) updatePoolConfigFromSystemSettings() {
 }
 
 // getPoolConfigFromSystemSettings 从系统设置构建连接池配置
+// 优先从 sysConfigService 读取（实时生效），fallback 到 dsConfigService
 func (m *Manager) getPoolConfigFromSystemSettings() driver.PoolConfig {
 	cfg := driver.DefaultPoolConfig()
 
-	if maxOpen := m.config.GetInt("datasource.connection_max_open"); maxOpen > 0 {
-		cfg.MaxOpen = maxOpen
-	}
-	if minIdle := m.config.GetInt("datasource.connection_max_idle"); minIdle > 0 {
-		cfg.MinIdle = minIdle
-	}
-	if maxLifetime := m.config.GetInt("datasource.connection_max_lifetime"); maxLifetime > 0 {
-		cfg.MaxLifetime = time.Duration(maxLifetime) * time.Second
+	if m.sysConfig != nil {
+		if maxOpen := m.sysConfig.GetInt("datasource.connection_max_open"); maxOpen > 0 {
+			cfg.MaxOpen = maxOpen
+		}
+		if minIdle := m.sysConfig.GetInt("datasource.connection_max_idle"); minIdle > 0 {
+			cfg.MinIdle = minIdle
+		}
+		if maxLifetime := m.sysConfig.GetInt("datasource.connection_max_lifetime"); maxLifetime > 0 {
+			cfg.MaxLifetime = time.Duration(maxLifetime) * time.Second
+		}
+	} else {
+		if maxOpen := m.config.GetInt("datasource.connection_max_open"); maxOpen > 0 {
+			cfg.MaxOpen = maxOpen
+		}
+		if minIdle := m.config.GetInt("datasource.connection_max_idle"); minIdle > 0 {
+			cfg.MinIdle = minIdle
+		}
+		if maxLifetime := m.config.GetInt("datasource.connection_max_lifetime"); maxLifetime > 0 {
+			cfg.MaxLifetime = time.Duration(maxLifetime) * time.Second
+		}
 	}
 
 	return cfg

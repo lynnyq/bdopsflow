@@ -122,7 +122,7 @@ func (d *HiveDriver) Connect(ctx context.Context, config DatasourceConfig) error
 		slog.Error("hive initial connection failed", "host", config.Host, "port", port, "error", err)
 		return errors.Wrap(err, "failed to connect to hive")
 	}
-	d.pool.release(&pooledConn{conn: initialConn, database: d.defaultDB})
+	d.pool.put(initialConn, d.defaultDB)
 
 	// 预热额外的 MinIdle-1 个连接
 	cfg := d.pool.GetConfig()
@@ -132,7 +132,7 @@ func (d *HiveDriver) Connect(ctx context.Context, config DatasourceConfig) error
 			slog.Warn("hive pre-warm connection failed", "index", i, "error", connErr)
 			break
 		}
-		d.pool.release(&pooledConn{conn: conn, database: d.defaultDB})
+		d.pool.put(conn, d.defaultDB)
 	}
 
 	slog.Info("hive connected, pool initialized", "host", config.Host, "port", port, "database", config.Database, "pool_config", fmt.Sprintf("max=%d min_idle=%d max_lifetime=%v", cfg.MaxOpen, cfg.MinIdle, cfg.MaxLifetime))
@@ -198,11 +198,11 @@ func (d *HiveDriver) GetPoolConfig() PoolConfig {
 }
 
 // GetPoolStats 获取连接池统计信息
-func (d *HiveDriver) GetPoolStats() (openCount int, idleCount int, maxOpen int) {
+func (d *HiveDriver) GetPoolStats() (openCount int, idleCount int, inUse int, maxOpen int) {
 	if d.pool != nil {
 		return d.pool.stats()
 	}
-	return 0, 0, 0
+	return 0, 0, 0, 0
 }
 
 func (d *HiveDriver) Close() error {

@@ -217,7 +217,7 @@ func TestNewDatasourceService(t *testing.T) {
 }
 
 func TestNewDatasourceService_WithComponents(t *testing.T) {
-	mgr := NewManager(nil, nil)
+	mgr := NewManager(nil, nil, nil)
 	cfg := &ConfigService{cache: make(map[string]string)}
 	svc := NewDatasourceService(nil, nil, cfg, mgr)
 	if svc == nil {

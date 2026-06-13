@@ -244,3 +244,36 @@ func escapeSQLString(s string) string {
 func escapeMySQLIdentifier(name string) string {
 	return strings.ReplaceAll(name, "`", "``")
 }
+
+// UpdatePoolConfig 动态更新连接池配置
+func (d *MySQLDriver) UpdatePoolConfig(cfg PoolConfig) {
+	if d.db == nil {
+		return
+	}
+	d.db.SetMaxOpenConns(cfg.MaxOpen)
+	// MaxIdleConns 设为 MaxOpen，保持所有打开的连接不被关闭，最大化连接复用
+	// database/sql 的 MaxIdleConns 是上限而非下限，不会预创建连接
+	d.db.SetMaxIdleConns(cfg.MaxOpen)
+	if cfg.MaxLifetime > 0 {
+		d.db.SetConnMaxLifetime(cfg.MaxLifetime)
+	}
+}
+
+// GetPoolConfig 获取当前连接池配置
+func (d *MySQLDriver) GetPoolConfig() PoolConfig {
+	cfg := DefaultPoolConfig()
+	if d.db != nil {
+		stats := d.db.Stats()
+		cfg.MaxOpen = stats.MaxOpenConnections
+	}
+	return cfg
+}
+
+// GetPoolStats 获取连接池统计信息
+func (d *MySQLDriver) GetPoolStats() (openCount int, idleCount int, inUse int, maxOpen int) {
+	if d.db == nil {
+		return 0, 0, 0, 0
+	}
+	stats := d.db.Stats()
+	return stats.OpenConnections, stats.Idle, stats.InUse, stats.MaxOpenConnections
+}

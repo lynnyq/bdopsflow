@@ -36,6 +36,7 @@ type hiveConnPool struct {
 	conns       chan *pooledConn
 	config      atomic.Value // 存储 PoolConfig
 	openCount   atomic.Int32
+	inUseCount  atomic.Int32 // 正在使用的连接数
 	createConn  func(ctx context.Context) (*gohive.Connection, error)
 	mu          sync.Mutex
 	closed      bool
@@ -130,6 +131,7 @@ func (p *hiveConnPool) acquire(ctx context.Context) (*pooledConn, error) {
 				}
 			}
 		}
+		p.inUseCount.Add(1)
 		return pc, nil
 	default:
 	}
@@ -148,6 +150,7 @@ func (p *hiveConnPool) acquireOrCreate(ctx context.Context, cfg PoolConfig) (*po
 				return nil, err
 			}
 			p.createTime.Store(conn, time.Now())
+			p.inUseCount.Add(1)
 			return &pooledConn{conn: conn}, nil
 		}
 	}
@@ -168,6 +171,7 @@ func (p *hiveConnPool) acquireOrCreate(ctx context.Context, cfg PoolConfig) (*po
 				}
 			}
 		}
+		p.inUseCount.Add(1)
 		return pc, nil
 	case <-acquireCtx.Done():
 		return nil, acquireCtx.Err()
@@ -176,22 +180,28 @@ func (p *hiveConnPool) acquireOrCreate(ctx context.Context, cfg PoolConfig) (*po
 
 // release 将连接归还到池中。
 func (p *hiveConnPool) release(pc *pooledConn) {
-	if pc == nil || pc.conn == nil {
+	if pc == nil {
 		return
 	}
+
+	p.inUseCount.Add(-1)
 
 	p.closeMu.Lock()
 	defer p.closeMu.Unlock()
 	if p.closed {
-		pc.conn.Close()
+		if pc.conn != nil {
+			pc.conn.Close()
+		}
 		p.openCount.Add(-1)
-		p.createTime.Delete(pc.conn)
+		if pc.conn != nil {
+			p.createTime.Delete(pc.conn)
+		}
 		return
 	}
 
 	// 检查连接是否超过最大生命周期
 	cfg := p.config.Load().(PoolConfig)
-	if cfg.MaxLifetime > 0 {
+	if cfg.MaxLifetime > 0 && pc.conn != nil {
 		if createTime, ok := p.createTime.Load(pc.conn); ok {
 			if time.Since(createTime.(time.Time)) > cfg.MaxLifetime {
 				slog.Debug("hive pooled connection exceeded max lifetime on release, discarding")
@@ -207,13 +217,49 @@ func (p *hiveConnPool) release(pc *pooledConn) {
 	case p.conns <- pc:
 	default:
 		// 池已满，关闭多余连接
-		pc.conn.Close()
+		if pc.conn != nil {
+			pc.conn.Close()
+		}
 		p.openCount.Add(-1)
-		p.createTime.Delete(pc.conn)
+		if pc.conn != nil {
+			p.createTime.Delete(pc.conn)
+		}
 	}
 }
 
-// discard 丢弃损坏的连接。
+// put 将新创建的连接放入池中（用于预热），同时增加 openCount。
+// 与 release 不同，put 假设连接是新创建的，openCount 尚未计入。
+func (p *hiveConnPool) put(conn *gohive.Connection, database string) {
+	p.closeMu.Lock()
+	defer p.closeMu.Unlock()
+	if p.closed {
+		if conn != nil {
+			conn.Close()
+		}
+		return
+	}
+
+	pc := &pooledConn{conn: conn, database: database}
+	if conn != nil {
+		p.createTime.Store(conn, time.Now())
+	}
+	p.openCount.Add(1)
+
+	select {
+	case p.conns <- pc:
+	default:
+		// 池已满，关闭多余连接
+		if conn != nil {
+			conn.Close()
+		}
+		p.openCount.Add(-1)
+		if conn != nil {
+			p.createTime.Delete(conn)
+		}
+	}
+}
+
+// discard 丢弃损坏的连接（从 acquire 中获取的，需要减少 inUseCount）。
 func (p *hiveConnPool) discard(pc *pooledConn) {
 	if pc == nil {
 		return
@@ -223,6 +269,7 @@ func (p *hiveConnPool) discard(pc *pooledConn) {
 		p.createTime.Delete(pc.conn)
 	}
 	p.openCount.Add(-1)
+	p.inUseCount.Add(-1)
 }
 
 // close 关闭池中所有连接。
@@ -250,9 +297,23 @@ func (p *hiveConnPool) close() {
 }
 
 // stats 返回连接池统计信息（用于调试和监控）。
-func (p *hiveConnPool) stats() (openCount int, idleCount int, maxOpen int) {
+// idleCount 由 openCount - inUseCount 推算，保证 idle + inUse = open 始终成立。
+func (p *hiveConnPool) stats() (openCount int, idleCount int, inUse int, maxOpen int) {
 	cfg := p.config.Load().(PoolConfig)
-	return int(p.openCount.Load()), len(p.conns), cfg.MaxOpen
+	oc := int(p.openCount.Load())
+	iu := int(p.inUseCount.Load())
+	// 防御性校验
+	if iu < 0 {
+		iu = 0
+	}
+	if iu > oc {
+		iu = oc
+	}
+	ic := oc - iu
+	if ic < 0 {
+		ic = 0
+	}
+	return oc, ic, iu, cfg.MaxOpen
 }
 
 // cleanupLoop 后台清理协程，定期：
@@ -335,17 +396,20 @@ requeue:
 			}
 			p.createTime.Store(conn, time.Now())
 			pc := &pooledConn{conn: conn}
+			// 先增加 openCount 再放入 channel，避免 stats() 读取时 idle_count > open_count
+			p.openCount.Add(1)
 			select {
 			case p.conns <- pc:
-				p.openCount.Add(1)
 			default:
+				// channel 满则回滚
 				conn.Close()
+				p.openCount.Add(-1)
 			}
 		}
 	}
 
-	open, idle, maxOpen := p.stats()
-	slog.Debug("hive pool cleanup done", "open", open, "idle", idle, "max_open", maxOpen, "min_idle", cfg.MinIdle)
+	open, idle, inUse, maxOpen := p.stats()
+	slog.Debug("hive pool cleanup done", "open", open, "idle", idle, "in_use", inUse, "max_open", maxOpen, "min_idle", cfg.MinIdle)
 }
 
 // ensureDatabase 确保连接处于指定的 database context。

@@ -315,7 +315,7 @@ func NewApp(cfg *config.Config) *App {
 	dsConfigService.StartReloadTicker(5 * time.Minute)
 	app.dsConfigService = dsConfigService
 
-	dsManager := datasource.NewManager(dsCrypto, dsConfigService)
+	dsManager := datasource.NewManager(dsCrypto, dsConfigService, sysConfigService)
 	app.dsManager = dsManager
 
 	// 注册 Manager 为全局配置观察者，连接池配置变更时动态更新

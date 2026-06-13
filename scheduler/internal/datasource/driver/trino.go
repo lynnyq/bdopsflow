@@ -328,3 +328,34 @@ func normalizeTrinoSQL(sql string) string {
 	}
 	return buf.String()
 }
+
+// UpdatePoolConfig 动态更新连接池配置
+func (d *TrinoDriver) UpdatePoolConfig(cfg PoolConfig) {
+	if d.db == nil {
+		return
+	}
+	d.db.SetMaxOpenConns(cfg.MaxOpen)
+	d.db.SetMaxIdleConns(cfg.MaxOpen)
+	if cfg.MaxLifetime > 0 {
+		d.db.SetConnMaxLifetime(cfg.MaxLifetime)
+	}
+}
+
+// GetPoolConfig 获取当前连接池配置
+func (d *TrinoDriver) GetPoolConfig() PoolConfig {
+	cfg := DefaultPoolConfig()
+	if d.db != nil {
+		stats := d.db.Stats()
+		cfg.MaxOpen = stats.MaxOpenConnections
+	}
+	return cfg
+}
+
+// GetPoolStats 获取连接池统计信息
+func (d *TrinoDriver) GetPoolStats() (openCount int, idleCount int, inUse int, maxOpen int) {
+	if d.db == nil {
+		return 0, 0, 0, 0
+	}
+	stats := d.db.Stats()
+	return stats.OpenConnections, stats.Idle, stats.InUse, stats.MaxOpenConnections
+}

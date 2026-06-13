@@ -196,6 +196,7 @@ func setupRoutes(router *gin.Engine, app *App) {
 		query := protected.Group("/query")
 		{
 			query.GET("/pool-stats/:id", middleware.DatasourcePermissionMiddleware(app.instancePermSvc, "query"), queryHandler.GetPoolStats)
+			query.POST("/clear-cache/:id", middleware.DatasourcePermissionMiddleware(app.instancePermSvc, "query"), queryHandler.ClearCache)
 			query.POST("/execute", middleware.DatasourcePermissionMiddleware(app.instancePermSvc, "query"), queryHandler.Execute)
 			query.GET("/result/:query_id", queryHandler.GetResult)
 			query.GET("/stream/:query_id", queryHandler.StreamResult)
