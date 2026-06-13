@@ -15,9 +15,15 @@
         <div class="brand-section">
           <div class="brand-logo">
             <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
-              <rect x="4" y="4" width="56" height="56" rx="12" stroke="currentColor" stroke-width="2"/>
-              <path d="M16 32L24 24L32 32L40 24" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-              <path d="M16 40L24 32L32 40L40 32" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.5"/>
+              <defs>
+                <linearGradient id="login-logo-bg" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+                  <stop stop-color="#2563EB"/>
+                  <stop offset="1" stop-color="#3B82F6"/>
+                </linearGradient>
+              </defs>
+              <rect width="64" height="64" rx="16" fill="url(#login-logo-bg)"/>
+              <path d="M14 26C18 22 22 30 26 26C30 22 34 30 38 26C42 22 46 30 50 26" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M14 38C18 34 22 42 26 38C30 34 34 42 38 38C42 34 46 42 50 38" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.5"/>
             </svg>
           </div>
           <h1 class="brand-title">BD<span class="accent">ops</span>Flow</h1>

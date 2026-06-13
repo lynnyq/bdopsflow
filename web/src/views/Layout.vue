@@ -5,9 +5,15 @@
         <div class="logo">
           <div class="logo-icon">
             <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
-              <rect x="2" y="2" width="28" height="28" rx="6" stroke="currentColor" stroke-width="2"/>
-              <path d="M8 16L12 12L16 16L20 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-              <path d="M8 20L12 16L16 20L20 16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.5"/>
+              <defs>
+                <linearGradient id="logo-bg" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+                  <stop stop-color="#2563EB"/>
+                  <stop offset="1" stop-color="#3B82F6"/>
+                </linearGradient>
+              </defs>
+              <rect width="32" height="32" rx="8" fill="url(#logo-bg)"/>
+              <path d="M7 13C9 11 11 15 13 13C15 11 17 15 19 13C21 11 23 15 25 13" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M7 19C9 17 11 21 13 19C15 17 17 21 19 19C21 17 23 21 25 19" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.5"/>
             </svg>
           </div>
           <Transition name="fade">
@@ -300,7 +306,6 @@ onUnmounted(() => {
 .logo-icon {
   width: 32px;
   height: 32px;
-  color: var(--accent-primary);
   flex-shrink: 0;
 }
 
