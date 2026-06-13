@@ -1048,7 +1048,12 @@ func (s *SchedulerService) RecoverRunningTasksOnBecomeLeader(ctx context.Context
 				reason = "scheduler failover: task execution timeout"
 			}
 
-			s.forceFailTask(ctx, executionID, taskID, reason)
+			executorName := ""
+			if execErr == nil && executor != nil {
+				executorName = executor.Name
+			}
+
+			s.forceFailTask(ctx, executionID, taskID, reason, executorName)
 			failedCount++
 			recoveryDetails = append(recoveryDetails, recoveryDetail{
 				ExecutionID: executionID,
@@ -1073,7 +1078,7 @@ func (s *SchedulerService) RecoverRunningTasksOnBecomeLeader(ctx context.Context
 		s.redis.Del(ctx, failCountKey)
 
 		s.addRecoveryLogSafe(ctx, executionID, taskID, "info",
-			fmt.Sprintf("Task recovered by new leader, progress: %d%%, message: %s", progress, progressMsg))
+			fmt.Sprintf("Task recovered by new leader on executor: %s, progress: %d%%, message: %s", executor.Name, progress, progressMsg))
 
 		recoveredCount++
 		recoveryDetails = append(recoveryDetails, recoveryDetail{

@@ -546,7 +546,10 @@ func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (strin
 		"task_id", taskID,
 		"execution_id", executionID,
 		"executor", executor.ID,
+		"executor_name", executor.Name,
 	)
+
+	s.AddTaskLog(ctx, executionID, taskID, "", "info", fmt.Sprintf("Task dispatched to executor: %s", executor.Name))
 
 	renewKey := fmt.Sprintf("task:renew:%s", executionID)
 	s.redis.Set(ctx, renewKey, time.Now().Unix(), time.Duration(lockTTL)*time.Second)
@@ -679,7 +682,10 @@ func (s *SchedulerService) RetryTask(ctx context.Context, taskID int64, retryTim
 		"execution_id", executionID,
 		"retry_times", retryTimes,
 		"executor", executor.ID,
+		"executor_name", executor.Name,
 	)
+
+	s.AddTaskLog(ctx, executionID, taskID, "", "info", fmt.Sprintf("Task retry dispatched to executor: %s", executor.Name))
 
 	return executionID, nil
 }

@@ -122,6 +122,9 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	if !isActive {
 		slog.Warn("Login: user is inactive", "module", "handler_auth", "user_id", userID, "username", username)
+		metrics.AuthAttempts.WithLabelValues("local", "failed").Inc()
+		Fail(c, CodeInvalidCredentials, "该账号已被禁用，请联系管理员")
+		return
 	}
 
 	domains, domainErr := h.permSvc.GetUserDomainInfos(c.Request.Context(), userID)
@@ -222,6 +225,40 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 	if claims.Issuer != "bdopsflow-refresh" {
 		slog.Warn("RefreshToken: invalid token issuer", "issuer", claims.Issuer)
 		Fail(c, CodeInvalidToken, "无效的 refresh token")
+		return
+	}
+
+	// 检查用户是否被禁用
+	refreshUserQuery := "SELECT is_active FROM bdopsflow_users WHERE id = ?"
+	refreshUserStmt := rqlite.ParameterizedStatement{
+		Query:     refreshUserQuery,
+		Arguments: []interface{}{claims.UserID},
+	}
+	refreshQr, refreshErr := h.db.QueryOneParameterized(refreshUserStmt)
+	if refreshErr != nil {
+		slog.Error("RefreshToken: query user failed", "error", refreshErr, "user_id", claims.UserID)
+		InternalServerError(c, "服务器错误，请稍后重试")
+		return
+	}
+	if refreshQr.Err != nil {
+		slog.Error("RefreshToken: query user error", "error", refreshQr.Err, "user_id", claims.UserID)
+		InternalServerError(c, "服务器错误，请稍后重试")
+		return
+	}
+	if !refreshQr.Next() {
+		slog.Warn("RefreshToken: user not found", "user_id", claims.UserID)
+		Fail(c, CodeInvalidToken, "用户不存在")
+		return
+	}
+	refreshRow, refreshSliceErr := refreshQr.Slice()
+	if refreshSliceErr != nil {
+		slog.Error("RefreshToken: slice failed", "error", refreshSliceErr, "user_id", claims.UserID)
+		InternalServerError(c, "服务器错误，请稍后重试")
+		return
+	}
+	if !service.RowBool(refreshRow[0]) {
+		slog.Warn("RefreshToken: user is inactive", "user_id", claims.UserID)
+		Fail(c, CodeInvalidToken, "该账号已被禁用，请联系管理员")
 		return
 	}
 
@@ -398,6 +435,12 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 	email := service.RowString(row[3])
 	isActive := service.RowBool(row[4])
 	lastLoginAt := service.ScanNullTime(row, 5)
+
+	if !isActive {
+		slog.Warn("GetCurrentUser: user is inactive", "module", "handler_auth", "user_id", userID)
+		Unauthorized(c, "该账号已被禁用，请联系管理员")
+		return
+	}
 
 	uid, _ := userID.(int64)
 	permissions, permErr := h.permSvc.GetUserPermissions(c.Request.Context(), uid)
@@ -661,6 +704,13 @@ func (h *AuthHandler) SSOLogin(c *gin.Context) {
 		phone = service.RowString(row[3])
 		email = service.RowString(row[4])
 		isActive = service.RowBool(row[5])
+
+		if !isActive {
+			slog.Warn("SSOLogin: user is inactive", "module", "handler_auth", "user_id", userID, "username", username)
+			metrics.AuthAttempts.WithLabelValues("sso", "failed").Inc()
+			Fail(c, CodeInvalidCredentials, "该账号已被禁用，请联系管理员")
+			return
+		}
 
 		go func() {
 			updateQuery := "UPDATE bdopsflow_users SET last_login_at = ? WHERE id = ?"

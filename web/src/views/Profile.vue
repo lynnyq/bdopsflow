@@ -69,7 +69,7 @@
         </div>
 
         <div class="card-body">
-          <el-form :model="profileForm" label-width="100px" class="profile-form">
+          <el-form :model="profileForm" label-width="auto" label-position="top" class="profile-form">
             <el-form-item label="用户名">
               <el-input v-model="profileForm.username" disabled />
             </el-form-item>
@@ -87,13 +87,13 @@
             </el-form-item>
             
             <el-form-item label="角色">
-              <el-tag :type="getRoleTagType(profileForm.role)" effect="light">
+              <el-tag :type="getRoleTagType(profileForm.role)" effect="plain" class="info-tag">
                 {{ getRoleText(profileForm.role) }}
               </el-tag>
             </el-form-item>
-            
+
             <el-form-item label="状态">
-              <el-tag :type="profileForm.is_active ? 'success' : 'danger'" effect="light">
+              <el-tag :type="profileForm.is_active ? 'success' : 'danger'" effect="plain" class="info-tag">
                 {{ profileForm.is_active ? '激活' : '未激活' }}
               </el-tag>
             </el-form-item>
@@ -115,7 +115,7 @@
         </div>
 
         <div class="card-body">
-          <el-form :model="passwordForm" :rules="passwordRules" ref="passwordFormRef" label-width="120px" class="password-form">
+          <el-form :model="passwordForm" :rules="passwordRules" ref="passwordFormRef" label-width="auto" label-position="top" class="password-form">
             <el-form-item label="原密码" prop="oldPassword">
               <el-input 
                 v-model="passwordForm.oldPassword" 
@@ -251,12 +251,13 @@ const loadCurrentUser = async () => {
   try {
     const response = await authAPI.getCurrentUser()
     const user = response.data.user
+    const roleCodes = response.data.role_codes
     
     profileForm.username = user.username || ''
     profileForm.real_name = user.real_name || ''
     profileForm.phone = user.phone || ''
     profileForm.email = user.email || ''
-    profileForm.role = user.role_codes?.[0] || ''
+    profileForm.role = roleCodes?.[0] || ''
     profileForm.is_active = user.is_active ?? true
   } catch (error: any) {
     if (!isHandledError(error)) {
@@ -340,7 +341,7 @@ onMounted(() => {
 
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: var(--space-4);
 }
 
@@ -348,10 +349,10 @@ onMounted(() => {
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
-  padding: var(--space-5);
+  padding: var(--space-4);
   display: flex;
   align-items: center;
-  gap: var(--space-4);
+  gap: var(--space-3);
   box-shadow: var(--shadow-md);
   transition: all var(--duration-normal) var(--ease-out);
 }
@@ -363,8 +364,8 @@ onMounted(() => {
 }
 
 .stat-icon {
-  width: 56px;
-  height: 56px;
+  width: 48px;
+  height: 48px;
   border-radius: var(--radius-md);
   display: flex;
   align-items: center;
@@ -402,25 +403,26 @@ onMounted(() => {
   flex-direction: column;
   gap: var(--space-1);
   min-width: 0;
+  overflow: hidden;
 }
 
 .stat-value {
   font-family: var(--font-display);
-  font-size: 1.5rem;
+  font-size: 1.2rem;
   font-weight: 700;
   color: var(--text-primary);
-  line-height: 1;
+  line-height: 1.2;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .stat-email {
-  font-size: 1rem;
+  font-size: 0.9rem;
 }
 
 .stat-label {
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -495,7 +497,7 @@ onMounted(() => {
 
 .profile-form,
 .password-form {
-  max-width: 500px;
+  max-width: 600px;
 }
 
 .profile-form :deep(.el-input__wrapper),
@@ -573,9 +575,58 @@ onMounted(() => {
   line-height: 1.6;
 }
 
-@media (max-width: 1200px) {
+.info-tag {
+  height: 32px;
+  padding: 0 12px;
+  font-size: 0.875rem;
+  border-radius: var(--radius-md);
+}
+
+@media (max-width: 1280px) {
+  .stats-grid {
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  }
+
+  .stat-icon {
+    width: 42px;
+    height: 42px;
+  }
+
+  .stat-value {
+    font-size: 1.05rem;
+  }
+
+  .card-body {
+    padding: var(--space-5);
+  }
+}
+
+@media (max-width: 1024px) {
   .stats-grid {
     grid-template-columns: repeat(3, 1fr);
+  }
+
+  .stat-card {
+    padding: var(--space-3);
+    gap: var(--space-2);
+  }
+
+  .stat-icon {
+    width: 38px;
+    height: 38px;
+  }
+
+  .stat-icon :deep(.el-icon) {
+    --font-size: 18px;
+  }
+
+  .stat-value {
+    font-size: 0.95rem;
+  }
+
+  .profile-form,
+  .password-form {
+    max-width: 100%;
   }
 }
 
@@ -586,11 +637,6 @@ onMounted(() => {
 
   .card-body {
     padding: var(--space-4);
-  }
-
-  .profile-form,
-  .password-form {
-    max-width: 100%;
   }
 }
 </style>

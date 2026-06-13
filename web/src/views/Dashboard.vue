@@ -256,9 +256,9 @@ const healthStatusClass = computed(() => {
 const getComponentName = (key: string): string => {
   const names: Record<string, string> = {
     rqlite: '数据库',
-    rqlite_tables: '数据库表结构',
     redis: 'Redis 缓存',
-    scheduler: '任务调度器'
+    scheduler: '任务调度器',
+    leader: '主调度节点'
   }
   return names[key] || key
 }
@@ -266,9 +266,9 @@ const getComponentName = (key: string): string => {
 const getComponentIcon = (key: string): string => {
   const icons: Record<string, string> = {
     rqlite: 'DataLine',
-    rqlite_tables: 'Odometer',
     redis: 'Bell',
-    scheduler: 'Monitor'
+    scheduler: 'Monitor',
+    leader: 'Cpu'
   }
   return icons[key] || 'Monitor'
 }

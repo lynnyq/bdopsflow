@@ -126,10 +126,16 @@ func (e *TaskExecutor) getRunningCount() int {
 }
 
 func (e *TaskExecutor) Execute(ctx context.Context, task *pb.Task, client *grpcclient.MultiClient) {
+	executorName := ""
+	if client != nil {
+		executorName = client.GetExecutorName()
+	}
+
 	slog.Info("task execution started",
 		"execution_id", task.ExecutionId,
 		"task_id", task.TaskId,
 		"type", task.Type,
+		"executor_name", executorName,
 	)
 
 	// 创建可取消的 context，同时支持超时和手动取消
@@ -143,7 +149,11 @@ func (e *TaskExecutor) Execute(ctx context.Context, task *pb.Task, client *grpcc
 	}
 	defer cancel()
 
-	sendLog(client, task, "info", "Task execution started")
+	if executorName != "" {
+		sendLog(client, task, "info", fmt.Sprintf("Task execution started on executor: %s", executorName))
+	} else {
+		sendLog(client, task, "info", "Task execution started")
+	}
 	e.addRunningTask(task.ExecutionId, task, cancel)
 	defer e.removeRunningTask(task.ExecutionId)
 

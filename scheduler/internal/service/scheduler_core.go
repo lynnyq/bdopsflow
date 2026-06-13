@@ -48,6 +48,8 @@ type ExecutorConnectivityChecker interface {
 
 type LeaderAddrResolver interface {
 	GetLeaderHTTPAddr(ctx context.Context) (string, error)
+	GetLeaderInfo(ctx context.Context) (nodeID string, httpAddr string, err error)
+	GetNodeID() string
 }
 
 type CancelNotifier interface {

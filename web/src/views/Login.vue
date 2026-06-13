@@ -21,7 +21,7 @@
             </svg>
           </div>
           <h1 class="brand-title">BD<span class="accent">ops</span>Flow</h1>
-          <p class="brand-subtitle">企业级分布式工作流编排平台</p>
+          <p class="brand-subtitle">企业级分布式运维调度平台</p>
         </div>
 
         <div class="stats-preview">
@@ -39,8 +39,8 @@
               <el-icon :size="20"><Connection /></el-icon>
             </div>
             <div class="stat-content">
-              <div class="stat-value">DAG</div>
-              <div class="stat-label">工作流引擎</div>
+              <div class="stat-value">多数据源</div>
+              <div class="stat-label">查询引擎</div>
             </div>
           </div>
           <div class="stat-item">
@@ -174,7 +174,7 @@
     </div>
 
     <div class="login-footer">
-      <p>BDopsFlow v1.0.0 — 让工作流编排更简单</p>
+      <p>BDopsFlow v1.0.0 — 让运维调度更简单</p>
     </div>
   </div>
 </template>

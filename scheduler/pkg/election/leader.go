@@ -176,3 +176,23 @@ func (e *LeaderElection) GetLeaderHTTPAddr(ctx context.Context) (string, error) 
 
 	return value[sepIdx+1:], nil
 }
+
+// GetLeaderInfo 返回当前 leader 的节点 ID 和 HTTP 地址
+func (e *LeaderElection) GetLeaderInfo(ctx context.Context) (nodeID string, httpAddr string, err error) {
+	value, err := e.client.Get(ctx, e.leaderKey).Result()
+	if err != nil {
+		return "", "", err
+	}
+
+	sepIdx := strings.Index(value, "|")
+	if sepIdx < 0 {
+		return value, "", nil
+	}
+
+	return value[:sepIdx], value[sepIdx+1:], nil
+}
+
+// GetNodeID 返回当前节点的 ID
+func (e *LeaderElection) GetNodeID() string {
+	return e.nodeID
+}

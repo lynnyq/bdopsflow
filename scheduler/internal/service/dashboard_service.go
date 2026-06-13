@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 )
 
@@ -261,19 +260,6 @@ var requiredTables = []string{
 	"bdopsflow_domain_executors",
 }
 
-type tableStatsCache struct {
-	mu        sync.RWMutex
-	counts    map[string]int64
-	total     int64
-	fetchedAt time.Time
-}
-
-var tblStats = &tableStatsCache{
-	counts: make(map[string]int64),
-}
-
-const tableStatsTTL = 5 * time.Minute
-
 func (s *SchedulerService) HealthCheck(ctx context.Context) *HealthCheckResult {
 	if ctx == nil {
 		_, cancel := queryCtx()
@@ -292,12 +278,6 @@ func (s *SchedulerService) HealthCheck(ctx context.Context) *HealthCheckResult {
 		allHealthy = false
 	}
 
-	tableCheck := s.checkTables()
-	result.Components["rqlite_tables"] = tableCheck
-	if tableCheck.Status != "healthy" {
-		allHealthy = false
-	}
-
 	redisCheck := s.checkRedis()
 	result.Components["redis"] = redisCheck
 	if redisCheck.Status != "healthy" {
@@ -307,6 +287,12 @@ func (s *SchedulerService) HealthCheck(ctx context.Context) *HealthCheckResult {
 	schedulerCheck := s.checkScheduler()
 	result.Components["scheduler"] = schedulerCheck
 	if schedulerCheck.Status != "healthy" {
+		allHealthy = false
+	}
+
+	leaderCheck := s.checkLeader(ctx)
+	result.Components["leader"] = leaderCheck
+	if leaderCheck.Status != "healthy" {
 		allHealthy = false
 	}
 
@@ -354,29 +340,20 @@ func (s *SchedulerService) checkRQLite() ComponentCheck {
 		}
 	}
 
-	return ComponentCheck{
-		Status:  "healthy",
-		Message: "连接正常",
-		Latency: formatLatency(latency),
-	}
-}
-
-func (s *SchedulerService) checkTables() ComponentCheck {
-	start := time.Now()
-
-	query := "SELECT name FROM sqlite_master WHERE type='table'"
-	qr, err := s.DB.QueryOne(query)
-	if err != nil || qr.Err != nil {
+	// 检查必要的表是否存在
+	tableQuery := "SELECT name FROM sqlite_master WHERE type='table'"
+	tqr, terr := s.DB.QueryOne(tableQuery)
+	if terr != nil || tqr.Err != nil {
 		return ComponentCheck{
 			Status:  "unhealthy",
-			Message: fmt.Sprintf("查询表结构失败: %v", err),
+			Message: fmt.Sprintf("查询表结构失败: %v", terr),
 			Latency: formatLatency(time.Since(start)),
 		}
 	}
 
 	existingTables := map[string]bool{}
-	for qr.Next() {
-		row, _ := qr.Slice()
+	for tqr.Next() {
+		row, _ := tqr.Slice()
 		existingTables[rowString(row[0])] = true
 	}
 
@@ -395,47 +372,11 @@ func (s *SchedulerService) checkTables() ComponentCheck {
 		}
 	}
 
-	totalRows := s.getTableCounts()
-
 	return ComponentCheck{
 		Status:  "healthy",
-		Message: fmt.Sprintf("%d 个表正常，共 %d 条记录", len(requiredTables), totalRows),
-		Latency: formatLatency(time.Since(start)),
+		Message: "连接正常",
+		Latency: formatLatency(latency),
 	}
-}
-
-func (s *SchedulerService) getTableCounts() int64 {
-	tblStats.mu.RLock()
-	if time.Since(tblStats.fetchedAt) < tableStatsTTL && tblStats.total > 0 {
-		total := tblStats.total
-		tblStats.mu.RUnlock()
-		return total
-	}
-	tblStats.mu.RUnlock()
-
-	tblStats.mu.Lock()
-	defer tblStats.mu.Unlock()
-
-	if time.Since(tblStats.fetchedAt) < tableStatsTTL && tblStats.total > 0 {
-		return tblStats.total
-	}
-
-	var total int64
-	for _, tableName := range requiredTables {
-		countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s", tableName)
-		cqr, err := s.DB.QueryOne(countQuery)
-		if err == nil && cqr.Err == nil && cqr.Next() {
-			row, _ := cqr.Slice()
-			count := rowInt64(row[0])
-			tblStats.counts[tableName] = count
-			total += count
-		}
-	}
-
-	tblStats.total = total
-	tblStats.fetchedAt = time.Now()
-
-	return total
 }
 
 func (s *SchedulerService) checkRedis() ComponentCheck {
@@ -496,4 +437,44 @@ func formatUptime(d time.Duration) string {
 		return fmt.Sprintf("%dh%dm", hours, minutes)
 	}
 	return fmt.Sprintf("%dm", minutes)
+}
+
+func (s *SchedulerService) checkLeader(ctx context.Context) ComponentCheck {
+	if s.leaderAddrResolver == nil {
+		return ComponentCheck{
+			Status:  "unhealthy",
+			Message: "Leader 选举未配置",
+		}
+	}
+
+	leaderNodeID, leaderAddr, err := s.leaderAddrResolver.GetLeaderInfo(ctx)
+	if err != nil {
+		return ComponentCheck{
+			Status:  "unhealthy",
+			Message: fmt.Sprintf("获取 Leader 节点失败: %v", err),
+		}
+	}
+
+	if leaderNodeID == "" {
+		return ComponentCheck{
+			Status:  "unhealthy",
+			Message: "当前无 Leader 节点",
+		}
+	}
+
+	currentNodeID := s.leaderAddrResolver.GetNodeID()
+	isCurrentLeader := currentNodeID == leaderNodeID
+
+	msg := fmt.Sprintf("节点 %s", leaderNodeID)
+	if leaderAddr != "" {
+		msg += fmt.Sprintf(" (%s)", leaderAddr)
+	}
+	if isCurrentLeader {
+		msg += " - 当前节点"
+	}
+
+	return ComponentCheck{
+		Status:  "healthy",
+		Message: msg,
+	}
 }

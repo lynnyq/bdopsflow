@@ -509,17 +509,20 @@ func (s *SchedulerService) cleanupStaleTaskLocks() {
 	}
 }
 
-func (s *SchedulerService) forceFailTask(ctx context.Context, executionID string, taskID int64, reason string) {
+func (s *SchedulerService) forceFailTask(ctx context.Context, executionID string, taskID int64, reason string, executorName string) {
 	slog.Warn("force failing task",
 		"execution_id", executionID,
 		"task_id", taskID,
 		"reason", reason,
+		"executor_name", executorName,
 	)
 
 	err := s.UpdateExecutionResult(ctx, executionID, "failed", "", reason)
 	if err != nil {
 		slog.Error("cleanup: failed to update execution result", "error", err, "execution_id", executionID)
 	}
+
+	s.AddTaskLog(ctx, executionID, taskID, "", "error", fmt.Sprintf("Task force failed on executor: %s, reason: %s", executorName, reason))
 
 	lockKey := fmt.Sprintf("task:lock:%s", executionID)
 	renewKey := fmt.Sprintf("task:renew:%s", executionID)
