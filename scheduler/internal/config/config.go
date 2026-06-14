@@ -133,16 +133,40 @@ func (c *Config) Reload() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// 应用配置（可以热重载的配置）
 	c.HTTPPort = newCfg.GetString("app.http_port", c.HTTPPort)
 	c.GRPCPort = newCfg.GetString("app.grpc_port", c.GRPCPort)
 	c.AdvertiseAddr = newCfg.GetString("app.advertise_addr", c.AdvertiseAddr)
 	c.AllowRegister = newCfg.GetBool("app.allow_register", c.AllowRegister)
 	c.CORSAllowOrigins = newCfg.GetStringSlice("app.cors_allow_origins", c.CORSAllowOrigins)
+
+	// 日志配置
 	c.LogLevel = newCfg.GetString("log.level", c.LogLevel)
 	c.LogFormat = newCfg.GetString("log.format", c.LogFormat)
 	c.LogPath = newCfg.GetString("log.path", c.LogPath)
 
-	slog.Info("config reloaded successfully")
+	// JWT 配置（可以热重载，新 token 会使用新配置）
+	c.JWTExpiry = newCfg.GetInt("jwt.expiry_hours", c.JWTExpiry)
+	c.JWTRefreshExpiry = newCfg.GetInt("jwt.refresh_expiry_hours", c.JWTRefreshExpiry)
+
+	// SSO 配置（可以热重载）
+	c.SSOEnabled = newCfg.GetBool("sso.enabled", c.SSOEnabled)
+	c.SSOUrl = newCfg.GetString("sso.url", c.SSOUrl)
+	c.SSOPublicKey = newCfg.GetString("sso.public_key", c.SSOPublicKey)
+	c.SSOTimeout = newCfg.GetInt("sso.timeout", c.SSOTimeout)
+
+	// 数据源加密配置（可以热重载，新数据源会使用新配置）
+	c.DatasourceCrypto.EncryptionKey = newCfg.GetString("datasource.encryption_key", c.DatasourceCrypto.EncryptionKey)
+	c.DatasourceCrypto.KeySource = newCfg.GetString("datasource.key_source", c.DatasourceCrypto.KeySource)
+	c.DatasourceCrypto.KeyEnvVar = newCfg.GetString("datasource.key_env_var", c.DatasourceCrypto.KeyEnvVar)
+	c.DatasourceCrypto.KeyFile = newCfg.GetString("datasource.key_file", c.DatasourceCrypto.KeyFile)
+	c.DatasourceCrypto.AutoRotateDays = newCfg.GetInt("datasource.auto_rotate_days", c.DatasourceCrypto.AutoRotateDays)
+
+	slog.Info("config reloaded successfully",
+		"log_level", c.LogLevel,
+		"jwt_expiry_hours", c.JWTExpiry,
+		"sso_enabled", c.SSOEnabled,
+	)
 	return nil
 }
 

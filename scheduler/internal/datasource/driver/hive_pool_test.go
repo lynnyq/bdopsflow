@@ -34,7 +34,7 @@ func TestHiveConnPool_Put_IncrementsOpenCount(t *testing.T) {
 	pool.put(nil, "db2")
 	pool.put(nil, "db3")
 
-	oc, ic, mo := pool.stats()
+	oc, ic, _, mo := pool.stats()
 	if oc != 3 {
 		t.Errorf("stats().openCount = %d, want 3 after 3 puts", oc)
 	}
@@ -64,7 +64,7 @@ func TestHiveConnPool_Release_DoesNotIncrementOpenCount(t *testing.T) {
 	// 这正是之前的 bug：预热时用 release 导致 openCount 为 0
 	pool.release(&pooledConn{conn: nil, database: "db1"})
 
-	oc, ic, mo := pool.stats()
+	oc, ic, _, mo := pool.stats()
 	// 旧 bug：release 不增加 openCount，所以 oc=0，防御性校验 ic=min(ic,oc)=0
 	// 修复后：release 仍然不增加 openCount（这是正确行为，release 是归还不是新增）
 	// 但预热应该用 put 而不是 release
@@ -97,7 +97,7 @@ func TestHiveConnPool_PutThenStats(t *testing.T) {
 	pool.put(nil, "default")
 	pool.put(nil, "default")
 
-	oc, ic, mo := pool.stats()
+	oc, ic, _, mo := pool.stats()
 	if oc != 2 {
 		t.Errorf("stats().openCount = %d, want 2 after 2 puts", oc)
 	}
@@ -127,7 +127,7 @@ func TestHiveConnPool_PutExceedsMaxOpen(t *testing.T) {
 	pool.put(nil, "db2")
 	pool.put(nil, "db3") // 超过 MaxOpen，应该被关闭并回滚 openCount
 
-	oc, ic, mo := pool.stats()
+	oc, ic, _, mo := pool.stats()
 	if oc != 2 {
 		t.Errorf("stats().openCount = %d, want 2 (3rd put should be rejected)", oc)
 	}
@@ -150,7 +150,7 @@ func TestHiveConnPool_PutNilConnection(t *testing.T) {
 	// put nil 连接不应该 panic
 	pool.put(nil, "db1")
 
-	oc, _, _ := pool.stats()
+	oc, _, _, _ := pool.stats()
 	// nil 连接也会被放入 channel 并计数（实际场景中不会 put nil）
 	if oc != 1 {
 		t.Errorf("stats().openCount = %d, want 1 after put(nil)", oc)
@@ -169,7 +169,7 @@ func TestHiveConnPool_PutAfterClose(t *testing.T) {
 	// put 到已关闭的 pool 不应该 panic，连接应该被丢弃
 	pool.put(nil, "db1")
 
-	oc, _, _ := pool.stats()
+	oc, _, _, _ := pool.stats()
 	if oc != 0 {
 		t.Errorf("stats().openCount = %d, want 0 after put to closed pool", oc)
 	}
@@ -198,7 +198,7 @@ func TestHiveConnPool_AcquireAndRelease(t *testing.T) {
 	}
 
 	// acquire 后：openCount=1, idleCount=0（连接被取出）
-	oc, ic, _ := pool.stats()
+	oc, ic, _, _ := pool.stats()
 	if oc != 1 {
 		t.Errorf("after acquire: openCount = %d, want 1", oc)
 	}
@@ -210,7 +210,7 @@ func TestHiveConnPool_AcquireAndRelease(t *testing.T) {
 	pool.release(pc)
 
 	// release 后：openCount=1, idleCount=1（连接归还到池中）
-	oc, ic, _ = pool.stats()
+	oc, ic, _, _ = pool.stats()
 	if oc != 1 {
 		t.Errorf("after release: openCount = %d, want 1", oc)
 	}
@@ -240,7 +240,7 @@ func TestHiveConnPool_AcquireOrCreate(t *testing.T) {
 		t.Fatalf("acquire failed: %v", err)
 	}
 
-	oc, ic, _ := pool.stats()
+	oc, ic, _, _ := pool.stats()
 	if oc != 1 {
 		t.Errorf("after acquire from empty pool: openCount = %d, want 1", oc)
 	}
@@ -271,7 +271,7 @@ func TestHiveConnPool_Discard(t *testing.T) {
 	pool.put(nil, "db1")
 	pool.put(nil, "db2")
 
-	oc, ic, _ := pool.stats()
+	oc, ic, _, _ := pool.stats()
 	if oc != 2 || ic != 2 {
 		t.Fatalf("after 2 puts: openCount=%d idleCount=%d, want 2,2", oc, ic)
 	}
@@ -285,7 +285,7 @@ func TestHiveConnPool_Discard(t *testing.T) {
 	// discard 该连接（模拟连接损坏）
 	pool.discard(pc)
 
-	oc, ic, _ = pool.stats()
+	oc, ic, _, _ = pool.stats()
 	if oc != 1 {
 		t.Errorf("after discard: openCount = %d, want 1", oc)
 	}
@@ -363,7 +363,7 @@ func TestHiveConnPool_UpdateConfig(t *testing.T) {
 	}
 
 	// stats 中的 maxOpen 应该反映新配置
-	_, _, mo := pool.stats()
+	_, _, _, mo := pool.stats()
 	if mo != 10 {
 		t.Errorf("stats().maxOpen = %d, want 10 after config update", mo)
 	}
@@ -482,7 +482,7 @@ func TestHiveConnPool_PutVsRelease_Comparison(t *testing.T) {
 		defer pool.close()
 
 		pool.put(nil, "db")
-		oc, ic, _ := pool.stats()
+		oc, ic, _, _ := pool.stats()
 		if oc != 1 {
 			t.Errorf("after put: openCount=%d, want 1", oc)
 		}
@@ -501,7 +501,7 @@ func TestHiveConnPool_PutVsRelease_Comparison(t *testing.T) {
 		// release 是"归还"语义，openCount 应该已经在 acquire 时增加
 		// 直接 release 一个新创建的 pooledConn，openCount 不应该增加
 		pool.release(&pooledConn{conn: nil, database: "db"})
-		oc, ic, _ := pool.stats()
+		oc, ic, _, _ := pool.stats()
 		// 旧 bug 的表现：oc=0, ic=0（防御性校验）
 		// 这是 release 的正确行为：release 不增加 openCount
 		if oc != 0 {
@@ -538,7 +538,7 @@ func TestHiveConnPool_PreWarmSimulation(t *testing.T) {
 	}
 
 	// 验证 stats
-	oc, ic, mo := pool.stats()
+	oc, ic, _, mo := pool.stats()
 	if oc != cfg.MinIdle {
 		t.Errorf("after pre-warm: openCount=%d, want %d", oc, cfg.MinIdle)
 	}
@@ -580,14 +580,14 @@ func TestHiveConnPool_AcquireReleaseCycle(t *testing.T) {
 			t.Fatalf("cycle %d: acquire failed: %v", i, err)
 		}
 
-		oc, ic, _ := pool.stats()
+		oc, ic, _, _ := pool.stats()
 		if ic != 0 {
 			t.Errorf("cycle %d: after acquire idleCount=%d, want 0", i, ic)
 		}
 
 		pool.release(pc)
 
-		oc, ic, _ = pool.stats()
+		oc, ic, _, _ = pool.stats()
 		if ic != 1 {
 			t.Errorf("cycle %d: after release idleCount=%d, want 1", i, ic)
 		}

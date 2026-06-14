@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/lynnyq/bdopsflow/executor/internal/config"
 	"github.com/lynnyq/bdopsflow/executor/internal/executor"
@@ -39,7 +40,11 @@ func pidFilePath(executorName string) string {
 		cacheDir = os.TempDir()
 	}
 	dir := filepath.Join(cacheDir, "bdopsflow")
-	os.MkdirAll(dir, 0755)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		slog.Warn("failed to create pidfile directory, using temp dir", "error", err)
+		dir = filepath.Join(os.TempDir(), "bdopsflow")
+		_ = os.MkdirAll(dir, 0755)
+	}
 	return filepath.Join(dir, fmt.Sprintf("executor_%s.pid", executorName))
 }
 
@@ -53,25 +58,44 @@ func acquirePidLock(executorName string) (*os.File, error) {
 
 	err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
 	if err != nil {
-		existingData, _ := io.ReadAll(f)
+		existingData, readErr := io.ReadAll(f)
 		f.Close()
+		if readErr != nil {
+			return nil, fmt.Errorf("executor %q is already running (pidfile %s)", executorName, path)
+		}
 		return nil, fmt.Errorf("executor %q is already running (pidfile %s, existing PID %s)", executorName, path, strings.TrimSpace(string(existingData)))
 	}
 
-	f.Truncate(0)
-	f.Seek(0, 0)
-	f.WriteString(strconv.Itoa(os.Getpid()))
-	f.Sync()
+	if err := f.Truncate(0); err != nil {
+		f.Close()
+		return nil, fmt.Errorf("truncate pidfile: %w", err)
+	}
+	if _, err := f.Seek(0, 0); err != nil {
+		f.Close()
+		return nil, fmt.Errorf("seek pidfile: %w", err)
+	}
+	if _, err := f.WriteString(strconv.Itoa(os.Getpid())); err != nil {
+		f.Close()
+		return nil, fmt.Errorf("write pid: %w", err)
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return nil, fmt.Errorf("sync pidfile: %w", err)
+	}
 
 	return f, nil
 }
 
 func releasePidLock(executorName string, f *os.File) {
 	if f != nil {
-		syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		if err := syscall.Flock(int(f.Fd()), syscall.LOCK_UN); err != nil {
+			slog.Warn("failed to release pidfile lock", "error", err)
+		}
 		f.Close()
 	}
-	os.Remove(pidFilePath(executorName))
+	if err := os.Remove(pidFilePath(executorName)); err != nil && !os.IsNotExist(err) {
+		slog.Warn("failed to remove pidfile", "error", err)
+	}
 }
 
 func printExecutorHelp() {
@@ -204,6 +228,11 @@ func main() {
 		slog.Error("gRPC subscription failed", "error", err)
 	}
 
+	// 优雅关闭：先关闭执行器，等待任务完成
+	slog.Info("initiating graceful shutdown")
+	exec.Shutdown(10 * time.Second)
+
 	taskPool.Stop()
 	client.Close()
+	slog.Info("executor stopped")
 }

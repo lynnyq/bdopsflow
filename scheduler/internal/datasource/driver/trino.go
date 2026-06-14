@@ -68,7 +68,12 @@ func (d *TrinoDriver) Close() error {
 
 func (d *TrinoDriver) Query(ctx context.Context, query string, args ...interface{}) (*QueryResult, error) {
 	if d.db == nil {
-		return nil, fmt.Errorf("trino connection not established")
+		return nil, &DatasourceError{
+			Err:            fmt.Errorf("trino connection not established"),
+			Category:       ErrCategoryConnection,
+			DatasourceType: "trino",
+			Retryable:      false,
+		}
 	}
 	query = normalizeTrinoSQL(query)
 	slog.Debug("trino executing query", "sql_preview", truncateSQL(query, 200))
@@ -77,15 +82,15 @@ func (d *TrinoDriver) Query(ctx context.Context, query string, args ...interface
 		slog.Error("trino query execution failed", "sql_preview", truncateSQL(query, 200), "error", err)
 		var qf *trino.ErrQueryFailed
 		if errors.As(err, &qf) && qf.Reason != nil {
-			return nil, fmt.Errorf("trino query error: %s", strings.Trim(qf.Reason.Error(), `"`))
+			return nil, ClassifyError(fmt.Errorf("%s", strings.Trim(qf.Reason.Error(), `"`)), "trino")
 		}
-		return nil, fmt.Errorf("trino query error: %w", err)
+		return nil, ClassifyError(err, "trino")
 	}
 	defer rows.Close()
 
 	columns, err := rows.Columns()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get columns: %w", err)
+		return nil, ClassifyError(err, "trino")
 	}
 
 	var resultRows [][]interface{}
@@ -96,7 +101,7 @@ func (d *TrinoDriver) Query(ctx context.Context, query string, args ...interface
 			valuePtrs[i] = &values[i]
 		}
 		if err := rows.Scan(valuePtrs...); err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
+			return nil, ClassifyError(err, "trino")
 		}
 		row := make([]interface{}, len(columns))
 		for i, v := range values {
@@ -208,7 +213,9 @@ func (d *TrinoDriver) QueryWithDB(ctx context.Context, query string, database st
 	}
 	result, err := d.Query(ctx, query)
 	if d.config.Database != "" && d.config.Database != database {
-		_ = d.UseDatabase(ctx, d.config.Database)
+		if restoreErr := d.UseDatabase(ctx, d.config.Database); restoreErr != nil {
+			slog.Warn("failed to restore database after query", "database", d.config.Database, "error", restoreErr)
+		}
 	}
 	return result, err
 }

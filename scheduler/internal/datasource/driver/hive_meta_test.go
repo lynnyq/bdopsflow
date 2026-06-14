@@ -149,7 +149,7 @@ func TestHiveConnPoolBasic(t *testing.T) {
 	})
 
 	// 检查初始状态
-	open, idle, maxOpen := pool.stats()
+	open, idle, _, maxOpen := pool.stats()
 	if open != 0 || idle != 0 || maxOpen != 3 {
 		t.Errorf("Initial pool should be empty, got open=%d idle=%d maxOpen=%d", open, idle, maxOpen)
 	}
@@ -161,7 +161,7 @@ func TestHiveConnPoolStats(t *testing.T) {
 		return nil, nil
 	})
 
-	open, idle, maxOpen := pool.stats()
+	open, idle, _, maxOpen := pool.stats()
 	if open != 0 {
 		t.Errorf("Initial open count should be 0, got %d", open)
 	}
@@ -181,7 +181,7 @@ func TestHiveConnPoolClose(t *testing.T) {
 	pool.close()
 
 	// 关闭后不应 panic
-	open, _, _ := pool.stats()
+	open, _, _, _ := pool.stats()
 	if open != 0 {
 		t.Errorf("After close, open count should be 0, got %d", open)
 	}

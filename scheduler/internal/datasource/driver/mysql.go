@@ -66,19 +66,26 @@ func (d *MySQLDriver) Close() error {
 
 func (d *MySQLDriver) Query(ctx context.Context, query string, args ...interface{}) (*QueryResult, error) {
 	if d.db == nil {
-		return nil, fmt.Errorf("mysql connection not established")
+		return nil, &DatasourceError{
+			Err:            fmt.Errorf("mysql connection not established"),
+			Category:       ErrCategoryConnection,
+			DatasourceType: "mysql",
+			Retryable:      false,
+		}
 	}
 	slog.Debug("mysql executing query", "sql_preview", truncateSQL(query, 200))
 	rows, err := d.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		slog.Error("mysql query execution failed", "sql_preview", truncateSQL(query, 200), "error", err)
-		return nil, fmt.Errorf("mysql query error: %w", err)
+		dsErr := ClassifyError(err, "mysql")
+		return nil, dsErr
 	}
 	defer rows.Close()
 
 	columns, err := rows.Columns()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get columns: %w", err)
+		dsErr := ClassifyError(err, "mysql")
+		return nil, dsErr
 	}
 
 	var resultRows [][]interface{}
@@ -89,7 +96,8 @@ func (d *MySQLDriver) Query(ctx context.Context, query string, args ...interface
 			valuePtrs[i] = &values[i]
 		}
 		if err := rows.Scan(valuePtrs...); err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
+			dsErr := ClassifyError(err, "mysql")
+			return nil, dsErr
 		}
 		row := make([]interface{}, len(columns))
 		for i, v := range values {
@@ -182,7 +190,9 @@ func (d *MySQLDriver) QueryWithDB(ctx context.Context, query string, database st
 	}
 	result, err := d.Query(ctx, query)
 	if d.config.Database != "" && d.config.Database != database {
-		_ = d.UseDatabase(ctx, d.config.Database)
+		if restoreErr := d.UseDatabase(ctx, d.config.Database); restoreErr != nil {
+			slog.Warn("failed to restore database after query", "database", d.config.Database, "error", restoreErr)
+		}
 	}
 	return result, err
 }

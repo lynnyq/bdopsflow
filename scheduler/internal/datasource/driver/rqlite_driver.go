@@ -129,7 +129,12 @@ func (d *RqliteDriver) Close() error {
 
 func (d *RqliteDriver) Query(ctx context.Context, query string, args ...interface{}) (*QueryResult, error) {
 	if d.conn == nil {
-		return nil, fmt.Errorf("rqlite connection not established")
+		return nil, &DatasourceError{
+			Err:            fmt.Errorf("rqlite connection not established"),
+			Category:       ErrCategoryConnection,
+			DatasourceType: "rqlite",
+			Retryable:      false,
+		}
 	}
 
 	slog.Debug("rqlite executing query", "sql_preview", truncateSQL(query, 200))
@@ -148,11 +153,11 @@ func (d *RqliteDriver) Query(ctx context.Context, query string, args ...interfac
 	}
 	if err != nil {
 		slog.Error("rqlite query execution failed", "sql_preview", truncateSQL(query, 200), "error", err)
-		return nil, fmt.Errorf("rqlite query error: %w", err)
+		return nil, ClassifyError(err, "rqlite")
 	}
 	if qr.Err != nil {
 		slog.Error("rqlite query result error", "sql_preview", truncateSQL(query, 200), "error", qr.Err)
-		return nil, fmt.Errorf("rqlite query error: %w", qr.Err)
+		return nil, ClassifyError(qr.Err, "rqlite")
 	}
 
 	columns := qr.Columns()
@@ -160,7 +165,7 @@ func (d *RqliteDriver) Query(ctx context.Context, query string, args ...interfac
 	for qr.Next() {
 		slice, err := qr.Slice()
 		if err != nil {
-			return nil, fmt.Errorf("rqlite slice error: %w", err)
+			return nil, ClassifyError(err, "rqlite")
 		}
 		row := make([]interface{}, len(slice))
 		copy(row, slice)

@@ -54,3 +54,17 @@ func (h *SystemConfigHandler) Update(c *gin.Context) {
 	slog.Info("SystemConfigHandler.Update: config updated successfully", "module", "handler_system_config", "key", key, "user_id", userID)
 	Success(c, nil)
 }
+
+// Reload 手动触发配置重新加载
+func (h *SystemConfigHandler) Reload(c *gin.Context) {
+	slog.Info("SystemConfigHandler.Reload: manual reload triggered", "module", "handler_system_config")
+	
+	if err := h.configService.Reload(c.Request.Context()); err != nil {
+		slog.Error("SystemConfigHandler.Reload: failed to reload config", "module", "handler_system_config", "error", err)
+		Fail(c, CodeBadRequest, "配置重载失败: "+err.Error())
+		return
+	}
+
+	slog.Info("SystemConfigHandler.Reload: config reloaded successfully", "module", "handler_system_config")
+	Success(c, gin.H{"message": "配置重载成功"})
+}

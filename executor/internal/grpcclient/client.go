@@ -241,45 +241,85 @@ func (c *MultiClient) reconnect() {
 }
 
 func (c *MultiClient) ReportResult(req *pb.ReportTaskResultRequest) error {
-	if err := c.ensureConnected(); err != nil {
-		return err
-	}
+	const maxRetries = 3
+	var lastErr error
+	
+	for i := 0; i < maxRetries; i++ {
+		if err := c.ensureConnected(); err != nil {
+			lastErr = err
+			slog.Warn("report result: connection failed, retrying", "attempt", i+1, "error", err)
+			time.Sleep(time.Duration(i+1) * time.Second)
+			continue
+		}
 
-	var client pb.ExecutorServiceClient
-	loadedWrapper := c.client.Load()
-	if wrapper, ok := loadedWrapper.(clientWrapper); ok {
-		client = wrapper.client
-	}
+		var client pb.ExecutorServiceClient
+		loadedWrapper := c.client.Load()
+		if wrapper, ok := loadedWrapper.(clientWrapper); ok {
+			client = wrapper.client
+		}
 
-	if client == nil {
-		return nil
-	}
+		if client == nil {
+			lastErr = fmt.Errorf("no client available")
+			slog.Warn("report result: no client, retrying", "attempt", i+1)
+			time.Sleep(time.Duration(i+1) * time.Second)
+			continue
+		}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	_, err := client.ReportTaskResult(ctx, req)
-	return err
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_, err := client.ReportTaskResult(ctx, req)
+		cancel()
+		
+		if err == nil {
+			return nil
+		}
+		
+		lastErr = err
+		slog.Warn("report result failed, retrying", "attempt", i+1, "error", err)
+		time.Sleep(time.Duration(i+1) * time.Second)
+	}
+	
+	return fmt.Errorf("report result failed after %d retries: %w", maxRetries, lastErr)
 }
 
 func (c *MultiClient) ReportLog(req *pb.ReportTaskLogRequest) error {
-	if err := c.ensureConnected(); err != nil {
-		return err
-	}
+	const maxRetries = 3
+	var lastErr error
+	
+	for i := 0; i < maxRetries; i++ {
+		if err := c.ensureConnected(); err != nil {
+			lastErr = err
+			slog.Warn("report log: connection failed, retrying", "attempt", i+1, "error", err)
+			time.Sleep(time.Duration(i+1) * time.Second)
+			continue
+		}
 
-	var client pb.ExecutorServiceClient
-	loadedWrapper := c.client.Load()
-	if wrapper, ok := loadedWrapper.(clientWrapper); ok {
-		client = wrapper.client
-	}
+		var client pb.ExecutorServiceClient
+		loadedWrapper := c.client.Load()
+		if wrapper, ok := loadedWrapper.(clientWrapper); ok {
+			client = wrapper.client
+		}
 
-	if client == nil {
-		return nil
-	}
+		if client == nil {
+			lastErr = fmt.Errorf("no client available")
+			slog.Warn("report log: no client, retrying", "attempt", i+1)
+			time.Sleep(time.Duration(i+1) * time.Second)
+			continue
+		}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	_, err := client.ReportTaskLog(ctx, req)
-	return err
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_, err := client.ReportTaskLog(ctx, req)
+		cancel()
+		
+		if err == nil {
+			return nil
+		}
+		
+		lastErr = err
+		slog.Warn("report log failed, retrying", "attempt", i+1, "error", err)
+		time.Sleep(time.Duration(i+1) * time.Second)
+	}
+	
+	return fmt.Errorf("report log failed after %d retries: %w", maxRetries, lastErr)
 }
 
 func (c *MultiClient) Subscribe(name, address string, capacity int32, runner TaskRunner) error {

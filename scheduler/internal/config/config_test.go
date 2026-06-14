@@ -507,3 +507,225 @@ func TestDefaultConfig_DatasourceCryptoDefaults(t *testing.T) {
 		t.Errorf("DatasourceCrypto.AutoRotateDays should be 0 by default, got %v", cfg.DatasourceCrypto.AutoRotateDays)
 	}
 }
+
+func TestConfig_Reload_NoConfigFile(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.ConfigFile = ""
+	err := cfg.Reload()
+	if err != nil {
+		t.Errorf("Reload() should not return error when no config file, got %v", err)
+	}
+}
+
+func TestConfig_Reload_UpdatesAllFields(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "reload_config.yaml")
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	initialContent := `
+app:
+  http_port: "8080"
+  grpc_port: "50051"
+  allow_register: false
+  cors_allow_origins: []
+log:
+  level: "info"
+  format: "json"
+jwt:
+  expiry_hours: 2
+  refresh_expiry_hours: 168
+sso:
+  enabled: false
+  url: ""
+  public_key: ""
+  timeout: 10
+datasource:
+  encryption_key: "initial-key-32bytes-long-123456"
+  key_source: "direct"
+  key_env_var: "BDOPSFLOW_ENCRYPTION_KEY"
+  key_file: ""
+  auto_rotate_days: 0
+`
+	if _, err := tmpFile.WriteString(initialContent); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+	tmpFile.Close()
+
+	cfg := Load(tmpFile.Name())
+
+	// Verify initial values
+	if cfg.LogLevel != "info" {
+		t.Errorf("initial LogLevel = %v, want 'info'", cfg.LogLevel)
+	}
+	if cfg.JWTExpiry != 2 {
+		t.Errorf("initial JWTExpiry = %v, want 2", cfg.JWTExpiry)
+	}
+	if cfg.SSOEnabled != false {
+		t.Errorf("initial SSOEnabled = %v, want false", cfg.SSOEnabled)
+	}
+
+	// Update the config file with new values
+	updatedContent := `
+app:
+  http_port: "9090"
+  grpc_port: "50052"
+  allow_register: true
+  cors_allow_origins:
+    - "https://new.example.com"
+log:
+  level: "debug"
+  format: "text"
+  path: "/var/log/bdopsflow.log"
+jwt:
+  expiry_hours: 24
+  refresh_expiry_hours: 720
+sso:
+  enabled: true
+  url: "https://sso.new.example.com"
+  public_key: "new-public-key"
+  timeout: 60
+datasource:
+  encryption_key: "updated-key-32bytes-long-1234567"
+  key_source: "env"
+  key_env_var: "NEW_ENCRYPTION_KEY"
+  key_file: "/etc/new/key.file"
+  auto_rotate_days: 30
+`
+	if err := os.WriteFile(tmpFile.Name(), []byte(updatedContent), 0644); err != nil {
+		t.Fatalf("failed to update config file: %v", err)
+	}
+
+	// Reload
+	err = cfg.Reload()
+	if err != nil {
+		t.Fatalf("Reload() failed: %v", err)
+	}
+
+	// Verify all updated values
+	if cfg.HTTPPort != "9090" {
+		t.Errorf("reloaded HTTPPort = %v, want '9090'", cfg.HTTPPort)
+	}
+	if cfg.GRPCPort != "50052" {
+		t.Errorf("reloaded GRPCPort = %v, want '50052'", cfg.GRPCPort)
+	}
+	if cfg.AllowRegister != true {
+		t.Errorf("reloaded AllowRegister = %v, want true", cfg.AllowRegister)
+	}
+	if len(cfg.CORSAllowOrigins) != 1 || cfg.CORSAllowOrigins[0] != "https://new.example.com" {
+		t.Errorf("reloaded CORSAllowOrigins = %v, want ['https://new.example.com']", cfg.CORSAllowOrigins)
+	}
+	if cfg.LogLevel != "debug" {
+		t.Errorf("reloaded LogLevel = %v, want 'debug'", cfg.LogLevel)
+	}
+	if cfg.LogFormat != "text" {
+		t.Errorf("reloaded LogFormat = %v, want 'text'", cfg.LogFormat)
+	}
+	if cfg.LogPath != "/var/log/bdopsflow.log" {
+		t.Errorf("reloaded LogPath = %v, want '/var/log/bdopsflow.log'", cfg.LogPath)
+	}
+	if cfg.JWTExpiry != 24 {
+		t.Errorf("reloaded JWTExpiry = %v, want 24", cfg.JWTExpiry)
+	}
+	if cfg.JWTRefreshExpiry != 720 {
+		t.Errorf("reloaded JWTRefreshExpiry = %v, want 720", cfg.JWTRefreshExpiry)
+	}
+	if cfg.SSOEnabled != true {
+		t.Errorf("reloaded SSOEnabled = %v, want true", cfg.SSOEnabled)
+	}
+	if cfg.SSOUrl != "https://sso.new.example.com" {
+		t.Errorf("reloaded SSOUrl = %v, want 'https://sso.new.example.com'", cfg.SSOUrl)
+	}
+	if cfg.SSOPublicKey != "new-public-key" {
+		t.Errorf("reloaded SSOPublicKey = %v, want 'new-public-key'", cfg.SSOPublicKey)
+	}
+	if cfg.SSOTimeout != 60 {
+		t.Errorf("reloaded SSOTimeout = %v, want 60", cfg.SSOTimeout)
+	}
+	if cfg.DatasourceCrypto.EncryptionKey != "updated-key-32bytes-long-1234567" {
+		t.Errorf("reloaded EncryptionKey = %v, want 'updated-key-32bytes-long-1234567'", cfg.DatasourceCrypto.EncryptionKey)
+	}
+	if cfg.DatasourceCrypto.KeySource != "env" {
+		t.Errorf("reloaded KeySource = %v, want 'env'", cfg.DatasourceCrypto.KeySource)
+	}
+	if cfg.DatasourceCrypto.KeyEnvVar != "NEW_ENCRYPTION_KEY" {
+		t.Errorf("reloaded KeyEnvVar = %v, want 'NEW_ENCRYPTION_KEY'", cfg.DatasourceCrypto.KeyEnvVar)
+	}
+	if cfg.DatasourceCrypto.KeyFile != "/etc/new/key.file" {
+		t.Errorf("reloaded KeyFile = %v, want '/etc/new/key.file'", cfg.DatasourceCrypto.KeyFile)
+	}
+	if cfg.DatasourceCrypto.AutoRotateDays != 30 {
+		t.Errorf("reloaded AutoRotateDays = %v, want 30", cfg.DatasourceCrypto.AutoRotateDays)
+	}
+}
+
+func TestConfig_Reload_InvalidFile(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.ConfigFile = "/non/existent/path/config.yaml"
+	err := cfg.Reload()
+	if err == nil {
+		t.Error("Reload() should return error for non-existent file")
+	}
+}
+
+func TestConfig_Reload_PartialUpdate(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "partial_reload_config.yaml")
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	initialContent := `
+app:
+  http_port: "8080"
+log:
+  level: "info"
+jwt:
+  expiry_hours: 2
+sso:
+  enabled: false
+  timeout: 10
+datasource:
+  encryption_key: "initial-key-32bytes-long-123456"
+  auto_rotate_days: 0
+`
+	if _, err := tmpFile.WriteString(initialContent); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+	tmpFile.Close()
+
+	cfg := Load(tmpFile.Name())
+
+	// Update only some fields
+	updatedContent := `
+app:
+  http_port: "9090"
+log:
+  level: "warn"
+`
+	if err := os.WriteFile(tmpFile.Name(), []byte(updatedContent), 0644); err != nil {
+		t.Fatalf("failed to update config file: %v", err)
+	}
+
+	err = cfg.Reload()
+	if err != nil {
+		t.Fatalf("Reload() failed: %v", err)
+	}
+
+	// Updated fields should change
+	if cfg.HTTPPort != "9090" {
+		t.Errorf("reloaded HTTPPort = %v, want '9090'", cfg.HTTPPort)
+	}
+	if cfg.LogLevel != "warn" {
+		t.Errorf("reloaded LogLevel = %v, want 'warn'", cfg.LogLevel)
+	}
+
+	// Non-updated fields should keep their previous values
+	if cfg.JWTExpiry != 2 {
+		t.Errorf("JWTExpiry should remain 2, got %v", cfg.JWTExpiry)
+	}
+	if cfg.SSOEnabled != false {
+		t.Errorf("SSOEnabled should remain false, got %v", cfg.SSOEnabled)
+	}
+}

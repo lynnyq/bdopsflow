@@ -315,6 +315,9 @@ func NewApp(cfg *config.Config) *App {
 	dsConfigService.StartReloadTicker(5 * time.Minute)
 	app.dsConfigService = dsConfigService
 
+	// 注册 dsConfigService 为系统配置观察者，实现 web.enabled 等配置热加载
+	sysConfigService.RegisterObserver(dsConfigService)
+
 	dsManager := datasource.NewManager(dsCrypto, dsConfigService, sysConfigService)
 	app.dsManager = dsManager
 
@@ -330,6 +333,12 @@ func NewApp(cfg *config.Config) *App {
 
 	dsConcurrentService := datasource.NewConcurrentService(redisClient, sysConfigService)
 	app.dsConcurrentService = dsConcurrentService
+
+	// 启动并发控制计数器校准机制（每5分钟校准一次）
+	// 校准函数从 QueryRegistry 获取实际运行的查询数量
+	// 注意：这里暂时传入 nil，实际集成需要等待 QueryRegistry 初始化后设置
+	// 后续在 setupRoutes 或 QueryHandler 初始化时完成集成
+	slog.Info("concurrent service calibration will be started when query registry is available")
 
 	schedulerService.StartCleanupRoutine()
 

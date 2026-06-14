@@ -62,7 +62,12 @@ func (s *WebhookService) Create(ctx context.Context, webhook *model.Webhook) (*m
 	}
 
 	webhook.ID = result.LastInsertID
-	webhook.CreatedAt, _ = time.Parse(DateTimeFormat, now)
+	parsedTime, parseErr := time.Parse(DateTimeFormat, now)
+	if parseErr != nil {
+		slog.Warn("failed to parse webhook created_at time, using zero value", "error", parseErr)
+		parsedTime = time.Now()
+	}
+	webhook.CreatedAt = parsedTime
 	webhook.UpdatedAt = webhook.CreatedAt
 	return webhook, nil
 }

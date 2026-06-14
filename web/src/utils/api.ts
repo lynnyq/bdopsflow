@@ -1,4 +1,5 @@
 import axios from 'axios'
+import type { AxiosRequestConfig, AxiosError } from 'axios'
 import { ElMessage } from 'element-plus'
 import { ERROR_CODE_MAP } from '@/utils/error'
 import { useAuthStore } from '@/stores/auth'
@@ -8,6 +9,25 @@ export interface ApiResponse<T = any> {
   status: string
   message: string
   data: T
+}
+
+// 重试配置
+interface RetryConfig {
+  maxRetries: number      // 最大重试次数
+  retryDelay: number      // 重试延迟（毫秒）
+  retryCondition: (error: AxiosError) => boolean  // 重试条件判断
+}
+
+const defaultRetryConfig: RetryConfig = {
+  maxRetries: 3,
+  retryDelay: 1000,
+  retryCondition: (error: AxiosError) => {
+    // 网络错误、超时、5xx 错误可重试
+    if (!error.response) return true  // 网络错误
+    if (error.code === 'ECONNABORTED') return true  // 超时
+    const status = error.response.status
+    return status >= 500 && status < 600  // 服务器错误
+  }
 }
 
 const api = axios.create({
@@ -31,6 +51,10 @@ api.interceptors.request.use((config) => {
   const token = sessionStorage.getItem('token')
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
+  }
+  // 初始化重试计数
+  if (!config._retryCount) {
+    config._retryCount = 0
   }
   return config
 })
@@ -60,9 +84,28 @@ api.interceptors.response.use(
 
     return response
   },
-  async (error) => {
-    const originalRequest = error.config
+  async (error: AxiosError) => {
+    const originalRequest = error.config as any
 
+    // 重试逻辑（在 token 刷新之前处理）
+    if (originalRequest && defaultRetryConfig.retryCondition(error)) {
+      const retryCount = originalRequest._retryCount || 0
+
+      if (retryCount < defaultRetryConfig.maxRetries) {
+        originalRequest._retryCount = retryCount + 1
+
+        // 指数退避延迟：1s, 2s, 4s
+        const delay = defaultRetryConfig.retryDelay * Math.pow(2, retryCount)
+
+        console.log(`[API Retry] ${originalRequest.url} - Attempt ${retryCount + 1}/${defaultRetryConfig.maxRetries} after ${delay}ms`)
+
+        await new Promise(resolve => setTimeout(resolve, delay))
+
+        return api(originalRequest)
+      }
+    }
+
+    // Token 刷新逻辑（401 错误）
     if (error.response?.status === 401 && !originalRequest._retry) {
       const refreshToken = sessionStorage.getItem('refresh_token')
 
@@ -156,8 +199,8 @@ api.interceptors.response.use(
   }
 )
 
-export function isHandledError(err: any): boolean {
-  return !!err?._handled
+export function isHandledError(err: unknown): boolean {
+  return !!err && typeof err === 'object' && '_handled' in err && Boolean((err as Record<string, unknown>)._handled)
 }
 
 export default api

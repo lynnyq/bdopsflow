@@ -277,6 +277,201 @@ func (s *SchedulerService) DeleteTask(ctx context.Context, id int64) error {
 	return nil
 }
 
+// dispatchTaskExecution 是任务分发的核心逻辑，被 TriggerTask 和 RetryTask 共享
+// 参数:
+//   - ctx: 上下文
+//   - task: 任务信息
+//   - executionID: 执行 ID
+//   - retryTimes: 重试次数
+//   - isRetry: 是否是重试执行（用于日志区分）
+//
+// 返回: executionID 和 error
+func (s *SchedulerService) dispatchTaskExecution(ctx context.Context, task *model.Task, executionID string, retryTimes int, isRetry bool) (string, error) {
+	lockKey := fmt.Sprintf("task:lock:%s", executionID)
+	lockValue := fmt.Sprintf("%d", time.Now().UnixNano())
+
+	lockTTL := time.Duration(task.TimeoutSeconds) * 2 * time.Second
+	if lockTTL < 60*time.Second {
+		lockTTL = 60 * time.Second
+	}
+	if lockTTL > 7200*time.Second {
+		lockTTL = 7200 * time.Second
+	}
+	if task.TimeoutSeconds == 0 {
+		lockTTL = 3600 * time.Second
+	}
+
+	lockSet, err := s.redis.SetNX(ctx, lockKey, lockValue, lockTTL).Result()
+	if err != nil {
+		slog.Warn("acquire lock failed, continuing anyway", "error", err)
+	} else if !lockSet {
+		return "", fmt.Errorf("task %d is already being executed (lock conflict)", task.ID)
+	}
+
+	now := time.Now().Format(DateTimeFormat)
+	var executorID interface{} = nil
+	insertQuery := `
+		INSERT INTO bdopsflow_task_executions (task_id, execution_id, executor_id, status, start_time, retry_times, created_at)
+		VALUES (?, ?, ?, 'running', ?, ?, ?)
+	`
+
+	stmt := rqlite.ParameterizedStatement{
+		Query:     insertQuery,
+		Arguments: []interface{}{task.ID, executionID, executorID, now, retryTimes, now},
+	}
+	_, err = s.DB.WriteOneParameterized(stmt)
+	if err != nil {
+		if lockSet {
+			s.redis.Del(ctx, lockKey)
+		}
+		return "", fmt.Errorf("create execution record failed: %w", err)
+	}
+
+	execType := "execution"
+	if isRetry {
+		execType = "retry execution"
+	}
+	slog.Info("task "+execType+" started",
+		"task_id", task.ID,
+		"execution_id", executionID,
+		"type", task.Type,
+		"name", task.Name,
+		"retry_times", retryTimes,
+		"lock_ttl", lockTTL,
+	)
+
+	var executor *model.Executor
+	if task.AssignedExecutorID > 0 {
+		executor, err = s.GetExecutorByID(ctx, task.AssignedExecutorID)
+		if err != nil {
+			errMsg := fmt.Sprintf("specified executor %d not found: %v", task.AssignedExecutorID, err)
+			slog.Error("specified executor not found",
+				"task_id", task.ID,
+				"assigned_executor_id", task.AssignedExecutorID,
+				"error", err,
+			)
+			s.UpdateExecutionResult(ctx, executionID, "failed", "", errMsg)
+			s.UpdateTaskStatusByID(ctx, task.ID, "failed")
+			s.AddTaskLog(ctx, executionID, task.ID, "", "error", errMsg)
+			s.SendWebhookNotification(ctx, task.ID, executionID, "failed", "", errMsg, 0)
+			s.redis.Del(ctx, lockKey)
+			return executionID, fmt.Errorf("specified executor %d not found: %w", task.AssignedExecutorID, err)
+		}
+
+		if executor.Status != "online" {
+			errMsg := fmt.Sprintf("specified executor %d is not online (status: %s)", task.AssignedExecutorID, executor.Status)
+			slog.Error("specified executor is not online",
+				"task_id", task.ID,
+				"assigned_executor_id", task.AssignedExecutorID,
+				"executor_status", executor.Status,
+			)
+			s.UpdateExecutionResult(ctx, executionID, "failed", "", errMsg)
+			s.UpdateTaskStatusByID(ctx, task.ID, "failed")
+			s.AddTaskLog(ctx, executionID, task.ID, "", "error", errMsg)
+			s.SendWebhookNotification(ctx, task.ID, executionID, "failed", "", errMsg, 0)
+			s.redis.Del(ctx, lockKey)
+			return executionID, fmt.Errorf("specified executor %d is not online", task.AssignedExecutorID)
+		}
+
+		if executor.CurrentLoad >= executor.Capacity {
+			errMsg := fmt.Sprintf("specified executor %d has no capacity (load: %d/%d)", task.AssignedExecutorID, executor.CurrentLoad, executor.Capacity)
+			slog.Error("specified executor has no capacity",
+				"task_id", task.ID,
+				"assigned_executor_id", task.AssignedExecutorID,
+				"current_load", executor.CurrentLoad,
+				"capacity", executor.Capacity,
+			)
+			s.UpdateExecutionResult(ctx, executionID, "failed", "", errMsg)
+			s.UpdateTaskStatusByID(ctx, task.ID, "failed")
+			s.AddTaskLog(ctx, executionID, task.ID, "", "error", errMsg)
+			s.SendWebhookNotification(ctx, task.ID, executionID, "failed", "", errMsg, 0)
+			s.redis.Del(ctx, lockKey)
+			return executionID, fmt.Errorf("specified executor %d has no capacity", task.AssignedExecutorID)
+		}
+
+		slog.Info("using specified executor",
+			"task_id", task.ID,
+			"execution_id", executionID,
+			"assigned_executor_id", task.AssignedExecutorID,
+			"executor_name", executor.Name,
+		)
+	} else {
+		executor, err = s.SelectAvailableExecutor(ctx, task.DomainID)
+		if err != nil {
+			errMsg := fmt.Sprintf("no available executor: %v", err)
+			slog.Error("no available executor", "task_id", task.ID, "domain_id", task.DomainID, "error", err)
+			s.UpdateExecutionResult(ctx, executionID, "failed", "", errMsg)
+			s.UpdateTaskStatusByID(ctx, task.ID, "failed")
+			s.AddTaskLog(ctx, executionID, task.ID, "", "error", errMsg)
+			s.SendWebhookNotification(ctx, task.ID, executionID, "failed", "", errMsg, 0)
+			s.redis.Del(ctx, lockKey)
+			return executionID, fmt.Errorf("no available executor: %w", err)
+		}
+		slog.Info("using load-balanced executor",
+			"task_id", task.ID,
+			"execution_id", executionID,
+			"executor_id", executor.ID,
+			"executor_name", executor.Name,
+		)
+	}
+
+	grpcTask := &pb.Task{
+		TaskId:         task.ID,
+		ExecutionId:    executionID,
+		Type:           task.Type,
+		Config:         task.Config,
+		TimeoutSeconds: task.TimeoutSeconds,
+		RetryCount:     task.RetryCount,
+		RetryInterval:  task.RetryInterval,
+	}
+
+	if s.dispatcher == nil {
+		slog.Warn("no task dispatcher set", "task_id", task.ID)
+		errMsg := "dispatcher not configured"
+		s.UpdateExecutionResult(ctx, executionID, "failed", "", errMsg)
+		s.UpdateTaskStatusByID(ctx, task.ID, "failed")
+		s.AddTaskLog(ctx, executionID, task.ID, "", "error", errMsg)
+		s.SendWebhookNotification(ctx, task.ID, executionID, "failed", "", errMsg, 0)
+		s.redis.Del(ctx, lockKey)
+		return executionID, fmt.Errorf("dispatcher not configured")
+	}
+
+	updateExecutorQuery := `UPDATE bdopsflow_task_executions SET executor_id = ? WHERE execution_id = ?`
+	updateExecutorStmt := rqlite.ParameterizedStatement{
+		Query:     updateExecutorQuery,
+		Arguments: []interface{}{executor.ID, executionID},
+	}
+	_, err = s.DB.WriteOneParameterized(updateExecutorStmt)
+	if err != nil {
+		slog.Warn("failed to update executor_id in bdopsflow_task_executions", "error", err, "execution_id", executionID)
+	}
+
+	if err := s.dispatcher(executor.Name, grpcTask); err != nil {
+		errMsg := fmt.Sprintf("dispatch failed: %v", err)
+		slog.Error("dispatch task failed", "task_id", task.ID, "executor", executor.Name, "error", err)
+		s.UpdateExecutionResult(ctx, executionID, "failed", "", errMsg)
+		s.UpdateTaskStatusByID(ctx, task.ID, "failed")
+		s.AddTaskLog(ctx, executionID, task.ID, "", "error", errMsg)
+		s.SendWebhookNotification(ctx, task.ID, executionID, "failed", "", errMsg, 0)
+		s.redis.Del(ctx, lockKey)
+		return executionID, fmt.Errorf("dispatch failed: %w", err)
+	}
+
+	slog.Info("task dispatched",
+		"task_id", task.ID,
+		"execution_id", executionID,
+		"executor", executor.ID,
+		"executor_name", executor.Name,
+	)
+
+	s.AddTaskLog(ctx, executionID, task.ID, "", "info", fmt.Sprintf("Task dispatched to executor: %s", executor.Name))
+
+	renewKey := fmt.Sprintf("task:renew:%s", executionID)
+	s.redis.Set(ctx, renewKey, time.Now().Unix(), time.Duration(lockTTL)*time.Second)
+
+	return executionID, nil
+}
+
 func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (string, error) {
 	if !s.IsLeader() {
 		return "", fmt.Errorf("this node is not the leader, cannot trigger task")
@@ -377,184 +572,7 @@ func (s *SchedulerService) TriggerTask(ctx context.Context, taskID int64) (strin
 
 	executionID := fmt.Sprintf("exec-%d-%d", taskID, time.Now().UnixNano())
 
-	lockKey := fmt.Sprintf("task:lock:%s", executionID)
-	lockValue := fmt.Sprintf("%d", time.Now().UnixNano())
-
-	lockTTL := time.Duration(task.TimeoutSeconds) * 2 * time.Second
-	if lockTTL < 60*time.Second {
-		lockTTL = 60 * time.Second
-	}
-	if lockTTL > 7200*time.Second {
-		lockTTL = 7200 * time.Second
-	}
-	if task.TimeoutSeconds == 0 {
-		lockTTL = 3600 * time.Second
-	}
-
-	lockSet, err := s.redis.SetNX(ctx, lockKey, lockValue, lockTTL).Result()
-	if err != nil {
-		slog.Warn("acquire lock failed, continuing anyway", "error", err)
-	} else if !lockSet {
-		return "", fmt.Errorf("task %d is already being executed (lock conflict)", taskID)
-	}
-
-	now := time.Now().Format(DateTimeFormat)
-	var executorID interface{} = nil
-	insertQuery := `
-		INSERT INTO bdopsflow_task_executions (task_id, execution_id, executor_id, status, start_time, retry_times, created_at)
-		VALUES (?, ?, ?, 'running', ?, 0, ?)
-	`
-
-	stmt := rqlite.ParameterizedStatement{
-		Query:     insertQuery,
-		Arguments: []interface{}{taskID, executionID, executorID, now, now},
-	}
-	_, err = s.DB.WriteOneParameterized(stmt)
-	if err != nil {
-		if lockSet {
-			s.redis.Del(ctx, lockKey)
-		}
-		return "", fmt.Errorf("create execution record failed: %w", err)
-	}
-
-	slog.Info("task execution started",
-		"task_id", taskID,
-		"execution_id", executionID,
-		"type", task.Type,
-		"name", task.Name,
-		"lock_ttl", lockTTL,
-	)
-
-	var executor *model.Executor
-	if task.AssignedExecutorID > 0 {
-		executor, err = s.GetExecutorByID(ctx, task.AssignedExecutorID)
-		if err != nil {
-			errMsg := fmt.Sprintf("specified executor %d not found: %v", task.AssignedExecutorID, err)
-			slog.Error("specified executor not found",
-				"task_id", taskID,
-				"assigned_executor_id", task.AssignedExecutorID,
-				"error", err,
-			)
-			s.UpdateExecutionResult(ctx, executionID, "failed", "", errMsg)
-			s.UpdateTaskStatusByID(ctx, taskID, "failed")
-			s.AddTaskLog(ctx, executionID, taskID, "", "error", errMsg)
-			s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", errMsg, 0)
-			s.redis.Del(ctx, lockKey)
-			return executionID, fmt.Errorf("specified executor %d not found: %w", task.AssignedExecutorID, err)
-		}
-
-		if executor.Status != "online" {
-			errMsg := fmt.Sprintf("specified executor %d is not online (status: %s)", task.AssignedExecutorID, executor.Status)
-			slog.Error("specified executor is not online",
-				"task_id", taskID,
-				"assigned_executor_id", task.AssignedExecutorID,
-				"executor_status", executor.Status,
-			)
-			s.UpdateExecutionResult(ctx, executionID, "failed", "", errMsg)
-			s.UpdateTaskStatusByID(ctx, taskID, "failed")
-			s.AddTaskLog(ctx, executionID, taskID, "", "error", errMsg)
-			s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", errMsg, 0)
-			s.redis.Del(ctx, lockKey)
-			return executionID, fmt.Errorf("specified executor %d is not online", task.AssignedExecutorID)
-		}
-
-		if executor.CurrentLoad >= executor.Capacity {
-			errMsg := fmt.Sprintf("specified executor %d has no capacity (load: %d/%d)", task.AssignedExecutorID, executor.CurrentLoad, executor.Capacity)
-			slog.Error("specified executor has no capacity",
-				"task_id", taskID,
-				"assigned_executor_id", task.AssignedExecutorID,
-				"current_load", executor.CurrentLoad,
-				"capacity", executor.Capacity,
-			)
-			s.UpdateExecutionResult(ctx, executionID, "failed", "", errMsg)
-			s.UpdateTaskStatusByID(ctx, taskID, "failed")
-			s.AddTaskLog(ctx, executionID, taskID, "", "error", errMsg)
-			s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", errMsg, 0)
-			s.redis.Del(ctx, lockKey)
-			return executionID, fmt.Errorf("specified executor %d has no capacity", task.AssignedExecutorID)
-		}
-
-		slog.Info("using specified executor",
-			"task_id", taskID,
-			"execution_id", executionID,
-			"assigned_executor_id", task.AssignedExecutorID,
-			"executor_name", executor.Name,
-		)
-	} else {
-		executor, err = s.SelectAvailableExecutor(ctx, task.DomainID)
-		if err != nil {
-			errMsg := fmt.Sprintf("no available executor: %v", err)
-			slog.Error("no available executor", "task_id", taskID, "domain_id", task.DomainID, "error", err)
-			s.UpdateExecutionResult(ctx, executionID, "failed", "", errMsg)
-			s.UpdateTaskStatusByID(ctx, taskID, "failed")
-			s.AddTaskLog(ctx, executionID, taskID, "", "error", errMsg)
-			s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", errMsg, 0)
-			s.redis.Del(ctx, lockKey)
-			return executionID, fmt.Errorf("no available executor: %w", err)
-		}
-		slog.Info("using load-balanced executor",
-			"task_id", taskID,
-			"execution_id", executionID,
-			"executor_id", executor.ID,
-			"executor_name", executor.Name,
-		)
-	}
-
-	grpcTask := &pb.Task{
-		TaskId:         taskID,
-		ExecutionId:    executionID,
-		Type:           task.Type,
-		Config:         task.Config,
-		TimeoutSeconds: task.TimeoutSeconds,
-		RetryCount:     task.RetryCount,
-		RetryInterval:  task.RetryInterval,
-	}
-
-	if s.dispatcher == nil {
-		slog.Warn("no task dispatcher set", "task_id", taskID)
-		errMsg := "dispatcher not configured"
-		s.UpdateExecutionResult(ctx, executionID, "failed", "", errMsg)
-		s.UpdateTaskStatusByID(ctx, taskID, "failed")
-		s.AddTaskLog(ctx, executionID, taskID, "", "error", errMsg)
-		s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", errMsg, 0)
-		s.redis.Del(ctx, lockKey)
-		return executionID, fmt.Errorf("dispatcher not configured")
-	}
-
-	updateExecutorQuery := `UPDATE bdopsflow_task_executions SET executor_id = ? WHERE execution_id = ?`
-	updateExecutorStmt := rqlite.ParameterizedStatement{
-		Query:     updateExecutorQuery,
-		Arguments: []interface{}{executor.ID, executionID},
-	}
-	_, err = s.DB.WriteOneParameterized(updateExecutorStmt)
-	if err != nil {
-		slog.Warn("failed to update executor_id in bdopsflow_task_executions", "error", err, "execution_id", executionID)
-	}
-
-	if err := s.dispatcher(executor.Name, grpcTask); err != nil {
-		errMsg := fmt.Sprintf("dispatch failed: %v", err)
-		slog.Error("dispatch task failed", "task_id", taskID, "executor", executor.Name, "error", err)
-		s.UpdateExecutionResult(ctx, executionID, "failed", "", errMsg)
-		s.UpdateTaskStatusByID(ctx, taskID, "failed")
-		s.AddTaskLog(ctx, executionID, taskID, "", "error", errMsg)
-		s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", errMsg, 0)
-		s.redis.Del(ctx, lockKey)
-		return executionID, fmt.Errorf("dispatch failed: %w", err)
-	}
-
-	slog.Info("task dispatched",
-		"task_id", taskID,
-		"execution_id", executionID,
-		"executor", executor.ID,
-		"executor_name", executor.Name,
-	)
-
-	s.AddTaskLog(ctx, executionID, taskID, "", "info", fmt.Sprintf("Task dispatched to executor: %s", executor.Name))
-
-	renewKey := fmt.Sprintf("task:renew:%s", executionID)
-	s.redis.Set(ctx, renewKey, time.Now().Unix(), time.Duration(lockTTL)*time.Second)
-
-	return executionID, nil
+	return s.dispatchTaskExecution(ctx, task, executionID, 0, false)
 }
 
 func (s *SchedulerService) RetryTask(ctx context.Context, taskID int64, retryTimes int) (string, error) {
@@ -565,129 +583,7 @@ func (s *SchedulerService) RetryTask(ctx context.Context, taskID int64, retryTim
 
 	executionID := fmt.Sprintf("exec-%d-%d-retry-%d", taskID, time.Now().UnixNano(), retryTimes)
 
-	lockKey := fmt.Sprintf("task:lock:%s", executionID)
-	lockValue := fmt.Sprintf("%d", time.Now().UnixNano())
-	lockTTL := time.Duration(task.TimeoutSeconds) * 2 * time.Second
-	if lockTTL < 60*time.Second {
-		lockTTL = 60 * time.Second
-	}
-	if lockTTL > 7200*time.Second {
-		lockTTL = 7200 * time.Second
-	}
-	if task.TimeoutSeconds == 0 {
-		lockTTL = 3600 * time.Second
-	}
-
-	lockSet, err := s.redis.SetNX(ctx, lockKey, lockValue, lockTTL).Result()
-	if err != nil {
-		slog.Warn("acquire lock failed, continuing anyway", "error", err)
-	} else if !lockSet {
-		return "", fmt.Errorf("task %d is already being executed (lock conflict)", taskID)
-	}
-
-	now := time.Now().Format(DateTimeFormat)
-	var executorID interface{} = nil
-	insertQuery := `
-		INSERT INTO bdopsflow_task_executions (task_id, execution_id, executor_id, status, start_time, retry_times, created_at)
-		VALUES (?, ?, ?, 'running', ?, ?, ?)
-	`
-	stmt := rqlite.ParameterizedStatement{
-		Query:     insertQuery,
-		Arguments: []interface{}{taskID, executionID, executorID, now, retryTimes, now},
-	}
-	_, err = s.DB.WriteOneParameterized(stmt)
-	if err != nil {
-		if lockSet {
-			s.redis.Del(ctx, lockKey)
-		}
-		return "", fmt.Errorf("create retry execution record failed: %w", err)
-	}
-
-	slog.Info("task retry execution started",
-		"task_id", taskID,
-		"execution_id", executionID,
-		"retry_times", retryTimes,
-	)
-
-	var executor *model.Executor
-	if task.AssignedExecutorID > 0 {
-		executor, err = s.GetExecutorByID(ctx, task.AssignedExecutorID)
-		if err != nil || executor.Status != "online" || executor.CurrentLoad >= executor.Capacity {
-			errMsg := "specified executor unavailable for retry"
-			s.UpdateExecutionResult(ctx, executionID, "failed", "", errMsg)
-			s.UpdateTaskStatusByID(ctx, taskID, "failed")
-			s.AddTaskLog(ctx, executionID, taskID, "", "error", errMsg)
-			s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", "retry failed: specified executor unavailable", 0)
-			s.redis.Del(ctx, lockKey)
-			return executionID, fmt.Errorf("specified executor unavailable for retry")
-		}
-	} else {
-		executor, err = s.SelectAvailableExecutor(ctx, task.DomainID)
-		if err != nil {
-			errMsg := fmt.Sprintf("no available executor: %v", err)
-			s.UpdateExecutionResult(ctx, executionID, "failed", "", errMsg)
-			s.UpdateTaskStatusByID(ctx, taskID, "failed")
-			s.AddTaskLog(ctx, executionID, taskID, "", "error", errMsg)
-			s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", fmt.Sprintf("retry failed: %s", errMsg), 0)
-			s.redis.Del(ctx, lockKey)
-			return executionID, fmt.Errorf("no available executor: %w", err)
-		}
-	}
-
-	grpcTask := &pb.Task{
-		TaskId:         taskID,
-		ExecutionId:    executionID,
-		Type:           task.Type,
-		Config:         task.Config,
-		TimeoutSeconds: task.TimeoutSeconds,
-		RetryCount:     task.RetryCount,
-		RetryInterval:  task.RetryInterval,
-	}
-
-	if s.dispatcher == nil {
-		errMsg := "dispatcher not configured"
-		s.UpdateExecutionResult(ctx, executionID, "failed", "", errMsg)
-		s.UpdateTaskStatusByID(ctx, taskID, "failed")
-		s.AddTaskLog(ctx, executionID, taskID, "", "error", errMsg)
-		s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", "retry failed: dispatcher not configured", 0)
-		s.redis.Del(ctx, lockKey)
-		return executionID, fmt.Errorf("dispatcher not configured")
-	}
-
-	updateExecutorQuery := `UPDATE bdopsflow_task_executions SET executor_id = ? WHERE execution_id = ?`
-	updateExecutorStmt := rqlite.ParameterizedStatement{
-		Query:     updateExecutorQuery,
-		Arguments: []interface{}{executor.ID, executionID},
-	}
-	_, dbErr := s.DB.WriteOneParameterized(updateExecutorStmt)
-	if dbErr != nil {
-		slog.Warn("failed to update executor_id in bdopsflow_task_executions", "error", dbErr, "execution_id", executionID)
-	}
-
-	if err := s.dispatcher(executor.Name, grpcTask); err != nil {
-		errMsg := fmt.Sprintf("dispatch failed: %v", err)
-		s.UpdateExecutionResult(ctx, executionID, "failed", "", errMsg)
-		s.UpdateTaskStatusByID(ctx, taskID, "failed")
-		s.AddTaskLog(ctx, executionID, taskID, "", "error", errMsg)
-		s.SendWebhookNotification(ctx, taskID, executionID, "failed", "", fmt.Sprintf("retry failed: %s", errMsg), 0)
-		s.redis.Del(ctx, lockKey)
-		return executionID, fmt.Errorf("dispatch failed: %w", err)
-	}
-
-	renewKey := fmt.Sprintf("task:renew:%s", executionID)
-	s.redis.Set(ctx, renewKey, time.Now().Unix(), time.Duration(lockTTL)*time.Second)
-
-	slog.Info("task retry dispatched",
-		"task_id", taskID,
-		"execution_id", executionID,
-		"retry_times", retryTimes,
-		"executor", executor.ID,
-		"executor_name", executor.Name,
-	)
-
-	s.AddTaskLog(ctx, executionID, taskID, "", "info", fmt.Sprintf("Task retry dispatched to executor: %s", executor.Name))
-
-	return executionID, nil
+	return s.dispatchTaskExecution(ctx, task, executionID, retryTimes, true)
 }
 
 func (s *SchedulerService) HandleTaskFailure(ctx context.Context, taskID int64, failedExecutionID, output, errorMsg string) error {

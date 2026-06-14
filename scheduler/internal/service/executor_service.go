@@ -149,7 +149,9 @@ func (s *SchedulerService) RegisterExecutor(ctx context.Context, name, address s
 	executorDBID := result.LastInsertID
 
 	if executorDBID > 0 && s.ExecutorDomainService != nil {
-		_ = s.ExecutorDomainService.AssignExecutorToDefaultDomain(ctx, name, 1)
+		if err := s.ExecutorDomainService.AssignExecutorToDefaultDomain(ctx, name, 1); err != nil {
+			slog.Warn("failed to assign executor to default domain", "executor", name, "error", err)
+		}
 	}
 
 	slog.Info("RegisterExecutor: created new executor",

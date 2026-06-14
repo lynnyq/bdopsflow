@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os/exec"
+	"syscall"
 	"strings"
 	"sync"
 	"time"
@@ -29,12 +30,28 @@ type RunningTaskInfo struct {
 
 type TaskExecutor struct {
 	taskPool     *pool.Pool
-	runningTasks sync.Map // map[string]*RunningTaskInfo
+	runningTasks sync.Map     // map[string]*RunningTaskInfo
+	httpClient   *http.Client // 共享的 HTTP 客户端，复用连接池
+	taskWg       sync.WaitGroup // 跟踪所有正在执行的任务
+	shutdownMu   sync.Mutex   // 保护 shutdown 状态
+	shuttingDown bool         // 标记是否正在关闭
 }
 
 func NewTaskExecutor(taskPool *pool.Pool) *TaskExecutor {
+	// 配置共享的 HTTP Transport，启用连接池复用
+	transport := &http.Transport{
+		MaxIdleConns:        100,              // 最大空闲连接数
+		MaxIdleConnsPerHost: 10,               // 每个主机最大空闲连接数
+		IdleConnTimeout:     90 * time.Second, // 空闲连接超时时间
+		DisableKeepAlives:   false,            // 启用 keep-alive
+	}
+
 	return &TaskExecutor{
 		taskPool: taskPool,
+		httpClient: &http.Client{
+			Transport: transport,
+			// 注意：不在这里设置 Timeout，由 context 控制每个请求的超时
+		},
 	}
 }
 
@@ -126,6 +143,18 @@ func (e *TaskExecutor) getRunningCount() int {
 }
 
 func (e *TaskExecutor) Execute(ctx context.Context, task *pb.Task, client *grpcclient.MultiClient) {
+	// 检查是否正在关闭
+	e.shutdownMu.Lock()
+	if e.shuttingDown {
+		e.shutdownMu.Unlock()
+		slog.Warn("executor is shutting down, rejecting task", "execution_id", task.ExecutionId)
+		return
+	}
+	e.taskWg.Add(1)
+	e.shutdownMu.Unlock()
+
+	defer e.taskWg.Done()
+
 	executorName := ""
 	if client != nil {
 		executorName = client.GetExecutorName()
@@ -206,6 +235,56 @@ func (e *TaskExecutor) GetRunningTasks() int32 {
 	return 0
 }
 
+// Shutdown 优雅关闭执行器，等待所有任务完成或超时
+func (e *TaskExecutor) Shutdown(timeout time.Duration) {
+	e.shutdownMu.Lock()
+	if e.shuttingDown {
+		e.shutdownMu.Unlock()
+		return
+	}
+	e.shuttingDown = true
+	e.shutdownMu.Unlock()
+
+	slog.Info("executor shutdown started", "timeout", timeout)
+
+	// 取消所有正在执行的任务
+	e.runningTasks.Range(func(key, value interface{}) bool {
+		if executionId, ok := key.(string); ok {
+			if info, ok := value.(*RunningTaskInfo); ok && info.cancel != nil {
+				slog.Info("cancelling task during shutdown", "execution_id", executionId)
+				info.cancel()
+			}
+		}
+		return true
+	})
+
+	// 等待所有任务完成，带超时控制
+	done := make(chan struct{})
+	go func() {
+		e.taskWg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		slog.Info("executor shutdown completed gracefully")
+	case <-time.After(timeout):
+		slog.Warn("executor shutdown timeout exceeded, forcing shutdown", "timeout", timeout)
+		// 记录仍在运行的任务
+		runningCount := 0
+		e.runningTasks.Range(func(key, value interface{}) bool {
+			if executionId, ok := key.(string); ok {
+				runningCount++
+				slog.Warn("task still running after shutdown timeout", "execution_id", executionId)
+			}
+			return true
+		})
+		if runningCount > 0 {
+			slog.Warn("forcing shutdown with running tasks", "count", runningCount)
+		}
+	}
+}
+
 func (e *TaskExecutor) executeTask(ctx context.Context, task *pb.Task, client *grpcclient.MultiClient) (string, error) {
 	switch task.Type {
 	case "http":
@@ -256,13 +335,8 @@ func (e *TaskExecutor) executeHTTP(ctx context.Context, task *pb.Task, client *g
 		}
 	}
 
-	var httpClient *http.Client
-	if task.TimeoutSeconds > 0 {
-		httpClient = &http.Client{Timeout: time.Duration(task.TimeoutSeconds) * time.Second}
-	} else {
-		httpClient = &http.Client{}
-	}
-	resp, err := httpClient.Do(req)
+	// 使用共享的 HTTP 客户端，通过 context 控制超时时间
+	resp, err := e.httpClient.Do(req)
 	if err != nil {
 		sendLog(client, task, "error", fmt.Sprintf("❌ HTTP request failed: %v", err))
 		return "", fmt.Errorf("http request failed: %w", err)
@@ -350,7 +424,11 @@ func (e *TaskExecutor) executeShell(ctx context.Context, task *pb.Task, client *
 
 	sendLog(client, task, "info", "Executing shell script")
 
+	// 使用进程组，确保取消时能杀死整个进程树（包括子进程）
 	cmd := exec.CommandContext(ctx, "bash", "-c", config.Script)
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true, // 创建新的进程组
+	}
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -365,15 +443,59 @@ func (e *TaskExecutor) executeShell(ctx context.Context, task *pb.Task, client *
 		return "", fmt.Errorf("start command: %w", err)
 	}
 
+	// 监听 context 取消信号，杀死整个进程组
+	go func() {
+		<-ctx.Done()
+		if ctx.Err() == context.Canceled || ctx.Err() == context.DeadlineExceeded {
+			// 向进程组发送 SIGTERM，杀死整个进程树
+			if cmd.Process != nil {
+				pgid, err := syscall.Getpgid(cmd.Process.Pid)
+				if err == nil {
+					// 向进程组发送信号（负 PID 表示进程组）
+					if err := syscall.Kill(-pgid, syscall.SIGTERM); err != nil {
+						slog.Warn("failed to send SIGTERM to process group",
+							"execution_id", task.ExecutionId,
+							"pgid", pgid,
+							"error", err)
+						// 降级：直接杀死主进程
+						cmd.Process.Kill()
+					} else {
+						slog.Info("sent SIGTERM to process group",
+							"execution_id", task.ExecutionId,
+							"pgid", pgid)
+						// 等待一小段时间，如果进程还没退出，发送 SIGKILL
+						time.Sleep(3 * time.Second)
+						if cmd.ProcessState == nil {
+							syscall.Kill(-pgid, syscall.SIGKILL)
+							slog.Info("sent SIGKILL to process group",
+								"execution_id", task.ExecutionId,
+								"pgid", pgid)
+						}
+					}
+				} else {
+					cmd.Process.Kill()
+				}
+			}
+		}
+	}()
+
+	// 使用线程安全的 buffer 和互斥锁保护并发写入
 	var fullOutput, fullError bytes.Buffer
+	var outputMu, errorMu sync.Mutex
+
+	var wg sync.WaitGroup
+	wg.Add(2)
 
 	go func() {
+		defer wg.Done()
 		buf := make([]byte, 1024)
 		for {
 			n, err := stdout.Read(buf)
 			if n > 0 {
 				chunk := string(buf[:n])
+				outputMu.Lock()
 				fullOutput.WriteString(chunk)
+				outputMu.Unlock()
 				sendOutputLog(client, task, "stdout", chunk)
 			}
 			if err != nil {
@@ -383,12 +505,15 @@ func (e *TaskExecutor) executeShell(ctx context.Context, task *pb.Task, client *
 	}()
 
 	go func() {
+		defer wg.Done()
 		buf := make([]byte, 1024)
 		for {
 			n, err := stderr.Read(buf)
 			if n > 0 {
 				chunk := string(buf[:n])
+				errorMu.Lock()
 				fullError.WriteString(chunk)
+				errorMu.Unlock()
 				sendOutputLog(client, task, "stderr", chunk)
 			}
 			if err != nil {
@@ -398,13 +523,19 @@ func (e *TaskExecutor) executeShell(ctx context.Context, task *pb.Task, client *
 	}()
 
 	err = cmd.Wait()
+	wg.Wait() // 等待所有读取 goroutine 完成
 
 	output := fullOutput.String()
 	stderrOutput := fullError.String()
 
+	// 检查是否是被取消导致的退出
+	if ctx.Err() == context.Canceled {
+		sendLog(client, task, "info", "Task cancelled by user, process terminated")
+		return output, fmt.Errorf("task cancelled by user")
+	}
+
 	if err != nil {
 		sendLog(client, task, "error", fmt.Sprintf("Shell execution error: %v", err))
-		// 失败时 output 为空，标准输出和标准错误都放在返回的 error 中
 		return "", fmt.Errorf("shell execution failed: %w, stdout: %s, stderr: %s", err, output, stderrOutput)
 	}
 

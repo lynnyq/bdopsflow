@@ -14,6 +14,9 @@ import (
 )
 
 func setupRoutes(router *gin.Engine, app *App) {
+	// 注册 Prometheus 指标收集中间件
+	router.Use(middleware.MetricsCollector())
+
 	router.GET("/health", func(c *gin.Context) {
 		result := app.schedulerService.HealthCheck(c.Request.Context())
 		healthData := map[string]interface{}{
@@ -154,6 +157,7 @@ func setupRoutes(router *gin.Engine, app *App) {
 			systemConfigHandler := handler.NewSystemConfigHandler(app.sysConfigService)
 			admin.GET("/system-config", middleware.RequireSystemAdmin(app.permissionService), systemConfigHandler.List)
 			admin.PUT("/system-config/:key", middleware.RequireSystemAdmin(app.permissionService), systemConfigHandler.Update)
+			admin.POST("/system-config/reload", middleware.RequireSystemAdmin(app.permissionService), systemConfigHandler.Reload)
 
 			auditLogHandler := handler.NewAuditLogHandler(app.auditLogService)
 			admin.GET("/audit-logs", middleware.RequireSystemAdmin(app.permissionService), auditLogHandler.List)
@@ -260,7 +264,11 @@ func setupStaticRoutes(router *gin.Engine, dsConfigService *datasource.ConfigSer
 </html>`)
 			return
 		}
-		staticFS, _ := web.GetStaticFS()
+		staticFS, err := web.GetStaticFS()
+		if err != nil {
+			c.String(http.StatusInternalServerError, "Failed to load static files")
+			return
+		}
 		http.FileServer(staticFS).ServeHTTP(c.Writer, c.Request)
 	})
 
@@ -277,7 +285,11 @@ func setupStaticRoutes(router *gin.Engine, dsConfigService *datasource.ConfigSer
 			c.String(http.StatusNotFound, "Not found")
 			return
 		}
-		staticFS, _ := web.GetStaticFS()
+		staticFS, err := web.GetStaticFS()
+		if err != nil {
+			c.String(http.StatusInternalServerError, "Failed to load static files")
+			return
+		}
 		http.FileServer(staticFS).ServeHTTP(c.Writer, c.Request)
 	})
 
@@ -294,7 +306,11 @@ func setupStaticRoutes(router *gin.Engine, dsConfigService *datasource.ConfigSer
 			c.String(http.StatusNotFound, "Not found")
 			return
 		}
-		staticFS, _ := web.GetStaticFS()
+		staticFS, err := web.GetStaticFS()
+		if err != nil {
+			c.String(http.StatusInternalServerError, "Failed to load static files")
+			return
+		}
 		http.FileServer(staticFS).ServeHTTP(c.Writer, c.Request)
 	})
 

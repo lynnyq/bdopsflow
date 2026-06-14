@@ -483,7 +483,9 @@ func (s *SchedulerService) DeleteExecutionWithDomainCheck(ctx context.Context, i
 			Query:     deleteLogsQuery,
 			Arguments: []interface{}{executionID},
 		}
-		_, _ = s.DB.WriteOneParameterized(deleteLogsStmt)
+		if _, err := s.DB.WriteOneParameterized(deleteLogsStmt); err != nil {
+			slog.Warn("failed to delete task logs", "execution_id", executionID, "error", err)
+		}
 	}
 
 	deleteExecQuery := "DELETE FROM bdopsflow_task_executions WHERE id = ?"
@@ -557,7 +559,9 @@ func (s *SchedulerService) BatchDeleteExecutionsWithDomainCheck(ctx context.Cont
 			Query:     deleteLogsQuery,
 			Arguments: logArgs,
 		}
-		_, _ = s.DB.WriteOneParameterized(deleteLogsStmt)
+		if _, err := s.DB.WriteOneParameterized(deleteLogsStmt); err != nil {
+			slog.Warn("failed to delete task logs in batch", "count", len(logPlaceholders), "error", err)
+		}
 	}
 
 	deleteArgs := make([]interface{}, len(ids))
@@ -585,7 +589,7 @@ func (s *SchedulerService) BatchDeleteExecutionsWithDomainCheck(ctx context.Cont
 	return err
 }
 
-func (s *SchedulerService) CancelExecution(ctx context.Context, executionID string) error {
+func (s *SchedulerService) CancelExecution(ctx context.Context, executionID string, cancelledBy string) error {
 	query := `
 		SELECT task_id, status, executor_id FROM bdopsflow_task_executions WHERE execution_id = ?
 	`
@@ -636,7 +640,7 @@ func (s *SchedulerService) CancelExecution(ctx context.Context, executionID stri
 		return fmt.Errorf("failed to update execution: %w", err)
 	}
 
-	s.AddTaskLog(ctx, executionID, taskID, "", "info", "Task cancelled by user")
+	s.AddTaskLog(ctx, executionID, taskID, "", "info", fmt.Sprintf("Task cancelled by user: %s", cancelledBy))
 
 	slog.Info("execution cancelled", "execution_id", executionID, "task_id", taskID)
 	return nil

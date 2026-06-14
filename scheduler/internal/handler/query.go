@@ -253,7 +253,14 @@ func (h *QueryHandler) executeQuery(ctx context.Context, cancel context.CancelFu
 	h.runtimeConfig.mu.RUnlock()
 
 	querySQL := driver.ApplyLimitToSQL(req.SQL, defaultLimit, ds.Type)
-	result, err := drv.QueryWithDB(ctx, querySQL, req.Database)
+
+	// 使用统一重试机制执行查询
+	var result *driver.QueryResult
+	retryCfg := driver.DefaultRetryConfig
+	result, err = driver.WithRetry(ctx, retryCfg, func(queryCtx context.Context) (*driver.QueryResult, error) {
+		return drv.QueryWithDB(queryCtx, querySQL, req.Database)
+	}, ds.Type)
+
 	execTime := time.Since(startTime).Seconds()
 
 	metrics.DatasourceQueryDurationSeconds.Observe(execTime)

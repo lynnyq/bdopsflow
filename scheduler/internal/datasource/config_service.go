@@ -208,6 +208,19 @@ func NewConfigService(db database.DB) *ConfigService {
 	return s
 }
 
+// OnConfigChanged 实现 sysconfig.ConfigObserver 接口
+// 当系统配置变更时，同步更新本地缓存，实现热加载
+func (s *ConfigService) OnConfigChanged(key, value string) {
+	// 只处理本服务关心的配置项
+	if _, ok := defaultConfigValues[key]; !ok {
+		return
+	}
+	s.mu.Lock()
+	s.cache[key] = value
+	s.mu.Unlock()
+	slog.Info("datasource config hot-reloaded", "key", key, "value", value)
+}
+
 func (s *ConfigService) Get(key string) string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

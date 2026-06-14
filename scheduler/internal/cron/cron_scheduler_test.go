@@ -228,12 +228,23 @@ func TestAcquireReleaseLock_WithRedis(t *testing.T) {
 		t.Error("Should acquire lock on first attempt")
 	}
 
+	// Same node re-acquiring should succeed (lock refresh)
 	acquired, err = cs.acquireTaskLock(ctx, taskID, lockTTL)
 	if err != nil {
-		t.Errorf("Second acquire should not return error: %v", err)
+		t.Errorf("Same node re-acquire should not return error: %v", err)
+	}
+	if !acquired {
+		t.Error("Same node should be able to re-acquire (refresh) lock")
+	}
+
+	// Different node should fail to acquire
+	cs2 := &CronScheduler{redis: client, nodeID: "node-other"}
+	acquired, err = cs2.acquireTaskLock(ctx, taskID, lockTTL)
+	if err != nil {
+		t.Errorf("Different node acquire should not return error: %v", err)
 	}
 	if acquired {
-		t.Error("Should not acquire lock on second attempt")
+		t.Error("Different node should not acquire lock owned by another node")
 	}
 
 	cs.releaseTaskLock(ctx, taskID)

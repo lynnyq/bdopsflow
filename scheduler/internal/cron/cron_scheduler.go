@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -27,9 +28,13 @@ type CronScheduler struct {
 	startTime         time.Time
 	lastRedisSync     time.Time
 	redisSyncInterval time.Duration
+	nodeID            string // 节点唯一标识，用于分布式锁所有权验证
 }
 
 func NewCronScheduler(svc *service.SchedulerService, redis *redis.Client) *CronScheduler {
+	// 生成节点唯一标识
+	nodeID := generateNodeID()
+
 	return &CronScheduler{
 		cron:              cron.New(cron.WithSeconds()),
 		svc:               svc,
@@ -37,7 +42,14 @@ func NewCronScheduler(svc *service.SchedulerService, redis *redis.Client) *CronS
 		taskEntries:       make(map[int64]cron.EntryID),
 		startTime:         time.Now(),
 		redisSyncInterval: 5 * time.Second,
+		nodeID:            nodeID,
 	}
+}
+
+// generateNodeID 生成节点唯一标识
+func generateNodeID() string {
+	hostname, _ := os.Hostname()
+	return fmt.Sprintf("%s-%d", hostname, os.Getpid())
 }
 
 func (cs *CronScheduler) Start() error {
@@ -353,6 +365,11 @@ func (cs *CronScheduler) executeTask(taskID int64) {
 	}
 	defer cs.releaseTaskLock(ctx, taskID)
 
+	// 启动锁续期协程（防止长任务执行期间锁过期）
+	stopRenewer := make(chan struct{})
+	go cs.startLockRenewer(ctx, taskID, lockTTL, stopRenewer)
+	defer close(stopRenewer)
+
 	slog.Info("cron task triggering", "task_id", taskID, "task_name", task.Name)
 
 	executionID, err := cs.svc.TriggerTask(ctx, taskID)
@@ -382,30 +399,115 @@ func (cs *CronScheduler) executeTask(taskID int64) {
 	metrics.CronTriggers.WithLabelValues("failed").Inc()
 }
 
-// acquireTaskLock 尝试获取任务执行锁
+// acquireTaskLock 尝试获取任务执行锁（带所有权验证）
 func (cs *CronScheduler) acquireTaskLock(ctx context.Context, taskID int64, lockTTL time.Duration) (bool, error) {
 	if cs.redis == nil {
 		return true, nil
 	}
 
 	lockKey := fmt.Sprintf("cron:lock:task:%d", taskID)
-	ok, err := cs.redis.SetNX(ctx, lockKey, "locked", lockTTL).Result()
+	// 使用 Lua 脚本确保原子性：只有当锁不存在或已过期时才能获取
+	luaScript := `
+		if redis.call("EXISTS", KEYS[1]) == 0 then
+			redis.call("HSET", KEYS[1], "owner", ARGV[1], "expire", ARGV[2])
+			return 1
+		elseif redis.call("HGET", KEYS[1], "owner") == ARGV[1] then
+			redis.call("HSET", KEYS[1], "expire", ARGV[2])
+			return 1
+		else
+			return 0
+		end
+	`
+
+	expireTime := time.Now().Add(lockTTL).Unix()
+	result, err := cs.redis.Eval(ctx, luaScript, []string{lockKey}, cs.nodeID, expireTime).Int()
 	if err != nil {
 		slog.Warn("failed to acquire lock", "task_id", taskID, "error", err)
 		return false, err
 	}
-	return ok, nil
+
+	return result == 1, nil
 }
 
-// releaseTaskLock 释放任务执行锁
+// releaseTaskLock 释放任务执行锁（验证所有权）
 func (cs *CronScheduler) releaseTaskLock(ctx context.Context, taskID int64) {
 	if cs.redis == nil {
 		return
 	}
 
 	lockKey := fmt.Sprintf("cron:lock:task:%d", taskID)
-	err := cs.redis.Del(ctx, lockKey).Err()
+	// 使用 Lua 脚本确保只有锁的所有者才能释放
+	luaScript := `
+		if redis.call("HGET", KEYS[1], "owner") == ARGV[1] then
+			return redis.call("DEL", KEYS[1])
+		else
+			return 0
+		end
+	`
+
+	result, err := cs.redis.Eval(ctx, luaScript, []string{lockKey}, cs.nodeID).Int()
 	if err != nil {
 		slog.Warn("failed to release lock", "task_id", taskID, "error", err)
+		return
+	}
+
+	if result == 0 {
+		slog.Warn("lock already released or owned by another node", "task_id", taskID, "node_id", cs.nodeID)
+	}
+}
+
+// renewTaskLock 续期任务锁（防止长任务锁过期）
+func (cs *CronScheduler) renewTaskLock(ctx context.Context, taskID int64, lockTTL time.Duration) error {
+	if cs.redis == nil {
+		return nil
+	}
+
+	lockKey := fmt.Sprintf("cron:lock:task:%d", taskID)
+	// 使用 Lua 脚本确保只有锁的所有者才能续期
+	luaScript := `
+		if redis.call("HGET", KEYS[1], "owner") == ARGV[1] then
+			redis.call("HSET", KEYS[1], "expire", ARGV[2])
+			return 1
+		else
+			return 0
+		end
+	`
+
+	expireTime := time.Now().Add(lockTTL).Unix()
+	result, err := cs.redis.Eval(ctx, luaScript, []string{lockKey}, cs.nodeID, expireTime).Int()
+	if err != nil {
+		return err
+	}
+
+	if result == 0 {
+		return fmt.Errorf("lock not owned by this node")
+	}
+
+	return nil
+}
+
+// startLockRenewer 启动锁续期协程
+func (cs *CronScheduler) startLockRenewer(ctx context.Context, taskID int64, lockTTL time.Duration, stopCh <-chan struct{}) {
+	// 每 lockTTL/3 续期一次，确保锁不会过期
+	renewInterval := lockTTL / 3
+	ticker := time.NewTicker(renewInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			if err := cs.renewTaskLock(ctx, taskID, lockTTL); err != nil {
+				slog.Warn("failed to renew lock, task may be taken by another node",
+					"task_id", taskID,
+					"error", err,
+				)
+				return
+			}
+			slog.Debug("lock renewed successfully", "task_id", taskID)
+		case <-stopCh:
+			return
+		case <-ctx.Done():
+			return
+		}
 	}
 }

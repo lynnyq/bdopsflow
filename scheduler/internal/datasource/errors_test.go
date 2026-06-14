@@ -129,6 +129,7 @@ func TestAllErrorsDefined(t *testing.T) {
 		ErrPermissionServiceError,
 		ErrInvalidPermissionType,
 		ErrDatasourceConcurrentLimit,
+		ErrDatasourceCircuitOpen,
 	}
 
 	for _, errVar := range errorVars {

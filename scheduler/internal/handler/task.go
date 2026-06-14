@@ -828,8 +828,15 @@ func (h *TaskHandler) CancelExecution(c *gin.Context) {
 		return
 	}
 
+	// 获取操作者信息
+	username, _ := c.Get("username")
+	cancelledBy := "unknown"
+	if u, ok := username.(string); ok && u != "" {
+		cancelledBy = u
+	}
+
 	ctx := c.Request.Context()
-	err := h.svc.CancelExecution(ctx, executionID)
+	err := h.svc.CancelExecution(ctx, executionID, cancelledBy)
 	if err != nil {
 		slog.Error("TaskHandler.CancelExecution: failed to cancel execution", "execution_id", executionID, "error", err)
 		if strings.Contains(err.Error(), "not found") {
@@ -842,7 +849,7 @@ func (h *TaskHandler) CancelExecution(c *gin.Context) {
 		return
 	}
 
-	slog.Info("TaskHandler.CancelExecution: execution cancelled", "execution_id", executionID)
+	slog.Info("TaskHandler.CancelExecution: execution cancelled", "execution_id", executionID, "cancelled_by", cancelledBy)
 	Success(c, gin.H{"message": "execution cancelled", "execution_id": executionID})
 }
 

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lynnyq/bdopsflow/scheduler/internal/metrics"
 	"github.com/redis/go-redis/v9"
 	rqlite "github.com/rqlite/gorqlite"
 )
@@ -31,10 +32,14 @@ func (s *SchedulerService) cleanupStuckTasks() {
 			if !s.IsLeader() {
 				continue
 			}
+			start := time.Now()
 			s.checkCronReload()
 			s.cleanupDeadTasks()
 			s.cleanupOfflineExecutors()
 			s.cleanupStaleTaskLocks()
+			duration := time.Since(start).Seconds()
+			metrics.CleanupDurationSeconds.Observe(duration)
+			metrics.CleanupRuns.WithLabelValues("all").Inc()
 		}
 	}
 }
@@ -124,7 +129,10 @@ func (s *SchedulerService) cleanupDeadTasks() {
 		for i, key := range renewKeys {
 			cmds[i] = pipe.Get(ctx, key)
 		}
-		_, _ = pipe.Exec(ctx)
+		_, pipeErr := pipe.Exec(ctx)
+		if pipeErr != nil {
+			slog.Warn("failed to execute redis pipeline for renew keys", "error", pipeErr)
+		}
 		for i, cmd := range cmds {
 			if val, err := cmd.Result(); err == nil {
 				renewValues[renewKeys[i]] = val
@@ -244,6 +252,9 @@ func (s *SchedulerService) cleanupDeadTasks() {
 			err := s.UpdateExecutionResult(ctx, exec.ExecutionID, "failed", "", fmt.Sprintf("task stuck: %s", reason))
 			if err != nil {
 				slog.Error("cleanup: failed to update execution result", "error", err, "execution_id", exec.ExecutionID)
+				metrics.CleanupErrors.WithLabelValues("update_result").Inc()
+			} else {
+				metrics.CleanupTasksCleaned.WithLabelValues(reason).Inc()
 			}
 
 			failCountKey := fmt.Sprintf("task:renew:fail:count:%s", exec.ExecutionID)
@@ -285,15 +296,18 @@ func (s *SchedulerService) cleanupOfflineExecutors() {
 	})
 	if err != nil {
 		slog.Error("cleanup: update offline bdopsflow_executors failed", "error", err)
+		metrics.CleanupErrors.WithLabelValues("offline_executors").Inc()
 		return
 	}
 	if result.Err != nil {
 		slog.Error("cleanup: update offline bdopsflow_executors returned error", "error", result.Err)
+		metrics.CleanupErrors.WithLabelValues("offline_executors").Inc()
 		return
 	}
 
 	if result.RowsAffected > 0 {
 		slog.Warn("marked bdopsflow_executors as offline", "count", result.RowsAffected)
+		metrics.CleanupExecutorsMarkedOffline.Add(float64(result.RowsAffected))
 	}
 
 	s.cleanupTasksFromOfflineExecutors(ctx)
@@ -427,7 +441,10 @@ func (s *SchedulerService) cleanupStaleTaskLocks() {
 		for i, key := range failCountKeys {
 			failCmds[i] = pipe.Get(ctx, key)
 		}
-		_, _ = pipe.Exec(ctx)
+		_, pipeErr := pipe.Exec(ctx)
+		if pipeErr != nil {
+			slog.Warn("failed to execute redis pipeline for fail count keys", "error", pipeErr)
+		}
 
 		delKeys := make([]string, 0)
 		for i, cmd := range renewCmds {
@@ -506,6 +523,7 @@ func (s *SchedulerService) cleanupStaleTaskLocks() {
 
 	if cleanedLocks > 0 {
 		slog.Info("cleanup: removed stale task locks", "count", cleanedLocks)
+		metrics.CleanupLocksCleaned.Add(float64(cleanedLocks))
 	}
 }
 

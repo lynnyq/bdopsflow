@@ -218,7 +218,12 @@ func (d *KyuubiDriver) Query(ctx context.Context, query string, args ...interfac
 // 不同用户的查询互不阻塞，database context 完全隔离。
 func (d *KyuubiDriver) QueryWithDB(ctx context.Context, query string, database string) (*QueryResult, error) {
 	if d.pool == nil {
-		return nil, errors.New("kyuubi connection pool not initialized")
+		return nil, &DatasourceError{
+			Err:            errors.New("kyuubi connection pool not initialized"),
+			Category:       ErrCategoryConnection,
+			DatasourceType: "kyuubi",
+			Retryable:      false,
+		}
 	}
 
 	normalizedQuery := normalizeSQL(query)
@@ -227,14 +232,14 @@ func (d *KyuubiDriver) QueryWithDB(ctx context.Context, query string, database s
 	// 从连接池获取连接
 	pc, err := d.pool.acquire(ctx)
 	if err != nil {
-		return nil, errors.Wrap(err, "kyuubi acquire connection failed")
+		return nil, ClassifyError(errors.Wrap(err, "kyuubi acquire connection failed"), "kyuubi")
 	}
 
 	// 设置 database context
 	if database != "" {
 		if useErr := pc.ensureDatabase(ctx, database); useErr != nil {
 			d.pool.discard(pc)
-			return nil, errors.Wrap(useErr, "kyuubi switch database failed")
+			return nil, ClassifyError(errors.Wrap(useErr, "kyuubi switch database failed"), "kyuubi")
 		}
 	}
 

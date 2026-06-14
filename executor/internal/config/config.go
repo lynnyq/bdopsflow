@@ -51,7 +51,13 @@ func Load(configFile string) *Config {
 		ConfigFile: configFile,
 	})
 	if err != nil {
-		slog.Warn("failed to load config file, using defaults", "error", err)
+		// 如果显式指定了配置文件但加载失败，应该记录错误并使用默认配置
+		// 但不阻止启动，因为可能通过命令行参数提供必要配置
+		if configFile != "" {
+			slog.Error("failed to load specified config file", "file", configFile, "error", err)
+		} else {
+			slog.Warn("failed to load default config file, using defaults", "error", err)
+		}
 		return defaultConfig(defaultHostname)
 	}
 

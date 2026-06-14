@@ -21,12 +21,19 @@ type ConcurrentService struct {
 	runtimeMaxGlobal         int
 	runtimeMaxPerDatasource  int
 	mu                       sync.RWMutex
+
+	// 校准相关
+	calibrationInterval time.Duration
+	stopCalibration     chan struct{}
+	getActualCount      func() (userCounts map[int64]int64, globalCount int64, dsCounts map[int64]int64)
 }
 
 func NewConcurrentService(redis *redis.Client, config *sysconfig.Service) *ConcurrentService {
 	s := &ConcurrentService{
-		redis:  redis,
-		config: config,
+		redis:               redis,
+		config:              config,
+		calibrationInterval: 5 * time.Minute,
+		stopCalibration:     make(chan struct{}),
 	}
 
 	// 初始化运行时配置
@@ -36,6 +43,108 @@ func NewConcurrentService(redis *redis.Client, config *sysconfig.Service) *Concu
 	config.RegisterObserver(s)
 
 	return s
+}
+
+// StartCalibration 启动定期校准任务
+func (s *ConcurrentService) StartCalibration(getActualCount func() (userCounts map[int64]int64, globalCount int64, dsCounts map[int64]int64)) {
+	s.getActualCount = getActualCount
+
+	go func() {
+		ticker := time.NewTicker(s.calibrationInterval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				s.calibrateCounters()
+			case <-s.stopCalibration:
+				slog.Info("concurrent service calibration stopped")
+				return
+			}
+		}
+	}()
+
+	slog.Info("concurrent service calibration started", "interval", s.calibrationInterval)
+}
+
+// StopCalibration 停止校准任务
+func (s *ConcurrentService) StopCalibration() {
+	close(s.stopCalibration)
+}
+
+// calibrateCounters 基于实际运行的查询数量校准计数器
+func (s *ConcurrentService) calibrateCounters() {
+	if s.getActualCount == nil {
+		return
+	}
+
+	userCounts, globalCount, dsCounts := s.getActualCount()
+	ctx := context.Background()
+
+	// 校准用户并发计数
+	for userID, actualCount := range userCounts {
+		userKey := fmt.Sprintf("datasource:query:concurrent:user:%d", userID)
+		redisCount, err := s.redis.Get(ctx, userKey).Int64()
+		if err != nil && err != redis.Nil {
+			slog.Warn("failed to get user concurrent count for calibration", "user_id", userID, "error", err)
+			continue
+		}
+
+		if redisCount != actualCount {
+			slog.Warn("calibrating user concurrent count",
+				"user_id", userID,
+				"redis_count", redisCount,
+				"actual_count", actualCount,
+				"diff", redisCount-actualCount)
+
+			if actualCount == 0 {
+				s.redis.Del(ctx, userKey)
+			} else {
+				s.redis.Set(ctx, userKey, actualCount, 5*time.Minute)
+			}
+		}
+	}
+
+	// 校准全局并发计数
+	redisGlobalCount, err := s.redis.Get(ctx, "datasource:query:concurrent:global").Int64()
+	if err != nil && err != redis.Nil {
+		slog.Warn("failed to get global concurrent count for calibration", "error", err)
+	} else if redisGlobalCount != globalCount {
+		slog.Warn("calibrating global concurrent count",
+			"redis_count", redisGlobalCount,
+			"actual_count", globalCount,
+			"diff", redisGlobalCount-globalCount)
+
+		if globalCount == 0 {
+			s.redis.Del(ctx, "datasource:query:concurrent:global")
+		} else {
+			s.redis.Set(ctx, "datasource:query:concurrent:global", globalCount, 5*time.Minute)
+		}
+	}
+
+	// 校准数据源并发计数
+	for dsID, actualCount := range dsCounts {
+		dsKey := fmt.Sprintf("datasource:query:concurrent:ds:%d", dsID)
+		redisCount, err := s.redis.Get(ctx, dsKey).Int64()
+		if err != nil && err != redis.Nil {
+			slog.Warn("failed to get datasource concurrent count for calibration", "datasource_id", dsID, "error", err)
+			continue
+		}
+
+		if redisCount != actualCount {
+			slog.Warn("calibrating datasource concurrent count",
+				"datasource_id", dsID,
+				"redis_count", redisCount,
+				"actual_count", actualCount,
+				"diff", redisCount-actualCount)
+
+			if actualCount == 0 {
+				s.redis.Del(ctx, dsKey)
+			} else {
+				s.redis.Set(ctx, dsKey, actualCount, 5*time.Minute)
+			}
+		}
+	}
 }
 
 // OnConfigChanged 实现 sysconfig.ConfigObserver 接口

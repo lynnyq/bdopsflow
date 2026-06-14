@@ -65,19 +65,24 @@ func (d *StarRocksDriver) Close() error {
 
 func (d *StarRocksDriver) Query(ctx context.Context, query string, args ...interface{}) (*QueryResult, error) {
 	if d.db == nil {
-		return nil, fmt.Errorf("starrocks connection not established")
+		return nil, &DatasourceError{
+			Err:            fmt.Errorf("starrocks connection not established"),
+			Category:       ErrCategoryConnection,
+			DatasourceType: "starrocks",
+			Retryable:      false,
+		}
 	}
 	slog.Debug("starrocks executing query", "sql_preview", truncateSQL(query, 200))
 	rows, err := d.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		slog.Error("starrocks query execution failed", "sql_preview", truncateSQL(query, 200), "error", err)
-		return nil, fmt.Errorf("starrocks query error: %w", err)
+		return nil, ClassifyError(err, "starrocks")
 	}
 	defer rows.Close()
 
 	columns, err := rows.Columns()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get columns: %w", err)
+		return nil, ClassifyError(err, "starrocks")
 	}
 
 	var resultRows [][]interface{}
@@ -88,7 +93,7 @@ func (d *StarRocksDriver) Query(ctx context.Context, query string, args ...inter
 			valuePtrs[i] = &values[i]
 		}
 		if err := rows.Scan(valuePtrs...); err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
+			return nil, ClassifyError(err, "starrocks")
 		}
 		row := make([]interface{}, len(columns))
 		for i, v := range values {
@@ -181,7 +186,9 @@ func (d *StarRocksDriver) QueryWithDB(ctx context.Context, query string, databas
 	}
 	result, err := d.Query(ctx, query)
 	if d.config.Database != "" && d.config.Database != database {
-		_ = d.UseDatabase(ctx, d.config.Database)
+		if restoreErr := d.UseDatabase(ctx, d.config.Database); restoreErr != nil {
+			slog.Warn("failed to restore database after query", "database", d.config.Database, "error", restoreErr)
+		}
 	}
 	return result, err
 }

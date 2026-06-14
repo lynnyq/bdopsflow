@@ -31,6 +31,7 @@ var (
 	ErrMetadataFailed           = errors.New("metadata fetch failed")
 	ErrPermissionServiceError   = errors.New("permission verification service error")
 	ErrInvalidPermissionType    = errors.New("invalid permission type")
+	ErrDatasourceCircuitOpen    = errors.New("datasource circuit breaker is open, temporarily unavailable")
 )
 
 type DatasourceError struct {
@@ -80,6 +81,7 @@ var errorCodes = map[error]int{
 	ErrMetadataFailed:           3024,
 	ErrPermissionServiceError:   3025,
 	ErrInvalidPermissionType:    3027,
+	ErrDatasourceCircuitOpen:    3029,
 }
 
 func GetErrorCode(err error) int {

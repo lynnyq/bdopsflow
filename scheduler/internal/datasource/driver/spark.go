@@ -218,7 +218,12 @@ func (d *SparkDriver) Query(ctx context.Context, query string, args ...interface
 // 不同用户的查询互不阻塞，database context 完全隔离。
 func (d *SparkDriver) QueryWithDB(ctx context.Context, query string, database string) (*QueryResult, error) {
 	if d.pool == nil {
-		return nil, errors.New("spark connection pool not initialized")
+		return nil, &DatasourceError{
+			Err:            errors.New("spark connection pool not initialized"),
+			Category:       ErrCategoryConnection,
+			DatasourceType: "spark",
+			Retryable:      false,
+		}
 	}
 
 	normalizedQuery := normalizeSQL(query)
@@ -227,14 +232,14 @@ func (d *SparkDriver) QueryWithDB(ctx context.Context, query string, database st
 	// 从连接池获取连接
 	pc, err := d.pool.acquire(ctx)
 	if err != nil {
-		return nil, errors.Wrap(err, "spark acquire connection failed")
+		return nil, ClassifyError(errors.Wrap(err, "spark acquire connection failed"), "spark")
 	}
 
 	// 设置 database context
 	if database != "" {
 		if useErr := pc.ensureDatabase(ctx, database); useErr != nil {
 			d.pool.discard(pc)
-			return nil, errors.Wrap(useErr, "spark switch database failed")
+			return nil, ClassifyError(errors.Wrap(useErr, "spark switch database failed"), "spark")
 		}
 	}
 

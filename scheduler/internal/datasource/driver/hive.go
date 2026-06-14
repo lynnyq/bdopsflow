@@ -223,7 +223,12 @@ func (d *HiveDriver) Query(ctx context.Context, query string, args ...interface{
 // 不同用户的查询互不阻塞，database context 完全隔离。
 func (d *HiveDriver) QueryWithDB(ctx context.Context, query string, database string) (*QueryResult, error) {
 	if d.pool == nil {
-		return nil, errors.New("hive connection pool not initialized")
+		return nil, &DatasourceError{
+			Err:            errors.New("hive connection pool not initialized"),
+			Category:       ErrCategoryConnection,
+			DatasourceType: "hive",
+			Retryable:      false,
+		}
 	}
 
 	normalizedQuery := normalizeSQL(query)
@@ -232,14 +237,14 @@ func (d *HiveDriver) QueryWithDB(ctx context.Context, query string, database str
 	// 从连接池获取连接
 	pc, err := d.pool.acquire(ctx)
 	if err != nil {
-		return nil, errors.Wrap(err, "hive acquire connection failed")
+		return nil, ClassifyError(errors.Wrap(err, "hive acquire connection failed"), "hive")
 	}
 
 	// 设置 database context
 	if database != "" {
 		if useErr := pc.ensureDatabase(ctx, database); useErr != nil {
 			d.pool.discard(pc)
-			return nil, errors.Wrap(useErr, "hive switch database failed")
+			return nil, ClassifyError(errors.Wrap(useErr, "hive switch database failed"), "hive")
 		}
 	}
 

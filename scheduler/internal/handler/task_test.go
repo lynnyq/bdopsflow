@@ -121,7 +121,7 @@ func (m *mockTaskService) ForwardToLeader(ctx context.Context, method, path stri
 	return nil, 503, fmt.Errorf("not implemented")
 }
 
-func (m *mockTaskService) CancelExecution(ctx context.Context, executionID string) error {
+func (m *mockTaskService) CancelExecution(ctx context.Context, executionID string, cancelledBy string) error {
 	return nil
 }
 

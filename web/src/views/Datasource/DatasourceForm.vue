@@ -443,7 +443,7 @@ const handleConnectionModeChange = () => {
 }
 
 const buildSubmitData = () => {
-  const data: Record<string, any> = {
+  const data: Partial<any> = {
     name: form.value.name,
     type: form.value.type,
     description: form.value.description,
@@ -470,7 +470,7 @@ const buildSubmitData = () => {
     }
     data.username = form.value.username
     data.password = form.value.password
-    const config: Record<string, any> = {}
+    const config: Record<string, unknown> = {}
     if (form.value.ssl) {
       config.ssl = true
     }
@@ -570,11 +570,16 @@ const loadDatasource = async () => {
   try {
     const res = await datasourceAPI.get(Number(route.params.id))
     const ds = res.data
-    let configData: Record<string, any> = {}
+    let configData: Record<string, unknown> = {}
     if (ds.config) {
       try {
-        configData = JSON.parse(ds.config)
-      } catch (e) {}
+        const parsed = JSON.parse(ds.config)
+        if (parsed && typeof parsed === 'object') {
+          configData = parsed
+        }
+      } catch (e) {
+        console.warn('Failed to parse datasource config:', e)
+      }
     }
     form.value = {
       name: ds.name,
@@ -586,21 +591,22 @@ const loadDatasource = async () => {
       username: ds.username || '',
       password: '',
       auth_type: ds.auth_type || 'simple',
-      connection_mode: (ds as any).connection_mode || (ds.type === 'rqlite' ? 'single' : 'direct'),
-      zk_hosts: (ds as any).zk_hosts || '',
-      zk_path: (ds as any).zk_path || '',
-      rqlite_hosts: (ds as any).rqlite_hosts || '',
-      transport_mode: configData.transport_mode || 'binary',
-      http_path: configData.http_path || '',
-      ssl: configData.ssl || false,
+      connection_mode: ds.connection_mode || (ds.type === 'rqlite' ? 'single' : 'direct'),
+      zk_hosts: ds.zk_hosts || '',
+      zk_path: ds.zk_path || '',
+      rqlite_hosts: ds.rqlite_hosts || '',
+      transport_mode: (configData.transport_mode as string) || 'binary',
+      http_path: (configData.http_path as string) || '',
+      ssl: Boolean(configData.ssl),
       description: ds.description || '',
       is_enabled: ds.is_enabled,
       allow_write_sql: ds.allow_write_sql || false,
       domain_id: ds.domain_id || 0,
     }
-  } catch (err: any) {
+  } catch (err: unknown) {
     if (!isHandledError(err)) {
-      ElMessage.error(err.message || '加载数据源失败')
+      const message = err instanceof Error ? err.message : '加载数据源失败'
+      ElMessage.error(message)
     }
   }
 }

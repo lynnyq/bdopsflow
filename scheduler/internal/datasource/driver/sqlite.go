@@ -63,17 +63,22 @@ func (d *SQLiteDriver) Close() error {
 
 func (d *SQLiteDriver) Query(ctx context.Context, query string, args ...interface{}) (*QueryResult, error) {
 	if d.db == nil {
-		return nil, fmt.Errorf("sqlite connection not established")
+		return nil, &DatasourceError{
+			Err:            fmt.Errorf("sqlite connection not established"),
+			Category:       ErrCategoryConnection,
+			DatasourceType: "sqlite",
+			Retryable:      false,
+		}
 	}
 	rows, err := d.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("sqlite query error: %w", err)
+		return nil, ClassifyError(err, "sqlite")
 	}
 	defer rows.Close()
 
 	columns, err := rows.Columns()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get columns: %w", err)
+		return nil, ClassifyError(err, "sqlite")
 	}
 
 	var resultRows [][]interface{}
@@ -84,7 +89,7 @@ func (d *SQLiteDriver) Query(ctx context.Context, query string, args ...interfac
 			valuePtrs[i] = &values[i]
 		}
 		if err := rows.Scan(valuePtrs...); err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
+			return nil, ClassifyError(err, "sqlite")
 		}
 		row := make([]interface{}, len(columns))
 		copy(row, values)
