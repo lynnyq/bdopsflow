@@ -1980,6 +1980,22 @@ const handleExecute = async () => {
         }
       });
 
+      // 监听后端发送的 error 事件（如查询不存在或已过期）
+      eventSource.addEventListener('error', (event: MessageEvent) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.error) {
+            stopPolling(tab.id);
+            tab.errorMessage = data.error;
+            tab.queryResult = null;
+            tab.executing = false;
+            eventSource.close();
+          }
+        } catch (parseErr) {
+          // JSON 解析失败，忽略
+        }
+      });
+
       eventSource.onerror = () => {
         // SSE 连接失败，降级到轮询
         eventSource.close();

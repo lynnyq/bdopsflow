@@ -178,7 +178,7 @@ func setupRoutes(router *gin.Engine, app *App) {
 		}
 
 		dsHandler := handler.NewDatasourceHandler(app.dsService, app.dsManager, app.dsConfigService, app.instancePermSvc, app.permissionService, app.domainAdminService, app.userAdminService)
-		queryHandler := handler.NewQueryHandler(app.dsService, app.dsManager, app.sysConfigService, app.dsCacheService, app.dsConcurrentService)
+		queryHandler := handler.NewQueryHandler(app.dsService, app.dsManager, app.sysConfigService, app.dsCacheService, app.dsConcurrentService, app.redisClient, app.nodeID)
 
 		datasources := protected.Group("/datasources")
 		{

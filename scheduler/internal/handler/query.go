@@ -13,6 +13,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/datasource"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/datasource/driver"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/metrics"
@@ -26,7 +27,7 @@ type QueryHandler struct {
 	configService     *sysconfig.Service
 	cacheService      *datasource.CacheService
 	concurrentService *datasource.ConcurrentService
-	registry          *QueryRegistry
+	registry          queryRegistry
 
 	// 运行时配置缓存（用于热更新）
 	runtimeConfig struct {
@@ -42,8 +43,29 @@ type QueryHandler struct {
 	}
 }
 
-func NewQueryHandler(dsService *datasource.DatasourceService, manager *datasource.Manager, configService *sysconfig.Service, cacheService *datasource.CacheService, concurrentService *datasource.ConcurrentService) *QueryHandler {
-	registry := NewQueryRegistry()
+// queryRegistry 查询注册表接口，支持本地内存和 Redis 分布式实现
+type queryRegistry interface {
+	Register(query *RunningQuery)
+	Get(queryID string) (*RunningQuery, bool)
+	UpdateResult(queryID string, result *driver.QueryResult, execTime float64)
+	UpdateError(queryID string, errMsg string, execTime float64)
+	Cancel(queryID string) bool
+	SetRunning(queryID string)
+	Cleanup(maxAge time.Duration)
+	StartCleanupLoop(interval, maxAge time.Duration)
+	RegisterObserver(observer QueryObserver)
+	UnregisterObserver(observer QueryObserver)
+}
+
+func NewQueryHandler(dsService *datasource.DatasourceService, manager *datasource.Manager, configService *sysconfig.Service, cacheService *datasource.CacheService, concurrentService *datasource.ConcurrentService, redisClient *redis.Client, nodeID string) *QueryHandler {
+	var registry queryRegistry
+	if redisClient != nil {
+		registry = NewDistributedQueryRegistry(redisClient, nodeID)
+		slog.Info("using distributed query registry (Redis-backed)", "node_id", nodeID)
+	} else {
+		registry = NewQueryRegistry()
+		slog.Info("using local query registry (in-memory)")
+	}
 	registry.StartCleanupLoop(5*time.Minute, 30*time.Minute)
 
 	h := &QueryHandler{
@@ -968,6 +990,11 @@ func (h *QueryHandler) Cancel(c *gin.Context) {
 		}
 		if q.Status == QueryStatusCancelled {
 			Fail(c, CodeQueryError, "查询已取消")
+			return
+		}
+		// 查询在其他节点执行，无法直接取消
+		if q.Status == QueryStatusPending || q.Status == QueryStatusRunning {
+			Fail(c, CodeQueryError, "查询正在其他节点执行，暂时无法取消，请稍后重试")
 			return
 		}
 		Fail(c, CodeQueryError, "取消查询失败")
