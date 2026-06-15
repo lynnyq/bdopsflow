@@ -249,6 +249,11 @@ func (d *KyuubiDriver) QueryWithDB(ctx context.Context, query string, database s
 	}
 
 	// 执行查询
+	// 使用可取消的 queryCtx 派生自外层 ctx，使得 cursor.Exec/HasMore/RowMap
+	// 都能响应 context 取消，避免慢查询时 goroutine 无法退出导致连接池耗尽。
+	queryCtx, queryCancel := context.WithCancel(ctx)
+	defer queryCancel()
+
 	type queryResult struct {
 		result *QueryResult
 		err    error
@@ -259,7 +264,7 @@ func (d *KyuubiDriver) QueryWithDB(ctx context.Context, query string, database s
 	go func() {
 		cursor := pc.conn.Cursor()
 		queryCursor = cursor
-		cursor.Exec(context.Background(), normalizedQuery)
+		cursor.Exec(queryCtx, normalizedQuery)
 		if cursor.Err != nil {
 			execErr := cursor.Err
 			cursor.Close()
@@ -289,8 +294,8 @@ func (d *KyuubiDriver) QueryWithDB(ctx context.Context, query string, database s
 		}
 
 		var rows [][]interface{}
-		for cursor.HasMore(context.Background()) {
-			rowMap := cursor.RowMap(context.Background())
+		for cursor.HasMore(queryCtx) {
+			rowMap := cursor.RowMap(queryCtx)
 			if cursor.Err != nil {
 				fetchErr := cursor.Err
 				cursor.Close()
@@ -321,11 +326,18 @@ func (d *KyuubiDriver) QueryWithDB(ctx context.Context, query string, database s
 	select {
 	case <-ctx.Done():
 		slog.Warn("kyuubi query cancelled by context, sending CancelOperation to Kyuubi Server", "sql_preview", truncateSQL(normalizedQuery, 200), "error", ctx.Err())
+		// 取消 queryCtx 使 goroutine 中的 HasMore/RowMap 尽快退出
+		queryCancel()
 		if queryCursor != nil {
 			queryCursor.Cancel()
 			queryCursor.Close()
 		}
-		go func() { <-resultCh }()
+		// 等待 goroutine 退出，避免连接泄漏
+		select {
+		case <-resultCh:
+		case <-time.After(3 * time.Second):
+			slog.Warn("kyuubi query goroutine did not exit in time after cancel, discarding connection", "sql_preview", truncateSQL(normalizedQuery, 200))
+		}
 		// 取消后归还连接（连接可能处于不确定状态，丢弃）
 		d.pool.discard(pc)
 		return nil, errors.Wrap(ctx.Err(), "kyuubi query cancelled")
