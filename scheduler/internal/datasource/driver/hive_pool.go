@@ -108,6 +108,58 @@ func (p *hiveConnPool) GetConfig() PoolConfig {
 	return p.config.Load().(PoolConfig)
 }
 
+// tryAcquire 非阻塞方式获取连接，池满时立即返回错误而非阻塞等待。
+// 用于 metadata 查询等场景，避免慢数据源的 metadata 请求阻塞占用浏览器连接和连接池。
+func (p *hiveConnPool) tryAcquire(ctx context.Context) (*pooledConn, error) {
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
+	cfg := p.config.Load().(PoolConfig)
+
+	// 优先从池中获取
+	select {
+	case pc := <-p.conns:
+		// 检查连接是否超过最大生命周期
+		if cfg.MaxLifetime > 0 {
+			if createTime, ok := p.createTime.Load(pc.conn); ok {
+				if time.Since(createTime.(time.Time)) > cfg.MaxLifetime {
+					slog.Debug("hive pooled connection exceeded max lifetime in tryAcquire, discarding")
+					p.discard(pc)
+					// 继续尝试创建新连接
+					return p.tryCreateConn(ctx, cfg)
+				}
+			}
+		}
+		p.inUseCount.Add(1)
+		return pc, nil
+	default:
+	}
+
+	// 池为空，尝试创建新连接（非阻塞）
+	return p.tryCreateConn(ctx, cfg)
+}
+
+// tryCreateConn 尝试创建新连接，已达上限时立即返回错误。
+func (p *hiveConnPool) tryCreateConn(ctx context.Context, cfg PoolConfig) (*pooledConn, error) {
+	currentOpen := p.openCount.Load()
+	if currentOpen < int32(cfg.MaxOpen) {
+		if p.openCount.CompareAndSwap(currentOpen, currentOpen+1) {
+			conn, err := p.createConn(ctx)
+			if err != nil {
+				p.openCount.Add(-1)
+				return nil, err
+			}
+			p.createTime.Store(conn, time.Now())
+			p.inUseCount.Add(1)
+			return &pooledConn{conn: conn}, nil
+		}
+	}
+
+	// 已达上限，立即返回错误
+	return nil, fmt.Errorf("hive connection pool fully occupied (%d/%d), tryAcquire failed", p.inUseCount.Load(), cfg.MaxOpen)
+}
+
 // acquire 从池中获取连接，如果池为空且未达到上限则创建新连接。
 // 如果池为空且已达上限，则阻塞等待直到有连接归还或 context 取消。
 func (p *hiveConnPool) acquire(ctx context.Context) (*pooledConn, error) {

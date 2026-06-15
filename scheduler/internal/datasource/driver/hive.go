@@ -230,6 +230,17 @@ func (d *HiveDriver) Query(ctx context.Context, query string, args ...interface{
 // 从连接池获取独立连接，设置 database context，执行查询，归还连接。
 // 不同用户的查询互不阻塞，database context 完全隔离。
 func (d *HiveDriver) QueryWithDB(ctx context.Context, query string, database string) (*QueryResult, error) {
+	return d.queryWithDB(ctx, query, database, d.pool.acquire)
+}
+
+// TryQueryWithDB 非阻塞版本的 QueryWithDB，连接池满时立即返回错误而非阻塞等待。
+// 用于 metadata 查询等场景，避免慢数据源的 metadata 请求阻塞占用浏览器连接和连接池。
+func (d *HiveDriver) TryQueryWithDB(ctx context.Context, query string, database string) (*QueryResult, error) {
+	return d.queryWithDB(ctx, query, database, d.pool.tryAcquire)
+}
+
+// queryWithDB 内部实现，通过 acquireFn 参数支持阻塞/非阻塞两种获取连接方式。
+func (d *HiveDriver) queryWithDB(ctx context.Context, query string, database string, acquireFn func(ctx context.Context) (*pooledConn, error)) (*QueryResult, error) {
 	if d.pool == nil {
 		return nil, &DatasourceError{
 			Err:            errors.New("hive connection pool not initialized"),
@@ -242,8 +253,8 @@ func (d *HiveDriver) QueryWithDB(ctx context.Context, query string, database str
 	normalizedQuery := normalizeSQL(query)
 	slog.Debug("hive executing query", "sql_preview", truncateSQL(normalizedQuery, 200), "database", database)
 
-	// 从连接池获取连接
-	pc, err := d.pool.acquire(ctx)
+	// 从连接池获取连接（通过 acquireFn 支持阻塞/非阻塞两种方式）
+	pc, err := acquireFn(ctx)
 	if err != nil {
 		return nil, ClassifyError(errors.Wrap(err, "hive acquire connection failed"), "hive")
 	}
@@ -373,7 +384,7 @@ func (d *HiveDriver) QueryWithDB(ctx context.Context, query string, database str
 }
 
 func (d *HiveDriver) GetDatabases(ctx context.Context) ([]string, error) {
-	result, err := d.Query(ctx, normalizeSQL("SHOW DATABASES"))
+	result, err := d.TryQueryWithDB(ctx, normalizeSQL("SHOW DATABASES"), d.defaultDB)
 	if err != nil {
 		return nil, err
 	}
@@ -393,7 +404,7 @@ func (d *HiveDriver) GetTables(ctx context.Context, database string) ([]TableInf
 	if database == "" {
 		database = d.config.Database
 	}
-	result, err := d.Query(ctx, fmt.Sprintf("SHOW TABLES IN %s", escapeHiveIdentifier(database)))
+	result, err := d.TryQueryWithDB(ctx, fmt.Sprintf("SHOW TABLES IN %s", escapeHiveIdentifier(database)), database)
 	if err != nil {
 		return nil, err
 	}
@@ -413,7 +424,7 @@ func (d *HiveDriver) GetColumns(ctx context.Context, database, table string) ([]
 	if database == "" {
 		database = d.config.Database
 	}
-	result, err := d.Query(ctx, fmt.Sprintf("DESCRIBE %s.%s", escapeHiveIdentifier(database), escapeHiveIdentifier(table)))
+	result, err := d.TryQueryWithDB(ctx, fmt.Sprintf("DESCRIBE %s.%s", escapeHiveIdentifier(database), escapeHiveIdentifier(table)), database)
 	if err != nil {
 		return nil, err
 	}

@@ -197,6 +197,11 @@ func (d *MySQLDriver) QueryWithDB(ctx context.Context, query string, database st
 	return result, err
 }
 
+// TryQueryWithDB 非阻塞版本的 QueryWithDB。database/sql 内置连接池不会长时间阻塞，直接委托给 QueryWithDB。
+func (d *MySQLDriver) TryQueryWithDB(ctx context.Context, query string, database string) (*QueryResult, error) {
+	return d.QueryWithDB(ctx, query, database)
+}
+
 func (d *MySQLDriver) UseDatabase(ctx context.Context, database string) error {
 	if database == "" {
 		return nil

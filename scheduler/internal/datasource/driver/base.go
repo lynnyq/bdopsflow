@@ -32,6 +32,11 @@ type Driver interface {
 	Close() error
 	Query(ctx context.Context, sql string, args ...interface{}) (*QueryResult, error)
 	QueryWithDB(ctx context.Context, sql string, database string) (*QueryResult, error)
+	// TryQueryWithDB 非阻塞版本的 QueryWithDB，连接池满时立即返回错误而非阻塞等待。
+	// 用于 metadata 查询等场景，避免慢数据源的 metadata 请求阻塞占用浏览器连接和连接池。
+	// database/sql 驱动直接委托给 QueryWithDB（内置连接池不会长时间阻塞），
+	// Hive/Kyuubi/Spark 驱动使用 tryAcquire 非阻塞获取连接。
+	TryQueryWithDB(ctx context.Context, sql string, database string) (*QueryResult, error)
 	GetDatabases(ctx context.Context) ([]string, error)
 	GetTables(ctx context.Context, database string) ([]TableInfo, error)
 	GetColumns(ctx context.Context, database, table string) ([]ColumnInfo, error)

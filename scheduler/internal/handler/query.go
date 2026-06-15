@@ -383,6 +383,17 @@ func (h *QueryHandler) GetMetadata(c *gin.Context) {
 		return
 	}
 
+	// 检查连接池是否已满，满了直接返回错误，避免 acquire 阻塞占用浏览器连接
+	// 浏览器每个域名最多 6 个并发连接，metadata 请求阻塞 30s 会导致连接池耗尽
+	if pu, ok := drv.(driver.PoolConfigUpdater); ok {
+		_, _, inUse, maxOpen := pu.GetPoolStats()
+		if inUse >= maxOpen {
+			slog.Warn("GetMetadata: connection pool fully occupied", "module", "query", "datasource_id", dsID, "type", ds.Type, "in_use", inUse, "max_open", maxOpen)
+			Fail(c, CodeConcurrentLimit, "数据源连接池已满，请稍后重试")
+			return
+		}
+	}
+
 	switch level {
 	case "databases":
 		// 尝试从服务端缓存获取
@@ -404,7 +415,10 @@ func (h *QueryHandler) GetMetadata(c *gin.Context) {
 		dbs, err := drv.GetDatabases(ctx)
 		if err != nil {
 			elapsed := time.Since(startTime)
-			if ctx.Err() == context.DeadlineExceeded {
+			if isPoolBusyError(err) {
+				slog.Warn("GetMetadata: databases pool busy", "module", "query", "datasource_id", dsID, "type", ds.Type, "elapsed", elapsed)
+				Fail(c, CodeConcurrentLimit, "数据源连接池已满，请稍后重试")
+			} else if ctx.Err() == context.DeadlineExceeded {
 				slog.Warn("GetMetadata: databases timeout", "module", "query", "datasource_id", dsID, "type", ds.Type, "elapsed", elapsed)
 				Fail(c, CodeQueryError, "获取数据库列表超时，请稍后重试")
 			} else {
@@ -445,7 +459,10 @@ func (h *QueryHandler) GetMetadata(c *gin.Context) {
 		tables, err := drv.GetTables(ctx, database)
 		if err != nil {
 			elapsed := time.Since(startTime)
-			if ctx.Err() == context.DeadlineExceeded {
+			if isPoolBusyError(err) {
+				slog.Warn("GetMetadata: tables pool busy", "module", "query", "datasource_id", dsID, "database", database, "elapsed", elapsed)
+				Fail(c, CodeConcurrentLimit, "数据源连接池已满，请稍后重试")
+			} else if ctx.Err() == context.DeadlineExceeded {
 				slog.Warn("GetMetadata: tables timeout", "module", "query", "datasource_id", dsID, "database", database, "elapsed", elapsed)
 				Fail(c, CodeQueryError, "获取数据表列表超时，请稍后重试")
 			} else {
@@ -486,7 +503,10 @@ func (h *QueryHandler) GetMetadata(c *gin.Context) {
 		columns, err := drv.GetColumns(ctx, database, table)
 		if err != nil {
 			elapsed := time.Since(startTime)
-			if ctx.Err() == context.DeadlineExceeded {
+			if isPoolBusyError(err) {
+				slog.Warn("GetMetadata: columns pool busy", "module", "query", "datasource_id", dsID, "database", database, "table", table, "elapsed", elapsed)
+				Fail(c, CodeConcurrentLimit, "数据源连接池已满，请稍后重试")
+			} else if ctx.Err() == context.DeadlineExceeded {
 				slog.Warn("GetMetadata: columns timeout", "module", "query", "datasource_id", dsID, "database", database, "table", table, "elapsed", elapsed)
 				Fail(c, CodeQueryError, "获取字段列表超时，请稍后重试")
 			} else {
@@ -1102,6 +1122,15 @@ func (h *QueryHandler) ClearCache(c *gin.Context) {
 
 	slog.Info("cache cleared for datasource", "datasource_id", dsID, "datasource_name", ds.Name)
 	Success(c, gin.H{"datasource_id": dsID, "message": "缓存已清除"})
+}
+
+// isPoolBusyError 判断错误是否为连接池暂时繁忙（非连接断开）
+func isPoolBusyError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "pool fully occupied")
 }
 
 func (h *QueryHandler) isSelectOnly(sql string, allowWriteSQL bool) bool {

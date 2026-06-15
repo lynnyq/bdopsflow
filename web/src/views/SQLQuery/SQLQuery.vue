@@ -1922,6 +1922,7 @@ const handleExecute = async () => {
   if (!sql.trim() || !selectedDatasourceId.value || tab.executing) return;
 
   stopPolling(tab.id);
+  cancelPendingMetadataRequests();
   tab.executing = true;
   tab.errorMessage = '';
   tab.queryId = '';

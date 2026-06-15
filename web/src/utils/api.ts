@@ -1,8 +1,17 @@
 import axios from 'axios'
-import type { AxiosRequestConfig, AxiosError } from 'axios'
+import type { AxiosError } from 'axios'
 import { ElMessage } from 'element-plus'
 import { ERROR_CODE_MAP } from '@/utils/error'
 import { useAuthStore } from '@/stores/auth'
+
+// 扩展 AxiosRequestConfig 类型以支持自定义属性
+declare module 'axios' {
+  interface AxiosRequestConfig {
+    _noRetry?: boolean
+    _retryCount?: number
+    _retry?: boolean
+  }
+}
 
 export interface ApiResponse<T = any> {
   code: number
@@ -88,7 +97,8 @@ api.interceptors.response.use(
     const originalRequest = error.config as any
 
     // 重试逻辑（在 token 刷新之前处理）
-    if (originalRequest && defaultRetryConfig.retryCondition(error)) {
+    // _noRetry 标志用于禁用自动重试（如 metadata 请求在慢数据源上重试会加剧连接池耗尽）
+    if (originalRequest && !originalRequest._noRetry && defaultRetryConfig.retryCondition(error)) {
       const retryCount = originalRequest._retryCount || 0
 
       if (retryCount < defaultRetryConfig.maxRetries) {
@@ -178,7 +188,9 @@ api.interceptors.response.use(
     if (responseData && typeof responseData === 'object' && 'code' in responseData && 'status' in responseData) {
       const friendlyMessage = responseData.message || ERROR_CODE_MAP[responseData.code] || '请求失败'
       ElMessage.error(friendlyMessage)
-      error.response.data = { error: responseData.message, code: responseData.code }
+      if (error.response) {
+        error.response.data = { error: responseData.message, code: responseData.code }
+      }
       ;(error as any)._handled = true
     } else if (error.response?.status) {
       const statusMessages: Record<number, string> = {

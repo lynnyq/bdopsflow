@@ -148,6 +148,11 @@ func (d *SQLiteDriver) QueryWithDB(ctx context.Context, query string, database s
 	return d.Query(ctx, query)
 }
 
+// TryQueryWithDB 非阻塞版本的 QueryWithDB。database/sql 内置连接池不会长时间阻塞，直接委托给 QueryWithDB。
+func (d *SQLiteDriver) TryQueryWithDB(ctx context.Context, query string, database string) (*QueryResult, error) {
+	return d.QueryWithDB(ctx, query, database)
+}
+
 func (d *SQLiteDriver) UseDatabase(ctx context.Context, database string) error {
 	return nil
 }

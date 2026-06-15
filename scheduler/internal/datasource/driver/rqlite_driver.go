@@ -223,6 +223,11 @@ func (d *RqliteDriver) QueryWithDB(ctx context.Context, query string, database s
 	return d.Query(ctx, query)
 }
 
+// TryQueryWithDB 非阻塞版本的 QueryWithDB。rqlite 驱动不会长时间阻塞，直接委托给 QueryWithDB。
+func (d *RqliteDriver) TryQueryWithDB(ctx context.Context, query string, database string) (*QueryResult, error) {
+	return d.QueryWithDB(ctx, query, database)
+}
+
 func (d *RqliteDriver) UseDatabase(ctx context.Context, database string) error {
 	return nil
 }
