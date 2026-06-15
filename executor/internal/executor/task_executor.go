@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/lynnyq/bdopsflow/executor/internal/grpcclient"
 	"github.com/lynnyq/bdopsflow/executor/internal/pool"
@@ -215,16 +216,22 @@ func (e *TaskExecutor) Execute(ctx context.Context, task *pb.Task, client *grpcc
 
 	now := time.Now().Unix()
 	if client != nil {
-		client.ReportResult(&pb.ReportTaskResultRequest{
+		if err := client.ReportResult(&pb.ReportTaskResultRequest{
 			ExecutionId: task.ExecutionId,
 			TaskId:      task.TaskId,
 			Status:      status,
-			Output:      output,
-			Error:       errorMsg,
+			Output:      sanitizeUTF8(output),
+			Error:       sanitizeUTF8(errorMsg),
 			StartTime:   now,
 			EndTime:     time.Now().Unix(),
 			RetryTimes:  0,
-		})
+		}); err != nil {
+			slog.Error("failed to report task result",
+				"execution_id", task.ExecutionId,
+				"task_id", task.TaskId,
+				"error", err,
+			)
+		}
 	}
 }
 
@@ -551,7 +558,7 @@ func sendOutputLog(client *grpcclient.MultiClient, task *pb.Task, logType string
 		ExecutionId: task.ExecutionId,
 		TaskId:      task.TaskId,
 		LogLevel:    logType,
-		LogContent:  message,
+		LogContent:  sanitizeUTF8(message),
 		Timestamp:   time.Now().Unix(),
 	})
 	if err != nil {
@@ -567,10 +574,26 @@ func sendLog(client *grpcclient.MultiClient, task *pb.Task, level string, messag
 		ExecutionId: task.ExecutionId,
 		TaskId:      task.TaskId,
 		LogLevel:    level,
-		LogContent:  message,
+		LogContent:  sanitizeUTF8(message),
 		Timestamp:   time.Now().Unix(),
 	})
 	if err != nil {
 		slog.Error("failed to report log", "error", err, "execution_id", task.ExecutionId)
 	}
+}
+
+func sanitizeUTF8(s string) string {
+	if s == "" {
+		return s
+	}
+	if utf8.ValidString(s) {
+		return s
+	}
+	var result []rune
+	for _, r := range s {
+		if r != '\uFFFD' {
+			result = append(result, r)
+		}
+	}
+	return string(result)
 }
