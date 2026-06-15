@@ -164,17 +164,23 @@ func (d *KyuubiDriver) Ping(ctx context.Context) error {
 		return errors.New("kyuubi connection pool not initialized")
 	}
 
-	pc, err := d.pool.acquireWithTimeout(ctx, 5*time.Second)
-	if err != nil {
-		d.unhealthy.Store(true)
-		return errors.Wrap(err, "kyuubi ping failed, cannot acquire connection")
+	// 轻量级健康检查：仅通过连接池统计信息判断，不执行 SQL
+	_, _, inUse, maxOpen := d.pool.stats()
+
+	if inUse >= maxOpen {
+		return errors.New("kyuubi connection pool fully occupied, all connections in use")
 	}
-	defer d.pool.release(pc)
+
 	return nil
 }
 
 func (d *KyuubiDriver) IsUnhealthy() bool {
 	return d.unhealthy.Load()
+}
+
+// MarkUnhealthy 标记连接为不健康，下次 GetDriver 会关闭并重建连接池
+func (d *KyuubiDriver) MarkUnhealthy() {
+	d.unhealthy.Store(true)
 }
 
 // UpdatePoolConfig 动态更新连接池配置

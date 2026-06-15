@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -96,16 +97,31 @@ func (m *Manager) GetDriver(ctx context.Context, ds *model.Datasource) (driver.D
 				return d, nil
 			}
 
-			pingCtx, pingCancel := context.WithTimeout(ctx, 5*time.Second)
-			defer pingCancel()
-			if err := d.Ping(pingCtx); err == nil {
+			// 非阻塞健康检查：使用独立的短超时 context，避免 Ping 阻塞在连接池获取上
+			// 当连接池被慢查询占满时，Ping 的 acquire 也会阻塞，导致 GetDriver 卡死
+			pingCtx, pingCancel := context.WithTimeout(context.Background(), 3*time.Second)
+			pingErr := d.Ping(pingCtx)
+			pingCancel()
+
+			if pingErr == nil {
 				m.checkMu.Lock()
 				m.lastCheck[ds.ID] = time.Now()
 				m.checkMu.Unlock()
 				cb.RecordSuccess() // 记录成功
 				return d, nil
 			}
-			slog.Info("datasource connection stale, reconnecting", "datasource_id", ds.ID, "type", ds.Type, "name", ds.Name)
+
+			// 区分"连接池暂时繁忙"和"连接真正断开"
+			// 连接池繁忙时不应重建连接，直接返回现有驱动即可
+			if isPoolBusyError(pingErr) {
+				slog.Debug("datasource connection pool busy, skipping health check", "datasource_id", ds.ID, "type", ds.Type, "name", ds.Name)
+				m.checkMu.Lock()
+				m.lastCheck[ds.ID] = time.Now()
+				m.checkMu.Unlock()
+				return d, nil
+			}
+
+			slog.Info("datasource connection stale, reconnecting", "datasource_id", ds.ID, "type", ds.Type, "name", ds.Name, "error", pingErr)
 			d.Close()
 			m.poolMu.Lock()
 			delete(m.pools, ds.ID)
@@ -428,19 +444,49 @@ func (m *Manager) checkAllConnections() {
 			continue
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		err := drv.Ping(ctx)
-		cancel()
-
 		cb := m.getCircuitBreaker(dsID)
+
+		// 后台健康检查：使用 TestConnection 做真正的连接验证（执行 SELECT 1）
+		// Ping 仅做轻量级统计检查，无法检测 Hive 重启后的死连接
+		// TestConnection 在后台运行，允许短时间阻塞，不影响前端请求
+		// 当连接池满时跳过，避免长时间等待连接释放
+		var err error
+		if pu, ok := drv.(driver.PoolConfigUpdater); ok {
+			_, _, inUse, maxOpen := pu.GetPoolStats()
+			if inUse >= maxOpen {
+				// 连接池满，跳过本次检查，下次再验证
+				cb.RecordSuccess()
+				continue
+			}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		err = drv.TestConnection(ctx)
+		cancel()
 
 		if err != nil {
 			slog.Warn("datasource health check failed",
 				"datasource_id", dsID,
 				"error", err)
 			cb.RecordFailure()
+
+			// 连接验证失败，标记为不健康，下次 GetDriver 会自动重建连接
+			if hc, ok := drv.(driver.UnhealthyChecker); ok && !hc.IsUnhealthy() {
+				hc.MarkUnhealthy()
+				slog.Info("datasource marked unhealthy by health check, will reconnect on next request",
+					"datasource_id", dsID)
+			}
 		} else {
 			cb.RecordSuccess()
 		}
 	}
+}
+
+// isPoolBusyError 判断错误是否为连接池暂时繁忙（非连接断开）
+// 连接池繁忙时不应触发重建连接，只需等待连接释放即可
+func isPoolBusyError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "pool fully occupied")
 }

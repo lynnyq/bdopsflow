@@ -169,17 +169,25 @@ func (d *HiveDriver) Ping(ctx context.Context) error {
 		return errors.New("hive connection pool not initialized")
 	}
 
-	pc, err := d.pool.acquireWithTimeout(ctx, 5*time.Second)
-	if err != nil {
-		d.unhealthy.Store(true)
-		return errors.Wrap(err, "hive ping failed, cannot acquire connection")
+	// 轻量级健康检查：仅通过连接池统计信息判断，不执行 SQL
+	// 避免在慢 Hive 上执行 SELECT 1 阻塞 GetDriver，导致页面卡死
+	// 真正的连接存活检测由后台健康检查（checkAllConnections）负责
+	_, _, inUse, maxOpen := d.pool.stats()
+
+	if inUse >= maxOpen {
+		return errors.New("hive connection pool fully occupied, all connections in use")
 	}
-	defer d.pool.release(pc)
+
 	return nil
 }
 
 func (d *HiveDriver) IsUnhealthy() bool {
 	return d.unhealthy.Load()
+}
+
+// MarkUnhealthy 标记连接为不健康，下次 GetDriver 会关闭并重建连接池
+func (d *HiveDriver) MarkUnhealthy() {
+	d.unhealthy.Store(true)
 }
 
 // UpdatePoolConfig 动态更新连接池配置

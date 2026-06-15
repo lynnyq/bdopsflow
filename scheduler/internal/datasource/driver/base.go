@@ -14,6 +14,7 @@ import (
 
 type UnhealthyChecker interface {
 	IsUnhealthy() bool
+	MarkUnhealthy()
 }
 
 // PoolConfigUpdater 连接池配置动态更新接口

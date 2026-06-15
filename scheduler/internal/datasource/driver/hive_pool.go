@@ -420,7 +420,7 @@ func (pc *pooledConn) ensureDatabase(ctx context.Context, database string) error
 	}
 
 	cursor := pc.conn.Cursor()
-	cursor.Exec(context.Background(), "USE "+escapeHiveIdentifier(database))
+	cursor.Exec(ctx, "USE "+escapeHiveIdentifier(database))
 	if cursor.Err != nil {
 		err := cursor.Err
 		cursor.Close()

@@ -372,7 +372,11 @@ func (h *QueryHandler) GetMetadata(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), time.Duration(metadataTimeout)*time.Second)
 	defer cancel()
 
-	drv, err := h.manager.GetDriver(ctx, ds)
+	// GetDriver 使用独立的短超时，避免慢 Hive 源的 Ping/connect 阻塞整个 metadata 请求
+	// metadata 请求是同步的，如果 GetDriver 阻塞会占用 HTTP 连接，导致浏览器连接池耗尽
+	getDriverCtx, getDriverCancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	drv, err := h.manager.GetDriver(getDriverCtx, ds)
+	getDriverCancel()
 	if err != nil {
 		slog.Warn("GetMetadata: failed to get driver", "module", "query", "datasource_id", dsID, "type", ds.Type, "error", err, "elapsed", time.Since(startTime))
 		Fail(c, CodeDatasourceNotFound, "连接数据源失败，请检查数据源配置")
