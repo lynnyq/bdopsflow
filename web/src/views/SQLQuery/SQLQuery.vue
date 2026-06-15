@@ -307,6 +307,11 @@
                     <span v-if="queryResult.row_count > MAX_DISPLAY_ROWS" class="truncated-hint">(显示前 {{ MAX_DISPLAY_ROWS }} 行)</span>
                   </span>
                   <span class="meta-item">
+                    <el-icon :size="14"><Grid /></el-icon>
+                    {{ totalColumnCount }} 列
+                    <span v-if="hasMoreColumns" class="truncated-hint">(已加载 {{ visibleColumnCount }} 列，横向滚动加载更多)</span>
+                  </span>
+                  <span class="meta-item">
                     <el-icon :size="14"><Clock /></el-icon>
                     {{ formatTime(queryResult.execution_time) }}
                   </span>
@@ -325,25 +330,36 @@
           </div>
 
           <div class="result-body" v-if="queryResult">
-            <div class="table-container">
-              <el-table
+            <div class="table-container" ref="tableContainerRef" @scroll="onTableScroll">
+              <table
                 v-if="queryResult.rows && queryResult.rows.length > 0"
-                :data="formatResultRows"
-                stripe
-                border
-                class="result-table"
-                :header-cell-style="{ background: 'var(--bg-secondary)', fontWeight: 600 }"
+                class="result-table-native"
               >
-                <el-table-column
-                  v-for="col in queryResult.columns"
-                  :key="col"
-                  :prop="col"
-                  :label="col"
-                  :min-width="120"
-                  :align="getColumnAlign(col)"
-                  show-overflow-tooltip
-                />
-              </el-table>
+                <thead>
+                  <tr>
+                    <th class="row-index-col">#</th>
+                    <th
+                      v-for="col in visibleColumns"
+                      :key="col"
+                      :class="{ 'col-right': columnAlignMap[col] === 'right' }"
+                      :title="col"
+                    >{{ col }}</th>
+                    <th v-if="hasMoreColumns" class="col-loading">{{ columnLoadHint }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(row, ri) in formatResultRows" :key="ri">
+                    <td class="row-index-col">{{ ri + 1 }}</td>
+                    <td
+                      v-for="col in visibleColumns"
+                      :key="col"
+                      :class="{ 'col-right': columnAlignMap[col] === 'right' }"
+                      :title="row[col]"
+                    >{{ row[col] }}</td>
+                    <td v-if="hasMoreColumns" class="col-loading">{{ columnLoadHint }}</td>
+                  </tr>
+                </tbody>
+              </table>
               <div v-else class="empty-result">
                 <el-icon :size="48"><Document /></el-icon>
                 <p>查询结果为空</p>
@@ -410,7 +426,7 @@ import { ElMessage } from 'element-plus';
 import {
   DataLine, Refresh, Key, Document, Search,
   CircleClose, VideoPlay, Delete, CircleCheck, Clock, Download, Warning,
-  Plus, Close, ArrowDown, ArrowUp
+  Plus, Close, ArrowDown, ArrowUp, Grid
 } from '@element-plus/icons-vue';
 import { datasourceAPI, queryAPI } from '@/api';
 import { isHandledError } from '@/utils/api';
@@ -851,10 +867,6 @@ const columnAlignMap = computed(() => {
   return map;
 });
 
-const getColumnAlign = (colName: string) => {
-  return columnAlignMap.value[colName] || 'left';
-};
-
 const formatCellValue = (value: any): string => {
   if (value === null || value === undefined) return '-';
   if (typeof value === 'boolean') return value ? '是' : '否';
@@ -865,16 +877,55 @@ const formatCellValue = (value: any): string => {
 };
 
 const MAX_DISPLAY_ROWS = 500;
+const INITIAL_COLUMN_BATCH = 50;
+const COLUMN_LOAD_BATCH = 100;
+
+const visibleColumnCount = ref(INITIAL_COLUMN_BATCH);
+const tableContainerRef = ref<HTMLElement>();
+
+const totalColumnCount = computed(() => queryResult.value?.columns?.length ?? 0);
+const hasMoreColumns = computed(() => visibleColumnCount.value < totalColumnCount.value);
+const columnLoadHint = computed(() => {
+  const remaining = totalColumnCount.value - visibleColumnCount.value;
+  return `+${remaining} 列 (横向滚动加载)`;
+});
+
+const visibleColumns = computed(() => {
+  if (!queryResult.value?.columns) return [];
+  return queryResult.value.columns.slice(0, visibleColumnCount.value);
+});
+
+const onTableScroll = () => {
+  if (!hasMoreColumns.value || !tableContainerRef.value) return;
+  const { scrollLeft, scrollWidth, clientWidth } = tableContainerRef.value;
+  if (scrollWidth - scrollLeft - clientWidth < 300) {
+    visibleColumnCount.value = Math.min(
+      visibleColumnCount.value + COLUMN_LOAD_BATCH,
+      totalColumnCount.value
+    );
+  }
+};
+
+// 监听查询结果变化，重置列加载数
+watch(queryResult, () => {
+  visibleColumnCount.value = INITIAL_COLUMN_BATCH;
+});
 
 const formatResultRows = computed(() => {
   if (!queryResult.value?.rows) return [];
   const rows = queryResult.value.rows;
   const displayRows = rows.length > MAX_DISPLAY_ROWS ? rows.slice(0, MAX_DISPLAY_ROWS) : rows;
+  const cols = visibleColumns.value;
+  const colIndices: number[] = [];
+  for (const col of cols) {
+    const idx = queryResult.value.columns.indexOf(col);
+    if (idx >= 0) colIndices.push(idx);
+  }
   return displayRows.map(row => {
     const obj: Record<string, string> = {};
-    queryResult.value!.columns.forEach((col, i) => {
-      obj[col] = formatCellValue(row[i]);
-    });
+    for (let i = 0; i < cols.length; i++) {
+      obj[cols[i]] = formatCellValue(row[colIndices[i]]);
+    }
     return obj;
   });
 });
@@ -2752,9 +2803,70 @@ window.addEventListener('beforeunload', handleBeforeUnload);
   overflow: auto;
 }
 
-.result-table {
-  --el-table-header-text-color: var(--text-primary);
-  --el-table-row-hover-bg-color: var(--bg-hover);
+.result-table-native {
+  border-collapse: collapse;
+  font-size: 13px;
+  white-space: nowrap;
+  width: max-content;
+}
+
+.result-table-native thead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.result-table-native th {
+  background: var(--bg-secondary);
+  font-weight: 600;
+  padding: 8px 12px;
+  border: 1px solid var(--el-border-color-lighter);
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 300px;
+  min-width: 80px;
+  user-select: none;
+}
+
+.result-table-native th.col-right {
+  text-align: right;
+}
+
+.result-table-native td {
+  padding: 6px 12px;
+  border: 1px solid var(--el-border-color-lighter);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 300px;
+}
+
+.result-table-native td.col-right {
+  text-align: right;
+}
+
+.result-table-native tbody tr:nth-child(even) {
+  background: var(--el-fill-color-lighter);
+}
+
+.result-table-native tbody tr:hover {
+  background: var(--bg-hover);
+}
+
+.row-index-col {
+  color: var(--text-muted);
+  font-size: 12px;
+  text-align: center;
+  min-width: 40px;
+  max-width: 60px;
+  user-select: none;
+}
+
+.col-loading {
+  color: var(--text-muted);
+  font-style: italic;
+  min-width: 160px;
+  text-align: center;
 }
 
 .empty-result {
