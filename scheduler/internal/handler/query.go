@@ -1016,11 +1016,6 @@ func (h *QueryHandler) Cancel(c *gin.Context) {
 			Fail(c, CodeQueryError, "查询已取消")
 			return
 		}
-		// 查询在其他节点执行，无法直接取消
-		if q.Status == QueryStatusPending || q.Status == QueryStatusRunning {
-			Fail(c, CodeQueryError, "查询正在其他节点执行，暂时无法取消，请稍后重试")
-			return
-		}
 		Fail(c, CodeQueryError, "取消查询失败")
 		return
 	}

@@ -200,25 +200,48 @@ func TestDistributedQueryRegistry_CancelLocalOnly(t *testing.T) {
 	}
 }
 
-func TestDistributedQueryRegistry_CancelCrossNodeFails(t *testing.T) {
+func TestDistributedQueryRegistry_CancelCrossNode(t *testing.T) {
 	mr, client := setupTestRedis(t)
 	defer mr.Close()
 	defer client.Close()
 
 	// Node A 注册查询
 	nodeA := NewDistributedQueryRegistry(client, "node-A")
+	cancelled := false
 	query := &RunningQuery{
 		QueryID:    "q_cancel_remote",
 		Status:     QueryStatusRunning,
-		CancelFunc: func() {},
+		CancelFunc: func() { cancelled = true },
 	}
 	nodeA.Register(query)
 
-	// Node B 无法直接取消 Node A 的查询
+	// Node B 注册观察者（触发订阅启动）
 	nodeB := NewDistributedQueryRegistry(client, "node-B")
+	ch := make(chan *RunningQuery, 10)
+	observer := &testObserver{ch: ch}
+	nodeB.RegisterObserver(observer)
+
+	// 等待 Redis Pub/Sub 订阅就绪
+	time.Sleep(100 * time.Millisecond)
+
+	// Node B 发起跨节点取消
 	ok := nodeB.Cancel("q_cancel_remote")
-	if ok {
-		t.Error("should not be able to cancel query on another node")
+	if !ok {
+		t.Error("cross-node cancel should return true (cancel command published)")
+	}
+
+	// 等待跨节点取消指令执行
+	time.Sleep(200 * time.Millisecond)
+
+	// 验证 Node A 的查询已被取消
+	if !cancelled {
+		t.Error("CancelFunc on Node A should have been called via cross-node cancel")
+	}
+
+	// 验证 Redis 中的状态已更新为 cancelled
+	got, _ := nodeB.Get("q_cancel_remote")
+	if got.Status != QueryStatusCancelled {
+		t.Errorf("Status = %v, want cancelled after cross-node cancel", got.Status)
 	}
 }
 

@@ -20,6 +20,8 @@ const (
 	redisResultKeyPrefix = "bdopsflow:query:result:"
 	// redisChannel 查询状态变更的 Pub/Sub 频道
 	redisChannel = "bdopsflow:query:updates"
+	// redisCancelChannel 查询取消指令的 Pub/Sub 频道
+	redisCancelChannel = "bdopsflow:query:cancel"
 	// redisDefaultTTL 查询记录在 Redis 中的默认过期时间
 	redisDefaultTTL = 35 * time.Minute
 )
@@ -38,6 +40,12 @@ type redisQueryState struct {
 	NodeID        string      `json:"node_id"`
 	CreatedAt     int64       `json:"created_at"`
 	StartTime     int64       `json:"start_time,omitempty"`
+}
+
+// redisCancelCommand 跨节点取消指令
+type redisCancelCommand struct {
+	QueryID string `json:"query_id"`
+	FromNode string `json:"from_node"`
 }
 
 // DistributedQueryRegistry 基于 Redis 的分布式查询注册表
@@ -67,14 +75,15 @@ func NewDistributedQueryRegistry(redisClient *redis.Client, nodeID string) *Dist
 	return r
 }
 
-// startSubscriber 启动 Redis Pub/Sub 订阅，接收其他节点的查询状态变更通知
+// startSubscriber 启动 Redis Pub/Sub 订阅，接收其他节点的查询状态变更通知和取消指令
 func (r *DistributedQueryRegistry) startSubscriber() {
 	r.subOnce.Do(func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		r.subCancel = cancel
 
 		go func() {
-			sub := r.redisClient.Subscribe(ctx, redisChannel)
+			// 同时订阅状态更新频道和取消指令频道
+			sub := r.redisClient.Subscribe(ctx, redisChannel, redisCancelChannel)
 			defer sub.Close()
 
 			ch := sub.Channel()
@@ -86,12 +95,17 @@ func (r *DistributedQueryRegistry) startSubscriber() {
 					if !ok {
 						return
 					}
-					r.handleRedisMessage(msg)
+					switch msg.Channel {
+					case redisCancelChannel:
+						r.handleCancelCommand(msg)
+					default:
+						r.handleRedisMessage(msg)
+					}
 				}
 			}
 		}()
 
-		slog.Info("distributed query registry subscriber started", "node_id", r.nodeID)
+		slog.Info("distributed query registry subscriber started", "node_id", r.nodeID, "channels", []string{redisChannel, redisCancelChannel})
 	})
 }
 
@@ -266,24 +280,12 @@ func (r *DistributedQueryRegistry) UpdateError(queryID string, errMsg string, ex
 	}
 }
 
-// Cancel 取消查询（只能取消本节点执行的查询）
+// Cancel 取消查询（支持跨节点取消）
 func (r *DistributedQueryRegistry) Cancel(queryID string) bool {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 
 	q, ok := r.localQueries[queryID]
-	if !ok {
-		// 查询不在本节点，检查 Redis 判断状态
-		state, err := r.getFromRedis(context.Background(), queryID)
-		if err != nil || state == nil {
-			return false
-		}
-		// 查询在其他节点执行，无法直接取消
-		// 返回 false 让调用者知道取消失败
-		return false
-	}
-
-	if q.Status == QueryStatusPending || q.Status == QueryStatusRunning {
+	if ok && (q.Status == QueryStatusPending || q.Status == QueryStatusRunning) {
 		q.Status = QueryStatusCancelled
 		if q.CancelFunc != nil {
 			q.CancelFunc()
@@ -298,9 +300,75 @@ func (r *DistributedQueryRegistry) Cancel(queryID string) bool {
 
 		// 通知本节点 observer
 		r.notifyObservers(queryID, q)
+
+		r.mu.Unlock()
 		return true
 	}
+	r.mu.Unlock()
+
+	// 查询不在本节点或已终态，检查 Redis 获取查询所属节点
+	state, err := r.getFromRedis(context.Background(), queryID)
+	if err != nil || state == nil {
+		return false
+	}
+
+	// 查询已终态，无法取消
+	if state.Status == QueryStatusCompleted || state.Status == QueryStatusFailed || state.Status == QueryStatusCancelled {
+		return false
+	}
+
+	// 查询在其他节点执行，通过 Redis Pub/Sub 发送取消指令
+	if state.NodeID != "" && state.NodeID != r.nodeID {
+		cmd := redisCancelCommand{
+			QueryID:   queryID,
+			FromNode:  r.nodeID,
+		}
+		r.publishCancelCommand(context.Background(), &cmd)
+		slog.Info("published cross-node cancel command", "query_id", queryID, "target_node", state.NodeID, "from_node", r.nodeID)
+		return true
+	}
+
 	return false
+}
+
+// handleCancelCommand 处理跨节点取消指令
+func (r *DistributedQueryRegistry) handleCancelCommand(msg *redis.Message) {
+	var cmd redisCancelCommand
+	if err := json.Unmarshal([]byte(msg.Payload), &cmd); err != nil {
+		slog.Warn("failed to unmarshal cancel command", "error", err)
+		return
+	}
+
+	slog.Info("received cross-node cancel command", "query_id", cmd.QueryID, "from_node", cmd.FromNode)
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	q, ok := r.localQueries[cmd.QueryID]
+	if !ok {
+		slog.Debug("cancel command: query not found on this node", "query_id", cmd.QueryID)
+		return
+	}
+
+	if q.Status == QueryStatusPending || q.Status == QueryStatusRunning {
+		q.Status = QueryStatusCancelled
+		q.Error = "查询已被用户取消"
+		if q.CancelFunc != nil {
+			q.CancelFunc()
+		}
+
+		// 更新 Redis 状态
+		state := r.localToRedisState(q)
+		r.saveToRedis(context.Background(), state)
+
+		// 发布状态变更通知（通知发起取消的节点和所有其他观察者）
+		r.publishUpdate(context.Background(), state)
+
+		// 通知本节点 observer
+		r.notifyObservers(cmd.QueryID, q)
+
+		slog.Info("cross-node cancel executed", "query_id", cmd.QueryID, "from_node", cmd.FromNode)
+	}
 }
 
 // SetRunning 设置查询为运行中状态
@@ -510,5 +578,18 @@ func (r *DistributedQueryRegistry) publishUpdate(ctx context.Context, state *red
 
 	if err := r.redisClient.Publish(ctx, redisChannel, data).Err(); err != nil {
 		slog.Error("failed to publish query update to Redis", "query_id", state.QueryID, "error", err)
+	}
+}
+
+// publishCancelCommand 发布跨节点取消指令到 Redis Pub/Sub
+func (r *DistributedQueryRegistry) publishCancelCommand(ctx context.Context, cmd *redisCancelCommand) {
+	data, err := json.Marshal(cmd)
+	if err != nil {
+		slog.Error("failed to marshal cancel command for Redis Pub/Sub", "query_id", cmd.QueryID, "error", err)
+		return
+	}
+
+	if err := r.redisClient.Publish(ctx, redisCancelChannel, data).Err(); err != nil {
+		slog.Error("failed to publish cancel command to Redis", "query_id", cmd.QueryID, "error", err)
 	}
 }

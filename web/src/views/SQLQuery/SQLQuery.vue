@@ -308,8 +308,7 @@
                   </span>
                   <span class="meta-item">
                     <el-icon :size="14"><Grid /></el-icon>
-                    {{ totalColumnCount }} 列
-                    <span v-if="hasMoreColumns" class="truncated-hint">(已加载 {{ visibleColumnCount }} 列，横向滚动加载更多)</span>
+                    {{ vtTotalCols }} 列
                   </span>
                   <span class="meta-item">
                     <el-icon :size="14"><Clock /></el-icon>
@@ -330,40 +329,54 @@
           </div>
 
           <div class="result-body" v-if="queryResult">
-            <div class="table-container" ref="tableContainerRef" @scroll="onTableScroll">
-              <table
-                v-if="queryResult.rows && queryResult.rows.length > 0"
-                class="result-table-native"
+            <div
+              v-if="queryResult.rows && queryResult.rows.length > 0"
+              class="virtual-table-wrapper"
+              ref="virtualTableRef"
+              @scroll="onVirtualScroll"
+            >
+              <!-- 撑开滚动区域的占位层 -->
+              <div
+                class="virtual-table-spacer"
+                :style="{ width: virtualTotalWidth + 'px', height: virtualTotalHeight + 'px' }"
               >
-                <thead>
-                  <tr>
-                    <th class="row-index-col">#</th>
-                    <th
-                      v-for="col in visibleColumns"
-                      :key="col"
-                      :class="{ 'col-right': columnAlignMap[col] === 'right' }"
-                      :title="col"
-                    >{{ col }}</th>
-                    <th v-if="hasMoreColumns" class="col-loading">{{ columnLoadHint }}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="(row, ri) in formatResultRows" :key="ri">
-                    <td class="row-index-col">{{ ri + 1 }}</td>
-                    <td
-                      v-for="col in visibleColumns"
-                      :key="col"
-                      :class="{ 'col-right': columnAlignMap[col] === 'right' }"
-                      :title="row[col]"
-                    >{{ row[col] }}</td>
-                    <td v-if="hasMoreColumns" class="col-loading">{{ columnLoadHint }}</td>
-                  </tr>
-                </tbody>
-              </table>
-              <div v-else class="empty-result">
-                <el-icon :size="48"><Document /></el-icon>
-                <p>查询结果为空</p>
+                <!-- 固定定位的实际渲染层 -->
+                <div
+                  class="virtual-table-content"
+                  :style="{ transform: `translate(${virtualScrollLeft}px, ${virtualScrollTop}px)` }"
+                >
+                  <table class="virtual-table">
+                    <thead>
+                      <tr>
+                        <th class="vt-col-index">#</th>
+                        <th
+                          v-for="ci in virtualVisibleColumns"
+                          :key="ci"
+                          class="vt-cell vt-header"
+                          :class="{ 'vt-col-right': columnAlignMap[queryResult.columns[ci]] === 'right' }"
+                          :title="queryResult.columns[ci]"
+                        >{{ queryResult.columns[ci] }}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="ri in virtualVisibleRowIndices" :key="ri">
+                        <td class="vt-col-index">{{ ri + 1 }}</td>
+                        <td
+                          v-for="ci in virtualVisibleColumns"
+                          :key="ci"
+                          class="vt-cell"
+                          :class="{ 'vt-col-right': columnAlignMap[queryResult.columns[ci]] === 'right', 'vt-row-even': ri % 2 === 1 }"
+                          :title="formatCellValue(queryResult.rows[ri]?.[ci])"
+                        >{{ formatCellValue(queryResult.rows[ri]?.[ci]) }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
               </div>
+            </div>
+            <div v-else class="empty-result">
+              <el-icon :size="48"><Document /></el-icon>
+              <p>查询结果为空</p>
             </div>
           </div>
         </div>
@@ -876,58 +889,87 @@ const formatCellValue = (value: any): string => {
   return String(value);
 };
 
+// ==================== 虚拟滚动配置 ====================
 const MAX_DISPLAY_ROWS = 500;
-const INITIAL_COLUMN_BATCH = 50;
-const COLUMN_LOAD_BATCH = 100;
+const VT_ROW_HEIGHT = 33;       // 每行高度(px)
+const VT_HEADER_HEIGHT = 37;    // 表头高度(px)
+const VT_COL_WIDTH = 120;       // 每列宽度(px)
+const VT_INDEX_COL_WIDTH = 50;  // 行号列宽度(px)
+const VT_OVERSCAN = 5;          // 视口外额外渲染的行/列数
 
-const visibleColumnCount = ref(INITIAL_COLUMN_BATCH);
-const tableContainerRef = ref<HTMLElement>();
+const virtualTableRef = ref<HTMLElement>();
+const vtScrollTop = ref(0);
+const vtScrollLeft = ref(0);
 
-const totalColumnCount = computed(() => queryResult.value?.columns?.length ?? 0);
-const hasMoreColumns = computed(() => visibleColumnCount.value < totalColumnCount.value);
-const columnLoadHint = computed(() => {
-  const remaining = totalColumnCount.value - visibleColumnCount.value;
-  return `+${remaining} 列 (横向滚动加载)`;
+// 总行数/列数
+const vtTotalRows = computed(() => {
+  if (!queryResult.value?.rows) return 0;
+  return Math.min(queryResult.value.rows.length, MAX_DISPLAY_ROWS);
+});
+const vtTotalCols = computed(() => queryResult.value?.columns?.length ?? 0);
+
+// 撑开滚动区域的总尺寸
+const virtualTotalWidth = computed(() => VT_INDEX_COL_WIDTH + vtTotalCols.value * VT_COL_WIDTH);
+const virtualTotalHeight = computed(() => VT_HEADER_HEIGHT + vtTotalRows.value * VT_ROW_HEIGHT);
+
+// 计算可见行索引范围
+const virtualVisibleRowIndices = computed(() => {
+  if (!virtualTableRef.value) return [] as number[];
+  const containerHeight = virtualTableRef.value.clientHeight || 400;
+  const startRow = Math.max(0, Math.floor(vtScrollTop.value / VT_ROW_HEIGHT) - VT_OVERSCAN);
+  const visibleCount = Math.ceil(containerHeight / VT_ROW_HEIGHT) + VT_OVERSCAN * 2;
+  const endRow = Math.min(vtTotalRows.value, startRow + visibleCount);
+  const indices: number[] = [];
+  for (let i = startRow; i < endRow; i++) indices.push(i);
+  return indices;
 });
 
-const visibleColumns = computed(() => {
-  if (!queryResult.value?.columns) return [];
-  return queryResult.value.columns.slice(0, visibleColumnCount.value);
+// 计算可见列索引范围
+const virtualVisibleColumns = computed(() => {
+  if (!virtualTableRef.value) return [] as number[];
+  const containerWidth = virtualTableRef.value.clientWidth || 800;
+  const scrollLeft = vtScrollLeft.value;
+  // 减去行号列宽度
+  const effectiveLeft = Math.max(0, scrollLeft - VT_INDEX_COL_WIDTH);
+  const startCol = Math.max(0, Math.floor(effectiveLeft / VT_COL_WIDTH) - VT_OVERSCAN);
+  const visibleCount = Math.ceil(containerWidth / VT_COL_WIDTH) + VT_OVERSCAN * 2;
+  const endCol = Math.min(vtTotalCols.value, startCol + visibleCount);
+  const indices: number[] = [];
+  for (let i = startCol; i < endCol; i++) indices.push(i);
+  return indices;
 });
 
-const onTableScroll = () => {
-  if (!hasMoreColumns.value || !tableContainerRef.value) return;
-  const { scrollLeft, scrollWidth, clientWidth } = tableContainerRef.value;
-  if (scrollWidth - scrollLeft - clientWidth < 300) {
-    visibleColumnCount.value = Math.min(
-      visibleColumnCount.value + COLUMN_LOAD_BATCH,
-      totalColumnCount.value
-    );
-  }
+// 渲染层的偏移量（对齐到行/列边界）
+const virtualScrollTop = computed(() => {
+  const startRow = virtualVisibleRowIndices.value[0] ?? 0;
+  return VT_HEADER_HEIGHT + startRow * VT_ROW_HEIGHT;
+});
+const virtualScrollLeft = computed(() => {
+  const startCol = virtualVisibleColumns.value[0] ?? 0;
+  return VT_INDEX_COL_WIDTH + startCol * VT_COL_WIDTH;
+});
+
+// 滚动事件处理（使用 requestAnimationFrame 节流）
+let vtRafId = 0;
+const onVirtualScroll = () => {
+  if (vtRafId) return;
+  vtRafId = requestAnimationFrame(() => {
+    if (virtualTableRef.value) {
+      vtScrollTop.value = virtualTableRef.value.scrollTop;
+      vtScrollLeft.value = virtualTableRef.value.scrollLeft;
+    }
+    vtRafId = 0;
+  });
 };
 
-// 监听查询结果变化，重置列加载数
+// 监听查询结果变化，重置滚动位置
 watch(queryResult, () => {
-  visibleColumnCount.value = INITIAL_COLUMN_BATCH;
-});
-
-const formatResultRows = computed(() => {
-  if (!queryResult.value?.rows) return [];
-  const rows = queryResult.value.rows;
-  const displayRows = rows.length > MAX_DISPLAY_ROWS ? rows.slice(0, MAX_DISPLAY_ROWS) : rows;
-  const cols = visibleColumns.value;
-  const colIndices: number[] = [];
-  for (const col of cols) {
-    const idx = queryResult.value.columns.indexOf(col);
-    if (idx >= 0) colIndices.push(idx);
+  vtScrollTop.value = 0;
+  vtScrollLeft.value = 0;
+  if (virtualTableRef.value) {
+    virtualTableRef.value.scrollTop = 0;
+    virtualTableRef.value.scrollLeft = 0;
   }
-  return displayRows.map(row => {
-    const obj: Record<string, string> = {};
-    for (let i = 0; i < cols.length; i++) {
-      obj[cols[i]] = formatCellValue(row[colIndices[i]]);
-    }
-    return obj;
-  });
 });
 
 const syncCurrentTabData = () => {
@@ -2798,75 +2840,83 @@ window.addEventListener('beforeunload', handleBeforeUnload);
   flex-direction: column;
 }
 
-.table-container {
+.virtual-table-wrapper {
   flex: 1;
   overflow: auto;
+  position: relative;
 }
 
-.result-table-native {
+.virtual-table-spacer {
+  position: relative;
+  min-width: 100%;
+  min-height: 100%;
+}
+
+.virtual-table-content {
+  position: absolute;
+  top: 0;
+  left: 0;
+  will-change: transform;
+}
+
+.virtual-table {
   border-collapse: collapse;
   font-size: 13px;
   white-space: nowrap;
-  width: max-content;
+  table-layout: fixed;
 }
 
-.result-table-native thead {
+.virtual-table thead {
   position: sticky;
   top: 0;
   z-index: 2;
 }
 
-.result-table-native th {
-  background: var(--bg-secondary);
-  font-weight: 600;
-  padding: 8px 12px;
-  border: 1px solid var(--el-border-color-lighter);
-  text-align: left;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 300px;
-  min-width: 80px;
-  user-select: none;
-}
-
-.result-table-native th.col-right {
-  text-align: right;
-}
-
-.result-table-native td {
+.vt-cell {
   padding: 6px 12px;
   border: 1px solid var(--el-border-color-lighter);
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 300px;
+  width: 120px;
+  max-width: 120px;
+  min-width: 120px;
 }
 
-.result-table-native td.col-right {
-  text-align: right;
-}
-
-.result-table-native tbody tr:nth-child(even) {
-  background: var(--el-fill-color-lighter);
-}
-
-.result-table-native tbody tr:hover {
-  background: var(--bg-hover);
-}
-
-.row-index-col {
-  color: var(--text-muted);
-  font-size: 12px;
-  text-align: center;
-  min-width: 40px;
-  max-width: 60px;
+.vt-header {
+  background: var(--bg-secondary);
+  font-weight: 600;
+  padding: 8px 12px;
+  text-align: left;
   user-select: none;
 }
 
-.col-loading {
+.vt-col-index {
+  padding: 6px 8px;
+  border: 1px solid var(--el-border-color-lighter);
   color: var(--text-muted);
-  font-style: italic;
-  min-width: 160px;
+  font-size: 12px;
   text-align: center;
+  width: 50px;
+  min-width: 50px;
+  max-width: 50px;
+  user-select: none;
+  background: var(--bg-secondary);
+  font-weight: 600;
+  position: sticky;
+  left: 0;
+  z-index: 1;
+}
+
+.vt-col-right {
+  text-align: right;
+}
+
+.vt-row-even {
+  background: var(--el-fill-color-lighter);
+}
+
+.virtual-table tbody tr:hover .vt-cell {
+  background: var(--bg-hover);
 }
 
 .empty-result {
