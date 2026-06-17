@@ -751,6 +751,7 @@ datasource:
 | 审计日志保留天数合理 | 至少 90 天 | ☐ |
 | 数据源权限已配置 | 数据源查询权限按需分配 | ☐ |
 | allow_write_sql 谨慎开启 | 仅必要时开启数据源写操作 | ☐ |
+| api_test.allow_private_network 谨慎开启 | 仅在可信环境中开启接口测试内网访问，防止 SSRF 攻击 | ☐ |
 
 #### 日志与监控
 
@@ -903,6 +904,7 @@ rsa:
 |-----|------|--------|------|------|------|
 | `datasource.allow_write_sql` | bool | false | - | - | 是否允许写操作 SQL（INSERT/UPDATE/DELETE），全局兜底控制，每个数据源可独立设置 DML 权限 |
 | `datasource.max_cell_size` | number | 65536 | 1024 - 10485760 | 字节 | 单元格最大大小，超过此大小将截断显示 |
+| `api_test.allow_private_network` | bool | false | - | - | 是否允许接口测试访问内网（私有 IP）地址。开启后 HTTP/gRPC 执行器可访问内网地址；关闭时仅允许访问公网地址，防止 SSRF 攻击。默认关闭 |
 
 ### 7.4 缓存配置
 

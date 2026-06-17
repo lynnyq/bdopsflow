@@ -7,6 +7,7 @@
 - **分布式架构**：Scheduler + Executor 分离，gRPC 通信，Leader Election 高可用
 - **RBAC 多租户**：纯 RBAC 权限模型，角色继承，多领域支持，数据源/Webhook 实例级权限控制，菜单权限自动推导
 - **数据源查询**：9 种数据库驱动，SQL 编辑器，查询缓存，并发控制，CSV 导出
+- **接口测试**：HTTP/gRPC 接口测试，Proto 文件管理，证书管理，断言验证，执行历史，SSRF 防护
 - **实时日志**：gRPC 流式传输 → Redis Pub/Sub → SSE 推送
 - **Webhook 回调**：HMAC-SHA256 签名验证，指数退避重试
 - **审计日志**：全操作审计，中间件+Handler 协作模式
@@ -34,6 +35,7 @@ bdopsflow/
 │       ├── datasource/ # 数据源管理 + 查询
 │       ├── cron/       # Cron 调度器
 │       ├── webhook/    # Webhook 服务
+│       ├── system_config/ # 系统运行时配置
 │       └── config/     # 配置
 ├── executor/           # 执行器
 │   └── internal/
@@ -41,8 +43,10 @@ bdopsflow/
 │       └── config/     # 配置
 ├── web/                # 前端
 │   └── src/
-│       ├── views/      # 页面
-│       └── api/        # API 接口
+│       ├── views/      # 页面（ApiTest/SQLQuery/Dashboard 等）
+│       ├── api/        # API 接口
+│       ├── stores/     # Pinia 状态管理
+│       └── router/     # 路由配置
 └── deploy/             # 部署配置
     └── schema.sql      # 数据库 Schema
 ```
@@ -105,6 +109,7 @@ npm run dev
 - 实例级权限：数据源和 Webhook 支持细粒度的实例权限控制
 - 数据源支持 6 种权限级别：query/read/update/delete/download/manage
 - Webhook 支持 5 种权限级别：read/update/delete/trigger/manage
+- 接口测试支持 6 种权限级别：create/read/update/delete/execute/manage
 
 ### 📖 文档
 

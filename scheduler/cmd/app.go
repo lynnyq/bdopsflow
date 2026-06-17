@@ -150,6 +150,12 @@ type App struct {
 
 	sysConfigService *system_config.Service  // 全局系统配置服务
 
+	apiTestSvc   *service.ApiTestService
+	httpExecutor *service.HTTPExecutor
+	grpcExecutor *service.GRPCExecutor
+	protoSvc     *service.ProtoService
+	certSvc      *service.CertificateService
+
 	leaderElection *election.LeaderElection
 	grpcSrv        *grpcserver.Server
 	cronScheduler  *cron.CronScheduler
@@ -362,6 +368,22 @@ func NewApp(cfg *config.Config) *App {
 
 	instancePermSvc := service.NewInstancePermissionService(logDB, permissionService)
 	app.instancePermSvc = instancePermSvc
+
+	// 接口测试模块服务初始化
+	apiTestSvc := service.NewApiTestService(logDB)
+	app.apiTestSvc = apiTestSvc
+
+	httpExecutor := service.NewHTTPExecutor(app.sysConfigService)
+	app.httpExecutor = httpExecutor
+
+	grpcExecutor := service.NewGRPCExecutor(app.sysConfigService)
+	app.grpcExecutor = grpcExecutor
+
+	protoSvc := service.NewProtoService(logDB)
+	app.protoSvc = protoSvc
+
+	certSvc := service.NewCertificateService(logDB, rsaUtil)
+	app.certSvc = certSvc
 
 	grpcSrv := grpcserver.NewServer(cfg.GRPCPort, schedulerService)
 	grpcSrv.SetNodeId(nodeID)

@@ -213,6 +213,48 @@ func setupRoutes(router *gin.Engine, app *App) {
 			query.POST("/saved-sql", queryHandler.SaveSQL)
 			query.DELETE("/saved-sql/:id", queryHandler.DeleteSavedSQL)
 		}
+
+		// 接口测试模块路由
+		apiTestHandler := handler.NewApiTestHandler(app.apiTestSvc, app.httpExecutor, app.grpcExecutor, app.protoSvc, app.certSvc, app.permissionService)
+		protoFileHandler := handler.NewProtoFileHandler(app.protoSvc, app.grpcExecutor, app.certSvc, app.permissionService)
+		certHandler := handler.NewCertificateHandler(app.certSvc, app.permissionService)
+
+		apiTests := protected.Group("/api-tests")
+		{
+			apiTests.GET("", middleware.RequirePermission(app.permissionService, "api_test", "read"), apiTestHandler.List)
+			apiTests.POST("", middleware.RequirePermission(app.permissionService, "api_test", "create"), apiTestHandler.Create)
+			apiTests.GET("/results", middleware.RequirePermission(app.permissionService, "api_test", "read"), apiTestHandler.ListResults)
+			apiTests.DELETE("/results/:id", middleware.RequirePermission(app.permissionService, "api_test", "delete"), apiTestHandler.DeleteResult)
+			apiTests.POST("/execute", middleware.RequirePermission(app.permissionService, "api_test", "execute"), apiTestHandler.Execute)
+			apiTests.POST("/generate-curl", middleware.RequirePermission(app.permissionService, "api_test", "execute"), apiTestHandler.GenerateCurl)
+			apiTests.GET("/:id", middleware.RequirePermission(app.permissionService, "api_test", "read"), apiTestHandler.Get)
+			apiTests.PUT("/:id", middleware.RequirePermission(app.permissionService, "api_test", "update"), apiTestHandler.Update)
+			apiTests.DELETE("/:id", middleware.RequirePermission(app.permissionService, "api_test", "delete"), apiTestHandler.Delete)
+			apiTests.POST("/:id/execute", middleware.RequirePermission(app.permissionService, "api_test", "execute"), apiTestHandler.ExecuteSaved)
+			apiTests.GET("/:id/results", middleware.RequirePermission(app.permissionService, "api_test", "read"), apiTestHandler.GetResults)
+		}
+
+		protoFiles := protected.Group("/proto-files")
+		{
+			protoFiles.GET("", middleware.RequirePermission(app.permissionService, "api_test", "read"), protoFileHandler.List)
+			protoFiles.POST("", middleware.RequirePermission(app.permissionService, "api_test", "create"), protoFileHandler.Create)
+			protoFiles.GET("/:id", middleware.RequirePermission(app.permissionService, "api_test", "read"), protoFileHandler.Get)
+			protoFiles.PUT("/:id", middleware.RequirePermission(app.permissionService, "api_test", "update"), protoFileHandler.Update)
+			protoFiles.DELETE("/:id", middleware.RequirePermission(app.permissionService, "api_test", "delete"), protoFileHandler.Delete)
+			protoFiles.POST("/parse", middleware.RequirePermission(app.permissionService, "api_test", "execute"), protoFileHandler.Parse)
+			protoFiles.POST("/reflect", middleware.RequirePermission(app.permissionService, "api_test", "execute"), protoFileHandler.Reflect)
+			protoFiles.POST("/template", middleware.RequirePermission(app.permissionService, "api_test", "execute"), protoFileHandler.Template)
+			protoFiles.POST("/fields", middleware.RequirePermission(app.permissionService, "api_test", "execute"), protoFileHandler.Fields)
+		}
+
+		certificates := protected.Group("/certificates")
+		{
+			certificates.GET("", middleware.RequirePermission(app.permissionService, "api_test", "read"), certHandler.List)
+			certificates.POST("", middleware.RequirePermission(app.permissionService, "api_test", "create"), certHandler.Create)
+			certificates.GET("/:id", middleware.RequirePermission(app.permissionService, "api_test", "read"), certHandler.Get)
+			certificates.PUT("/:id", middleware.RequirePermission(app.permissionService, "api_test", "update"), certHandler.Update)
+			certificates.DELETE("/:id", middleware.RequirePermission(app.permissionService, "api_test", "delete"), certHandler.Delete)
+		}
 	}
 
 	setupStaticRoutes(router, app.dsConfigService)
@@ -315,7 +357,9 @@ func setupStaticRoutes(router *gin.Engine, dsConfigService *datasource.ConfigSer
 	})
 
 	router.NoRoute(func(c *gin.Context) {
-		if len(c.Request.URL.Path) >= 4 && c.Request.URL.Path[:4] == "/api" {
+		path := c.Request.URL.Path
+		// 精确匹配 /api/ 前缀（避免 /api-test 等路径被误判为 API 路由）
+		if len(path) >= 5 && path[:5] == "/api/" {
 			c.JSON(http.StatusNotFound, gin.H{
 				"code":    404,
 				"status":  "error",

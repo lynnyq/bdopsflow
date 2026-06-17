@@ -32,6 +32,7 @@ var defaultConfigValues = map[string]string{
 	"datasource.test_timeout":           "10",
 	"datasource.metadata_timeout":        "60",
 	"web.enabled":                      "false",
+	"api_test.allow_private_network":   "false",
 	"wecom.robot_url":                  "https://qyapi.weixin.qq.com/cgi-bin/webhook/send",
 	"wecom.app_msg_url":                "https://qyapi.weixin.qq.com/cgi-bin/webhook/send",
 	"wecom.ewechat_url":                "https://qyapi.weixin.qq.com/cgi-bin/webhook/send",
@@ -56,6 +57,12 @@ var configMetaList = []ConfigMeta{
 		Description: "启用后，可通过调度器监听端口直接访问 Web UI，无需单独部署前端。禁用后仅提供 API 服务。",
 		Type:        "boolean", DefaultValue: "false",
 		Group: "系统",
+	},
+	{
+		Key: "api_test.allow_private_network", Label: "允许访问内网地址",
+		Description: "开启后，HTTP/gRPC 接口测试执行器可访问内网（私有 IP）地址；关闭时仅允许访问公网地址，防止 SSRF 攻击。默认关闭。",
+		Type:        "boolean", DefaultValue: "false",
+		Group: "安全",
 	},
 	{
 		Key: "wecom.robot_url", Label: "企业微信群机器人 URL",
@@ -412,6 +419,12 @@ func (s *Service) Set(ctx context.Context, key, value string, changedBy int64) e
 			return nil
 		},
 		"web.enabled": func(v string) error {
+			if v != "true" && v != "false" {
+				return fmt.Errorf("must be true or false")
+			}
+			return nil
+		},
+		"api_test.allow_private_network": func(v string) error {
 			if v != "true" && v != "false" {
 				return fmt.Errorf("must be true or false")
 			}

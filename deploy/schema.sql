@@ -338,7 +338,15 @@ INSERT OR IGNORE INTO bdopsflow_permissions (resource, action, description) VALU
 -- 系统配置
 ('config', 'read', '查看系统配置'),
 ('config', 'update', '更新系统配置'),
-('config', 'manage', '完整管理系统配置');
+('config', 'manage', '完整管理系统配置'),
+
+-- 接口测试
+('api_test', 'create', '创建接口测试'),
+('api_test', 'read', '查看接口测试'),
+('api_test', 'update', '更新接口测试'),
+('api_test', 'delete', '删除接口测试'),
+('api_test', 'execute', '执行接口测试'),
+('api_test', 'manage', '完整管理接口测试');
 
 -- 系统管理员：所有权限
 INSERT OR IGNORE INTO bdopsflow_role_permissions (role_id, permission_id)
@@ -360,6 +368,7 @@ AND (
     OR (p.resource = 'role' AND p.action IN ('create', 'read', 'update', 'delete', 'manage'))
     OR (p.resource = 'domain' AND p.action IN ('read', 'update', 'manage'))
     OR (p.resource = 'permission' AND p.action IN ('read'))
+    OR (p.resource = 'api_test' AND p.action IN ('create', 'read', 'update', 'delete', 'execute', 'manage'))
 );
 
 -- 普通用户：查看、触发、查询
@@ -587,6 +596,82 @@ CREATE TABLE IF NOT EXISTS bdopsflow_webhook_permissions (
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_webhook_perms_webhook_id ON bdopsflow_webhook_permissions(webhook_id);
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_webhook_perms_role_id ON bdopsflow_webhook_permissions(role_id);
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_webhook_perms_user_id ON bdopsflow_webhook_permissions(user_id);
+
+-- ============================================================================
+-- 第六部分：接口测试模块表
+-- ============================================================================
+
+-- 23. 接口测试用例表
+CREATE TABLE IF NOT EXISTS bdopsflow_api_tests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL,
+    config TEXT NOT NULL,
+    created_by INTEGER NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (created_by) REFERENCES bdopsflow_users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_bdopsflow_api_tests_type ON bdopsflow_api_tests(type);
+CREATE INDEX IF NOT EXISTS idx_bdopsflow_api_tests_created_by ON bdopsflow_api_tests(created_by);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_bdopsflow_api_tests_name_user ON bdopsflow_api_tests(name, created_by);
+
+-- 24. Proto文件表
+CREATE TABLE IF NOT EXISTS bdopsflow_proto_files (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    content TEXT NOT NULL,
+    file_hash TEXT NOT NULL,
+    parsed_result TEXT,
+    dependencies TEXT DEFAULT '[]',
+    created_by INTEGER NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (created_by) REFERENCES bdopsflow_users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_bdopsflow_proto_files_created_by ON bdopsflow_proto_files(created_by);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_bdopsflow_proto_files_name_user ON bdopsflow_proto_files(name, created_by);
+CREATE INDEX IF NOT EXISTS idx_bdopsflow_proto_files_file_hash ON bdopsflow_proto_files(file_hash);
+
+-- 25. 证书文件表
+CREATE TABLE IF NOT EXISTS bdopsflow_certificates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    ca_cert TEXT,
+    client_cert TEXT,
+    client_key TEXT,
+    created_by INTEGER NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (created_by) REFERENCES bdopsflow_users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_bdopsflow_certificates_created_by ON bdopsflow_certificates(created_by);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_bdopsflow_certificates_name_user ON bdopsflow_certificates(name, created_by);
+
+-- 26. 接口测试结果表
+CREATE TABLE IF NOT EXISTS bdopsflow_api_test_results (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    test_id INTEGER,
+    type TEXT NOT NULL,
+    status_code INTEGER,
+    latency_ms INTEGER,
+    headers TEXT,
+    body TEXT,
+    error TEXT,
+    assertions_result TEXT,
+    executed_by INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (test_id) REFERENCES bdopsflow_api_tests(id) ON DELETE CASCADE,
+    FOREIGN KEY (executed_by) REFERENCES bdopsflow_users(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_bdopsflow_api_test_results_test_id ON bdopsflow_api_test_results(test_id);
+CREATE INDEX IF NOT EXISTS idx_bdopsflow_api_test_results_type ON bdopsflow_api_test_results(type);
+CREATE INDEX IF NOT EXISTS idx_bdopsflow_api_test_results_executed_by ON bdopsflow_api_test_results(executed_by);
+CREATE INDEX IF NOT EXISTS idx_bdopsflow_api_test_results_created_at ON bdopsflow_api_test_results(created_at DESC);
 
 -- ============================================================================
 -- 第五部分：系统配置初始化

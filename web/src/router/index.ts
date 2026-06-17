@@ -87,6 +87,36 @@ const routes: RouteRecordRaw[] = [
         meta: { menuPermission: 'query-history' },
       },
       {
+        path: 'api-test/http',
+        name: 'HttpTest',
+        component: () => import('@/views/ApiTest/HttpTest.vue'),
+        meta: { menuPermission: 'api-test-http' },
+      },
+      {
+        path: 'api-test/grpc',
+        name: 'GrpcTest',
+        component: () => import('@/views/ApiTest/GrpcTest.vue'),
+        meta: { menuPermission: 'api-test-grpc' },
+      },
+      {
+        path: 'api-test/proto-files',
+        name: 'ProtoFiles',
+        component: () => import('@/views/ApiTest/ProtoFiles.vue'),
+        meta: { menuPermission: 'api-test-proto' },
+      },
+      {
+        path: 'api-test/certificates',
+        name: 'Certificates',
+        component: () => import('@/views/ApiTest/Certificates.vue'),
+        meta: { menuPermission: 'api-test-cert' },
+      },
+      {
+        path: 'api-test/history',
+        name: 'TestHistory',
+        component: () => import('@/views/ApiTest/TestHistory.vue'),
+        meta: { menuPermission: 'api-test-history' },
+      },
+      {
         path: 'admin/users',
         name: 'AdminUsers',
         component: () => import('@/views/admin/Users.vue'),

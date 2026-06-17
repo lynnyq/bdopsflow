@@ -4,9 +4,10 @@ import { userAdminAPI, roleAdminAPI, domainAdminAPI, permissionAPI, switchDomain
 import { datasourceAPI, queryAPI, systemConfigAPI } from './datasource'
 import { auditLogAPI } from './audit'
 import { webhookAPI } from './webhook'
+import { apiTestAPI } from './apiTest'
 import type { AuditLogListResponse, AuditLogStats } from './audit'
 
-export { userAdminAPI, roleAdminAPI, domainAdminAPI, permissionAPI, switchDomain, datasourceAPI, queryAPI, systemConfigAPI, auditLogAPI, webhookAPI }
+export { userAdminAPI, roleAdminAPI, domainAdminAPI, permissionAPI, switchDomain, datasourceAPI, queryAPI, systemConfigAPI, auditLogAPI, webhookAPI, apiTestAPI }
 export type { User, Role, Permission, AuditLog, AuditLogListResponse, AuditLogStats }
 
 interface UpdateProfileRequest {

@@ -45,5 +45,7 @@ const (
 	CodeQueryHistoryNotFound    = 17008
 	CodeSavedSQLNotFound        = 17009
 	CodePermissionExists        = 14002
+	CodeApiTestNotFound         = 18001
+	CodeApiTestExecuteFailed    = 18002
 	CodeServiceUnavailable      = 503
 )
