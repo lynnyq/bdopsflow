@@ -39,6 +39,7 @@ func NewApiTestHandler(
 }
 
 // List returns test cases for the current user with optional type filter and pagination.
+// System admin can see all test cases; other users can only see their own.
 func (h *ApiTestHandler) List(c *gin.Context) {
 	userID := extractUserID(c)
 	if userID == 0 {
@@ -56,7 +57,9 @@ func (h *ApiTestHandler) List(c *gin.Context) {
 		pageSize = 20
 	}
 
-	tests, total, err := h.apiTestSvc.ListByUser(c.Request.Context(), userID, testType, page, pageSize)
+	isAdmin, _ := h.permSvc.IsSystemAdmin(c.Request.Context(), userID)
+
+	tests, total, err := h.apiTestSvc.ListByUser(c.Request.Context(), userID, isAdmin, testType, page, pageSize)
 	if err != nil {
 		slog.Error("failed to list api tests", "user_id", userID, "error", err)
 		Fail(c, CodeQueryError, "获取接口测试列表失败")
@@ -491,6 +494,7 @@ func (h *ApiTestHandler) ExecuteSaved(c *gin.Context) {
 }
 
 // ListResults returns all execution history for the current user.
+// System admin can see all results; other users can only see their own.
 func (h *ApiTestHandler) ListResults(c *gin.Context) {
 	userID := extractUserID(c)
 	if userID == 0 {
@@ -508,7 +512,9 @@ func (h *ApiTestHandler) ListResults(c *gin.Context) {
 		pageSize = 20
 	}
 
-	results, total, err := h.apiTestSvc.ListResultsByUser(c.Request.Context(), userID, resultType, page, pageSize)
+	isAdmin, _ := h.permSvc.IsSystemAdmin(c.Request.Context(), userID)
+
+	results, total, err := h.apiTestSvc.ListResultsByUser(c.Request.Context(), userID, isAdmin, resultType, page, pageSize)
 	if err != nil {
 		slog.Error("failed to list api test results", "user_id", userID, "error", err)
 		Fail(c, CodeQueryError, "获取执行历史失败")

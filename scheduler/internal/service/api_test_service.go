@@ -156,7 +156,7 @@ func (s *ApiTestService) GetByID(ctx context.Context, id int64) (*model.ApiTest,
 	return test, nil
 }
 
-func (s *ApiTestService) ListByUser(ctx context.Context, userID int64, testType string, page, pageSize int) ([]*model.ApiTest, int64, error) {
+func (s *ApiTestService) ListByUser(ctx context.Context, userID int64, isAdmin bool, testType string, page, pageSize int) ([]*model.ApiTest, int64, error) {
 	if page <= 0 {
 		page = 1
 	}
@@ -170,15 +170,21 @@ func (s *ApiTestService) ListByUser(ctx context.Context, userID int64, testType 
 	var conditions []string
 	var args []interface{}
 
-	conditions = append(conditions, "created_by = ?")
-	args = append(args, userID)
+	// 管理员可查看所有记录，普通用户只能查看自己创建的
+	if !isAdmin {
+		conditions = append(conditions, "created_by = ?")
+		args = append(args, userID)
+	}
 
 	if testType != "" {
 		conditions = append(conditions, "type = ?")
 		args = append(args, testType)
 	}
 
-	whereClause := "WHERE " + strings.Join(conditions, " AND ")
+	var whereClause string
+	if len(conditions) > 0 {
+		whereClause = "WHERE " + strings.Join(conditions, " AND ")
+	}
 
 	// Count query
 	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM bdopsflow_api_tests %s", whereClause)
@@ -383,7 +389,8 @@ func (s *ApiTestService) GetResults(ctx context.Context, testID int64, page, pag
 }
 
 // ListResultsByUser returns all test results for a given user with optional type filter.
-func (s *ApiTestService) ListResultsByUser(ctx context.Context, userID int64, resultType string, page, pageSize int) ([]*model.ApiTestResult, int64, error) {
+// System admin can see all results; other users can only see their own.
+func (s *ApiTestService) ListResultsByUser(ctx context.Context, userID int64, isAdmin bool, resultType string, page, pageSize int) ([]*model.ApiTestResult, int64, error) {
 	if page <= 0 {
 		page = 1
 	}
@@ -395,12 +402,23 @@ func (s *ApiTestService) ListResultsByUser(ctx context.Context, userID int64, re
 	}
 
 	// Build WHERE clause
-	whereClause := "WHERE r.executed_by = ?"
-	args := []interface{}{userID}
+	var conditions []string
+	var args []interface{}
+
+	// 管理员可查看所有记录，普通用户只能查看自己执行的
+	if !isAdmin {
+		conditions = append(conditions, "r.executed_by = ?")
+		args = append(args, userID)
+	}
 
 	if resultType != "" {
-		whereClause += " AND r.type = ?"
+		conditions = append(conditions, "r.type = ?")
 		args = append(args, resultType)
+	}
+
+	var whereClause string
+	if len(conditions) > 0 {
+		whereClause = "WHERE " + strings.Join(conditions, " AND ")
 	}
 
 	// Count query
