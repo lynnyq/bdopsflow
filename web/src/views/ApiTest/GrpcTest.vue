@@ -48,7 +48,14 @@
       <!-- Right Panel -->
       <main class="editor-area">
         <!-- Request Editor -->
-        <div class="request-section">
+        <div
+          ref="requestSectionRef"
+          class="request-section"
+          :class="{
+            'panel-maximized': panelMode === 'request-max',
+            'panel-minimized': panelMode === 'response-max',
+          }"
+        >
           <!-- Editing indicator -->
           <div v-if="currentTestName" class="current-test-name">
             <el-icon :size="14"><EditPen /></el-icon>
@@ -115,6 +122,14 @@
               连接测试
             </el-button>
             <el-button :icon="FolderOpened" @click="handleSave" :disabled="!canSave" class="action-btn">保存</el-button>
+            <el-tooltip :content="panelMode === 'request-max' ? '恢复' : '最大化请求'" placement="bottom">
+              <el-button
+                :icon="panelMode === 'request-max' ? ArrowDown : ArrowUp"
+                @click="togglePanelMode('request-max')"
+                class="action-btn panel-toggle-btn"
+                size="small"
+              />
+            </el-tooltip>
           </div>
 
         <!-- Tab Panels -->
@@ -366,9 +381,25 @@
         </el-tabs>
       </div>
 
+      <!-- Resize Handle -->
+      <div
+        v-if="lastResult || sending"
+        class="resize-handle"
+        @mousedown="handleResizeDragStart"
+      >
+        <div class="resize-line"></div>
+      </div>
+
       <!-- Response Viewer -->
       <transition name="response-fade">
-        <div class="response-section" v-if="lastResult || sending">
+        <div
+          class="response-section"
+          :class="{
+            'panel-maximized': panelMode === 'response-max',
+            'panel-minimized': panelMode === 'request-max',
+          }"
+          v-if="lastResult || sending"
+        >
           <div class="response-header">
             <div class="response-info">
               <template v-if="lastResult">
@@ -397,16 +428,14 @@
                 <span>请求中...</span>
               </template>
             </div>
-            <el-button
-              v-if="responseBodyText"
-              size="small"
-              text
-              class="copy-response-btn"
-              @click="copyResponseBody"
-            >
-              <el-icon><DocumentCopy /></el-icon>
-              复制
-            </el-button>
+            <el-tooltip :content="panelMode === 'response-max' ? '恢复' : '最大化响应'" placement="bottom">
+              <el-button
+                :icon="panelMode === 'response-max' ? ArrowDown : ArrowUp"
+                @click="togglePanelMode('response-max')"
+                class="action-btn panel-toggle-btn"
+                size="small"
+              />
+            </el-tooltip>
           </div>
 
           <el-tabs v-model="activeResponseTab" class="response-tabs">
@@ -418,7 +447,32 @@
                     <el-icon :size="16" color="var(--accent-danger)"><CircleCloseFilled /></el-icon>
                     <pre>{{ lastResult.error }}</pre>
                   </div>
-                  <div v-else ref="responseEditorRef" class="response-json-editor"></div>
+                  <template v-else>
+                    <div class="response-body-header">
+                      <div class="response-body-modes">
+                        <el-radio-group v-model="responseBodyMode" size="small">
+                          <el-radio-button value="json">JSON</el-radio-button>
+                          <el-radio-button value="raw">Raw</el-radio-button>
+                        </el-radio-group>
+                      </div>
+                      <div class="response-body-actions">
+                        <el-button
+                          v-if="lastResult?.body"
+                          size="small"
+                          text
+                          class="copy-response-btn"
+                          @click="copyResponseBody"
+                        >
+                          <el-icon><DocumentCopy /></el-icon>
+                          复制
+                        </el-button>
+                      </div>
+                    </div>
+                    <div v-if="responseBodyMode === 'json'" ref="responseEditorRef" class="response-json-editor"></div>
+                    <div v-else class="response-raw-wrapper">
+                      <pre class="response-raw">{{ lastResult?.body || '' }}</pre>
+                    </div>
+                  </template>
                 </template>
               </div>
             </el-tab-pane>
@@ -441,6 +495,14 @@
             <el-tab-pane label="历史" name="history">
               <div class="history-toolbar" v-if="historyResults.length > 0">
                 <el-button
+                  type="primary"
+                  size="small"
+                  :disabled="selectedHistoryIds.length !== 2"
+                  @click="handleCompare"
+                >
+                  对比 ({{ selectedHistoryIds.length }}/2)
+                </el-button>
+                <el-button
                   type="danger"
                   size="small"
                   plain
@@ -457,6 +519,12 @@
                   :class="{ active: lastResult?.id === h.id }"
                   @click="lastResult = h"
                 >
+                  <el-checkbox
+                    :model-value="selectedHistoryIds.includes(h.id)"
+                    @change="(val: boolean) => toggleHistorySelect(h.id, val)"
+                    @click.stop
+                    size="small"
+                  />
                   <el-tag
                     :type="h.error ? 'danger' : 'success'"
                     effect="light"
@@ -502,6 +570,33 @@
         <el-button type="primary" @click="handleSaveConfirm" :loading="saving">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- Compare Dialog -->
+    <el-dialog v-model="compareDialogVisible" title="历史对比" width="900px">
+      <div v-if="compareLeft && compareRight" class="compare-container">
+        <div class="compare-panel">
+          <div class="compare-header">
+            <el-tag :type="compareLeft.error ? 'danger' : 'success'" size="small" effect="dark">{{ compareLeft.error ? '失败' : '成功' }}</el-tag>
+            <span v-if="compareLeft.status_code !== undefined" class="compare-code" :class="compareLeft.status_code === 0 ? 'status-ok' : 'status-error'">gRPC {{ compareLeft.status_code }}</span>
+            <span class="compare-latency">{{ compareLeft.latency_ms }}ms</span>
+            <span class="compare-time">{{ formatDateTime(compareLeft.created_at) }}</span>
+          </div>
+          <pre class="compare-body">{{ formatCompareBody(compareLeft.body) }}</pre>
+        </div>
+        <div class="compare-panel">
+          <div class="compare-header">
+            <el-tag :type="compareRight.error ? 'danger' : 'success'" size="small" effect="dark">{{ compareRight.error ? '失败' : '成功' }}</el-tag>
+            <span v-if="compareRight.status_code !== undefined" class="compare-code" :class="compareRight.status_code === 0 ? 'status-ok' : 'status-error'">gRPC {{ compareRight.status_code }}</span>
+            <span class="compare-latency">{{ compareRight.latency_ms }}ms</span>
+            <span class="compare-time">{{ formatDateTime(compareRight.created_at) }}</span>
+          </div>
+          <pre class="compare-body">{{ formatCompareBody(compareRight.body) }}</pre>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="compareDialogVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -512,7 +607,7 @@ import {
   Plus, Delete, Search, Document, Refresh, Connection, VideoPlay,
   FolderOpened, WarningFilled, Upload, CircleCloseFilled, Clock, Folder,
   DocumentCopy, EditPen, InfoFilled, CircleCheckFilled,
-  Lock, Unlock, Close
+  Lock, Unlock, Close, ArrowUp, ArrowDown
 } from '@element-plus/icons-vue'
 import { apiTestAPI, protoFileAPI, certificateAPI } from '@/api/apiTest'
 import { isHandledError } from '@/utils/api'
@@ -540,6 +635,12 @@ const connecting = ref(false)
 const connectionMode = ref<'proto' | 'reflection'>('proto')
 const activeRequestTab = ref('service')
 const activeResponseTab = ref('body')
+const responseBodyMode = ref('json')
+
+// Panel resize state
+const panelMode = ref<'both' | 'request-max' | 'response-max'>('both')
+const requestSectionRef = ref<HTMLElement | null>(null)
+const isDragging = ref(false)
 
 const requestConfig = ref<GRPCRequestConfig>({
   address: '',
@@ -574,6 +675,12 @@ const historyResults = ref<ApiTestResult[]>([])
 
 const saveDialogVisible = ref(false)
 const saveName = ref('')
+
+// History comparison
+const selectedHistoryIds = ref<number[]>([])
+const compareDialogVisible = ref(false)
+const compareLeft = ref<ApiTestResult | null>(null)
+const compareRight = ref<ApiTestResult | null>(null)
 
 // CodeMirror
 const requestEditorRef = ref<HTMLElement | null>(null)
@@ -698,12 +805,84 @@ const handleClearHistory = async () => {
       }
     }
     historyResults.value = []
+    selectedHistoryIds.value = []
     ElMessage.success('历史已清空')
   } catch (err: unknown) {
     if (err !== 'cancel' && !isHandledError(err)) {
       ElMessage.error('清空历史失败')
     }
   }
+}
+
+const toggleHistorySelect = (id: number, checked: boolean) => {
+  if (checked) {
+    if (selectedHistoryIds.value.length < 2) {
+      selectedHistoryIds.value.push(id)
+    }
+  } else {
+    selectedHistoryIds.value = selectedHistoryIds.value.filter(i => i !== id)
+  }
+}
+
+const handleCompare = () => {
+  if (selectedHistoryIds.value.length !== 2) return
+  const [leftId, rightId] = selectedHistoryIds.value
+  compareLeft.value = historyResults.value.find(h => h.id === leftId) || null
+  compareRight.value = historyResults.value.find(h => h.id === rightId) || null
+  if (compareLeft.value && compareRight.value) {
+    compareDialogVisible.value = true
+  }
+}
+
+const formatCompareBody = (body: string | undefined): string => {
+  if (!body) return ''
+  try {
+    return JSON.stringify(JSON.parse(body), null, 2)
+  } catch {
+    return body
+  }
+}
+
+// Panel resize handlers
+const togglePanelMode = (mode: 'both' | 'request-max' | 'response-max') => {
+  panelMode.value = panelMode.value === mode ? 'both' : mode
+}
+
+const handleResizeDragStart = (e: MouseEvent) => {
+  e.preventDefault()
+  isDragging.value = true
+  const editorArea = (e.target as HTMLElement).closest('.editor-area') as HTMLElement
+  if (!editorArea) return
+  const areaRect = editorArea.getBoundingClientRect()
+  const areaHeight = areaRect.height
+  const startY = e.clientY
+  const startHeight = requestSectionRef.value?.offsetHeight || 0
+
+  const onMouseMove = (moveEvent: MouseEvent) => {
+    const delta = moveEvent.clientY - startY
+    const newHeight = startHeight + delta
+    const minHeight = 120
+    const maxHeight = areaHeight - 120
+    const clampedHeight = Math.min(Math.max(newHeight, minHeight), maxHeight)
+    if (requestSectionRef.value) {
+      requestSectionRef.value.style.flex = 'none'
+      requestSectionRef.value.style.height = `${clampedHeight}px`
+    }
+    panelMode.value = 'both'
+  }
+
+  const onMouseUp = () => {
+    isDragging.value = false
+    document.removeEventListener('mousemove', onMouseMove)
+    document.removeEventListener('mouseup', onMouseUp)
+    document.body.style.cursor = ''
+    document.body.style.userSelect = ''
+  }
+
+  document.body.style.cursor = 'row-resize'
+  document.body.style.userSelect = 'none'
+  document.addEventListener('mousemove', onMouseMove)
+  document.addEventListener('mouseup', onMouseUp)
 }
 
 const copyResponseBody = async () => {
@@ -1163,11 +1342,10 @@ const initRequestEditor = () => {
       oneDark,
       updateListener,
       EditorView.theme({
-        '&': { height: '100%' },
+        '&': { height: '100%', backgroundColor: '#282c34' },
         '.cm-content': { padding: '10px 12px', fontSize: '13px', fontFamily: 'Monaco, Menlo, "Ubuntu Mono", monospace' },
         '.cm-line': { padding: '2px 0', lineHeight: '1.5' },
-        '.cm-editor': { height: '100%', backgroundColor: '#1e1e2e' },
-        '.cm-scroller': { overflow: 'auto' },
+        '.cm-scroller': { overflow: 'auto', backgroundColor: '#282c34' },
       }),
     ],
   })
@@ -1198,8 +1376,8 @@ const createResponseJsonEditor = () => {
       oneDark,
       EditorState.readOnly.of(true),
       EditorView.theme({
-        '&': { height: '300px' },
-        '.cm-scroller': { overflow: 'auto' },
+        '&': { height: '100%', backgroundColor: '#282c34' },
+        '.cm-scroller': { overflow: 'auto', backgroundColor: '#282c34' },
       }),
     ],
   })
@@ -1287,6 +1465,13 @@ watch(activeResponseTab, () => {
     nextTick(() => createResponseJsonEditor())
   }
 })
+
+// Watch responseBodyMode to recreate JSON editor when switching back from raw
+watch(responseBodyMode, () => {
+  if (responseBodyMode.value === 'json' && lastResult.value && !lastResult.value.error) {
+    nextTick(() => createResponseJsonEditor())
+  }
+})
 </script>
 
 <style scoped>
@@ -1305,7 +1490,7 @@ watch(activeResponseTab, () => {
 
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 112px);
+  height: 100%;
   min-height: 0;
   overflow: hidden;
   margin: calc(-1 * var(--space-6));
@@ -1471,7 +1656,7 @@ watch(activeResponseTab, () => {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-lg);
+  gap: var(--spacing-md);
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -1486,6 +1671,57 @@ watch(activeResponseTab, () => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  flex-shrink: 1;
+  max-height: 55%;
+  min-height: 180px;
+  transition: max-height 0.3s ease, min-height 0.3s ease, flex 0.3s ease;
+}
+
+.request-section.panel-maximized {
+  flex: 1;
+  max-height: none;
+  min-height: 0;
+}
+
+.request-section.panel-minimized {
+  flex: 0;
+  max-height: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: none;
+  padding: 0;
+  margin: 0;
+}
+
+/* ==================== Resize Handle ==================== */
+.resize-handle {
+  flex-shrink: 0;
+  height: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: row-resize;
+  position: relative;
+  z-index: 10;
+}
+
+.resize-handle:hover .resize-line,
+.resize-handle:active .resize-line {
+  background: #6366f1;
+  height: 3px;
+}
+
+.resize-line {
+  width: 40px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--border-default);
+  transition: all 0.2s ease;
+}
+
+.panel-toggle-btn {
+  margin-left: auto;
+  flex-shrink: 0;
 }
 
 .current-test-name {
@@ -1503,10 +1739,11 @@ watch(activeResponseTab, () => {
 .request-bar {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
+  gap: var(--spacing-md);
   padding: var(--spacing-md) var(--spacing-lg);
   border-bottom: 1px solid var(--border-subtle);
   background: var(--bg-secondary);
+  flex-wrap: wrap;
 }
 
 .bar-divider {
@@ -1566,13 +1803,26 @@ watch(activeResponseTab, () => {
 
 .request-tabs {
   padding: 0 var(--spacing-lg);
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.request-tabs :deep(.el-tabs__header) {
+  flex-shrink: 0;
 }
 
 .request-tabs :deep(.el-tabs__content) {
   padding: var(--spacing-md) 0;
-  max-height: 400px;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   transition: opacity var(--transition-tab);
+}
+
+.request-tabs :deep(.el-tab-pane) {
+  min-height: 100%;
 }
 
 /* ==================== Service Panel ==================== */
@@ -1853,8 +2103,24 @@ watch(activeResponseTab, () => {
   flex-direction: column;
   overflow: hidden;
   flex: 1;
-  min-height: 200px;
+  min-height: 250px;
   background: linear-gradient(180deg, rgba(99, 102, 241, 0.02) 0%, var(--bg-card) 100%);
+  transition: flex 0.3s ease, min-height 0.3s ease;
+}
+
+.response-section.panel-maximized {
+  flex: 1;
+  min-height: 0;
+}
+
+.response-section.panel-minimized {
+  flex: 0;
+  min-height: 0;
+  max-height: 0;
+  overflow: hidden;
+  border: none;
+  padding: 0;
+  margin: 0;
 }
 
 .response-fade-enter-active {
@@ -1876,12 +2142,13 @@ watch(activeResponseTab, () => {
 }
 
 .response-header {
-  padding: var(--spacing-md) var(--spacing-lg);
+  padding: var(--spacing-sm) var(--spacing-lg);
   border-bottom: 1px solid var(--border-subtle);
   background: var(--bg-secondary);
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-shrink: 0;
 }
 
 .response-info {
@@ -1894,10 +2161,10 @@ watch(activeResponseTab, () => {
 
 .status-badge {
   font-weight: 700;
-  font-size: 14px;
-  min-width: 56px;
+  font-size: 12px;
+  min-width: 44px;
   text-align: center;
-  padding: 4px 12px;
+  padding: 2px 8px;
 }
 
 .response-meta-item {
@@ -1931,21 +2198,78 @@ watch(activeResponseTab, () => {
 
 .response-tabs {
   padding: 0 var(--spacing-lg);
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.response-tabs :deep(.el-tabs__header) {
+  flex-shrink: 0;
 }
 
 .response-tabs :deep(.el-tabs__content) {
   padding: var(--spacing-md) 0;
   flex: 1;
-  overflow: auto;
+  min-height: 0;
+  overflow-y: auto;
   transition: opacity var(--transition-tab);
 }
 
+.response-tabs :deep(.el-tab-pane) {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
 .response-body-content {
-  min-height: 200px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.response-body-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-xs) 0 var(--spacing-sm);
+  flex-shrink: 0;
+}
+
+.response-body-modes {
+  display: flex;
+  align-items: center;
+}
+
+.response-body-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.response-raw-wrapper {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.response-raw {
+  font-family: Monaco, Menlo, 'Ubuntu Mono', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+  padding: var(--spacing-sm);
+  background: var(--bg-primary);
+  border-radius: var(--radius-md);
 }
 
 .response-json-editor {
-  height: 300px;
+  flex: 1;
+  min-height: 0;
 }
 
 .error-content {
@@ -2078,5 +2402,59 @@ watch(activeResponseTab, () => {
   font-size: var(--font-size-sm);
   color: var(--text-secondary);
   margin: 0;
+}
+
+/* ==================== Compare Dialog ==================== */
+.compare-container {
+  display: flex;
+  gap: var(--spacing-lg);
+}
+
+.compare-panel {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.compare-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 13px;
+}
+
+.compare-code {
+  font-weight: 600;
+  font-family: Monaco, Menlo, 'Ubuntu Mono', monospace;
+  font-size: 12px;
+}
+
+.compare-latency {
+  color: var(--text-secondary);
+  font-family: Monaco, Menlo, 'Ubuntu Mono', monospace;
+}
+
+.compare-time {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-left: auto;
+}
+
+.compare-body {
+  padding: var(--spacing-md);
+  margin: 0;
+  font-family: Monaco, Menlo, 'Ubuntu Mono', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 400px;
+  overflow: auto;
+  background: var(--bg-primary);
 }
 </style>

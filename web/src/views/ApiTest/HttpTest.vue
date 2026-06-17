@@ -55,7 +55,14 @@
       <!-- Right Panel -->
       <main class="editor-area">
         <!-- Request Editor -->
-        <div class="request-section">
+        <div
+          ref="requestSectionRef"
+          class="request-section"
+          :class="{
+            'panel-maximized': panelMode === 'request-max',
+            'panel-minimized': panelMode === 'response-max',
+          }"
+        >
           <!-- Current test name -->
           <div v-if="currentTestName" class="current-test-name">
             <el-icon :size="14"><Document /></el-icon>
@@ -132,6 +139,14 @@
                 cURL
               </el-button>
             </el-tooltip>
+            <el-tooltip :content="panelMode === 'request-max' ? '恢复' : '最大化请求'" placement="bottom">
+              <el-button
+                :icon="panelMode === 'request-max' ? ArrowDown : ArrowUp"
+                @click="togglePanelMode('request-max')"
+                class="action-btn panel-toggle-btn"
+                size="small"
+              />
+            </el-tooltip>
           </div>
 
           <!-- Request Tabs -->
@@ -139,7 +154,7 @@
             <!-- Params Tab -->
             <el-tab-pane name="params">
               <template #label>
-                Params <el-badge v-if="activeParamsCount > 0" :value="activeParamsCount" type="info" class="tab-badge" />
+                参数 <el-badge v-if="activeParamsCount > 0" :value="activeParamsCount" type="info" class="tab-badge" />
               </template>
               <KVEditor v-model="requestConfig.params" key-label="参数名" value-label="参数值" add-label="添加参数" @update:model-value="syncParamsToUrl" />
             </el-tab-pane>
@@ -147,7 +162,7 @@
             <!-- Headers Tab -->
             <el-tab-pane name="headers">
               <template #label>
-                Headers <el-badge v-if="activeHeadersCount > 0" :value="activeHeadersCount" type="info" class="tab-badge" />
+                请求头 <el-badge v-if="activeHeadersCount > 0" :value="activeHeadersCount" type="info" class="tab-badge" />
               </template>
               <KVEditor v-model="requestConfig.headers" key-label="Header" value-label="Value" add-label="添加" />
             </el-tab-pane>
@@ -155,7 +170,7 @@
             <!-- Body Tab -->
             <el-tab-pane name="body">
               <template #label>
-                Body <el-badge v-if="requestConfig.bodyType !== 'none'" value="*" type="warning" class="tab-badge" />
+                请求体 <el-badge v-if="requestConfig.bodyType !== 'none'" value="*" type="warning" class="tab-badge" />
               </template>
               <div class="body-section">
                 <div class="body-type-row">
@@ -225,7 +240,7 @@
             <!-- Auth Tab -->
             <el-tab-pane name="auth">
               <template #label>
-                Auth <el-badge v-if="requestConfig.authType !== 'none'" value="*" type="success" class="tab-badge" />
+                认证 <el-badge v-if="requestConfig.authType !== 'none'" value="*" type="success" class="tab-badge" />
               </template>
               <div class="auth-section">
                 <el-select v-model="requestConfig.authType" size="small" class="auth-type-select">
@@ -254,7 +269,7 @@
             </el-tab-pane>
 
             <!-- Pre-Script Tab -->
-            <el-tab-pane label="Pre-Script" name="pre-script">
+            <el-tab-pane label="前置脚本" name="pre-script">
               <el-input
                 v-model="requestConfig.preScript"
                 type="textarea"
@@ -265,7 +280,7 @@
             </el-tab-pane>
 
             <!-- Post-Script Tab -->
-            <el-tab-pane label="Post-Script" name="post-script">
+            <el-tab-pane label="后置脚本" name="post-script">
               <el-input
                 v-model="requestConfig.postScript"
                 type="textarea"
@@ -278,7 +293,7 @@
             <!-- Assertions Tab -->
             <el-tab-pane name="assertions">
               <template #label>
-                Assertions <el-badge v-if="requestConfig.assertions.length > 0" :value="requestConfig.assertions.length" type="danger" class="tab-badge" />
+                断言 <el-badge v-if="requestConfig.assertions.length > 0" :value="requestConfig.assertions.length" type="danger" class="tab-badge" />
               </template>
               <div class="assertions-editor">
                 <div v-for="(assertion, index) in requestConfig.assertions" :key="index" class="assertion-row">
@@ -305,9 +320,25 @@
           </el-tabs>
         </div>
 
+        <!-- Resize Handle -->
+        <div
+          v-if="response || responseError || sending"
+          class="resize-handle"
+          @mousedown="handleResizeDragStart"
+        >
+          <div class="resize-line"></div>
+        </div>
+
         <!-- Response Viewer -->
         <transition name="response-fade">
-          <div class="response-section" v-if="response || responseError || sending">
+          <div
+            class="response-section"
+            :class="{
+              'panel-maximized': panelMode === 'response-max',
+              'panel-minimized': panelMode === 'request-max',
+            }"
+            v-if="response || responseError || sending"
+          >
             <div class="response-header">
               <div class="response-info">
                 <template v-if="response">
@@ -337,13 +368,21 @@
                   <span>请求中...</span>
                 </template>
               </div>
+              <el-tooltip :content="panelMode === 'response-max' ? '恢复' : '最大化响应'" placement="bottom">
+                <el-button
+                  :icon="panelMode === 'response-max' ? ArrowDown : ArrowUp"
+                  @click="togglePanelMode('response-max')"
+                  class="action-btn panel-toggle-btn"
+                  size="small"
+                />
+              </el-tooltip>
             </div>
 
             <el-tabs v-model="responseTab" class="response-tabs">
               <!-- Body Tab -->
               <el-tab-pane name="body">
                 <template #label>
-                  Body
+                  响应体
                 </template>
                 <div class="response-body-header">
                   <div class="response-body-modes">
@@ -382,7 +421,7 @@
               </el-tab-pane>
 
               <!-- Headers Tab -->
-              <el-tab-pane label="Headers" name="headers">
+              <el-tab-pane label="响应头" name="headers">
                 <div class="response-headers">
                   <div v-for="(value, key) in parsedResponseHeaders" :key="key" class="header-row">
                     <span class="header-key">{{ key }}</span>
@@ -393,7 +432,7 @@
               </el-tab-pane>
 
               <!-- Assertions Tab -->
-              <el-tab-pane label="Assertions" name="assertions">
+              <el-tab-pane label="断言结果" name="assertions">
                 <div class="assertions-results">
                   <div
                     v-for="(result, index) in assertionResults"
@@ -414,7 +453,7 @@
               </el-tab-pane>
 
               <!-- History Tab -->
-              <el-tab-pane label="History" name="history">
+              <el-tab-pane label="历史" name="history">
                 <div class="history-toolbar" v-if="historyList.length > 0">
                   <el-button
                     type="primary"
@@ -533,7 +572,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Search, Delete, Document, Plus, Close, Link, Promotion,
   FolderOpened, DocumentCopy, Clock, Refresh, CircleCheck, CircleClose,
-  Rank, MagicStick
+  Rank, MagicStick, ArrowUp, ArrowDown
 } from '@element-plus/icons-vue'
 import { EditorView, basicSetup } from 'codemirror'
 import { EditorState } from '@codemirror/state'
@@ -582,7 +621,7 @@ const httpMethods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']
 const methodTagTypeMap: Record<string, string> = {
   GET: 'success',
   POST: 'warning',
-  PUT: '',
+  PUT: 'primary',
   DELETE: 'danger',
   PATCH: 'warning',
   HEAD: 'info',
@@ -605,7 +644,7 @@ const getMethodColor = (method: string): string => methodColorMap[method] || '#9
 
 const getStatusTagType = (code: number): string => {
   if (code >= 200 && code < 300) return 'success'
-  if (code >= 300 && code < 400) return ''
+  if (code >= 300 && code < 400) return 'info'
   if (code >= 400 && code < 500) return 'warning'
   return 'danger'
 }
@@ -622,6 +661,11 @@ const requestTab = ref('params')
 const responseTab = ref('body')
 const responseBodyMode = ref('json')
 const binaryFileName = ref('')
+
+// Panel resize state
+const panelMode = ref<'both' | 'request-max' | 'response-max'>('both')
+const requestSectionRef = ref<HTMLElement | null>(null)
+const isDragging = ref(false)
 
 const requestConfig = ref<RequestConfigLocal>(createEmptyRequest())
 
@@ -902,6 +946,48 @@ function formatAssertionResult(result: AssertionResult): string {
   return text
 }
 
+// Panel resize handlers
+const togglePanelMode = (mode: 'both' | 'request-max' | 'response-max') => {
+  panelMode.value = panelMode.value === mode ? 'both' : mode
+}
+
+const handleResizeDragStart = (e: MouseEvent) => {
+  e.preventDefault()
+  isDragging.value = true
+  const editorArea = (e.target as HTMLElement).closest('.editor-area') as HTMLElement
+  if (!editorArea) return
+  const areaRect = editorArea.getBoundingClientRect()
+  const areaHeight = areaRect.height
+  const startY = e.clientY
+  const startHeight = requestSectionRef.value?.offsetHeight || 0
+
+  const onMouseMove = (moveEvent: MouseEvent) => {
+    const delta = moveEvent.clientY - startY
+    const newHeight = startHeight + delta
+    const minHeight = 120
+    const maxHeight = areaHeight - 120
+    const clampedHeight = Math.min(Math.max(newHeight, minHeight), maxHeight)
+    if (requestSectionRef.value) {
+      requestSectionRef.value.style.flex = 'none'
+      requestSectionRef.value.style.height = `${clampedHeight}px`
+    }
+    panelMode.value = 'both'
+  }
+
+  const onMouseUp = () => {
+    isDragging.value = false
+    document.removeEventListener('mousemove', onMouseMove)
+    document.removeEventListener('mouseup', onMouseUp)
+    document.body.style.cursor = ''
+    document.body.style.userSelect = ''
+  }
+
+  document.body.style.cursor = 'row-resize'
+  document.body.style.userSelect = 'none'
+  document.addEventListener('mousemove', onMouseMove)
+  document.addEventListener('mouseup', onMouseUp)
+}
+
 function formatJsonBody() {
   try {
     const parsed = JSON.parse(requestConfig.value.bodyContent)
@@ -936,8 +1022,8 @@ function createBodyEditor() {
         }
       }),
       EditorView.theme({
-        '&': { height: '200px' },
-        '.cm-scroller': { overflow: 'auto' },
+        '&': { height: '100%', backgroundColor: '#282c34' },
+        '.cm-scroller': { overflow: 'auto', backgroundColor: '#282c34' },
       }),
     ],
   })
@@ -977,8 +1063,8 @@ function createResponseJsonEditor() {
       oneDark,
       EditorState.readOnly.of(true),
       EditorView.theme({
-        '&': { height: '300px' },
-        '.cm-scroller': { overflow: 'auto' },
+        '&': { height: '100%', backgroundColor: '#282c34' },
+        '.cm-scroller': { overflow: 'auto', backgroundColor: '#282c34' },
       }),
     ],
   })
@@ -1376,7 +1462,7 @@ onUnmounted(() => {
 
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 112px);
+  height: 100%;
   min-height: 0;
   overflow: hidden;
   margin: calc(-1 * var(--space-6));
@@ -1534,7 +1620,7 @@ onUnmounted(() => {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-lg);
+  gap: var(--spacing-md);
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -1549,6 +1635,57 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  flex-shrink: 1;
+  max-height: 55%;
+  min-height: 180px;
+  transition: max-height 0.3s ease, min-height 0.3s ease, flex 0.3s ease;
+}
+
+.request-section.panel-maximized {
+  flex: 1;
+  max-height: none;
+  min-height: 0;
+}
+
+.request-section.panel-minimized {
+  flex: 0;
+  max-height: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: none;
+  padding: 0;
+  margin: 0;
+}
+
+/* ==================== Resize Handle ==================== */
+.resize-handle {
+  flex-shrink: 0;
+  height: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: row-resize;
+  position: relative;
+  z-index: 10;
+}
+
+.resize-handle:hover .resize-line,
+.resize-handle:active .resize-line {
+  background: var(--accent-primary);
+  height: 3px;
+}
+
+.resize-line {
+  width: 40px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--border-default);
+  transition: all 0.2s ease;
+}
+
+.panel-toggle-btn {
+  margin-left: auto;
+  flex-shrink: 0;
 }
 
 .current-test-name {
@@ -1566,10 +1703,11 @@ onUnmounted(() => {
 .request-bar {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
+  gap: var(--spacing-md);
   padding: var(--spacing-md) var(--spacing-lg);
   border-bottom: 1px solid var(--border-subtle);
   background: var(--bg-secondary);
+  flex-wrap: wrap;
 }
 
 .bar-divider {
@@ -1578,7 +1716,8 @@ onUnmounted(() => {
 }
 
 .method-select {
-  width: 120px;
+  width: 110px;
+  flex-shrink: 0;
 }
 
 .method-text {
@@ -1641,6 +1780,26 @@ onUnmounted(() => {
 
 .request-tabs {
   padding: 0 var(--spacing-lg);
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.request-tabs :deep(.el-tabs__header) {
+  flex-shrink: 0;
+}
+
+.request-tabs :deep(.el-tabs__content) {
+  padding: var(--spacing-md) 0;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  transition: opacity var(--transition-tab);
+}
+
+.request-tabs :deep(.el-tab-pane) {
+  min-height: 100%;
 }
 
 .tab-badge :deep(.el-badge__content) {
@@ -1648,13 +1807,6 @@ onUnmounted(() => {
   height: 16px;
   line-height: 16px;
   padding: 0 4px;
-}
-
-.request-tabs :deep(.el-tabs__content) {
-  padding: var(--spacing-md) 0;
-  max-height: 300px;
-  overflow-y: auto;
-  transition: opacity var(--transition-tab);
 }
 
 /* ==================== Body Section ==================== */
@@ -1688,6 +1840,8 @@ onUnmounted(() => {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .body-editor-toolbar {
@@ -1697,6 +1851,7 @@ onUnmounted(() => {
   padding: var(--spacing-xs) var(--spacing-sm);
   border-bottom: 1px solid var(--border-subtle);
   background: var(--bg-secondary);
+  flex-shrink: 0;
 }
 
 .raw-content-type-input {
@@ -1704,7 +1859,9 @@ onUnmounted(() => {
 }
 
 .body-editor {
-  height: 200px;
+  flex: 1;
+  min-height: 180px;
+  overflow: auto;
 }
 
 .body-none {
@@ -1810,8 +1967,24 @@ onUnmounted(() => {
   flex-direction: column;
   overflow: hidden;
   flex: 1;
-  min-height: 200px;
+  min-height: 250px;
   background: linear-gradient(180deg, rgba(59, 130, 246, 0.02) 0%, var(--bg-card) 100%);
+  transition: flex 0.3s ease, min-height 0.3s ease;
+}
+
+.response-section.panel-maximized {
+  flex: 1;
+  min-height: 0;
+}
+
+.response-section.panel-minimized {
+  flex: 0;
+  min-height: 0;
+  max-height: 0;
+  overflow: hidden;
+  border: none;
+  padding: 0;
+  margin: 0;
 }
 
 .response-fade-enter-active {
@@ -1833,9 +2006,13 @@ onUnmounted(() => {
 }
 
 .response-header {
-  padding: var(--spacing-md) var(--spacing-lg);
+  padding: var(--spacing-sm) var(--spacing-lg);
   border-bottom: 1px solid var(--border-subtle);
   background: var(--bg-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
 }
 
 .response-info {
@@ -1848,10 +2025,10 @@ onUnmounted(() => {
 
 .status-badge {
   font-weight: 700;
-  font-size: 14px;
-  min-width: 56px;
+  font-size: 12px;
+  min-width: 44px;
   text-align: center;
-  padding: 4px 12px;
+  padding: 2px 8px;
 }
 
 .response-meta-item {
@@ -1867,13 +2044,28 @@ onUnmounted(() => {
 
 .response-tabs {
   padding: 0 var(--spacing-lg);
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.response-tabs :deep(.el-tabs__header) {
+  flex-shrink: 0;
 }
 
 .response-tabs :deep(.el-tabs__content) {
   padding: var(--spacing-md) 0;
   flex: 1;
-  overflow: auto;
+  min-height: 0;
+  overflow-y: auto;
   transition: opacity var(--transition-tab);
+}
+
+.response-tabs :deep(.el-tab-pane) {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 .response-body-header {
@@ -1881,6 +2073,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   margin-bottom: var(--spacing-sm);
+  flex-shrink: 0;
 }
 
 .response-body-modes {
@@ -1889,11 +2082,16 @@ onUnmounted(() => {
 }
 
 .response-body-content {
-  height: 300px;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .response-json-editor {
-  height: 300px;
+  flex: 1;
+  min-height: 0;
 }
 
 .copy-response-btn {
@@ -1919,14 +2117,16 @@ onUnmounted(() => {
   font-size: 13px;
   white-space: pre-wrap;
   word-break: break-all;
-  max-height: 300px;
+  flex: 1;
+  min-height: 0;
   overflow: auto;
   margin: 0;
 }
 
 .response-preview {
   width: 100%;
-  height: 300px;
+  height: 100%;
+  min-height: 200px;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   background: white;

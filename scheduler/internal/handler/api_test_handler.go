@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"strconv"
 
@@ -346,6 +347,9 @@ func (h *ApiTestHandler) Execute(c *gin.Context) {
 
 	result.ExecutedBy = userID
 
+	// Set audit context for execute action
+	c.Set("audit_detail", fmt.Sprintf("类型: %s", req.Type))
+
 	// Optionally save result
 	if req.SaveResult != nil && *req.SaveResult {
 		result.TestID = 0 // temporary test, no test_id
@@ -469,6 +473,11 @@ func (h *ApiTestHandler) ExecuteSaved(c *gin.Context) {
 
 	result.TestID = id
 	result.ExecutedBy = userID
+
+	// Set audit context for execute saved action
+	c.Set("audit_resource_id", strconv.FormatInt(id, 10))
+	c.Set("audit_resource_name", test.Name)
+	c.Set("audit_detail", fmt.Sprintf("类型: %s", test.Type))
 
 	// Save result
 	savedResult, saveErr := h.apiTestSvc.SaveResult(c.Request.Context(), result)

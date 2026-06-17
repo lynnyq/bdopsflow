@@ -2295,7 +2295,7 @@ window.addEventListener('beforeunload', handleBeforeUnload);
 .sql-query-page {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 112px);
+  height: 100%;
   min-height: 0;
   overflow: hidden;
   margin: calc(-1 * var(--space-6));

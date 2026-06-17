@@ -37,6 +37,14 @@ var routeAuditRules = map[string]auditRouteRule{
 	"/api/query/execute":        {Resource: "query", Action: "execute"},
 	"/api/query/export":         {Resource: "query", Action: "export"},
 	"/api/query/saved-sql":      {Resource: "saved_sql", Action: "create"},
+	"/api/interfaces":           {Resource: "api_test", Action: "create"},
+	"/api/interfaces/execute":   {Resource: "api_test", Action: "execute"},
+	"/api/certificates":         {Resource: "certificate", Action: "create"},
+	"/api/proto-files":          {Resource: "proto_file", Action: "create"},
+	"/api/proto-files/parse":    {Resource: "proto_file", Action: "parse"},
+	"/api/proto-files/reflect":  {Resource: "proto_file", Action: "reflect"},
+	"/api/proto-files/template": {Resource: "proto_file", Action: "generate_template"},
+	"/api/proto-files/fields":   {Resource: "proto_file", Action: "generate_fields"},
 }
 
 var routePrefixRules = []struct {
@@ -53,6 +61,9 @@ var routePrefixRules = []struct {
 	{"/api/query/saved-sql/", "saved_sql"},
 	{"/api/query/history/", "query_history"},
 	{"/api/logs/", "log"},
+	{"/api/interfaces/", "api_test"},
+	{"/api/certificates/", "certificate"},
+	{"/api/proto-files/", "proto_file"},
 }
 
 func AuditMiddleware(auditService *service.AuditLogService) gin.HandlerFunc {
@@ -194,6 +205,12 @@ func resolveAuditInfo(method, path string) (resource, action string) {
 		action = "resume"
 	} else if strings.Contains(path, "/system-config") {
 		action = "config_change"
+	} else if strings.Contains(path, "/interfaces/") && strings.Contains(path, "/execute") {
+		action = "execute"
+	} else if strings.Contains(path, "/generate-curl") {
+		action = "generate_curl"
+	} else if strings.Contains(path, "/interfaces/") && strings.Contains(path, "/results") && method == "DELETE" {
+		action = "delete_result"
 	}
 
 	return resource, action
