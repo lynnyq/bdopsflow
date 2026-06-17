@@ -219,19 +219,19 @@ func setupRoutes(router *gin.Engine, app *App) {
 		protoFileHandler := handler.NewProtoFileHandler(app.protoSvc, app.grpcExecutor, app.certSvc, app.permissionService)
 		certHandler := handler.NewCertificateHandler(app.certSvc, app.permissionService)
 
-		apiTests := protected.Group("/api-tests")
+		interfaces := protected.Group("/interfaces")
 		{
-			apiTests.GET("", middleware.RequirePermission(app.permissionService, "api_test", "read"), apiTestHandler.List)
-			apiTests.POST("", middleware.RequirePermission(app.permissionService, "api_test", "create"), apiTestHandler.Create)
-			apiTests.GET("/results", middleware.RequirePermission(app.permissionService, "api_test", "read"), apiTestHandler.ListResults)
-			apiTests.DELETE("/results/:id", middleware.RequirePermission(app.permissionService, "api_test", "delete"), apiTestHandler.DeleteResult)
-			apiTests.POST("/execute", middleware.RequirePermission(app.permissionService, "api_test", "execute"), apiTestHandler.Execute)
-			apiTests.POST("/generate-curl", middleware.RequirePermission(app.permissionService, "api_test", "execute"), apiTestHandler.GenerateCurl)
-			apiTests.GET("/:id", middleware.RequirePermission(app.permissionService, "api_test", "read"), apiTestHandler.Get)
-			apiTests.PUT("/:id", middleware.RequirePermission(app.permissionService, "api_test", "update"), apiTestHandler.Update)
-			apiTests.DELETE("/:id", middleware.RequirePermission(app.permissionService, "api_test", "delete"), apiTestHandler.Delete)
-			apiTests.POST("/:id/execute", middleware.RequirePermission(app.permissionService, "api_test", "execute"), apiTestHandler.ExecuteSaved)
-			apiTests.GET("/:id/results", middleware.RequirePermission(app.permissionService, "api_test", "read"), apiTestHandler.GetResults)
+			interfaces.GET("", middleware.RequirePermission(app.permissionService, "api_test", "read"), apiTestHandler.List)
+			interfaces.POST("", middleware.RequirePermission(app.permissionService, "api_test", "create"), apiTestHandler.Create)
+			interfaces.GET("/results", middleware.RequirePermission(app.permissionService, "api_test", "read"), apiTestHandler.ListResults)
+			interfaces.DELETE("/results/:id", middleware.RequirePermission(app.permissionService, "api_test", "delete"), apiTestHandler.DeleteResult)
+			interfaces.POST("/execute", middleware.RequirePermission(app.permissionService, "api_test", "execute"), apiTestHandler.Execute)
+			interfaces.POST("/generate-curl", middleware.RequirePermission(app.permissionService, "api_test", "execute"), apiTestHandler.GenerateCurl)
+			interfaces.GET("/:id", middleware.RequirePermission(app.permissionService, "api_test", "read"), apiTestHandler.Get)
+			interfaces.PUT("/:id", middleware.RequirePermission(app.permissionService, "api_test", "update"), apiTestHandler.Update)
+			interfaces.DELETE("/:id", middleware.RequirePermission(app.permissionService, "api_test", "delete"), apiTestHandler.Delete)
+			interfaces.POST("/:id/execute", middleware.RequirePermission(app.permissionService, "api_test", "execute"), apiTestHandler.ExecuteSaved)
+			interfaces.GET("/:id/results", middleware.RequirePermission(app.permissionService, "api_test", "read"), apiTestHandler.GetResults)
 		}
 
 		protoFiles := protected.Group("/proto-files")
@@ -358,7 +358,7 @@ func setupStaticRoutes(router *gin.Engine, dsConfigService *datasource.ConfigSer
 
 	router.NoRoute(func(c *gin.Context) {
 		path := c.Request.URL.Path
-		// 精确匹配 /api/ 前缀（避免 /api-test 等路径被误判为 API 路由）
+		// 精确匹配 /api/ 前缀（避免 /interface 等路径被误判为 API 路由）
 		if len(path) >= 5 && path[:5] == "/api/" {
 			c.JSON(http.StatusNotFound, gin.H{
 				"code":    404,

@@ -161,27 +161,27 @@ export interface CertificateSummary {
 // 接口测试 API
 export const apiTestAPI = {
   list: (params?: { type?: string; page?: number; page_size?: number }) =>
-    api.get<{ items: ApiTest[]; total: number; page: number; page_size: number }>('/api-tests', { params }),
+    api.get<{ items: ApiTest[]; total: number; page: number; page_size: number }>('/interfaces', { params }),
   get: (id: number) =>
-    api.get<ApiTest>(`/api-tests/${id}`),
+    api.get<ApiTest>(`/interfaces/${id}`),
   create: (data: { name: string; type: string; config: string }) =>
-    api.post<{ id: number }>('/api-tests', data),
+    api.post<{ id: number }>('/interfaces', data),
   update: (id: number, data: { name?: string; type?: string; config?: string }) =>
-    api.put(`/api-tests/${id}`, data),
+    api.put(`/interfaces/${id}`, data),
   delete: (id: number) =>
-    api.delete(`/api-tests/${id}`),
+    api.delete(`/interfaces/${id}`),
   execute: (data: { type: string; config: string; save_result?: boolean; assertions?: AssertionConfig[] }, axiosConfig?: AxiosRequestConfig) =>
-    api.post<ApiTestResult>('/api-tests/execute', data, { timeout: 310000, ...axiosConfig }),
+    api.post<ApiTestResult>('/interfaces/execute', data, { timeout: 310000, ...axiosConfig }),
   executeSaved: (id: number, data?: { assertions?: AssertionConfig[] }, axiosConfig?: AxiosRequestConfig) =>
-    api.post<ApiTestResult>(`/api-tests/${id}/execute`, data, { timeout: 310000, ...axiosConfig }),
+    api.post<ApiTestResult>(`/interfaces/${id}/execute`, data, { timeout: 310000, ...axiosConfig }),
   getResults: (id: number, params?: { page?: number; page_size?: number }) =>
-    api.get<{ items: ApiTestResult[]; total: number; page: number; page_size: number }>(`/api-tests/${id}/results`, { params }),
+    api.get<{ items: ApiTestResult[]; total: number; page: number; page_size: number }>(`/interfaces/${id}/results`, { params }),
   listResults: (params?: { type?: string; page?: number; page_size?: number }) =>
-    api.get<{ items: ApiTestResult[]; total: number; page: number; page_size: number }>('/api-tests/results', { params }),
+    api.get<{ items: ApiTestResult[]; total: number; page: number; page_size: number }>('/interfaces/results', { params }),
   deleteResult: (id: number) =>
-    api.delete(`/api-tests/results/${id}`),
+    api.delete(`/interfaces/results/${id}`),
   generateCurl: (data: HTTPRequestConfig) =>
-    api.post<{ curl: string }>('/api-tests/generate-curl', data),
+    api.post<{ curl: string }>('/interfaces/generate-curl', data),
 }
 
 // Proto 文件 API

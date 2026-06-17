@@ -120,7 +120,7 @@ BDopsFlow 采用分布式架构，由调度中心（Scheduler）和执行器（E
 | `/api/permissions/*` | 权限相关       |
 | `/api/datasources/*` | 数据源管理     |
 | `/api/query/*`       | SQL 查询与导出 |
-| `/api/api-tests/*`   | 接口测试       |
+| `/api/interfaces/*`  | 接口测试       |
 | `/api/proto-files/*` | Proto 文件管理 |
 | `/api/certificates/*`| 证书管理       |
 
@@ -812,11 +812,11 @@ type Driver interface {
 
 | 页面         | 路径                     | 说明                       |
 | ------------ | ------------------------ | -------------------------- |
-| HTTP 测试    | `/api-test/http`         | HTTP 接口测试编辑器        |
-| gRPC 测试    | `/api-test/grpc`         | gRPC 接口测试编辑器        |
-| Proto 文件   | `/api-test/proto-files`  | Proto 文件管理             |
-| 证书管理     | `/api-test/certificates` | TLS 证书管理               |
-| 执行历史     | `/api-test/history`      | 全局执行历史查看           |
+| HTTP 测试    | `/interface/http`         | HTTP 接口测试编辑器        |
+| gRPC 测试    | `/interface/grpc`         | gRPC 接口测试编辑器        |
+| Proto 文件   | `/interface/proto-files`  | Proto 文件管理             |
+| 证书管理     | `/interface/certificates` | TLS 证书管理               |
+| 执行历史     | `/interface/history`      | 全局执行历史查看           |
 
 **快捷键**：
 
@@ -1309,19 +1309,19 @@ Authorization: Bearer <token>
 
 | 方法   | 路径                              | 说明             | 权限                  |
 | ------ | --------------------------------- | ---------------- | --------------------- |
-| GET    | `/api/api-tests`                  | 获取测试用例列表 | api_test read         |
-| POST   | `/api/api-tests`                  | 创建测试用例     | api_test create       |
-| GET    | `/api/api-tests/:id`              | 获取测试用例详情 | api_test read         |
-| PUT    | `/api/api-tests/:id`              | 更新测试用例     | api_test update       |
-| DELETE | `/api/api-tests/:id`              | 删除测试用例     | api_test delete       |
+| GET    | `/api/interfaces`                 | 获取测试用例列表 | api_test read         |
+| POST   | `/api/interfaces`                 | 创建测试用例     | api_test create       |
+| GET    | `/api/interfaces/:id`             | 获取测试用例详情 | api_test read         |
+| PUT    | `/api/interfaces/:id`             | 更新测试用例     | api_test update       |
+| DELETE | `/api/interfaces/:id`             | 删除测试用例     | api_test delete       |
 
 #### 测试执行
 
 | 方法 | 路径                              | 说明               | 权限                  |
 | ---- | --------------------------------- | ------------------ | --------------------- |
-| POST | `/api/api-tests/execute`          | 执行临时测试       | api_test execute      |
-| POST | `/api/api-tests/:id/execute`      | 执行已保存的测试   | api_test execute      |
-| POST | `/api/api-tests/generate-curl`    | 生成 cURL 命令     | api_test execute      |
+| POST | `/api/interfaces/execute`         | 执行临时测试       | api_test execute      |
+| POST | `/api/interfaces/:id/execute`     | 执行已保存的测试   | api_test execute      |
+| POST | `/api/interfaces/generate-curl`   | 生成 cURL 命令     | api_test execute      |
 
 **执行临时测试请求体**：
 
@@ -1350,9 +1350,9 @@ Authorization: Bearer <token>
 
 | 方法   | 路径                              | 说明               | 权限                  |
 | ------ | --------------------------------- | ------------------ | --------------------- |
-| GET    | `/api/api-tests/results`          | 获取全局执行历史   | api_test read         |
-| GET    | `/api/api-tests/:id/results`      | 获取指定测试历史   | api_test read         |
-| DELETE | `/api/api-tests/results/:id`      | 删除执行结果       | api_test delete       |
+| GET    | `/api/interfaces/results`         | 获取全局执行历史   | api_test read         |
+| GET    | `/api/interfaces/:id/results`     | 获取指定测试历史   | api_test read         |
+| DELETE | `/api/interfaces/results/:id`     | 删除执行结果       | api_test delete       |
 
 **全局执行历史查询参数**：
 
