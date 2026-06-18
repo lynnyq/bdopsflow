@@ -383,7 +383,7 @@
 
       <!-- Resize Handle -->
       <div
-        v-if="lastResult || sending"
+        v-if="(lastResult || sending) && panelMode === 'both'"
         class="resize-handle"
         @mousedown="handleResizeDragStart"
       >
@@ -550,7 +550,7 @@
       </transition>
 
       <!-- Empty State -->
-      <div v-if="!lastResult && !sending" class="empty-response">
+      <div v-if="!lastResult && !sending && panelMode !== 'request-max'" class="empty-response">
         <el-icon :size="48"><VideoPlay /></el-icon>
         <h3>暂无响应</h3>
         <p>选择服务和方法后点击发送按钮查看响应</p>
@@ -846,6 +846,11 @@ const formatCompareBody = (body: string | undefined): string => {
 // Panel resize handlers
 const togglePanelMode = (mode: 'both' | 'request-max' | 'response-max') => {
   panelMode.value = panelMode.value === mode ? 'both' : mode
+  // Reset inline styles set by drag handler so CSS classes take effect
+  if (requestSectionRef.value) {
+    requestSectionRef.value.style.flex = ''
+    requestSectionRef.value.style.height = ''
+  }
 }
 
 const handleResizeDragStart = (e: MouseEvent) => {
@@ -1684,13 +1689,7 @@ watch(responseBodyMode, () => {
 }
 
 .request-section.panel-minimized {
-  flex: 0;
-  max-height: 0;
-  min-height: 0;
-  overflow: hidden;
-  border: none;
-  padding: 0;
-  margin: 0;
+  display: none;
 }
 
 /* ==================== Resize Handle ==================== */
@@ -2114,13 +2113,7 @@ watch(responseBodyMode, () => {
 }
 
 .response-section.panel-minimized {
-  flex: 0;
-  min-height: 0;
-  max-height: 0;
-  overflow: hidden;
-  border: none;
-  padding: 0;
-  margin: 0;
+  display: none;
 }
 
 .response-fade-enter-active {

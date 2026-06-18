@@ -322,7 +322,7 @@
 
         <!-- Resize Handle -->
         <div
-          v-if="response || responseError || sending"
+          v-if="(response || responseError || sending) && panelMode === 'both'"
           class="resize-handle"
           @mousedown="handleResizeDragStart"
         >
@@ -507,7 +507,7 @@
         </transition>
 
         <!-- Empty State -->
-        <div v-if="!response && !responseError && !sending" class="empty-response">
+        <div v-if="!response && !responseError && !sending && panelMode !== 'request-max'" class="empty-response">
           <el-icon :size="48"><Promotion /></el-icon>
           <h3>暂无响应</h3>
           <p>输入 URL 并点击发送按钮查看响应</p>
@@ -949,6 +949,11 @@ function formatAssertionResult(result: AssertionResult): string {
 // Panel resize handlers
 const togglePanelMode = (mode: 'both' | 'request-max' | 'response-max') => {
   panelMode.value = panelMode.value === mode ? 'both' : mode
+  // Reset inline styles set by drag handler so CSS classes take effect
+  if (requestSectionRef.value) {
+    requestSectionRef.value.style.flex = ''
+    requestSectionRef.value.style.height = ''
+  }
 }
 
 const handleResizeDragStart = (e: MouseEvent) => {
@@ -1648,13 +1653,7 @@ onUnmounted(() => {
 }
 
 .request-section.panel-minimized {
-  flex: 0;
-  max-height: 0;
-  min-height: 0;
-  overflow: hidden;
-  border: none;
-  padding: 0;
-  margin: 0;
+  display: none;
 }
 
 /* ==================== Resize Handle ==================== */
@@ -1978,13 +1977,7 @@ onUnmounted(() => {
 }
 
 .response-section.panel-minimized {
-  flex: 0;
-  min-height: 0;
-  max-height: 0;
-  overflow: hidden;
-  border: none;
-  padding: 0;
-  margin: 0;
+  display: none;
 }
 
 .response-fade-enter-active {
