@@ -482,7 +482,19 @@ const handleRevealToken = async () => {
 const handleCopyToken = async () => {
   if (!tokenPlainText.value) return
   try {
-    await navigator.clipboard.writeText(tokenPlainText.value)
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(tokenPlainText.value)
+    } else {
+      // fallback for non-secure context (HTTP non-localhost)
+      const textarea = document.createElement('textarea')
+      textarea.value = tokenPlainText.value
+      textarea.style.position = 'fixed'
+      textarea.style.opacity = '0'
+      document.body.appendChild(textarea)
+      textarea.select()
+      document.execCommand('copy')
+      document.body.removeChild(textarea)
+    }
     ElMessage.success('Token 已复制到剪贴板')
   } catch {
     ElMessage.error('复制失败，请手动复制')
