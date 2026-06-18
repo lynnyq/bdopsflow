@@ -117,20 +117,20 @@
         <div class="card-body">
           <el-form :model="passwordForm" :rules="passwordRules" ref="passwordFormRef" label-width="auto" label-position="top" class="password-form">
             <el-form-item label="原密码" prop="oldPassword">
-              <el-input 
-                v-model="passwordForm.oldPassword" 
-                type="password" 
-                placeholder="请输入原密码" 
+              <el-input
+                v-model="passwordForm.oldPassword"
+                type="password"
+                placeholder="请输入原密码"
                 show-password
                 clearable
               />
             </el-form-item>
-            
+
             <el-form-item label="新密码" prop="newPassword">
-              <el-input 
-                v-model="passwordForm.newPassword" 
-                type="password" 
-                placeholder="6-30位，需包含字母和数字" 
+              <el-input
+                v-model="passwordForm.newPassword"
+                type="password"
+                placeholder="6-30位，需包含字母和数字"
                 maxlength="30"
                 show-password
                 clearable
@@ -139,17 +139,17 @@
                 <div v-for="rule in PASSWORD_RULES.rules" :key="rule">{{ rule }}</div>
               </div>
             </el-form-item>
-            
+
             <el-form-item label="确认新密码" prop="confirmPassword">
-              <el-input 
-                v-model="passwordForm.confirmPassword" 
-                type="password" 
-                placeholder="请再次输入新密码" 
+              <el-input
+                v-model="passwordForm.confirmPassword"
+                type="password"
+                placeholder="请再次输入新密码"
                 show-password
                 clearable
               />
             </el-form-item>
-            
+
             <el-form-item>
               <el-button type="primary" @click="handleChangePassword" :loading="changePasswordLoading" class="submit-btn">
                 修改密码
@@ -159,13 +159,80 @@
           </el-form>
         </div>
       </div>
+
+      <div class="api-token-card">
+        <div class="page-toolbar">
+          <div class="toolbar-left">
+            <span class="toolbar-title">API Token</span>
+          </div>
+          <div class="toolbar-right">
+            <el-button :icon="Refresh" @click="loadApiTokenInfo" class="refresh-btn">刷新</el-button>
+          </div>
+        </div>
+
+        <div class="card-body">
+          <div v-if="!apiTokenInfo.has_token" class="token-empty">
+            <p class="token-empty-text">尚未创建 API Token</p>
+            <el-button type="primary" @click="handleGenerateToken" :loading="generateTokenLoading" class="submit-btn">
+              生成 Token
+            </el-button>
+          </div>
+
+          <div v-else class="token-info">
+            <el-form label-width="auto" label-position="top" class="profile-form">
+              <el-form-item label="Token">
+                <div class="token-display">
+                  <el-input
+                    :model-value="tokenRevealed ? tokenPlainText : 'bdf_••••••••••••••••••••••••••••••••'"
+                    readonly
+                    class="token-input"
+                  />
+                  <el-button @click="handleRevealToken" :loading="revealTokenLoading" class="token-action-btn">
+                    {{ tokenRevealed ? '隐藏' : '查看' }}
+                  </el-button>
+                  <el-button @click="handleCopyToken" :disabled="!tokenRevealed" class="token-action-btn">
+                    复制
+                  </el-button>
+                </div>
+              </el-form-item>
+
+              <el-form-item label="Token 前缀">
+                <span class="token-meta">{{ apiTokenInfo.token_prefix }}...</span>
+              </el-form-item>
+
+              <el-form-item label="创建时间">
+                <span class="token-meta">{{ apiTokenInfo.created_at || '-' }}</span>
+              </el-form-item>
+
+              <el-form-item label="最后使用">
+                <span class="token-meta">{{ apiTokenInfo.last_used_at || '从未使用' }}</span>
+              </el-form-item>
+
+              <el-form-item>
+                <el-button type="primary" @click="handleGenerateToken" :loading="generateTokenLoading" class="submit-btn">
+                  重新生成
+                </el-button>
+                <el-button type="danger" @click="handleRevokeToken" :loading="revokeTokenLoading" class="reset-btn">
+                  吊销 Token
+                </el-button>
+              </el-form-item>
+            </el-form>
+
+            <div class="token-tips">
+              <p>- Token 权限与当前用户一致</p>
+              <p>- 重新生成会使旧 Token 立即失效</p>
+              <p>- 请妥善保管 Token，避免泄露</p>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
-import { ElMessage, FormInstance, FormRules } from 'element-plus'
+import { ElMessage, ElMessageBox, FormInstance, FormRules } from 'element-plus'
 import { User, UserFilled, Phone, Message, Key, CircleCheck, CircleClose, Refresh } from '@element-plus/icons-vue'
 import { authAPI } from '@/api'
 import { isHandledError } from '@/utils/api'
@@ -325,8 +392,140 @@ const handleResetPasswordForm = () => {
   passwordFormRef.value?.resetFields()
 }
 
+// API Token 相关
+const apiTokenInfo = reactive({
+  has_token: false,
+  token_prefix: '',
+  last_used_at: '',
+  created_at: '',
+})
+const tokenPlainText = ref('')
+const tokenRevealed = ref(false)
+const generateTokenLoading = ref(false)
+const revealTokenLoading = ref(false)
+const revokeTokenLoading = ref(false)
+
+const loadApiTokenInfo = async () => {
+  try {
+    const response = await authAPI.apiToken.getInfo()
+    const data = response.data
+    apiTokenInfo.has_token = data.has_token
+    apiTokenInfo.token_prefix = data.token_prefix || ''
+    apiTokenInfo.last_used_at = data.last_used_at || ''
+    apiTokenInfo.created_at = data.created_at || ''
+    tokenRevealed.value = false
+    tokenPlainText.value = ''
+  } catch (error: any) {
+    if (!isHandledError(error)) {
+      ElMessage.error('加载 API Token 信息失败：' + (error.message || '未知错误'))
+    }
+  }
+}
+
+const handleGenerateToken = async () => {
+  try {
+    await ElMessageBox.confirm(
+      apiTokenInfo.has_token
+        ? '重新生成会使旧 Token 立即失效，确定继续？'
+        : '确定生成 API Token？生成后请妥善保管。',
+      '确认',
+      {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning',
+      }
+    )
+  } catch {
+    return
+  }
+
+  generateTokenLoading.value = true
+  try {
+    const response = await authAPI.apiToken.generate()
+    const data = response.data
+    tokenPlainText.value = data.token
+    tokenRevealed.value = true
+    apiTokenInfo.has_token = true
+    apiTokenInfo.token_prefix = data.token_prefix
+    apiTokenInfo.created_at = data.created_at
+    apiTokenInfo.last_used_at = ''
+    ElMessage.success('API Token 生成成功')
+  } catch (error: any) {
+    if (!isHandledError(error)) {
+      ElMessage.error('生成 API Token 失败：' + (error.message || '未知错误'))
+    }
+  } finally {
+    generateTokenLoading.value = false
+  }
+}
+
+const handleRevealToken = async () => {
+  if (tokenRevealed.value) {
+    tokenRevealed.value = false
+    return
+  }
+
+  revealTokenLoading.value = true
+  try {
+    const response = await authAPI.apiToken.reveal()
+    tokenPlainText.value = response.data.token
+    tokenRevealed.value = true
+  } catch (error: any) {
+    if (!isHandledError(error)) {
+      ElMessage.error('查看 Token 失败：' + (error.message || '未知错误'))
+    }
+  } finally {
+    revealTokenLoading.value = false
+  }
+}
+
+const handleCopyToken = async () => {
+  if (!tokenPlainText.value) return
+  try {
+    await navigator.clipboard.writeText(tokenPlainText.value)
+    ElMessage.success('Token 已复制到剪贴板')
+  } catch {
+    ElMessage.error('复制失败，请手动复制')
+  }
+}
+
+const handleRevokeToken = async () => {
+  try {
+    await ElMessageBox.confirm(
+      '吊销后使用该 Token 的所有请求将立即失效，确定继续？',
+      '确认吊销',
+      {
+        confirmButtonText: '确定吊销',
+        cancelButtonText: '取消',
+        type: 'warning',
+      }
+    )
+  } catch {
+    return
+  }
+
+  revokeTokenLoading.value = true
+  try {
+    await authAPI.apiToken.revoke()
+    apiTokenInfo.has_token = false
+    apiTokenInfo.token_prefix = ''
+    apiTokenInfo.last_used_at = ''
+    apiTokenInfo.created_at = ''
+    tokenPlainText.value = ''
+    tokenRevealed.value = false
+    ElMessage.success('API Token 已吊销')
+  } catch (error: any) {
+    if (!isHandledError(error)) {
+      ElMessage.error('吊销 Token 失败：' + (error.message || '未知错误'))
+    }
+  } finally {
+    revokeTokenLoading.value = false
+  }
+}
+
 onMounted(() => {
   loadCurrentUser()
+  loadApiTokenInfo()
 })
 </script>
 
@@ -436,7 +635,8 @@ onMounted(() => {
 }
 
 .profile-card,
-.password-card {
+.password-card,
+.api-token-card {
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
@@ -573,6 +773,58 @@ onMounted(() => {
   color: var(--text-muted);
   margin-top: 4px;
   line-height: 1.6;
+}
+
+.token-empty {
+  text-align: center;
+  padding: var(--space-6) 0;
+}
+
+.token-empty-text {
+  color: var(--text-muted);
+  margin-bottom: var(--space-4);
+  font-size: 0.9rem;
+}
+
+.token-display {
+  display: flex;
+  gap: var(--space-2);
+  width: 100%;
+}
+
+.token-input {
+  flex: 1;
+}
+
+.token-input :deep(.el-input__wrapper) {
+  font-family: var(--font-display, monospace);
+  font-size: 0.85rem;
+  letter-spacing: 0.02em;
+}
+
+.token-action-btn {
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.token-meta {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.token-tips {
+  margin-top: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+}
+
+.token-tips p {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.8;
+  margin: 0;
 }
 
 .info-tag {

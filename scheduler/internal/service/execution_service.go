@@ -646,6 +646,39 @@ func (s *SchedulerService) CancelExecution(ctx context.Context, executionID stri
 	return nil
 }
 
+// GetExecutionByExecutionID 通过 executionID 查询执行记录，用于 SSE 流检测任务终态
+func (s *SchedulerService) GetExecutionByExecutionID(ctx context.Context, executionID string) (*model.TaskExecution, error) {
+	query := `
+		SELECT id, task_id, execution_id, executor_id, status, start_time, end_time,
+		       output, error, retry_times, created_at, progress, progress_msg, updated_at
+		FROM bdopsflow_task_executions
+		WHERE execution_id = ?
+	`
+
+	stmt := rqlite.ParameterizedStatement{
+		Query:     query,
+		Arguments: []interface{}{executionID},
+	}
+	qr, err := s.DB.QueryOneParameterized(stmt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query execution by execution_id: %w", err)
+	}
+	if qr.Err != nil {
+		return nil, fmt.Errorf("query error: %w", qr.Err)
+	}
+
+	if !qr.Next() {
+		return nil, nil
+	}
+
+	exec := &model.TaskExecution{}
+	if err := scanExecutionResult(&qr, exec); err != nil {
+		return nil, err
+	}
+
+	return exec, nil
+}
+
 func (s *SchedulerService) GetTaskLogs(ctx context.Context, executionID string) ([]*model.TaskLog, error) {
 	query := `
 		SELECT id, execution_id, task_id, executor_id, node_id, log_level, message, log_time

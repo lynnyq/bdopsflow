@@ -673,7 +673,8 @@ func (h *TaskHandler) StreamLogs(c *gin.Context) {
 	c.Header("Connection", "keep-alive")
 	c.Header("Access-Control-Allow-Origin", "*")
 
-	slog.Info("TaskHandler.StreamLogs: starting stream", "execution_id", executionID)
+	slog.Info("TaskHandler.StreamLogs: starting stream",
+		"execution_id", executionID, "is_leader", h.svc.IsLeader())
 
 	ctx := c.Request.Context()
 	ticker := time.NewTicker(1 * time.Second)
@@ -682,7 +683,6 @@ func (h *TaskHandler) StreamLogs(c *gin.Context) {
 	var lastLogID int64
 	var lastOutputHash uint64
 	var lastErrorHash uint64
-	execCheckCounter := 0
 
 	for {
 		select {
@@ -706,36 +706,42 @@ func (h *TaskHandler) StreamLogs(c *gin.Context) {
 				}
 			}
 
-			execCheckCounter++
-			if len(logs) > 0 && execCheckCounter%3 == 0 {
-				taskID := logs[0].TaskID
-				executions, execErr := h.svc.GetTaskExecutions(ctx, taskID)
-				if execErr != nil {
-					slog.Warn("TaskHandler.StreamLogs: failed to get executions", "task_id", taskID, "error", execErr)
-				} else {
-					for _, exec := range executions {
-						if exec.ExecutionID == executionID {
-							outputHash := fnvHash(exec.Output)
-							errorHash := fnvHash(exec.Error)
+			// 每次轮询都通过 executionID 直接查询执行状态
+			// 无论是否有日志（包括任务刚触发还没有日志的场景），都需要检测终态
+			// 多调度器部署：非主节点通过 rqlite 读取数据（rqlite 集群同步），无需转发到主节点
+			exec, execErr := h.svc.GetExecutionByExecutionID(ctx, executionID)
+			if execErr != nil {
+				slog.Warn("TaskHandler.StreamLogs: failed to get execution", "execution_id", executionID, "error", execErr)
+			} else if exec != nil {
+				outputHash := fnvHash(exec.Output)
+				errorHash := fnvHash(exec.Error)
 
-							if outputHash != lastOutputHash || errorHash != lastErrorHash {
-								lastOutputHash = outputHash
-								lastErrorHash = errorHash
+				if outputHash != lastOutputHash || errorHash != lastErrorHash {
+					lastOutputHash = outputHash
+					lastErrorHash = errorHash
 
-								data, _ := json.Marshal(map[string]interface{}{
-									"type":       "execution_update",
-									"status":     exec.Status,
-									"output":     safeString(exec.Output),
-									"error":      safeString(exec.Error),
-									"start_time": safeTimePtr(exec.StartTime.Time),
-									"end_time":   safeTimePtr(exec.EndTime.Time),
-								})
-								c.Writer.Write([]byte("data: " + string(data) + "\n\n"))
-								c.Writer.Flush()
-							}
-							break
-						}
-					}
+					data, _ := json.Marshal(map[string]interface{}{
+						"type":       "execution_update",
+						"status":     exec.Status,
+						"output":     safeString(exec.Output),
+						"error":      safeString(exec.Error),
+						"start_time": safeTimePtr(exec.StartTime.Time),
+						"end_time":   safeTimePtr(exec.EndTime.Time),
+					})
+					c.Writer.Write([]byte("data: " + string(data) + "\n\n"))
+					c.Writer.Flush()
+				}
+
+				// 任务进入终态，发送 done 事件并关闭 SSE 连接
+				if exec.Status == "success" || exec.Status == "failed" {
+					doneData, _ := json.Marshal(map[string]interface{}{
+						"status": exec.Status,
+					})
+					c.Writer.Write([]byte("event: done\ndata: " + string(doneData) + "\n\n"))
+					c.Writer.Flush()
+					slog.Info("TaskHandler.StreamLogs: task reached terminal state, closing stream",
+						"execution_id", executionID, "status", exec.Status)
+					return
 				}
 			}
 

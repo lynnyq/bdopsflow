@@ -45,6 +45,8 @@ var routeAuditRules = map[string]auditRouteRule{
 	"/api/proto-files/reflect":  {Resource: "proto_file", Action: "reflect"},
 	"/api/proto-files/template": {Resource: "proto_file", Action: "generate_template"},
 	"/api/proto-files/fields":   {Resource: "proto_file", Action: "generate_fields"},
+	"/api/auth/api-token":       {Resource: "api_token", Action: "generate"},
+	"/api/auth/api-token/reveal": {Resource: "api_token", Action: "reveal"},
 }
 
 var routePrefixRules = []struct {
@@ -64,6 +66,7 @@ var routePrefixRules = []struct {
 	{"/api/interfaces/", "api_test"},
 	{"/api/certificates/", "certificate"},
 	{"/api/proto-files/", "proto_file"},
+	{"/api/auth/api-token/", "api_token"},
 }
 
 func AuditMiddleware(auditService *service.AuditLogService) gin.HandlerFunc {
@@ -211,6 +214,8 @@ func resolveAuditInfo(method, path string) (resource, action string) {
 		action = "generate_curl"
 	} else if strings.Contains(path, "/interfaces/") && strings.Contains(path, "/results") && method == "DELETE" {
 		action = "delete_result"
+	} else if strings.Contains(path, "/api-token") && method == "DELETE" {
+		action = "revoke"
 	}
 
 	return resource, action

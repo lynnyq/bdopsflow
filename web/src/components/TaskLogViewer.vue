@@ -244,6 +244,11 @@ const connectSSE = () => {
   const es = new EventSource(url)
   eventSource.value = es
 
+  // 监听后端发送的 done 事件，任务终态时后端主动关闭 SSE
+  es.addEventListener('done', () => {
+    disconnectSSE()
+  })
+
   es.onmessage = (event) => {
     if (event.data.startsWith(': heartbeat')) return
     try {
@@ -254,6 +259,10 @@ const connectSSE = () => {
         // 只更新状态，忽略 output 和 error，完全依赖实时日志更新
         if (data.status) {
           currentStatus.value = data.status
+        }
+        // 任务进入终态时主动断开 SSE，避免空转
+        if (data.status === 'success' || data.status === 'failed') {
+          disconnectSSE()
         }
       } else {
         // 处理普通日志
@@ -335,7 +344,10 @@ watch(() => props.executionId, async (newId) => {
     currentStatus.value = props.executionStatus || ''
     activeTab.value = 'logs'
     await loadHistoryLogs()
-    connectSSE()
+    // 仅运行中/待执行的任务才连接 SSE，已完成任务数据不会变化，无需长连接
+    if (['running', 'pending'].includes(props.executionStatus || '')) {
+      connectSSE()
+    }
   } else {
     disconnectSSE()
     logs.value = []

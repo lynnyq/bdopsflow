@@ -138,6 +138,7 @@ type App struct {
 	domainAdminService    *service.DomainAdminService
 	executorDomainService *service.ExecutorDomainService
 	auditLogService       *service.AuditLogService
+	apiTokenService       *service.APITokenService
 	webhookSvc            *service.WebhookService
 	instancePermSvc       *service.InstancePermissionService
 
@@ -302,6 +303,9 @@ func NewApp(cfg *config.Config) *App {
 
 	auditLogService := service.NewAuditLogService(logDB)
 	app.auditLogService = auditLogService
+
+	apiTokenService := service.NewAPITokenService(logDB, rsaUtil, permissionService)
+	app.apiTokenService = apiTokenService
 
 	schedulerService.ExecutorDomainService = executorDomainService
 

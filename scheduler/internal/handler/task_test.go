@@ -18,18 +18,19 @@ import (
 )
 
 type mockTaskService struct {
-	createTaskFunc            func(ctx context.Context, query string, args ...interface{}) (*model.Task, error)
-	getTaskByIDFunc           func(ctx context.Context, id int64) (*model.Task, error)
-	listTasksFunc             func(ctx context.Context, domainID int64, role string, page, pageSize int, createdBy ...int64) ([]*model.Task, int, error)
-	updateTaskFunc            func(ctx context.Context, id int64, task *model.Task) error
-	deleteTaskFunc            func(ctx context.Context, id int64) error
-	triggerTaskFunc           func(ctx context.Context, taskID int64) (string, error)
-	getTaskExecsFunc          func(ctx context.Context, taskID int64) ([]*model.TaskExecution, error)
-	getTaskLogsFunc           func(ctx context.Context, executionID string) ([]*model.TaskLog, error)
-	listExecutorsByDomainFunc func(ctx context.Context, domainID int64) ([]*model.Executor, error)
-	getDomainNameFunc         func(ctx context.Context, domainID int64) string
-	isLeaderFunc              func() bool
-	forwardToLeaderFunc       func(ctx context.Context, method, path string, body io.Reader) ([]byte, int, error)
+	createTaskFunc                func(ctx context.Context, query string, args ...interface{}) (*model.Task, error)
+	getTaskByIDFunc               func(ctx context.Context, id int64) (*model.Task, error)
+	listTasksFunc                 func(ctx context.Context, domainID int64, role string, page, pageSize int, createdBy ...int64) ([]*model.Task, int, error)
+	updateTaskFunc                func(ctx context.Context, id int64, task *model.Task) error
+	deleteTaskFunc                func(ctx context.Context, id int64) error
+	triggerTaskFunc               func(ctx context.Context, taskID int64) (string, error)
+	getTaskExecsFunc              func(ctx context.Context, taskID int64) ([]*model.TaskExecution, error)
+	getExecutionByExecutionIDFunc func(ctx context.Context, executionID string) (*model.TaskExecution, error)
+	getTaskLogsFunc               func(ctx context.Context, executionID string) ([]*model.TaskLog, error)
+	listExecutorsByDomainFunc     func(ctx context.Context, domainID int64) ([]*model.Executor, error)
+	getDomainNameFunc             func(ctx context.Context, domainID int64) string
+	isLeaderFunc                  func() bool
+	forwardToLeaderFunc           func(ctx context.Context, method, path string, body io.Reader) ([]byte, int, error)
 
 	lastQuery string
 	lastArgs  []interface{}
@@ -84,6 +85,13 @@ func (m *mockTaskService) GetTaskExecutions(ctx context.Context, taskID int64) (
 		return m.getTaskExecsFunc(ctx, taskID)
 	}
 	return []*model.TaskExecution{}, nil
+}
+
+func (m *mockTaskService) GetExecutionByExecutionID(ctx context.Context, executionID string) (*model.TaskExecution, error) {
+	if m.getExecutionByExecutionIDFunc != nil {
+		return m.getExecutionByExecutionIDFunc(ctx, executionID)
+	}
+	return nil, nil
 }
 
 func (m *mockTaskService) GetTaskLogs(ctx context.Context, executionID string) ([]*model.TaskLog, error) {

@@ -60,7 +60,7 @@ func setupRoutes(router *gin.Engine, app *App) {
 	router.PUT("/api/wecom/chat/update", wecomHandler.UpdateChatGroup)
 
 	protected := router.Group("/api")
-	protected.Use(middleware.JWTAuthMiddleware())
+	protected.Use(middleware.JWTAuthMiddlewareWithAPIToken(app.apiTokenService))
 	protected.Use(middleware.InjectUserRole(app.permissionService))
 	protected.Use(middleware.AuditMiddleware(app.auditLogService))
 	{
@@ -68,6 +68,12 @@ func setupRoutes(router *gin.Engine, app *App) {
 		protected.PUT("/auth/profile", userAdminHandler.UpdateCurrentUser)
 		protected.POST("/auth/change-password", userAdminHandler.ChangePassword)
 		protected.POST("/auth/switch-domain", authHandler.SwitchDomain)
+
+		apiTokenHandler := handler.NewAPITokenHandler(app.apiTokenService, app.auditLogService)
+		protected.POST("/auth/api-token", apiTokenHandler.Generate)
+		protected.GET("/auth/api-token", apiTokenHandler.GetInfo)
+		protected.GET("/auth/api-token/reveal", apiTokenHandler.Reveal)
+		protected.DELETE("/auth/api-token", apiTokenHandler.Revoke)
 
 		taskHandler := handler.NewTaskHandler(app.schedulerService)
 		tasks := protected.Group("/tasks")

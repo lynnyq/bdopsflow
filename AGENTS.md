@@ -53,7 +53,8 @@ bdopsflow/
 │   │   └── router/     # 路由
 │   └── package.json
 ├── deploy/             # 部署配置
-│   └── schema.sql      # 数据库架构
+│   ├── schema.sql      # 数据库架构
+│   └── migrations/     # 数据库迁移脚本
 ├── proto/              # gRPC 协议定义
 └── docs/               # 文档
 ```

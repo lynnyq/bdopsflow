@@ -167,6 +167,75 @@ func JWTAuthMiddleware() gin.HandlerFunc {
 	}
 }
 
+// APITokenValidator API Token验证接口
+type APITokenValidator interface {
+	ValidateToken(ctx context.Context, tokenString string) (int64, error)
+	GetTokenUserInfo(ctx context.Context, userID int64) (username string, realName string, domainID int64, err error)
+}
+
+// JWTAuthMiddlewareWithAPIToken 扩展的JWT认证中间件，支持API Token认证
+func JWTAuthMiddlewareWithAPIToken(apiTokenValidator APITokenValidator) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var tokenString string
+
+		authHeader := c.GetHeader("Authorization")
+		if authHeader != "" {
+			parts := strings.SplitN(authHeader, " ", 2)
+			if len(parts) == 2 && parts[0] == "Bearer" {
+				tokenString = parts[1]
+			}
+		}
+
+		if tokenString == "" {
+			tokenString = c.Query("token")
+		}
+
+		if tokenString == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization required"})
+			c.Abort()
+			return
+		}
+
+		// 优先尝试 JWT 认证
+		claims, err := ParseToken(tokenString)
+		if err == nil {
+			c.Set("user_id", claims.UserID)
+			c.Set("username", claims.Username)
+			c.Set("real_name", claims.RealName)
+			c.Set("current_domain_id", claims.CurrentDomainID)
+			c.Set("auth_type", "jwt")
+			c.Next()
+			return
+		}
+
+		// JWT 认证失败，尝试 API Token 认证
+		if strings.HasPrefix(tokenString, "bdf_") && apiTokenValidator != nil {
+			userID, validateErr := apiTokenValidator.ValidateToken(c.Request.Context(), tokenString)
+			if validateErr == nil && userID > 0 {
+				username, realName, domainID, infoErr := apiTokenValidator.GetTokenUserInfo(c.Request.Context(), userID)
+				if infoErr != nil {
+					slog.Error("failed to get user info for api token", "module", "middleware_auth", "user_id", userID, "error", infoErr)
+					c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
+					c.Abort()
+					return
+				}
+				c.Set("user_id", userID)
+				c.Set("username", username)
+				c.Set("real_name", realName)
+				c.Set("current_domain_id", domainID)
+				c.Set("auth_type", "api_token")
+				slog.Debug("api token authenticated", "module", "middleware_auth", "user_id", userID)
+				c.Next()
+				return
+			}
+		}
+
+		slog.Warn("token is invalid or expired", "module", "middleware_auth", "path", c.Request.URL.Path, "error", err)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
+		c.Abort()
+	}
+}
+
 type PermissionChecker interface {
 	IsSystemAdmin(ctx context.Context, userID int64) (bool, error)
 	HasPermission(ctx context.Context, userID int64, resource, action string, domainID int64) (bool, error)

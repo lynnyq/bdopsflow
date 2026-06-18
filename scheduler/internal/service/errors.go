@@ -71,6 +71,10 @@ var (
 	ErrNoAvailableExecutor     = errors.New("no available executor")
 	ErrDispatchFailed          = errors.New("dispatch failed")
 	ErrDispatcherNotConfigured = errors.New("dispatcher not configured")
+
+	// API Token相关错误
+	ErrAPITokenNotFound = errors.New("api token not found")
+	ErrAPITokenInvalid  = errors.New("api token invalid")
 )
 
 var errorCodeMap = map[error]int{
@@ -100,6 +104,8 @@ var errorCodeMap = map[error]int{
 	ErrNoAvailableExecutor:          10007,
 	ErrDispatchFailed:               10008,
 	ErrDispatcherNotConfigured:      10008,
+	ErrAPITokenNotFound:             15001,
+	ErrAPITokenInvalid:              15002,
 }
 
 func GetErrorCode(err error) int {

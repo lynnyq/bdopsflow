@@ -398,6 +398,20 @@ INSERT OR IGNORE INTO bdopsflow_user_roles (user_id, role_id, domain_id)
 SELECT u.id, r.id, NULL FROM bdopsflow_users u, bdopsflow_roles r
 WHERE u.username = 'admin' AND r.code = 'system_admin';
 
+-- API Token表
+CREATE TABLE IF NOT EXISTS bdopsflow_api_tokens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    token_encrypted TEXT NOT NULL,
+    token_prefix TEXT NOT NULL,
+    last_used_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES bdopsflow_users(id) ON DELETE CASCADE,
+    UNIQUE(user_id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_bdopsflow_api_tokens_user_id ON bdopsflow_api_tokens(user_id);
+
 -- ============================================================================
 -- 第四部分：数据查询模块表
 -- ============================================================================

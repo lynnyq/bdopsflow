@@ -33,6 +33,12 @@ export const authAPI = {
   changePassword: (data: ChangePasswordRequest) => api.post('/auth/change-password', data),
   getPublicKey: () => api.get<{ public_key: string; sso_public_key?: string; sso_enabled: boolean }>('/auth/public-key'),
   refreshToken: (refreshToken: string) => api.post<{ token: string; refresh_token: string }>('/auth/refresh', { refresh_token: refreshToken }),
+  apiToken: {
+    generate: () => api.post<{ token: string; token_prefix: string; created_at: string }>('/auth/api-token'),
+    getInfo: () => api.get<{ has_token: boolean; token_prefix: string; last_used_at: string; created_at: string }>('/auth/api-token'),
+    reveal: () => api.get<{ token: string }>('/auth/api-token/reveal'),
+    revoke: () => api.delete('/auth/api-token'),
+  },
 }
 
 export const adminAPI = {

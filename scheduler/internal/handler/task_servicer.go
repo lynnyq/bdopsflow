@@ -15,6 +15,7 @@ type TaskServicer interface {
 	DeleteTask(ctx context.Context, id int64) error
 	TriggerTask(ctx context.Context, taskID int64) (string, error)
 	GetTaskExecutions(ctx context.Context, taskID int64) ([]*model.TaskExecution, error)
+	GetExecutionByExecutionID(ctx context.Context, executionID string) (*model.TaskExecution, error)
 	GetTaskLogs(ctx context.Context, executionID string) ([]*model.TaskLog, error)
 	CancelExecution(ctx context.Context, executionID string, cancelledBy string) error
 	ListExecutorsByDomain(ctx context.Context, domainID int64) ([]*model.Executor, error)
