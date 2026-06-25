@@ -4,15 +4,16 @@ import "time"
 
 // ProtoFile Proto文件
 type ProtoFile struct {
-	ID           int64     `db:"id" json:"id"`
-	Name         string    `db:"name" json:"name"`
-	Content      string    `db:"content" json:"content"`
-	FileHash     string    `db:"file_hash" json:"file_hash"`
-	ParsedResult string    `db:"parsed_result" json:"parsed_result,omitempty"`
-	Dependencies string    `db:"dependencies" json:"dependencies"`
-	CreatedBy    int64     `db:"created_by" json:"created_by"`
-	CreatedAt    time.Time `db:"created_at" json:"created_at"`
-	UpdatedAt    time.Time `db:"updated_at" json:"updated_at"`
+	ID            int64     `db:"id" json:"id"`
+	Name          string    `db:"name" json:"name"`
+	Content       string    `db:"content" json:"content"`
+	FileHash      string    `db:"file_hash" json:"file_hash"`
+	ParsedResult  string    `db:"parsed_result" json:"parsed_result,omitempty"`
+	Dependencies  string    `db:"dependencies" json:"dependencies"`
+	CreatedBy     int64     `db:"created_by" json:"created_by"`
+	CreatedByName string    `db:"-" json:"created_by_name"`
+	CreatedAt     time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt     time.Time `db:"updated_at" json:"updated_at"`
 }
 
 // ProtoService Proto服务定义

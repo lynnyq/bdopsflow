@@ -41,6 +41,11 @@
             {{ getDependencyNames(row) || '-' }}
           </template>
         </el-table-column>
+        <el-table-column v-if="authStore.isSystemAdmin" label="创建者" width="120" show-overflow-tooltip>
+          <template #default="{ row }">
+            {{ row.created_by_name || '-' }}
+          </template>
+        </el-table-column>
         <el-table-column prop="created_at" label="上传时间" width="180">
           <template #default="{ row }">
             {{ formatDateTime(row.created_at) }}
@@ -233,6 +238,9 @@ import { protoFileAPI } from '@/api/apiTest'
 import { isHandledError } from '@/utils/api'
 import { formatDateTime } from '@/utils/format'
 import type { ProtoFile, ProtoParseResult } from '@/api/apiTest'
+import { useAuthStore } from '@/stores/auth'
+
+const authStore = useAuthStore()
 
 const protoFiles = ref<ProtoFile[]>([])
 const loading = ref(false)

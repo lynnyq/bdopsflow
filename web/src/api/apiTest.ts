@@ -94,6 +94,7 @@ export interface ProtoFile {
   parsed_result?: string
   dependencies: string
   created_by: number
+  created_by_name: string
   created_at: string
   updated_at: string
 }

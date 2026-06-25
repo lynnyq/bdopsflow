@@ -165,13 +165,25 @@ func (s *ProtoService) GetByID(ctx context.Context, id int64) (*model.ProtoFile,
 	return scanProtoFile(row), nil
 }
 
-// ListByUser returns proto files for a specific user with pagination
-func (s *ProtoService) ListByUser(ctx context.Context, userID int64, page, pageSize int) ([]*model.ProtoFile, int64, error) {
+// ListByUser returns proto files with pagination.
+// System admin can see all proto files; other users can only see their own.
+func (s *ProtoService) ListByUser(ctx context.Context, userID int64, isAdmin bool, page, pageSize int) ([]*model.ProtoFile, int64, error) {
+	var whereClause string
+	var args []interface{}
+
+	// 管理员可查看所有记录，普通用户和领域管理员只能查看自己创建的
+	if !isAdmin {
+		whereClause = "WHERE p.created_by = ?"
+		args = append(args, userID)
+	} else {
+		whereClause = "WHERE 1=1"
+	}
+
 	// Count total records
-	countQuery := `SELECT COUNT(*) FROM bdopsflow_proto_files WHERE created_by = ?`
+	countQuery := "SELECT COUNT(*) FROM bdopsflow_proto_files p " + whereClause
 	countStmt := rqlite.ParameterizedStatement{
 		Query:     countQuery,
-		Arguments: []interface{}{userID},
+		Arguments: args,
 	}
 	countQR, err := s.db.QueryOneParameterized(countStmt)
 	if err != nil {
@@ -187,15 +199,20 @@ func (s *ProtoService) ListByUser(ctx context.Context, userID int64, page, pageS
 		total = rowInt64(row[0])
 	}
 
-	// Fetch paginated data
+	// Fetch paginated data with creator name
 	offset := (page - 1) * pageSize
 	dataQuery := fmt.Sprintf(
-		`SELECT id, name, content, file_hash, parsed_result, dependencies, created_by, created_at, updated_at FROM bdopsflow_proto_files WHERE created_by = ? ORDER BY created_at DESC LIMIT %d OFFSET %d`,
-		pageSize, offset,
+		`SELECT p.id, p.name, p.content, p.file_hash, p.parsed_result, p.dependencies, p.created_by,
+		        COALESCE(u.real_name, '') as created_by_name,
+		        p.created_at, p.updated_at
+		 FROM bdopsflow_proto_files p
+		 LEFT JOIN bdopsflow_users u ON p.created_by = u.id
+		 %s ORDER BY p.created_at DESC LIMIT %d OFFSET %d`,
+		whereClause, pageSize, offset,
 	)
 	dataStmt := rqlite.ParameterizedStatement{
 		Query:     dataQuery,
-		Arguments: []interface{}{userID},
+		Arguments: args,
 	}
 	dataQR, err := s.db.QueryOneParameterized(dataStmt)
 	if err != nil {
@@ -212,7 +229,12 @@ func (s *ProtoService) ListByUser(ctx context.Context, userID int64, page, pageS
 			slog.Warn("failed to slice proto file row", "error", err)
 			continue
 		}
-		protoFiles = append(protoFiles, scanProtoFile(row))
+		pf := scanProtoFile(row)
+		// 第9列（索引8）是 created_by_name
+		if len(row) > 8 {
+			pf.CreatedByName = rowString(row[8])
+		}
+		protoFiles = append(protoFiles, pf)
 	}
 
 	return protoFiles, total, nil

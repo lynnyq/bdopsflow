@@ -28,9 +28,14 @@ func NewProtoFileHandler(protoSvc *service.ProtoService, grpcExec *service.GRPCE
 	}
 }
 
-// List returns proto files for the current user with pagination.
+// List returns proto files with pagination.
+// System admin can see all proto files; other users can only see their own.
 func (h *ProtoFileHandler) List(c *gin.Context) {
 	uID := extractUserID(c)
+	if uID <= 0 {
+		Unauthorized(c, "未授权访问")
+		return
+	}
 
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
@@ -41,7 +46,9 @@ func (h *ProtoFileHandler) List(c *gin.Context) {
 		pageSize = 20
 	}
 
-	protoFiles, total, err := h.protoSvc.ListByUser(c.Request.Context(), uID, page, pageSize)
+	isAdmin, _ := h.permSvc.IsSystemAdmin(c.Request.Context(), uID)
+
+	protoFiles, total, err := h.protoSvc.ListByUser(c.Request.Context(), uID, isAdmin, page, pageSize)
 	if err != nil {
 		slog.Error("failed to list proto files", "user_id", uID, "error", err)
 		Fail(c, CodeQueryError, "获取Proto文件列表失败")
@@ -414,15 +421,16 @@ func (h *ProtoFileHandler) Template(c *gin.Context) {
 // protoFileToMap converts a ProtoFile model to a gin.H map for response.
 func protoFileToMap(pf *model.ProtoFile) gin.H {
 	return gin.H{
-		"id":            pf.ID,
-		"name":          pf.Name,
-		"content":       pf.Content,
-		"file_hash":     pf.FileHash,
-		"parsed_result": pf.ParsedResult,
-		"dependencies":  pf.Dependencies,
-		"created_by":    pf.CreatedBy,
-		"created_at":    pf.CreatedAt.Format(TimeResponseFormat),
-		"updated_at":    pf.UpdatedAt.Format(TimeResponseFormat),
+		"id":              pf.ID,
+		"name":            pf.Name,
+		"content":         pf.Content,
+		"file_hash":       pf.FileHash,
+		"parsed_result":   pf.ParsedResult,
+		"dependencies":    pf.Dependencies,
+		"created_by":      pf.CreatedBy,
+		"created_by_name": pf.CreatedByName,
+		"created_at":      pf.CreatedAt.Format(TimeResponseFormat),
+		"updated_at":      pf.UpdatedAt.Format(TimeResponseFormat),
 	}
 }
 
