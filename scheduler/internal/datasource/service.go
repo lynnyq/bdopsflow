@@ -709,36 +709,41 @@ func (s *DatasourceService) RecordQueryHistory(ctx context.Context, history *mod
 	return nil
 }
 
-func (s *DatasourceService) GetQueryHistory(ctx context.Context, domainID int64, page, pageSize int, datasourceID int64, status string, startTime string, endTime string) ([]*model.QueryHistory, int64, error) {
+func (s *DatasourceService) GetQueryHistory(ctx context.Context, domainID int64, page, pageSize int, datasourceID int64, status string, startTime string, endTime string, executedBy int64) ([]*model.QueryHistory, int64, error) {
 	whereClause := " WHERE 1=1"
 	var args []interface{}
 
 	if domainID > 0 {
-		whereClause += " AND domain_id = ?"
+		whereClause += " AND qh.domain_id = ?"
 		args = append(args, domainID)
 	}
 
 	if datasourceID > 0 {
-		whereClause += " AND datasource_id = ?"
+		whereClause += " AND qh.datasource_id = ?"
 		args = append(args, datasourceID)
 	}
 
 	if status != "" {
-		whereClause += " AND status = ?"
+		whereClause += " AND qh.status = ?"
 		args = append(args, status)
 	}
 
+	if executedBy > 0 {
+		whereClause += " AND qh.executed_by = ?"
+		args = append(args, executedBy)
+	}
+
 	if startTime != "" {
-		whereClause += " AND created_at >= ?"
+		whereClause += " AND qh.created_at >= ?"
 		args = append(args, startTime+" 00:00:00")
 	}
 
 	if endTime != "" {
-		whereClause += " AND created_at <= ?"
+		whereClause += " AND qh.created_at <= ?"
 		args = append(args, endTime+" 23:59:59")
 	}
 
-	countQuery := "SELECT COUNT(*) FROM bdopsflow_query_history" + whereClause
+	countQuery := "SELECT COUNT(*) FROM bdopsflow_query_history qh" + whereClause
 	var countQr rqlite.QueryResult
 	var err error
 	if len(args) > 0 {
@@ -761,8 +766,8 @@ func (s *DatasourceService) GetQueryHistory(ctx context.Context, domainID int64,
 	}
 
 	offset := (page - 1) * pageSize
-	dataQuery := `SELECT id, query_id, datasource_id, datasource_name, sql_text, database, execution_time, row_count, status, error_message, executed_by, domain_id, created_at
-		FROM bdopsflow_query_history` + whereClause + " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+	dataQuery := `SELECT qh.id, qh.query_id, qh.datasource_id, qh.datasource_name, qh.sql_text, qh.database, qh.execution_time, qh.row_count, qh.status, qh.error_message, qh.executed_by, u.real_name as executed_by_name, qh.domain_id, qh.created_at
+		FROM bdopsflow_query_history qh LEFT JOIN bdopsflow_users u ON qh.executed_by = u.id` + whereClause + " ORDER BY qh.created_at DESC LIMIT ? OFFSET ?"
 
 	dataArgs := make([]interface{}, len(args))
 	copy(dataArgs, args)
@@ -794,7 +799,8 @@ func (s *DatasourceService) GetQueryHistory(ctx context.Context, domainID int64,
 			RowCount:       int(dsRowInt64(row[7])),
 			Status:         dsRowString(row[8]),
 			ErrorMessage:   dsRowString(row[9]),
-			DomainID:       dsRowInt64(row[11]),
+			ExecutedByName: dsRowString(row[11]),
+			DomainID:       dsRowInt64(row[12]),
 		}
 
 		if row[2] != nil {
@@ -807,9 +813,9 @@ func (s *DatasourceService) GetQueryHistory(ctx context.Context, domainID int64,
 			h.ExecutedBy = &execBy
 		}
 
-		if t, ok := row[12].(time.Time); ok {
+		if t, ok := row[13].(time.Time); ok {
 			h.CreatedAt = t
-		} else if s, ok := row[12].(string); ok && s != "" {
+		} else if s, ok := row[13].(string); ok && s != "" {
 			if parsed, parseErr := dsParseTimeInLocalTimezone(s); parseErr == nil {
 				h.CreatedAt = parsed
 			}

@@ -683,11 +683,15 @@ func (h *QueryHandler) GetHistory(c *gin.Context) {
 	if dsID := c.Query("datasource_id"); dsID != "" {
 		datasourceID, _ = strconv.ParseInt(dsID, 10, 64)
 	}
+	var executedBy int64
+	if uid := c.Query("executed_by"); uid != "" {
+		executedBy, _ = strconv.ParseInt(uid, 10, 64)
+	}
 	filterStatus := c.Query("status")
 	startTime := c.Query("start_time")
 	endTime := c.Query("end_time")
 
-	histories, total, err := h.dsService.GetQueryHistory(c.Request.Context(), queryDomainID, page, pageSize, datasourceID, filterStatus, startTime, endTime)
+	histories, total, err := h.dsService.GetQueryHistory(c.Request.Context(), queryDomainID, page, pageSize, datasourceID, filterStatus, startTime, endTime, executedBy)
 	if err != nil {
 		Fail(c, CodeQueryError, "获取查询历史失败")
 		return

@@ -21,6 +21,20 @@
           <el-option label="成功" value="success" />
           <el-option label="失败" value="failed" />
         </el-select>
+        <el-select
+          v-model="filterExecutedBy"
+          placeholder="执行用户"
+          clearable
+          filterable
+          class="filter-select filter-user"
+        >
+          <el-option
+            v-for="u in userList"
+            :key="u.id"
+            :label="u.real_name || u.username"
+            :value="u.id"
+          />
+        </el-select>
         <el-date-picker
           v-model="dateRange"
           type="daterange"
@@ -59,6 +73,14 @@
         <el-table-column label="数据源" width="150">
           <template #default="{ row }">
             {{ row.datasource_name || row.datasource_id || '-' }}
+          </template>
+        </el-table-column>
+        <el-table-column label="执行用户" width="120" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="row.executed_by_name" type="info" effect="plain" size="small">
+              {{ row.executed_by_name }}
+            </el-tag>
+            <span v-else>-</span>
           </template>
         </el-table-column>
         <el-table-column label="SQL 摘要" :min-width="250" show-overflow-tooltip>
@@ -127,9 +149,9 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Refresh, Document, VideoPlay, Delete } from '@element-plus/icons-vue'
-import { queryAPI, datasourceAPI } from '@/api'
+import { queryAPI, datasourceAPI, userAdminAPI } from '@/api'
 import { isHandledError } from '@/utils/api'
-import type { QueryHistory, Datasource } from '@/types'
+import type { QueryHistory, Datasource, User } from '@/types'
 
 const router = useRouter()
 
@@ -138,8 +160,10 @@ const loading = ref(false)
 const searchQuery = ref('')
 const filterDatasourceID = ref<number | null>(null)
 const filterStatus = ref<string | null>(null)
+const filterExecutedBy = ref<number | null>(null)
 const dateRange = ref<[string, string] | null>(null)
 const datasourceList = ref<Datasource[]>([])
+const userList = ref<User[]>([])
 const currentPage = ref(1)
 const pageSize = ref(20)
 const total = ref(0)
@@ -185,6 +209,9 @@ const loadHistory = async () => {
     if (filterStatus.value) {
       params.status = filterStatus.value
     }
+    if (filterExecutedBy.value) {
+      params.executed_by = filterExecutedBy.value
+    }
     if (dateRange.value && dateRange.value[0]) {
       params.start_time = dateRange.value[0]
     }
@@ -212,8 +239,17 @@ const loadDatasources = async () => {
   }
 }
 
+const loadUsers = async () => {
+  try {
+    const res = await userAdminAPI.listByDomain()
+    userList.value = res.data.items || []
+  } catch (err: any) {
+    // 用户列表加载失败不影响主流程
+  }
+}
+
 // 监听过滤条件变化，重新加载数据
-watch([filterDatasourceID, filterStatus, dateRange], () => {
+watch([filterDatasourceID, filterStatus, filterExecutedBy, dateRange], () => {
   currentPage.value = 1
   loadHistory()
 })
@@ -273,6 +309,7 @@ const handleBatchDelete = async () => {
 
 onMounted(() => {
   loadDatasources()
+  loadUsers()
   loadHistory()
 })
 </script>
@@ -342,6 +379,10 @@ onMounted(() => {
 
 .filter-datasource {
   width: 160px;
+}
+
+.filter-user {
+  width: 140px;
 }
 
 .filter-datepicker {

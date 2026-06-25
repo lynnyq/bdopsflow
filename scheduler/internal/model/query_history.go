@@ -14,6 +14,7 @@ type QueryHistory struct {
 	Status         string    `db:"status" json:"status"`
 	ErrorMessage   string    `db:"error_message" json:"error_message,omitempty"`
 	ExecutedBy     *int64    `db:"executed_by" json:"executed_by,omitempty"`
+	ExecutedByName string    `db:"-" json:"executed_by_name,omitempty"`
 	DomainID       int64     `db:"domain_id" json:"domain_id"`
 	CreatedAt      time.Time `db:"created_at" json:"created_at"`
 }

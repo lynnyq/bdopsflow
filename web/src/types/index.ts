@@ -352,6 +352,7 @@ export interface QueryHistory {
   status: string
   error_message?: string
   executed_by?: number
+  executed_by_name?: string
   domain_id: number
   created_at: string
 }
