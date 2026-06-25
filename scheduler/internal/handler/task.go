@@ -451,12 +451,10 @@ func (h *TaskHandler) Update(c *gin.Context) {
 	if req.DomainID > 0 {
 		currentTask.DomainID = req.DomainID
 	}
-	if req.WebhookID != nil {
-		currentTask.WebhookID = req.WebhookID
-	}
-	if req.WebhookEvents != "" {
-		currentTask.WebhookEvents = req.WebhookEvents
-	}
+	// WebhookID: 允许清空（设为 nil），前端 clearable select 清空时传 null
+	currentTask.WebhookID = req.WebhookID
+	// WebhookEvents: 允许清空，前端清空推送时机时传 "[]" 或 ""
+	currentTask.WebhookEvents = req.WebhookEvents
 	// 更新 AssignedExecutorID（允许设置为空字符串来清除）
 	currentTask.AssignedExecutorID = req.AssignedExecutorID
 

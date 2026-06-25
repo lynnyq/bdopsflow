@@ -1259,6 +1259,13 @@ watch(filterCreatedBy, () => {
   loadTasks()
 })
 
+// 当 webhook_id 被清空时，同步清空 webhook_events
+watch(() => form.value.webhook_id, (newVal) => {
+  if (!newVal) {
+    form.value.webhook_events = []
+  }
+})
+
 // 确保 timeout_seconds 始终是数字类型，且 0 值被正确保留
 watch(() => form.value.timeout_seconds, (newVal) => {
   if (typeof newVal !== 'number') {
