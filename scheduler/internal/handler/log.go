@@ -31,14 +31,19 @@ func (h *LogHandler) List(c *gin.Context) {
 
 	domainID, _ := c.Get("current_domain_id")
 	userRole, _ := c.Get("role")
+	userID, _ := c.Get("user_id")
 
 	var dID int64
 	var role string
+	var uid int64
 	if v, ok := domainID.(int64); ok {
 		dID = v
 	}
 	if v, ok := userRole.(string); ok {
 		role = v
+	}
+	if v, ok := userID.(int64); ok {
+		uid = v
 	}
 
 	var page, pageSize int
@@ -69,7 +74,7 @@ func (h *LogHandler) List(c *gin.Context) {
 	filter["duration_min"] = c.Query("duration_min")
 	filter["duration_max"] = c.Query("duration_max")
 
-	executions, total, err := h.svc.GetAllExecutions(ctx, dID, role, filter, page, pageSize)
+	executions, total, err := h.svc.GetAllExecutions(ctx, dID, uid, role, filter, page, pageSize)
 	if err != nil {
 		slog.Error("LogHandler.List: failed to get executions", "error", err)
 		InternalServerError(c, err.Error())
@@ -120,17 +125,22 @@ func (h *LogHandler) Delete(c *gin.Context) {
 
 	domainID, _ := c.Get("current_domain_id")
 	userRole, _ := c.Get("role")
+	userID, _ := c.Get("user_id")
 
 	var dID int64
 	var role string
+	var uid int64
 	if v, ok := domainID.(int64); ok {
 		dID = v
 	}
 	if v, ok := userRole.(string); ok {
 		role = v
 	}
+	if v, ok := userID.(int64); ok {
+		uid = v
+	}
 
-	err = h.svc.DeleteExecutionWithDomainCheck(ctx, id, dID, role)
+	err = h.svc.DeleteExecutionWithDomainCheck(ctx, id, dID, uid, role)
 	if err != nil {
 		slog.Error("LogHandler.Delete: failed to delete execution", "id", id, "error", err)
 		InternalServerError(c, err.Error())
@@ -153,14 +163,19 @@ func (h *LogHandler) BatchDelete(c *gin.Context) {
 
 	domainID, _ := c.Get("current_domain_id")
 	userRole, _ := c.Get("role")
+	userID, _ := c.Get("user_id")
 
 	var dID int64
 	var role string
+	var uid int64
 	if v, ok := domainID.(int64); ok {
 		dID = v
 	}
 	if v, ok := userRole.(string); ok {
 		role = v
+	}
+	if v, ok := userID.(int64); ok {
+		uid = v
 	}
 
 	var req struct {
@@ -179,7 +194,7 @@ func (h *LogHandler) BatchDelete(c *gin.Context) {
 		return
 	}
 
-	err := h.svc.BatchDeleteExecutionsWithDomainCheck(ctx, req.IDs, dID, role)
+	err := h.svc.BatchDeleteExecutionsWithDomainCheck(ctx, req.IDs, dID, uid, role)
 	if err != nil {
 		slog.Error("LogHandler.BatchDelete: failed to batch delete executions", "count", len(req.IDs), "error", err)
 		InternalServerError(c, err.Error())
@@ -211,14 +226,19 @@ func (h *LogHandler) GetStats(c *gin.Context) {
 
 	domainID, _ := c.Get("current_domain_id")
 	userRole, _ := c.Get("role")
+	userID, _ := c.Get("user_id")
 
 	var dID int64
 	var role string
+	var uid int64
 	if v, ok := domainID.(int64); ok {
 		dID = v
 	}
 	if v, ok := userRole.(string); ok {
 		role = v
+	}
+	if v, ok := userID.(int64); ok {
+		uid = v
 	}
 
 	filter := make(map[string]string)
@@ -234,7 +254,7 @@ func (h *LogHandler) GetStats(c *gin.Context) {
 	filter["duration_min"] = c.Query("duration_min")
 	filter["duration_max"] = c.Query("duration_max")
 
-	stats, err := h.svc.GetExecutionStats(ctx, dID, role, filter)
+	stats, err := h.svc.GetExecutionStats(ctx, dID, uid, role, filter)
 	if err != nil {
 		slog.Error("LogHandler.GetStats: failed to get stats", "error", err)
 		InternalServerError(c, err.Error())

@@ -131,14 +131,15 @@ func (s *SchedulerService) GetTaskExecutions(ctx context.Context, taskID int64) 
 	return executions, nil
 }
 
-func (s *SchedulerService) GetAllExecutions(ctx context.Context, domainID int64, role string, filter map[string]string, page int, pageSize int) ([]*TaskExecutionWithNames, int, error) {
+func (s *SchedulerService) GetAllExecutions(ctx context.Context, domainID int64, userID int64, role string, filter map[string]string, page int, pageSize int) ([]*TaskExecutionWithNames, int, error) {
 	whereClause := " WHERE 1=1"
 	var args []interface{}
 
 	isSystemAdmin := role == "system_admin" || role == "admin"
 	if !isSystemAdmin {
-		whereClause += " AND t.domain_id = ?"
-		args = append(args, domainID)
+		// 领域管理员和普通用户只能查看自己创建的任务的执行记录
+		whereClause += " AND t.created_by = ?"
+		args = append(args, userID)
 	}
 
 	if filter["id"] != "" {
@@ -438,7 +439,7 @@ func (s *SchedulerService) BatchDeleteExecutions(ctx context.Context, ids []int6
 	return err
 }
 
-func (s *SchedulerService) DeleteExecutionWithDomainCheck(ctx context.Context, id int64, domainID int64, role string) error {
+func (s *SchedulerService) DeleteExecutionWithDomainCheck(ctx context.Context, id int64, domainID int64, userID int64, role string) error {
 	isSystemAdmin := role == "system_admin" || role == "admin"
 
 	checkQuery := `
@@ -450,8 +451,9 @@ func (s *SchedulerService) DeleteExecutionWithDomainCheck(ctx context.Context, i
 	checkArgs := []interface{}{id}
 
 	if !isSystemAdmin {
-		checkQuery += " AND t.domain_id = ?"
-		checkArgs = append(checkArgs, domainID)
+		// 领域管理员和普通用户只能删除自己创建的任务的执行记录
+		checkQuery += " AND t.created_by = ?"
+		checkArgs = append(checkArgs, userID)
 	}
 
 	checkStmt := rqlite.ParameterizedStatement{
@@ -497,7 +499,7 @@ func (s *SchedulerService) DeleteExecutionWithDomainCheck(ctx context.Context, i
 	return err
 }
 
-func (s *SchedulerService) BatchDeleteExecutionsWithDomainCheck(ctx context.Context, ids []int64, domainID int64, role string) error {
+func (s *SchedulerService) BatchDeleteExecutionsWithDomainCheck(ctx context.Context, ids []int64, domainID int64, userID int64, role string) error {
 	if len(ids) == 0 {
 		return nil
 	}
@@ -519,8 +521,9 @@ func (s *SchedulerService) BatchDeleteExecutionsWithDomainCheck(ctx context.Cont
 	`
 
 	if !isSystemAdmin {
-		checkQuery += " AND t.domain_id = ?"
-		args = append(args, domainID)
+		// 领域管理员和普通用户只能删除自己创建的任务的执行记录
+		checkQuery += " AND t.created_by = ?"
+		args = append(args, userID)
 	}
 
 	checkStmt := rqlite.ParameterizedStatement{
@@ -575,9 +578,9 @@ func (s *SchedulerService) BatchDeleteExecutionsWithDomainCheck(ctx context.Cont
 		deleteExecQuery = `
 			DELETE FROM bdopsflow_task_executions
 			WHERE id IN (` + strings.Join(placeholders, ",") + `)
-			AND task_id IN (SELECT id FROM bdopsflow_tasks WHERE domain_id = ?)
+			AND task_id IN (SELECT id FROM bdopsflow_tasks WHERE created_by = ?)
 		`
-		deleteArgs = append(deleteArgs, domainID)
+		deleteArgs = append(deleteArgs, userID)
 	}
 
 	deleteExecStmt := rqlite.ParameterizedStatement{
@@ -816,14 +819,15 @@ func (s *SchedulerService) addRecoveryLogSafe(ctx context.Context, executionID s
 	return s.AddTaskLog(ctx, executionID, taskID, "", logLevel, message)
 }
 
-func (s *SchedulerService) GetExecutionStats(ctx context.Context, domainID int64, role string, filter map[string]string) (map[string]int, error) {
+func (s *SchedulerService) GetExecutionStats(ctx context.Context, domainID int64, userID int64, role string, filter map[string]string) (map[string]int, error) {
 	whereClause := " WHERE 1=1"
 	var args []interface{}
 
 	isSystemAdmin := role == "system_admin" || role == "admin"
 	if !isSystemAdmin {
-		whereClause += " AND t.domain_id = ?"
-		args = append(args, domainID)
+		// 领域管理员和普通用户只能查看自己创建的任务的执行统计
+		whereClause += " AND t.created_by = ?"
+		args = append(args, userID)
 	}
 
 	if filter["id"] != "" {
