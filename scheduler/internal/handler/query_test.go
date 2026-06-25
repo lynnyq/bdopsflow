@@ -442,6 +442,47 @@ func TestGetResult_HiveErrorPropagation(t *testing.T) {
 	}
 }
 
+func TestUpdateSavedSQL_InvalidID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	h := &QueryHandler{}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "abc"}}
+
+	h.UpdateSavedSQL(c)
+
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+	if resp["code"] != float64(CodeBadRequest) {
+		t.Errorf("code = %v, want %d", resp["code"], CodeBadRequest)
+	}
+}
+
+func TestUpdateSavedSQL_MissingRequiredFields(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	h := &QueryHandler{}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "1"}}
+	c.Request = httptest.NewRequest(http.MethodPut, "/", nil)
+
+	h.UpdateSavedSQL(c)
+
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+	if resp["code"] != float64(CodeBadRequest) {
+		t.Errorf("code = %v, want %d", resp["code"], CodeBadRequest)
+	}
+}
+
 func TestQueryRegistry_UpdateError_OverwritesCompleted(t *testing.T) {
 	registry := NewQueryRegistry()
 	queryID := "q_test_overwrite"

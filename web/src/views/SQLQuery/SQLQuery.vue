@@ -406,8 +406,37 @@
       :close-on-click-modal="false"
     >
       <el-form ref="saveFormRef" :model="saveForm" :rules="saveRules" label-position="top" class="save-form">
-        <el-form-item label="名称" prop="name">
-          <el-input v-model="saveForm.name" placeholder="请输入SQL名称" />
+        <el-form-item label="保存方式">
+          <el-radio-group v-model="saveMode">
+            <el-radio-button value="new">保存为新的</el-radio-button>
+            <el-radio-button value="overwrite">覆盖已有的</el-radio-button>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item v-if="saveMode === 'new'" label="新名称" prop="name">
+          <el-input
+            v-model="saveForm.name"
+            placeholder="请输入新的 SQL 名称"
+            maxlength="100"
+            show-word-limit
+          />
+        </el-form-item>
+        <el-form-item v-else label="选择已有名称" prop="name">
+          <el-select
+            v-model="saveForm.name"
+            placeholder="请选择要覆盖的已有名称"
+            style="width: 100%"
+            :filterable="false"
+          >
+            <el-option
+              v-for="item in savedSQLNameList"
+              :key="item.id"
+              :label="item.name"
+              :value="item.name"
+            />
+          </el-select>
+          <div v-if="saveForm.name" class="save-overwrite-hint">
+            <el-icon><Warning /></el-icon> 将覆盖已有的「{{ saveForm.name }}」
+          </div>
         </el-form-item>
         <el-form-item label="描述">
           <el-input v-model="saveForm.description" type="textarea" :rows="2" placeholder="请输入描述" />
@@ -448,7 +477,7 @@ import {
 import { datasourceAPI, queryAPI } from '@/api';
 import { isHandledError } from '@/utils/api';
 import { useAuthStore } from '@/stores/auth';
-import type { Datasource, QueryResult, QueryHistory, TableInfo, ColumnInfo } from '@/types';
+import type { Datasource, QueryResult, QueryHistory, TableInfo, ColumnInfo, SavedSQL } from '@/types';
 
 const authStore = useAuthStore();
 const route = useRoute();
@@ -836,6 +865,8 @@ const saveRules = ref({
   ]
 });
 const saveFormRef = ref();
+const savedSQLNameList = ref<SavedSQL[]>([]);
+const saveMode = ref<'new' | 'overwrite'>('new');
 
 const recentSQLHistory = ref<{ sql_text: string; created_at: string }[]>([]);
 
@@ -2154,7 +2185,21 @@ const handleCancel = async () => {
   }
 };
 
-const handleSaveSQL = () => {
+const handleSaveSQL = async () => {
+  saveMode.value = 'new';
+  saveForm.value = {
+    name: '',
+    description: '',
+    is_public: false
+  };
+  try {
+    const res = await queryAPI.listSavedSQL({ page: 1, page_size: 200 });
+    savedSQLNameList.value = res.data.items || [];
+  } catch (err) {
+    if (!isHandledError(err)) {
+      ElMessage.error('加载已保存SQL列表失败');
+    }
+  }
   saveDialogVisible.value = true;
 };
 
@@ -2164,22 +2209,47 @@ const handleConfirmSave = async () => {
   const valid = await saveFormRef.value.validate();
   if (!valid) return;
 
+  const dsId = Number(selectedDatasourceId.value);
+  if (!dsId || isNaN(dsId)) {
+    ElMessage.error('请选择数据源');
+    return;
+  }
+
   saving.value = true;
   try {
-    await queryAPI.saveSQL({
-      name: saveForm.value.name,
-      datasource_id: selectedDatasourceId.value as number,
-      sql_text: sqlText.value,
-      description: saveForm.value.description,
-      is_public: saveForm.value.is_public
-    });
-    ElMessage.success('保存成功');
+    if (saveMode.value === 'overwrite') {
+      // 覆盖已有记录
+      const existing = savedSQLNameList.value.find(item => item.name === saveForm.value.name);
+      if (!existing) {
+        ElMessage.error('未找到要覆盖的记录');
+        return;
+      }
+      await queryAPI.updateSavedSQL(existing.id, {
+        name: saveForm.value.name,
+        datasource_id: dsId,
+        sql_text: sqlText.value,
+        description: saveForm.value.description,
+        is_public: saveForm.value.is_public
+      });
+      ElMessage.success('已覆盖保存');
+    } else {
+      // 新建记录
+      await queryAPI.saveSQL({
+        name: saveForm.value.name,
+        datasource_id: dsId,
+        sql_text: sqlText.value,
+        description: saveForm.value.description,
+        is_public: saveForm.value.is_public
+      });
+      ElMessage.success('保存成功');
+    }
     saveDialogVisible.value = false;
     saveForm.value = {
       name: '',
       description: '',
       is_public: false
     };
+    saveMode.value = 'new';
   } catch (err) {
     if (!isHandledError(err)) {
       ElMessage.error('保存失败');
@@ -3019,6 +3089,22 @@ window.addEventListener('beforeunload', handleBeforeUnload);
   font-size: var(--font-size-xs);
   color: var(--text-muted);
   margin-left: var(--space-2);
+}
+
+.save-overwrite-hint {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--el-color-warning);
+}
+
+.name-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
 }
 
 .dialog-footer {

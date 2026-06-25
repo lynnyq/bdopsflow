@@ -70,6 +70,8 @@ export const queryAPI = {
     api.get<{ items: SavedSQL[]; total: number; page: number; page_size: number }>('/query/saved-sql', { params }),
   saveSQL: (data: { name: string; datasource_id: number; sql_text: string; description?: string; is_public?: boolean }) =>
     api.post('/query/saved-sql', data),
+  updateSavedSQL: (id: number, data: { name: string; datasource_id: number; sql_text: string; description?: string; is_public?: boolean }) =>
+    api.put(`/query/saved-sql/${id}`, data),
   deleteSavedSQL: (id: number) =>
     api.delete(`/query/saved-sql/${id}`),
 }

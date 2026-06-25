@@ -836,6 +836,53 @@ func (h *QueryHandler) ListSavedSQL(c *gin.Context) {
 	})
 }
 
+func (h *QueryHandler) UpdateSavedSQL(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		BadRequest(c, "无效的SQL记录ID")
+		return
+	}
+
+	var req struct {
+		Name         string `json:"name" binding:"required"`
+		DatasourceID int64  `json:"datasource_id" binding:"required"`
+		SQLText      string `json:"sql_text" binding:"required"`
+		Description  string `json:"description"`
+		IsPublic     *bool  `json:"is_public"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		BadRequest(c, err.Error())
+		return
+	}
+
+	userID, _ := c.Get("user_id")
+	isPublic := false
+	if req.IsPublic != nil {
+		isPublic = *req.IsPublic
+	}
+
+	var updateUID int64
+	if v, ok := userID.(int64); ok {
+		updateUID = v
+	}
+
+	saved := &model.SavedSQL{
+		Name:         req.Name,
+		DatasourceID: req.DatasourceID,
+		SQLText:      req.SQLText,
+		Description:  req.Description,
+		UpdatedBy:    int64Ptr(updateUID),
+		IsPublic:     isPublic,
+	}
+
+	if err := h.dsService.UpdateSavedSQL(c.Request.Context(), id, saved); err != nil {
+		Fail(c, CodeSavedSQLNotFound, "更新SQL记录失败")
+		return
+	}
+
+	Success(c, nil)
+}
+
 func (h *QueryHandler) DeleteSavedSQL(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {

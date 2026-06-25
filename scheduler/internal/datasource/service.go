@@ -995,6 +995,38 @@ func (s *DatasourceService) GetSavedSQL(ctx context.Context, domainID int64, use
 	return savedList, total, nil
 }
 
+func (s *DatasourceService) UpdateSavedSQL(ctx context.Context, id int64, saved *model.SavedSQL) error {
+	var updatedBy interface{}
+	if saved.UpdatedBy != nil {
+		updatedBy = *saved.UpdatedBy
+	}
+
+	isPublic := 0
+	if saved.IsPublic {
+		isPublic = 1
+	}
+
+	now := time.Now().Format(dsDateTimeFormat)
+	stmt := rqlite.ParameterizedStatement{
+		Query: `UPDATE bdopsflow_saved_sql SET name = ?, datasource_id = ?, sql_text = ?, description = ?, updated_by = ?, is_public = ?, updated_at = ? WHERE id = ?`,
+		Arguments: []interface{}{
+			saved.Name, saved.DatasourceID, saved.SQLText, saved.Description,
+			updatedBy, isPublic, now, id,
+		},
+	}
+	result, err := s.db.WriteOneParameterized(stmt)
+	if err != nil {
+		return fmt.Errorf("failed to update saved SQL: %w", err)
+	}
+	if result.Err != nil {
+		return fmt.Errorf("failed to update saved SQL: %w", result.Err)
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("saved SQL not found: %d", id)
+	}
+	return nil
+}
+
 func (s *DatasourceService) DeleteSavedSQL(ctx context.Context, id int64) error {
 	stmt := rqlite.ParameterizedStatement{
 		Query:     "DELETE FROM bdopsflow_saved_sql WHERE id = ?",

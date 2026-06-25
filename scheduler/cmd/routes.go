@@ -217,6 +217,7 @@ func setupRoutes(router *gin.Engine, app *App) {
 			query.POST("/history/batch-delete", queryHandler.BatchDeleteQueryHistory)
 			query.GET("/saved-sql", queryHandler.ListSavedSQL)
 			query.POST("/saved-sql", queryHandler.SaveSQL)
+			query.PUT("/saved-sql/:id", queryHandler.UpdateSavedSQL)
 			query.DELETE("/saved-sql/:id", queryHandler.DeleteSavedSQL)
 		}
 

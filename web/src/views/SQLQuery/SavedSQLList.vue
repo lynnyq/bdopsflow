@@ -41,10 +41,13 @@
             {{ formatDateTime(row.created_at) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="180" fixed="right" align="center">
+        <el-table-column label="操作" width="240" fixed="right" align="center">
           <template #default="{ row }">
             <el-button type="primary" link size="small" @click="handleLoad(row)">
               <el-icon><VideoPlay /></el-icon> 加载
+            </el-button>
+            <el-button type="warning" link size="small" @click="handleEdit(row)">
+              <el-icon><Edit /></el-icon> 编辑
             </el-button>
             <el-button type="danger" link size="small" @click="handleDelete(row)">
               <el-icon><Delete /></el-icon> 删除
@@ -72,6 +75,52 @@
         @size-change="loadSavedSQL"
       />
     </div>
+
+    <!-- 编辑对话框 -->
+    <el-dialog
+      v-model="editDialogVisible"
+      title="编辑已保存SQL"
+      width="560px"
+      :close-on-click-modal="false"
+    >
+      <el-form ref="editFormRef" :model="editForm" :rules="editRules" label-position="top" class="edit-form">
+        <el-form-item label="名称" prop="name">
+          <el-input v-model="editForm.name" placeholder="请输入SQL名称" />
+        </el-form-item>
+        <el-form-item label="数据源" prop="datasource_id">
+          <el-select v-model="editForm.datasource_id" placeholder="请选择数据源" filterable style="width: 100%">
+            <el-option
+              v-for="ds in datasourceList"
+              :key="ds.id"
+              :label="ds.name"
+              :value="ds.id"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="SQL 语句" prop="sql_text">
+          <el-input
+            v-model="editForm.sql_text"
+            type="textarea"
+            :rows="6"
+            placeholder="请输入SQL语句"
+            class="sql-textarea"
+          />
+        </el-form-item>
+        <el-form-item label="描述">
+          <el-input v-model="editForm.description" type="textarea" :rows="2" placeholder="请输入描述" />
+        </el-form-item>
+        <el-form-item label="公开">
+          <el-switch v-model="editForm.is_public" />
+          <span class="form-hint">公开的 SQL 可被同领域其他用户使用</span>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button @click="editDialogVisible = false">取消</el-button>
+          <el-button type="primary" @click="handleConfirmEdit" :loading="editing">保存</el-button>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -79,10 +128,10 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Search, Refresh, Delete, Document, VideoPlay } from '@element-plus/icons-vue'
-import { queryAPI } from '@/api'
+import { Search, Refresh, Delete, Document, VideoPlay, Edit } from '@element-plus/icons-vue'
+import { queryAPI, datasourceAPI } from '@/api'
 import { isHandledError } from '@/utils/api'
-import type { SavedSQL } from '@/types'
+import type { SavedSQL, Datasource } from '@/types'
 
 const router = useRouter()
 
@@ -92,6 +141,32 @@ const searchQuery = ref('')
 const currentPage = ref(1)
 const pageSize = ref(20)
 const total = ref(0)
+
+// 编辑相关状态
+const editDialogVisible = ref(false)
+const editing = ref(false)
+const editingId = ref<number>(0)
+const editFormRef = ref()
+const editForm = ref({
+  name: '',
+  datasource_id: 0 as number,
+  sql_text: '',
+  description: '',
+  is_public: false
+})
+const editRules = {
+  name: [
+    { required: true, message: '请输入名称', trigger: 'blur' },
+    { min: 1, max: 100, message: '名称长度在1到100个字符', trigger: 'blur' }
+  ],
+  datasource_id: [
+    { required: true, message: '请选择数据源', trigger: 'change' }
+  ],
+  sql_text: [
+    { required: true, message: '请输入SQL语句', trigger: 'blur' }
+  ]
+}
+const datasourceList = ref<Datasource[]>([])
 
 const filteredList = computed(() => {
   if (!searchQuery.value) return savedList.value
@@ -139,6 +214,17 @@ const loadSavedSQL = async () => {
   }
 }
 
+const loadDatasources = async () => {
+  try {
+    const res = await datasourceAPI.list({ page: 1, page_size: 200 })
+    datasourceList.value = res.data.items || []
+  } catch (err: any) {
+    if (!isHandledError(err)) {
+      ElMessage.error(err.message || '加载数据源列表失败')
+    }
+  }
+}
+
 const handleLoad = (row: SavedSQL) => {
   const query: Record<string, string> = { sql: row.sql_text }
   if (row.datasource_id != null) {
@@ -148,6 +234,45 @@ const handleLoad = (row: SavedSQL) => {
     name: 'SQLQuery',
     query,
   })
+}
+
+const handleEdit = (row: SavedSQL) => {
+  editingId.value = row.id
+  editForm.value = {
+    name: row.name,
+    datasource_id: row.datasource_id,
+    sql_text: row.sql_text,
+    description: row.description || '',
+    is_public: row.is_public
+  }
+  editDialogVisible.value = true
+}
+
+const handleConfirmEdit = async () => {
+  if (!editFormRef.value) return
+
+  const valid = await editFormRef.value.validate()
+  if (!valid) return
+
+  editing.value = true
+  try {
+    await queryAPI.updateSavedSQL(editingId.value, {
+      name: editForm.value.name,
+      datasource_id: editForm.value.datasource_id,
+      sql_text: editForm.value.sql_text,
+      description: editForm.value.description,
+      is_public: editForm.value.is_public
+    })
+    ElMessage.success('更新成功')
+    editDialogVisible.value = false
+    await loadSavedSQL()
+  } catch (err: any) {
+    if (!isHandledError(err)) {
+      ElMessage.error(err.message || '更新失败')
+    }
+  } finally {
+    editing.value = false
+  }
 }
 
 const handleDelete = async (row: SavedSQL) => {
@@ -169,6 +294,7 @@ const handleDelete = async (row: SavedSQL) => {
 
 onMounted(() => {
   loadSavedSQL()
+  loadDatasources()
 })
 </script>
 
@@ -329,5 +455,16 @@ onMounted(() => {
   background: linear-gradient(135deg, var(--accent-primary), #6366f1);
   color: white;
   box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+}
+
+.edit-form .form-hint {
+  margin-left: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.sql-textarea :deep(.el-textarea__inner) {
+  font-family: var(--font-mono);
+  font-size: 13px;
 }
 </style>
