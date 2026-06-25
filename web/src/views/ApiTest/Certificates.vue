@@ -44,6 +44,11 @@
             <span v-else class="text-muted">0</span>
           </template>
         </el-table-column>
+        <el-table-column v-if="authStore.isSystemAdmin" label="创建者" width="120" show-overflow-tooltip>
+          <template #default="{ row }">
+            {{ row.created_by_name || '-' }}
+          </template>
+        </el-table-column>
         <el-table-column prop="created_at" label="创建时间" width="180">
           <template #default="{ row }">
             {{ formatDateTime(row.created_at) }}
@@ -164,6 +169,9 @@ import { certificateAPI, apiTestAPI } from '@/api/apiTest'
 import type { CertificateSummary, ApiTest } from '@/api/apiTest'
 import { isHandledError } from '@/utils/api'
 import { formatDateTime } from '@/utils/format'
+import { useAuthStore } from '@/stores/auth'
+
+const authStore = useAuthStore()
 
 const certificates = ref<CertificateSummary[]>([])
 const grpcTests = ref<ApiTest[]>([])

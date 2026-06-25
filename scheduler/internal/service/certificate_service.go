@@ -217,9 +217,10 @@ func (s *CertificateService) GetByID(ctx context.Context, id int64) (*model.Cert
 	return cert, nil
 }
 
-// ListByUser returns certificates for a specific user with pagination.
+// ListByUser returns certificates with pagination.
+// System admin can see all certificates; other users can only see their own.
 // Only metadata is returned (no sensitive certificate content).
-func (s *CertificateService) ListByUser(ctx context.Context, userID int64, page, pageSize int) ([]*model.CertificateSummary, int64, error) {
+func (s *CertificateService) ListByUser(ctx context.Context, userID int64, isAdmin bool, page, pageSize int) ([]*model.CertificateSummary, int64, error) {
 	if pageSize <= 0 {
 		pageSize = 20
 	}
@@ -230,11 +231,25 @@ func (s *CertificateService) ListByUser(ctx context.Context, userID int64, page,
 		page = 1
 	}
 
+	var conditions []string
+	var args []interface{}
+
+	// 管理员可查看所有记录，普通用户和领域管理员只能查看自己创建的
+	if !isAdmin {
+		conditions = append(conditions, "c.created_by = ?")
+		args = append(args, userID)
+	}
+
+	var whereClause string
+	if len(conditions) > 0 {
+		whereClause = "WHERE " + strings.Join(conditions, " AND ")
+	}
+
 	// Count total records
-	countQuery := `SELECT COUNT(*) FROM bdopsflow_certificates WHERE created_by = ?`
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM bdopsflow_certificates c %s", whereClause)
 	countStmt := rqlite.ParameterizedStatement{
 		Query:     countQuery,
-		Arguments: []interface{}{userID},
+		Arguments: args,
 	}
 	countQr, err := s.db.QueryOneParameterized(countStmt)
 	if err != nil {
@@ -256,15 +271,19 @@ func (s *CertificateService) ListByUser(ctx context.Context, userID int64, page,
 		total = rowInt64(row[0])
 	}
 
-	// Query data with pagination
+	// Query data with pagination, join users table for creator name
 	offset := (page - 1) * pageSize
-	dataQuery := `
-		SELECT id, name, ca_cert, client_cert, client_key, created_by, created_at, updated_at
-		FROM bdopsflow_certificates WHERE created_by = ? ORDER BY created_at DESC LIMIT ? OFFSET ?
-	`
+	dataQuery := fmt.Sprintf(`
+		SELECT c.id, c.name, c.ca_cert, c.client_cert, c.client_key, c.created_by,
+		       COALESCE(u.real_name, '') as created_by_name,
+		       c.created_at, c.updated_at
+		FROM bdopsflow_certificates c
+		LEFT JOIN bdopsflow_users u ON c.created_by = u.id
+		%s ORDER BY c.created_at DESC LIMIT ? OFFSET ?
+	`, whereClause)
 	dataStmt := rqlite.ParameterizedStatement{
 		Query:     dataQuery,
-		Arguments: []interface{}{userID, pageSize, offset},
+		Arguments: append(args, pageSize, offset),
 	}
 
 	qr, err := s.db.QueryOneParameterized(dataStmt)
@@ -292,8 +311,9 @@ func (s *CertificateService) ListByUser(ctx context.Context, userID int64, page,
 			HasClientCert: rowString(row[3]) != "",
 			HasClientKey:  rowString(row[4]) != "",
 			CreatedBy:     rowInt64(row[5]),
-			CreatedAt:     parseDateTime(row[6]),
-			UpdatedAt:     parseDateTime(row[7]),
+			CreatedByName: rowString(row[6]),
+			CreatedAt:     parseDateTime(row[7]),
+			UpdatedAt:     parseDateTime(row[8]),
 		}
 
 		summaries = append(summaries, summary)

@@ -23,7 +23,8 @@ func NewCertificateHandler(certSvc *service.CertificateService, permSvc *service
 	}
 }
 
-// List returns certificates for the current user with pagination.
+// List returns certificates with pagination.
+// System admin can see all certificates; other users can only see their own.
 func (h *CertificateHandler) List(c *gin.Context) {
 	userID := extractUserID(c)
 	if userID <= 0 {
@@ -40,7 +41,9 @@ func (h *CertificateHandler) List(c *gin.Context) {
 		pageSize = 20
 	}
 
-	summaries, total, err := h.certSvc.ListByUser(c.Request.Context(), userID, page, pageSize)
+	isAdmin, _ := h.permSvc.IsSystemAdmin(c.Request.Context(), userID)
+
+	summaries, total, err := h.certSvc.ListByUser(c.Request.Context(), userID, isAdmin, page, pageSize)
 	if err != nil {
 		slog.Error("failed to list certificates", "user_id", userID, "error", err)
 		Fail(c, CodeQueryError, "获取证书列表失败")

@@ -154,6 +154,7 @@ export interface CertificateSummary {
   has_client_cert: boolean
   has_client_key: boolean
   created_by: number
+  created_by_name: string
   created_at: string
   updated_at: string
 }

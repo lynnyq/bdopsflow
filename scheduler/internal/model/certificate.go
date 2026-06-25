@@ -22,6 +22,7 @@ type CertificateSummary struct {
 	HasClientCert bool      `db:"-" json:"has_client_cert"`
 	HasClientKey  bool      `db:"-" json:"has_client_key"`
 	CreatedBy     int64     `db:"created_by" json:"created_by"`
+	CreatedByName string    `db:"-" json:"created_by_name"`
 	CreatedAt     time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt     time.Time `db:"updated_at" json:"updated_at"`
 }
