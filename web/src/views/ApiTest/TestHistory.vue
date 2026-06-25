@@ -43,6 +43,14 @@
             <span class="test-name" :title="row.test_name || '临时请求'">{{ row.test_name || '临时请求' }}</span>
           </template>
         </el-table-column>
+        <el-table-column label="执行用户" width="120" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="row.executed_by_name" type="info" effect="plain" size="small">
+              {{ row.executed_by_name }}
+            </el-tag>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
         <el-table-column label="状态" width="100" align="center">
           <template #default="{ row }">
             <el-tag :type="row.error ? 'danger' : 'success'" effect="light" size="small">

@@ -447,10 +447,10 @@ func (s *ApiTestService) ListResultsByUser(ctx context.Context, userID int64, is
 		}
 	}
 
-	// Data query with LEFT JOIN to get test name and fallback type
+	// Data query with LEFT JOIN to get test name, fallback type and executor name
 	offset := (page - 1) * pageSize
 	dataQuery := fmt.Sprintf(
-		"SELECT r.id, r.test_id, COALESCE(NULLIF(r.type, ''), t.type, '') as type, r.status_code, r.latency_ms, r.headers, r.body, r.error, r.assertions_result, r.executed_by, r.created_at, COALESCE(t.name, '') as test_name FROM bdopsflow_api_test_results r LEFT JOIN bdopsflow_api_tests t ON r.test_id = t.id %s ORDER BY r.created_at DESC LIMIT %d OFFSET %d",
+		"SELECT r.id, r.test_id, COALESCE(NULLIF(r.type, ''), t.type, '') as type, r.status_code, r.latency_ms, r.headers, r.body, r.error, r.assertions_result, r.executed_by, r.created_at, COALESCE(t.name, '') as test_name, COALESCE(u.real_name, '') as executed_by_name FROM bdopsflow_api_test_results r LEFT JOIN bdopsflow_api_tests t ON r.test_id = t.id LEFT JOIN bdopsflow_users u ON r.executed_by = u.id %s ORDER BY r.created_at DESC LIMIT %d OFFSET %d",
 		whereClause, pageSize, offset,
 	)
 	dataStmt := rqlite.ParameterizedStatement{
@@ -489,9 +489,12 @@ func (s *ApiTestService) ListResultsByUser(ctx context.Context, userID int64, is
 			ExecutedBy:       rowInt64(row[9]),
 			CreatedAt:        parseDateTime(row[10]),
 		}
-		// Attach test name if available (index 11)
+		// Attach test name (index 11) and executor name (index 12) if available
 		if len(row) > 11 {
 			r.TestName = rowString(row[11])
+		}
+		if len(row) > 12 {
+			r.ExecutedByName = rowString(row[12])
 		}
 		results = append(results, r)
 	}

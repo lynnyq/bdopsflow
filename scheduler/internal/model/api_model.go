@@ -25,6 +25,7 @@ type ApiTestResult struct {
 	Error           string    `db:"error" json:"error"`
 	AssertionsResult string   `db:"assertions_result" json:"assertions_result"`
 	ExecutedBy      int64     `db:"executed_by" json:"executed_by"`
+	ExecutedByName  string    `db:"-" json:"executed_by_name,omitempty"`
 	CreatedAt       time.Time `db:"created_at" json:"created_at"`
 	TestName        string    `db:"-" json:"test_name,omitempty"`
 }

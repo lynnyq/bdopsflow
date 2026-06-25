@@ -24,6 +24,7 @@ export interface ApiTestResult {
   error: string
   assertions_result: string
   executed_by: number
+  executed_by_name?: string
   created_at: string
   test_name?: string
 }
