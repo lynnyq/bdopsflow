@@ -904,16 +904,16 @@ func (s *DatasourceService) GetSavedSQL(ctx context.Context, domainID int64, use
 	var args []interface{}
 
 	if domainID > 0 {
-		whereClause += " AND domain_id = ?"
+		whereClause += " AND s.domain_id = ?"
 		args = append(args, domainID)
 	}
 
 	if userID > 0 {
-		whereClause += " AND (created_by = ? OR is_public = 1)"
+		whereClause += " AND (s.created_by = ? OR s.is_public = 1)"
 		args = append(args, userID)
 	}
 
-	countQuery := "SELECT COUNT(*) FROM bdopsflow_saved_sql" + whereClause
+	countQuery := "SELECT COUNT(*) FROM bdopsflow_saved_sql s" + whereClause
 	var countQr rqlite.QueryResult
 	var err error
 	if len(args) > 0 {
@@ -936,8 +936,8 @@ func (s *DatasourceService) GetSavedSQL(ctx context.Context, domainID int64, use
 	}
 
 	offset := (page - 1) * pageSize
-	dataQuery := `SELECT id, name, datasource_id, sql_text, description, created_by, updated_by, domain_id, is_public, created_at, updated_at
-		FROM bdopsflow_saved_sql` + whereClause + " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+	dataQuery := `SELECT s.id, s.name, s.datasource_id, s.sql_text, s.description, s.created_by, u1.real_name as created_by_name, s.updated_by, u2.real_name as updated_by_name, s.domain_id, s.is_public, s.created_at, s.updated_at
+		FROM bdopsflow_saved_sql s LEFT JOIN bdopsflow_users u1 ON s.created_by = u1.id LEFT JOIN bdopsflow_users u2 ON s.updated_by = u2.id` + whereClause + " ORDER BY s.created_at DESC LIMIT ? OFFSET ?"
 
 	dataArgs := make([]interface{}, len(args))
 	copy(dataArgs, args)
@@ -965,8 +965,10 @@ func (s *DatasourceService) GetSavedSQL(ctx context.Context, domainID int64, use
 			DatasourceID: dsRowInt64(row[2]),
 			SQLText:      dsRowString(row[3]),
 			Description:  dsRowString(row[4]),
-			DomainID:     dsRowInt64(row[7]),
-			IsPublic:     dsRowBool(row[8]),
+			CreatedByName: dsRowString(row[6]),
+			UpdatedByName: dsRowString(row[8]),
+			DomainID:     dsRowInt64(row[9]),
+			IsPublic:     dsRowBool(row[10]),
 		}
 
 		if row[5] != nil {
@@ -974,22 +976,22 @@ func (s *DatasourceService) GetSavedSQL(ctx context.Context, domainID int64, use
 			saved.CreatedBy = &createdBy
 		}
 
-		if row[6] != nil {
-			updatedBy := dsRowInt64(row[6])
+		if row[7] != nil {
+			updatedBy := dsRowInt64(row[7])
 			saved.UpdatedBy = &updatedBy
 		}
 
-		if t, ok := row[9].(time.Time); ok {
+		if t, ok := row[11].(time.Time); ok {
 			saved.CreatedAt = t
-		} else if s, ok := row[9].(string); ok && s != "" {
+		} else if s, ok := row[11].(string); ok && s != "" {
 			if parsed, parseErr := dsParseTimeInLocalTimezone(s); parseErr == nil {
 				saved.CreatedAt = parsed
 			}
 		}
 
-		if t, ok := row[10].(time.Time); ok {
+		if t, ok := row[12].(time.Time); ok {
 			saved.UpdatedAt = t
-		} else if s, ok := row[10].(string); ok && s != "" {
+		} else if s, ok := row[12].(string); ok && s != "" {
 			if parsed, parseErr := dsParseTimeInLocalTimezone(s); parseErr == nil {
 				saved.UpdatedAt = parsed
 			}

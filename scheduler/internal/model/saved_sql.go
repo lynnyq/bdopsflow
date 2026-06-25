@@ -9,7 +9,9 @@ type SavedSQL struct {
 	SQLText      string    `db:"sql_text" json:"sql_text"`
 	Description  string    `db:"description" json:"description,omitempty"`
 	CreatedBy    *int64    `db:"created_by" json:"created_by,omitempty"`
+	CreatedByName string   `db:"-" json:"created_by_name,omitempty"`
 	UpdatedBy    *int64    `db:"updated_by" json:"updated_by,omitempty"`
+	UpdatedByName string   `db:"-" json:"updated_by_name,omitempty"`
 	DomainID     int64     `db:"domain_id" json:"domain_id"`
 	IsPublic     bool      `db:"is_public" json:"is_public"`
 	CreatedAt    time.Time `db:"created_at" json:"created_at"`

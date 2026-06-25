@@ -364,7 +364,9 @@ export interface SavedSQL {
   sql_text: string
   description?: string
   created_by?: number
+  created_by_name?: string
   updated_by?: number
+  updated_by_name?: string
   domain_id: number
   is_public: boolean
   created_at: string

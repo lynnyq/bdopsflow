@@ -24,6 +24,14 @@
             {{ row.datasource_name || row.datasource_id }}
           </template>
         </el-table-column>
+        <el-table-column label="保存用户" width="120" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="row.created_by_name" type="info" effect="plain" size="small">
+              {{ row.created_by_name }}
+            </el-tag>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
         <el-table-column label="SQL 摘要" :min-width="250" show-overflow-tooltip>
           <template #default="{ row }">
             <code class="sql-snippet">{{ row.sql_text }}</code>
