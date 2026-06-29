@@ -257,11 +257,6 @@ watch(searchQuery, () => {
   }, 300)
 })
 
-watch(filterStatus, () => {
-  currentPage.value = 1
-  loadResults()
-})
-
 const handleSizeChange = (size: number) => {
   pageSize.value = size
   currentPage.value = 1

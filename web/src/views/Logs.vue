@@ -59,36 +59,20 @@
               class="filter-input"
               @keyup.enter="loadExecutions(1)"
             />
-            <el-select
+            <el-input
               v-model="filters.task_name"
               placeholder="任务名称"
               clearable
-              filterable
-              class="filter-select"
-              @change="loadExecutions(1)"
-            >
-              <el-option
-                v-for="task in (tasks || [])"
-                :key="task.id"
-                :label="task.name"
-                :value="task.name"
-              />
-            </el-select>
-            <el-select
+              class="filter-input"
+              @keyup.enter="loadExecutions(1)"
+            />
+            <el-input
               v-model="filters.executor_name"
               placeholder="执行节点"
               clearable
-              filterable
-              class="filter-select"
-              @change="loadExecutions(1)"
-            >
-              <el-option
-                v-for="exec in (executors || [])"
-                :key="exec.id"
-                :label="exec.name"
-                :value="exec.name"
-              />
-            </el-select>
+              class="filter-input"
+              @keyup.enter="loadExecutions(1)"
+            />
             <el-select
               v-model="filters.status"
               placeholder="状态"
@@ -314,14 +298,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh, Delete, Document, View, List, CircleCheck, CircleClose, Loading, Filter, ArrowDown } from '@element-plus/icons-vue'
-import { logAPI, taskAPI, executorAPI } from '@/api'
+import { logAPI } from '@/api'
 import { useAuthStore } from '@/stores/auth'
 import TaskLogViewer from '@/components/TaskLogViewer.vue'
-import type { TaskExecutionListResponse, Task, Executor } from '@/types'
+import type { TaskExecutionListResponse } from '@/types'
 import { isHandledError } from '@/utils/api'
 
 const route = useRoute()
@@ -331,8 +315,6 @@ const canDelete = computed(() => {
   return authStore.hasPermission('log', 'delete') || authStore.hasPermission('log', 'manage')
 })
 const executions = ref<TaskExecutionListResponse[]>([])
-const executors = ref<Executor[]>([])
-const tasks = ref<Task[]>([])
 const loading = ref(false)
 const showLogs = ref(false)
 const currentExecutionId = ref('')
@@ -545,23 +527,16 @@ const loadExecutions = async (page: number = currentPage.value) => {
   }
 }
 
-const loadExecutors = async () => {
-  try {
-    const response = await executorAPI.list()
-    executors.value = response.data.items || []
-  } catch (error) {
-    // ignore
+// task_name / executor_name 变化：防抖后重置到第 1 页并重新请求后端
+let filterDebounceTimer: ReturnType<typeof setTimeout> | null = null
+watch([() => filters.value.task_name, () => filters.value.executor_name], () => {
+  if (filterDebounceTimer) {
+    clearTimeout(filterDebounceTimer)
   }
-}
-
-const loadTasks = async () => {
-  try {
-    const response = await taskAPI.list()
-    tasks.value = response.data?.items || []
-  } catch (error) {
-    // ignore
-  }
-}
+  filterDebounceTimer = setTimeout(() => {
+    loadExecutions(1)
+  }, 300)
+})
 
 const handleSelectionChange = (selection: TaskExecutionListResponse[]) => {
   selectedIds.value = selection.map(item => item.id)
@@ -636,17 +611,12 @@ const handleCurrentChange = (val: number) => {
   loadExecutions(val)
 }
 
-onMounted(async () => {
-  await Promise.all([
-    loadExecutors(),
-    loadTasks()
-  ])
-  
+onMounted(() => {
   // 检查路由参数
   if (route.query.task_name) {
     filters.value.task_name = route.query.task_name as string
   }
-  
+
   loadExecutions()
 })
 </script>
