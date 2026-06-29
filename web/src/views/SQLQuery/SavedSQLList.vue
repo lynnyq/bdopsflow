@@ -16,7 +16,7 @@
     </div>
 
     <div class="table-wrapper">
-      <el-table :data="pagedList" v-loading="loading" stripe height="100%">
+      <el-table :data="savedList" v-loading="loading" stripe height="100%">
         <el-table-column prop="id" label="ID" width="70" />
         <el-table-column prop="name" label="名称" :min-width="150" show-overflow-tooltip />
         <el-table-column label="数据源" width="150">
@@ -133,7 +133,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Refresh, Delete, Document, VideoPlay, Edit } from '@element-plus/icons-vue'
@@ -176,21 +176,6 @@ const editRules = {
 }
 const datasourceList = ref<Datasource[]>([])
 
-const filteredList = computed(() => {
-  if (!searchQuery.value) return savedList.value
-  const query = searchQuery.value.toLowerCase()
-  return savedList.value.filter(item =>
-    item.name.toLowerCase().includes(query) ||
-    item.sql_text.toLowerCase().includes(query)
-  )
-})
-
-const pagedList = computed(() => {
-  const start = (currentPage.value - 1) * pageSize.value
-  const end = start + pageSize.value
-  return filteredList.value.slice(start, end)
-})
-
 const formatDateTime = (dateStr: string) => {
   if (!dateStr) return '-'
   const date = new Date(dateStr)
@@ -210,6 +195,7 @@ const loadSavedSQL = async () => {
     const res = await queryAPI.listSavedSQL({
       page: currentPage.value,
       page_size: pageSize.value,
+      search: searchQuery.value || undefined,
     })
     savedList.value = res.data.items || []
     total.value = res.data.total || 0
@@ -221,6 +207,18 @@ const loadSavedSQL = async () => {
     loading.value = false
   }
 }
+
+// searchQuery 变化：防抖后重置到第 1 页并重新请求后端
+let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null
+watch(searchQuery, () => {
+  if (searchDebounceTimer) {
+    clearTimeout(searchDebounceTimer)
+  }
+  searchDebounceTimer = setTimeout(() => {
+    currentPage.value = 1
+    loadSavedSQL()
+  }, 300)
+})
 
 const loadDatasources = async () => {
   try {

@@ -48,7 +48,8 @@ func (h *ProtoFileHandler) List(c *gin.Context) {
 
 	isAdmin, _ := h.permSvc.IsSystemAdmin(c.Request.Context(), uID)
 
-	protoFiles, total, err := h.protoSvc.ListByUser(c.Request.Context(), uID, isAdmin, page, pageSize)
+	search := c.Query("search")
+	protoFiles, total, err := h.protoSvc.ListByUser(c.Request.Context(), uID, isAdmin, page, pageSize, search)
 	if err != nil {
 		slog.Error("failed to list proto files", "user_id", uID, "error", err)
 		Fail(c, CodeQueryError, "获取Proto文件列表失败")
@@ -75,8 +76,8 @@ func (h *ProtoFileHandler) List(c *gin.Context) {
 // Create uploads a new proto file.
 func (h *ProtoFileHandler) Create(c *gin.Context) {
 	var req struct {
-		Name         string `json:"name" binding:"required"`
-		Content      string `json:"content" binding:"required"`
+		Name         string  `json:"name" binding:"required"`
+		Content      string  `json:"content" binding:"required"`
 		Dependencies []int64 `json:"dependencies"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {

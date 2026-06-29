@@ -27,7 +27,7 @@
 
     <!-- Table -->
     <div class="table-wrapper">
-      <el-table :data="filteredResults" v-loading="loading" stripe height="100%" @row-click="handleRowClick">
+      <el-table :data="results" v-loading="loading" stripe height="100%" @row-click="handleRowClick">
         <el-table-column label="类型" width="110" align="center">
           <template #default="{ row }">
             <el-tag v-if="row.type === 'grpc_connect_test'" type="info" effect="dark" size="small" disable-transitions>
@@ -152,7 +152,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Refresh, Document } from '@element-plus/icons-vue'
 import { apiTestAPI } from '@/api'
@@ -170,24 +170,6 @@ const filterType = ref('')
 const filterStatus = ref('')
 const detailVisible = ref(false)
 const detailResult = ref<ApiTestResult | null>(null)
-
-const filteredResults = computed(() => {
-  let list = results.value
-  if (searchQuery.value) {
-    const query = searchQuery.value.toLowerCase()
-    list = list.filter(r => (r.test_name || '临时请求').toLowerCase().includes(query))
-  }
-  if (filterStatus.value === 'success') {
-    list = list.filter(r => !r.error)
-  } else if (filterStatus.value === 'error') {
-    list = list.filter(r => r.error)
-  }
-  return list
-})
-
-watch(searchQuery, () => {
-  currentPage.value = 1
-})
 
 function formatRelativeTime(dateStr: string): string {
   if (!dateStr) return '-'
@@ -233,12 +215,18 @@ function formatAssertions(assertions: string): string {
 const loadResults = async () => {
   loading.value = true
   try {
-    const params: { type?: string; page: number; page_size: number } = {
+    const params: { type?: string; search?: string; status?: string; page: number; page_size: number } = {
       page: currentPage.value,
       page_size: pageSize.value,
     }
     if (filterType.value) {
       params.type = filterType.value
+    }
+    if (searchQuery.value) {
+      params.search = searchQuery.value
+    }
+    if (filterStatus.value) {
+      params.status = filterStatus.value
     }
     const res = await apiTestAPI.listResults(params)
     results.value = res.data?.items || []
@@ -256,6 +244,23 @@ const handleFilter = () => {
   currentPage.value = 1
   loadResults()
 }
+
+// searchQuery 变化：防抖后重置到第 1 页并重新请求后端
+let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null
+watch(searchQuery, () => {
+  if (searchDebounceTimer) {
+    clearTimeout(searchDebounceTimer)
+  }
+  searchDebounceTimer = setTimeout(() => {
+    currentPage.value = 1
+    loadResults()
+  }, 300)
+})
+
+watch(filterStatus, () => {
+  currentPage.value = 1
+  loadResults()
+})
 
 const handleSizeChange = (size: number) => {
   pageSize.value = size

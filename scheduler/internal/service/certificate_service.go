@@ -220,7 +220,8 @@ func (s *CertificateService) GetByID(ctx context.Context, id int64) (*model.Cert
 // ListByUser returns certificates with pagination.
 // System admin can see all certificates; other users can only see their own.
 // Only metadata is returned (no sensitive certificate content).
-func (s *CertificateService) ListByUser(ctx context.Context, userID int64, isAdmin bool, page, pageSize int) ([]*model.CertificateSummary, int64, error) {
+// ListByUser 查询证书列表，search 为可选参数，支持按名称模糊匹配
+func (s *CertificateService) ListByUser(ctx context.Context, userID int64, isAdmin bool, page, pageSize int, search ...string) ([]*model.CertificateSummary, int64, error) {
 	if pageSize <= 0 {
 		pageSize = 20
 	}
@@ -238,6 +239,11 @@ func (s *CertificateService) ListByUser(ctx context.Context, userID int64, isAdm
 	if !isAdmin {
 		conditions = append(conditions, "c.created_by = ?")
 		args = append(args, userID)
+	}
+
+	if len(search) > 0 && search[0] != "" {
+		conditions = append(conditions, "c.name LIKE ?")
+		args = append(args, "%"+search[0]+"%")
 	}
 
 	var whereClause string

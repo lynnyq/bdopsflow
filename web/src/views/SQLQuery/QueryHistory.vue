@@ -62,7 +62,7 @@
 
     <div class="table-wrapper">
       <el-table
-        :data="pagedList"
+        :data="historyList"
         v-loading="loading"
         stripe
         height="100%"
@@ -145,7 +145,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Refresh, Document, VideoPlay, Delete } from '@element-plus/icons-vue'
@@ -169,19 +169,6 @@ const pageSize = ref(20)
 const total = ref(0)
 const selectedIds = ref<number[]>([])
 const batchDeleting = ref(false)
-
-const filteredList = computed(() => {
-  return historyList.value.filter(item => {
-    const matchSearch = !searchQuery.value ||
-      item.sql_text.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
-      (item.datasource_name || '').toLowerCase().includes(searchQuery.value.toLowerCase())
-    return matchSearch
-  })
-})
-
-const pagedList = computed(() => {
-  return filteredList.value
-})
 
 const formatDateTime = (dateStr: string) => {
   if (!dateStr) return '-'
@@ -218,6 +205,9 @@ const loadHistory = async () => {
     if (dateRange.value && dateRange.value[1]) {
       params.end_time = dateRange.value[1]
     }
+    if (searchQuery.value) {
+      params.search = searchQuery.value
+    }
     const res = await queryAPI.getHistory(params)
     historyList.value = res.data.items || []
     total.value = res.data.total || 0
@@ -252,6 +242,18 @@ const loadUsers = async () => {
 watch([filterDatasourceID, filterStatus, filterExecutedBy, dateRange], () => {
   currentPage.value = 1
   loadHistory()
+})
+
+// searchQuery 变化：防抖后重置到第 1 页并重新请求后端
+let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null
+watch(searchQuery, () => {
+  if (searchDebounceTimer) {
+    clearTimeout(searchDebounceTimer)
+  }
+  searchDebounceTimer = setTimeout(() => {
+    currentPage.value = 1
+    loadHistory()
+  }, 300)
 })
 
 const handleSelectionChange = (selection: QueryHistory[]) => {

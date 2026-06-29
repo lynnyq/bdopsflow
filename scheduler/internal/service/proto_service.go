@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/lynnyq/bdopsflow/scheduler/internal/model"
@@ -167,16 +168,25 @@ func (s *ProtoService) GetByID(ctx context.Context, id int64) (*model.ProtoFile,
 
 // ListByUser returns proto files with pagination.
 // System admin can see all proto files; other users can only see their own.
-func (s *ProtoService) ListByUser(ctx context.Context, userID int64, isAdmin bool, page, pageSize int) ([]*model.ProtoFile, int64, error) {
-	var whereClause string
+// ListByUser 查询 Proto 文件列表，search 为可选参数，支持按名称模糊匹配
+func (s *ProtoService) ListByUser(ctx context.Context, userID int64, isAdmin bool, page, pageSize int, search ...string) ([]*model.ProtoFile, int64, error) {
+	var conditions []string
 	var args []interface{}
 
 	// 管理员可查看所有记录，普通用户和领域管理员只能查看自己创建的
 	if !isAdmin {
-		whereClause = "WHERE p.created_by = ?"
+		conditions = append(conditions, "p.created_by = ?")
 		args = append(args, userID)
-	} else {
-		whereClause = "WHERE 1=1"
+	}
+
+	if len(search) > 0 && search[0] != "" {
+		conditions = append(conditions, "p.name LIKE ?")
+		args = append(args, "%"+search[0]+"%")
+	}
+
+	whereClause := "WHERE 1=1"
+	if len(conditions) > 0 {
+		whereClause += " AND " + strings.Join(conditions, " AND ")
 	}
 
 	// Count total records

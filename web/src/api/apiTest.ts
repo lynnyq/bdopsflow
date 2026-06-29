@@ -179,7 +179,7 @@ export const apiTestAPI = {
     api.post<ApiTestResult>(`/interfaces/${id}/execute`, data, { timeout: 310000, ...axiosConfig }),
   getResults: (id: number, params?: { page?: number; page_size?: number }) =>
     api.get<{ items: ApiTestResult[]; total: number; page: number; page_size: number }>(`/interfaces/${id}/results`, { params }),
-  listResults: (params?: { type?: string; page?: number; page_size?: number }) =>
+  listResults: (params?: { type?: string; search?: string; status?: string; page?: number; page_size?: number }) =>
     api.get<{ items: ApiTestResult[]; total: number; page: number; page_size: number }>('/interfaces/results', { params }),
   deleteResult: (id: number) =>
     api.delete(`/interfaces/results/${id}`),
@@ -189,7 +189,7 @@ export const apiTestAPI = {
 
 // Proto 文件 API
 export const protoFileAPI = {
-  list: (params?: { page?: number; page_size?: number }) =>
+  list: (params?: { page?: number; page_size?: number; search?: string }) =>
     api.get<{ items: ProtoFile[]; total: number; page: number; page_size: number }>('/proto-files', { params }),
   get: (id: number) =>
     api.get<ProtoFile>(`/proto-files/${id}`),
@@ -211,7 +211,7 @@ export const protoFileAPI = {
 
 // 证书 API
 export const certificateAPI = {
-  list: (params?: { page?: number; page_size?: number }) =>
+  list: (params?: { page?: number; page_size?: number; search?: string }) =>
     api.get<{ items: CertificateSummary[]; total: number; page: number; page_size: number }>('/certificates', { params }),
   get: (id: number) =>
     api.get<Certificate>(`/certificates/${id}`),

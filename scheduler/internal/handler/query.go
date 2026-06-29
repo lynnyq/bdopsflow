@@ -13,12 +13,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/redis/go-redis/v9"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/datasource"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/datasource/driver"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/metrics"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/model"
 	sysconfig "github.com/lynnyq/bdopsflow/scheduler/internal/system_config"
+	"github.com/redis/go-redis/v9"
 )
 
 type QueryHandler struct {
@@ -31,15 +31,15 @@ type QueryHandler struct {
 
 	// 运行时配置缓存（用于热更新）
 	runtimeConfig struct {
-		defaultLimit int
-		maxExportRows int
-		queryTimeout int
-		maxSQLLength int
+		defaultLimit         int
+		maxExportRows        int
+		queryTimeout         int
+		maxSQLLength         int
 		maxConcurrentPerUser int
-		maxConcurrentGlobal int
-		allowWriteSQL bool
-		metadataTimeout int
-		mu sync.RWMutex
+		maxConcurrentGlobal  int
+		allowWriteSQL        bool
+		metadataTimeout      int
+		mu                   sync.RWMutex
 	}
 }
 
@@ -690,8 +690,9 @@ func (h *QueryHandler) GetHistory(c *gin.Context) {
 	filterStatus := c.Query("status")
 	startTime := c.Query("start_time")
 	endTime := c.Query("end_time")
+	search := c.Query("search")
 
-	histories, total, err := h.dsService.GetQueryHistory(c.Request.Context(), queryDomainID, page, pageSize, datasourceID, filterStatus, startTime, endTime, executedBy)
+	histories, total, err := h.dsService.GetQueryHistory(c.Request.Context(), queryDomainID, page, pageSize, datasourceID, filterStatus, startTime, endTime, executedBy, search)
 	if err != nil {
 		Fail(c, CodeQueryError, "获取查询历史失败")
 		return
@@ -826,7 +827,8 @@ func (h *QueryHandler) ListSavedSQL(c *gin.Context) {
 		pageSize = 20
 	}
 
-	savedList, total, err := h.dsService.GetSavedSQL(c.Request.Context(), queryDomainID, listUID, page, pageSize)
+	search := c.Query("search")
+	savedList, total, err := h.dsService.GetSavedSQL(c.Request.Context(), queryDomainID, listUID, page, pageSize, search)
 	if err != nil {
 		Fail(c, CodeQueryError, "获取已保存SQL列表失败")
 		return

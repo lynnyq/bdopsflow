@@ -503,6 +503,8 @@ func (h *ApiTestHandler) ListResults(c *gin.Context) {
 	}
 
 	resultType := c.Query("type")
+	search := c.Query("search")
+	status := c.Query("status")
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 	if page < 1 {
@@ -514,7 +516,7 @@ func (h *ApiTestHandler) ListResults(c *gin.Context) {
 
 	isAdmin, _ := h.permSvc.IsSystemAdmin(c.Request.Context(), userID)
 
-	results, total, err := h.apiTestSvc.ListResultsByUser(c.Request.Context(), userID, isAdmin, resultType, page, pageSize)
+	results, total, err := h.apiTestSvc.ListResultsByUser(c.Request.Context(), userID, isAdmin, resultType, page, pageSize, search, status)
 	if err != nil {
 		slog.Error("failed to list api test results", "user_id", userID, "error", err)
 		Fail(c, CodeQueryError, "获取执行历史失败")

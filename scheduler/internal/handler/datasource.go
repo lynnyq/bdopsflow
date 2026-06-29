@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -54,6 +55,7 @@ func (h *DatasourceHandler) List(c *gin.Context) {
 	slog.Debug("Datasource.List: permission check", "module", "datasource", "user_id", uID, "is_admin", isAdmin)
 
 	dsType := c.Query("type")
+	search := c.Query("search")
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 	if page < 1 {
@@ -68,7 +70,7 @@ func (h *DatasourceHandler) List(c *gin.Context) {
 		if d := c.Query("domain_id"); d != "" {
 			queryDomainID, _ = strconv.ParseInt(d, 10, 64)
 		}
-		datasources, total, err := h.dsService.Get(c.Request.Context(), queryDomainID, dsType, page, pageSize)
+		datasources, total, err := h.dsService.Get(c.Request.Context(), queryDomainID, dsType, page, pageSize, search)
 		if err != nil {
 			Fail(c, CodeQueryError, "获取数据源列表失败")
 			return
@@ -101,7 +103,7 @@ func (h *DatasourceHandler) List(c *gin.Context) {
 	var domainDatasources []*model.Datasource
 	if len(userDomainIDs) > 0 {
 		for _, dID := range userDomainIDs {
-			dsList, _, dsErr := h.dsService.Get(c.Request.Context(), dID, dsType, 1, 10000)
+			dsList, _, dsErr := h.dsService.Get(c.Request.Context(), dID, dsType, 1, 10000, search)
 			if dsErr == nil {
 				domainDatasources = append(domainDatasources, dsList...)
 			}
@@ -123,7 +125,10 @@ func (h *DatasourceHandler) List(c *gin.Context) {
 			seen[dsID] = true
 			ds, dsErr := h.dsService.GetByID(c.Request.Context(), dsID)
 			if dsErr == nil && ds != nil {
-				filtered = append(filtered, ds)
+				// 按 search 关键字过滤（名称匹配，大小写不敏感）
+				if search == "" || (ds.Name != "" && strings.Contains(strings.ToLower(ds.Name), strings.ToLower(search))) {
+					filtered = append(filtered, ds)
+				}
 			}
 		}
 	}

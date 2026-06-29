@@ -390,7 +390,9 @@ func (s *ApiTestService) GetResults(ctx context.Context, testID int64, page, pag
 
 // ListResultsByUser returns all test results for a given user with optional type filter.
 // System admin can see all results; other users can only see their own.
-func (s *ApiTestService) ListResultsByUser(ctx context.Context, userID int64, isAdmin bool, resultType string, page, pageSize int) ([]*model.ApiTestResult, int64, error) {
+// ListResultsByUser 查询用户的API测试执行历史
+// search 为可选参数，支持按测试名称模糊匹配；status 为可选参数，支持 "success"(无错误)/"error"(有错误)
+func (s *ApiTestService) ListResultsByUser(ctx context.Context, userID int64, isAdmin bool, resultType string, page, pageSize int, search ...string) ([]*model.ApiTestResult, int64, error) {
 	if page <= 0 {
 		page = 1
 	}
@@ -416,13 +418,27 @@ func (s *ApiTestService) ListResultsByUser(ctx context.Context, userID int64, is
 		args = append(args, resultType)
 	}
 
+	// 可选 search 参数：按测试名称模糊匹配（关联 bdopsflow_api_tests.name）
+	if len(search) > 0 && search[0] != "" {
+		conditions = append(conditions, "COALESCE(t.name, '') LIKE ?")
+		args = append(args, "%"+search[0]+"%")
+	}
+	// 可选 status 参数：success=无错误，error=有错误
+	if len(search) > 1 && search[1] != "" {
+		if search[1] == "success" {
+			conditions = append(conditions, "(r.error = '' OR r.error IS NULL)")
+		} else if search[1] == "error" {
+			conditions = append(conditions, "(r.error != '' AND r.error IS NOT NULL)")
+		}
+	}
+
 	var whereClause string
 	if len(conditions) > 0 {
 		whereClause = "WHERE " + strings.Join(conditions, " AND ")
 	}
 
-	// Count query
-	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM bdopsflow_api_test_results r %s", whereClause)
+	// Count query（LEFT JOIN bdopsflow_api_tests 以支持按测试名称搜索）
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM bdopsflow_api_test_results r LEFT JOIN bdopsflow_api_tests t ON r.test_id = t.id %s", whereClause)
 	countStmt := rqlite.ParameterizedStatement{
 		Query:     countQuery,
 		Arguments: args,

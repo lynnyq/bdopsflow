@@ -18,7 +18,7 @@
     </div>
 
     <div class="table-wrapper">
-      <el-table :data="filteredCertificates" v-loading="loading" stripe height="100%">
+      <el-table :data="certificates" v-loading="loading" stripe height="100%">
         <el-table-column prop="name" label="名称" :min-width="150" show-overflow-tooltip />
         <el-table-column label="类型" :min-width="200">
           <template #default="{ row }">
@@ -161,7 +161,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import { Plus, Edit, Delete, Document, Lock, View, Search } from '@element-plus/icons-vue'
@@ -180,12 +180,6 @@ const total = ref(0)
 const currentPage = ref(1)
 const pageSize = ref(20)
 const searchQuery = ref('')
-
-const filteredCertificates = computed(() => {
-  if (!searchQuery.value.trim()) return certificates.value
-  const q = searchQuery.value.toLowerCase()
-  return certificates.value.filter(c => c.name.toLowerCase().includes(q))
-})
 
 const dialogVisible = ref(false)
 const isEditing = ref(false)
@@ -263,6 +257,7 @@ const loadCertificates = async () => {
     const res = await certificateAPI.list({
       page: currentPage.value,
       page_size: pageSize.value,
+      search: searchQuery.value || undefined,
     })
     certificates.value = res.data.items || []
     total.value = res.data.total || 0
@@ -274,6 +269,18 @@ const loadCertificates = async () => {
     loading.value = false
   }
 }
+
+// searchQuery 变化：防抖后重置到第 1 页并重新请求后端
+let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null
+watch(searchQuery, () => {
+  if (searchDebounceTimer) {
+    clearTimeout(searchDebounceTimer)
+  }
+  searchDebounceTimer = setTimeout(() => {
+    currentPage.value = 1
+    loadCertificates()
+  }, 300)
+})
 
 const handleSizeChange = (size: number) => {
   pageSize.value = size

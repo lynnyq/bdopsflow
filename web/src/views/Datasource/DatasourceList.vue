@@ -25,7 +25,7 @@
     </div>
 
     <div class="table-wrapper">
-      <el-table :data="pagedDatasources" v-loading="loading" stripe height="100%">
+      <el-table :data="datasources" v-loading="loading" stripe height="100%">
         <el-table-column prop="id" label="ID" width="70" />
         <el-table-column prop="name" label="名称" :min-width="150" show-overflow-tooltip />
         <el-table-column prop="type" label="类型" width="130" align="center">
@@ -122,12 +122,12 @@
       </el-table>
     </div>
 
-    <div v-if="filteredDatasources.length > 0" class="pagination-container">
+    <div v-if="total > 0" class="pagination-container">
       <el-pagination
         v-model:current-page="currentPage"
         v-model:page-size="pageSize"
         :page-sizes="[10, 20, 50, 100]"
-        :total="filteredDatasources.length"
+        :total="total"
         layout="total, sizes, prev, pager, next, jumper"
         :pager-count="5"
       />
@@ -268,21 +268,8 @@ const searchQuery = ref('')
 const filterType = ref<string | null>(null)
 const currentPage = ref(1)
 const pageSize = ref(20)
-
-const filteredDatasources = computed(() => {
-  return datasources.value.filter(ds => {
-    const matchSearch = !searchQuery.value ||
-      ds.name.toLowerCase().includes(searchQuery.value.toLowerCase())
-    const matchType = !filterType.value || ds.type === filterType.value
-    return matchSearch && matchType
-  })
-})
-
-const pagedDatasources = computed(() => {
-  const start = (currentPage.value - 1) * pageSize.value
-  const end = start + pageSize.value
-  return filteredDatasources.value.slice(start, end)
-})
+// 后端返回的真实总数，用于分页器
+const total = ref(0)
 
 const getTestStatusType = (status: string) => {
   switch (status) {
@@ -323,7 +310,24 @@ const getHostDisplay = (row: Datasource): string => {
 const loadDatasources = async () => {
   loading.value = true
   try {
-    const res = await datasourceAPI.list()
+    // 后端分页：将分页与过滤参数一并发给后端
+    const params: {
+      page: number
+      page_size: number
+      search?: string
+      type?: string
+    } = {
+      page: currentPage.value,
+      page_size: pageSize.value,
+    }
+    if (searchQuery.value) {
+      params.search = searchQuery.value
+    }
+    if (filterType.value) {
+      params.type = filterType.value
+    }
+    const res = await datasourceAPI.list(params)
+    total.value = res.data.total || 0
     datasources.value = res.data.items || []
   } catch (err: any) {
     if (!isHandledError(err)) {
@@ -378,8 +382,27 @@ const handleDelete = async (row: Datasource) => {
   }
 }
 
-watch([searchQuery, filterType], () => {
+// 过滤条件变化：重置到第 1 页并重新请求后端
+// searchQuery 加防抖，避免输入过程中频繁请求
+let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null
+watch(searchQuery, () => {
+  if (searchDebounceTimer) {
+    clearTimeout(searchDebounceTimer)
+  }
+  searchDebounceTimer = setTimeout(() => {
+    currentPage.value = 1
+    loadDatasources()
+  }, 300)
+})
+
+watch(filterType, () => {
   currentPage.value = 1
+  loadDatasources()
+})
+
+// 分页参数变化：重新请求后端对应页
+watch([currentPage, pageSize], () => {
+  loadDatasources()
 })
 
 // 连接池监控

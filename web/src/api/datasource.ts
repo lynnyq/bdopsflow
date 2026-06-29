@@ -3,7 +3,7 @@ import type { Datasource, DatasourcePermission, QueryResult, QueryHistory, Saved
 import type { AxiosProgressEvent } from 'axios'
 
 export const datasourceAPI = {
-  list: (params?: { domain_id?: number; type?: string; page?: number; page_size?: number }) =>
+  list: (params?: { domain_id?: number; type?: string; search?: string; page?: number; page_size?: number }) =>
     api.get<{ items: Datasource[]; total: number; page: number; page_size: number }>('/datasources', { params }),
   get: (id: number) =>
     api.get<Datasource>(`/datasources/${id}`),
@@ -60,13 +60,13 @@ export const queryAPI = {
     api.post(`/query/cancel/${queryId}`),
   exportCSV: (data: { datasource_id: number; sql: string; database?: string; max_rows?: number }, onDownloadProgress?: (event: AxiosProgressEvent) => void) =>
     api.post('/query/export', data, { responseType: 'blob', timeout: 120000, onDownloadProgress }),
-  getHistory: (params?: { domain_id?: number; page?: number; page_size?: number; datasource_id?: number; status?: string; start_time?: string; end_time?: string }) =>
+  getHistory: (params?: { domain_id?: number; page?: number; page_size?: number; datasource_id?: number; status?: string; start_time?: string; end_time?: string; search?: string }) =>
     api.get<{ items: QueryHistory[]; total: number; page: number; page_size: number }>('/query/history', { params }),
   deleteHistory: (id: number) =>
     api.delete(`/query/history/${id}`),
   batchDeleteHistory: (ids: number[]) =>
     api.post('/query/history/batch-delete', { ids }),
-  listSavedSQL: (params?: { domain_id?: number; page?: number; page_size?: number }) =>
+  listSavedSQL: (params?: { domain_id?: number; page?: number; page_size?: number; search?: string }) =>
     api.get<{ items: SavedSQL[]; total: number; page: number; page_size: number }>('/query/saved-sql', { params }),
   saveSQL: (data: { name: string; datasource_id: number; sql_text: string; description?: string; is_public?: boolean }) =>
     api.post('/query/saved-sql', data),

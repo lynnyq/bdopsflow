@@ -19,7 +19,7 @@
     </div>
 
     <div class="table-wrapper">
-      <el-table :data="filteredProtoFiles" v-loading="loading" stripe height="100%">
+      <el-table :data="protoFiles" v-loading="loading" stripe height="100%">
         <el-table-column prop="name" label="文件名" :min-width="200" show-overflow-tooltip />
         <el-table-column label="包名" :min-width="150" show-overflow-tooltip>
           <template #default="{ row }">
@@ -227,7 +227,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { UploadFile, FormRules } from 'element-plus'
 import {
@@ -287,16 +287,6 @@ const formRules: FormRules = {
   name: [{ required: true, validator: validateProtoName, trigger: 'blur' }],
   content: [{ required: true, message: '请输入 Proto 文件内容', trigger: 'blur' }],
 }
-
-const filteredProtoFiles = computed(() => {
-  if (!searchQuery.value.trim()) return protoFiles.value
-  const q = searchQuery.value.toLowerCase()
-  return protoFiles.value.filter(f => {
-    const nameMatch = f.name.toLowerCase().includes(q)
-    const pkgMatch = getPackageName(f).toLowerCase().includes(q)
-    return nameMatch || pkgMatch
-  })
-})
 
 // All proto files for dependency selection (exclude current editing item)
 const dependencyOptions = computed(() => {
@@ -359,7 +349,11 @@ const getDependencyNames = (row: ProtoFile): string => {
 const loadProtoFiles = async () => {
   loading.value = true
   try {
-    const res = await protoFileAPI.list({ page: currentPage.value, page_size: pageSize.value })
+    const res = await protoFileAPI.list({
+      page: currentPage.value,
+      page_size: pageSize.value,
+      search: searchQuery.value || undefined,
+    })
     protoFiles.value = res.data.items || []
     total.value = res.data.total || 0
   } catch (err: unknown) {
@@ -370,6 +364,18 @@ const loadProtoFiles = async () => {
     loading.value = false
   }
 }
+
+// searchQuery 变化：防抖后重置到第 1 页并重新请求后端
+let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null
+watch(searchQuery, () => {
+  if (searchDebounceTimer) {
+    clearTimeout(searchDebounceTimer)
+  }
+  searchDebounceTimer = setTimeout(() => {
+    currentPage.value = 1
+    loadProtoFiles()
+  }, 300)
+})
 
 const handleSizeChange = (size: number) => {
   pageSize.value = size

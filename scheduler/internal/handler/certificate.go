@@ -43,7 +43,8 @@ func (h *CertificateHandler) List(c *gin.Context) {
 
 	isAdmin, _ := h.permSvc.IsSystemAdmin(c.Request.Context(), userID)
 
-	summaries, total, err := h.certSvc.ListByUser(c.Request.Context(), userID, isAdmin, page, pageSize)
+	search := c.Query("search")
+	summaries, total, err := h.certSvc.ListByUser(c.Request.Context(), userID, isAdmin, page, pageSize, search)
 	if err != nil {
 		slog.Error("failed to list certificates", "user_id", userID, "error", err)
 		Fail(c, CodeQueryError, "获取证书列表失败")

@@ -126,7 +126,8 @@ func (s *DatasourceService) GetByID(ctx context.Context, id int64) (*model.Datas
 	return scanDatasource(&qr)
 }
 
-func (s *DatasourceService) Get(ctx context.Context, domainID int64, dsType string, page, pageSize int) ([]*model.Datasource, int64, error) {
+// Get 查询数据源列表，search 为可选参数，支持按名称模糊匹配
+func (s *DatasourceService) Get(ctx context.Context, domainID int64, dsType string, page, pageSize int, search ...string) ([]*model.Datasource, int64, error) {
 	whereClause := " WHERE 1=1"
 	var args []interface{}
 
@@ -137,6 +138,10 @@ func (s *DatasourceService) Get(ctx context.Context, domainID int64, dsType stri
 	if dsType != "" {
 		whereClause += " AND type = ?"
 		args = append(args, dsType)
+	}
+	if len(search) > 0 && search[0] != "" {
+		whereClause += " AND name LIKE ?"
+		args = append(args, "%"+search[0]+"%")
 	}
 
 	countQuery := "SELECT COUNT(*) FROM bdopsflow_datasources" + whereClause
@@ -709,7 +714,8 @@ func (s *DatasourceService) RecordQueryHistory(ctx context.Context, history *mod
 	return nil
 }
 
-func (s *DatasourceService) GetQueryHistory(ctx context.Context, domainID int64, page, pageSize int, datasourceID int64, status string, startTime string, endTime string, executedBy int64) ([]*model.QueryHistory, int64, error) {
+// GetQueryHistory 查询查询历史，search 为可选参数，支持按 SQL 文本或数据源名称模糊匹配
+func (s *DatasourceService) GetQueryHistory(ctx context.Context, domainID int64, page, pageSize int, datasourceID int64, status string, startTime string, endTime string, executedBy int64, search ...string) ([]*model.QueryHistory, int64, error) {
 	whereClause := " WHERE 1=1"
 	var args []interface{}
 
@@ -741,6 +747,11 @@ func (s *DatasourceService) GetQueryHistory(ctx context.Context, domainID int64,
 	if endTime != "" {
 		whereClause += " AND qh.created_at <= ?"
 		args = append(args, endTime+" 23:59:59")
+	}
+
+	if len(search) > 0 && search[0] != "" {
+		whereClause += " AND (qh.sql_text LIKE ? OR qh.datasource_name LIKE ?)"
+		args = append(args, "%"+search[0]+"%", "%"+search[0]+"%")
 	}
 
 	countQuery := "SELECT COUNT(*) FROM bdopsflow_query_history qh" + whereClause
@@ -899,7 +910,8 @@ func (s *DatasourceService) CreateSavedSQL(ctx context.Context, saved *model.Sav
 	return nil
 }
 
-func (s *DatasourceService) GetSavedSQL(ctx context.Context, domainID int64, userID int64, page, pageSize int) ([]*model.SavedSQL, int64, error) {
+// GetSavedSQL 查询已保存SQL列表，search 为可选参数，支持按名称和SQL文本模糊匹配
+func (s *DatasourceService) GetSavedSQL(ctx context.Context, domainID int64, userID int64, page, pageSize int, search ...string) ([]*model.SavedSQL, int64, error) {
 	whereClause := " WHERE 1=1"
 	var args []interface{}
 
@@ -911,6 +923,11 @@ func (s *DatasourceService) GetSavedSQL(ctx context.Context, domainID int64, use
 	if userID > 0 {
 		whereClause += " AND (s.created_by = ? OR s.is_public = 1)"
 		args = append(args, userID)
+	}
+
+	if len(search) > 0 && search[0] != "" {
+		whereClause += " AND (s.name LIKE ? OR s.sql_text LIKE ?)"
+		args = append(args, "%"+search[0]+"%", "%"+search[0]+"%")
 	}
 
 	countQuery := "SELECT COUNT(*) FROM bdopsflow_saved_sql s" + whereClause
@@ -960,15 +977,15 @@ func (s *DatasourceService) GetSavedSQL(ctx context.Context, domainID int64, use
 		}
 
 		saved := &model.SavedSQL{
-			ID:           dsRowInt64(row[0]),
-			Name:         dsRowString(row[1]),
-			DatasourceID: dsRowInt64(row[2]),
-			SQLText:      dsRowString(row[3]),
-			Description:  dsRowString(row[4]),
+			ID:            dsRowInt64(row[0]),
+			Name:          dsRowString(row[1]),
+			DatasourceID:  dsRowInt64(row[2]),
+			SQLText:       dsRowString(row[3]),
+			Description:   dsRowString(row[4]),
 			CreatedByName: dsRowString(row[6]),
 			UpdatedByName: dsRowString(row[8]),
-			DomainID:     dsRowInt64(row[9]),
-			IsPublic:     dsRowBool(row[10]),
+			DomainID:      dsRowInt64(row[9]),
+			IsPublic:      dsRowBool(row[10]),
 		}
 
 		if row[5] != nil {
