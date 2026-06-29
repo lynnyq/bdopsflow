@@ -47,7 +47,7 @@ export const adminAPI = {
 }
 
 export const taskAPI = {
-  list: (params?: { page?: number; page_size?: number; created_by?: number }) => api.get<PaginatedResponse<Task>>('/tasks', { params }),
+  list: (params?: { page?: number; page_size?: number; search?: string; type?: string; is_enabled?: boolean; created_by?: number }) => api.get<PaginatedResponse<Task>>('/tasks', { params }),
   get: (id: number) => api.get<Task>(`/tasks/${id}`),
   create: (data: Partial<Task>) => api.post<Task>('/tasks', data),
   update: (id: number, data: Partial<Task>) => api.put(`/tasks/${id}`, data),

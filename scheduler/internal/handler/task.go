@@ -93,20 +93,32 @@ func (h *TaskHandler) List(c *gin.Context) {
 		pageSize = 20
 	}
 
-	var bdopsflow_tasks []*model.Task
-	var total int
-	var err error
-
+	// 构造过滤参数
+	filter := model.TaskListFilter{
+		DomainID: dID,
+		Role:     role,
+		Page:     page,
+		PageSize: pageSize,
+		Name:     safeString(c.Query("search")),
+		Type:     safeString(c.Query("type")),
+	}
 	if cbStr := c.Query("created_by"); cbStr != "" {
 		if createdBy, parseErr := strconv.ParseInt(cbStr, 10, 64); parseErr == nil {
-			bdopsflow_tasks, total, err = h.svc.ListTasks(ctx, dID, role, page, pageSize, createdBy)
-		} else {
-			bdopsflow_tasks, total, err = h.svc.ListTasks(ctx, dID, role, page, pageSize)
+			filter.CreatedBy = createdBy
 		}
-	} else {
-		bdopsflow_tasks, total, err = h.svc.ListTasks(ctx, dID, role, page, pageSize)
+	}
+	// is_enabled: "true"→true, "false"→false, 其他/空→不过滤
+	if enStr := c.Query("is_enabled"); enStr != "" {
+		if enStr == "true" {
+			t := true
+			filter.IsEnabled = &t
+		} else if enStr == "false" {
+			f := false
+			filter.IsEnabled = &f
+		}
 	}
 
+	bdopsflow_tasks, total, err := h.svc.ListTasksWithFilter(ctx, filter)
 	if err != nil {
 		slog.Error("TaskHandler.List: failed to list bdopsflow_tasks", "error", err)
 		FailFromError(c, err)

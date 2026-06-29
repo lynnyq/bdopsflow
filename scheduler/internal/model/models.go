@@ -55,6 +55,19 @@ type Task struct {
 	LastExecutionStatus string    `db:"-" json:"last_execution_status"`
 }
 
+// TaskListFilter 任务列表查询过滤参数
+// 零值字段表示不过滤;IsEnabled 为 nil 时不过滤启用状态
+type TaskListFilter struct {
+	DomainID  int64  // 域 ID
+	Role      string // 用户角色(system_admin/admin 跳过域过滤)
+	Page      int    // 页码,从 1 开始
+	PageSize  int    // 每页数量
+	CreatedBy int64  // 创建者 ID,0 表示不过滤
+	Name      string // 任务名模糊匹配,空表示不过滤
+	Type      string // 任务类型(http/shell),空表示不过滤
+	IsEnabled *bool  // 启用状态,nil 表示不过滤
+}
+
 type TaskExecution struct {
 	ID          int64           `db:"id" json:"id"`
 	TaskID      int64           `db:"task_id" json:"task_id"`

@@ -9,7 +9,7 @@
           <el-icon :size="24"><List /></el-icon>
         </div>
         <div class="stat-content">
-          <div class="stat-value">{{ tasks.length }}</div>
+          <div class="stat-value">{{ total }}</div>
           <div class="stat-label">总任务数</div>
         </div>
       </div>
@@ -80,11 +80,11 @@
     <!-- Tasks Grid -->
     <div v-loading="loading" class="tasks-grid" ref="tasksGridRef">
       <div
-        v-for="task in pagedTasks"
+        v-for="task in tasks"
         :key="task.id"
         :ref="el => setTaskCardRef(el, task.id)"
         class="task-card"
-        :class="{ 
+        :class="{
           'task-card-disabled': !task.is_enabled,
           'task-card-highlighted': selectedTaskId === task.id
         }"
@@ -218,7 +218,7 @@
       </div>
 
       <!-- Empty State -->
-      <div v-if="!loading && filteredTasks.length === 0" class="empty-state">
+      <div v-if="!loading && tasks.length === 0" class="empty-state">
         <div class="empty-icon">
           <el-icon :size="64"><Document /></el-icon>
         </div>
@@ -230,12 +230,12 @@
     </div>
 
     <!-- Pagination -->
-    <div v-if="filteredTasks.length > 0" class="pagination-container">
+    <div v-if="total > 0" class="pagination-container">
       <el-pagination
         v-model:current-page="currentPage"
         v-model:page-size="pageSize"
         :page-sizes="[10, 20, 50, 100]"
-        :total="filteredTasks.length"
+        :total="total"
         layout="total, sizes, prev, pager, next, jumper"
         :pager-count="5"
       />
@@ -799,6 +799,8 @@ const filterCreatedBy = ref<number | null>(null)
 const users = ref<User[]>([])
 const currentPage = ref(1)
 const pageSize = ref(20)
+// 后端返回的真实总数，用于分页器
+const total = ref(0)
 
 const showLogs = ref(false)
 const selectedTaskId = ref<number | null>(null)
@@ -900,26 +902,8 @@ const enabledTasks = computed(() => tasks.value.filter(t => t.is_enabled).length
 const cronTasks = computed(() => tasks.value.filter(t => t.cron_expression).length)
 const manualTasks = computed(() => tasks.value.filter(t => !t.cron_expression).length)
 
-const filteredTasks = computed(() => {
-  return tasks.value.filter(task => {
-    const matchSearch = !searchQuery.value ||
-      task.name.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
-      task.id.toString().includes(searchQuery.value)
-    const matchType = filterType.value == null || task.type === filterType.value
-    const matchStatus = filterStatus.value == null || task.is_enabled === filterStatus.value
-    const matchCreatedBy = filterCreatedBy.value == null || task.created_by === filterCreatedBy.value
-    return matchSearch && matchType && matchStatus && matchCreatedBy
-  })
-})
-
 const canManageTask = computed(() => {
   return authStore.hasPermission('task', 'create') || authStore.hasPermission('task', 'manage')
-})
-
-const pagedTasks = computed(() => {
-  const start = (currentPage.value - 1) * pageSize.value
-  const end = start + pageSize.value
-  return filteredTasks.value.slice(start, end)
 })
 
 const getTypeIcon = (type: string) => {
@@ -996,11 +980,32 @@ const stringifyConfig = (config: TaskConfig | string): string => {
 const loadTasks = async () => {
   loading.value = true
   try {
-    const params: { page?: number; page_size?: number; created_by?: number } = {}
+    // 后端分页：将分页与过滤参数一并发给后端
+    const params: {
+      page: number
+      page_size: number
+      search?: string
+      type?: string
+      is_enabled?: boolean
+      created_by?: number
+    } = {
+      page: currentPage.value,
+      page_size: pageSize.value
+    }
+    if (searchQuery.value) {
+      params.search = searchQuery.value
+    }
+    if (filterType.value) {
+      params.type = filterType.value
+    }
+    if (filterStatus.value !== null) {
+      params.is_enabled = filterStatus.value
+    }
     if (filterCreatedBy.value) {
       params.created_by = filterCreatedBy.value
     }
     const res = await taskAPI.list(params)
+    total.value = res.data.total || 0
     tasks.value = (res.data.items || []).map(task => {
       if (task.config && typeof task.config === 'string') {
         try {
@@ -1248,14 +1253,26 @@ const handleViewHistory = (task: Task) => {
   })
 }
 
-// 监听非后端过滤的筛选条件变化，仅重置页码
-watch([searchQuery, filterType, filterStatus], () => {
-  currentPage.value = 1
+// 过滤条件变化：重置到第 1 页并重新请求后端
+// searchQuery 加防抖，避免输入过程中频繁请求
+let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null
+watch(searchQuery, () => {
+  if (searchDebounceTimer) {
+    clearTimeout(searchDebounceTimer)
+  }
+  searchDebounceTimer = setTimeout(() => {
+    currentPage.value = 1
+    loadTasks()
+  }, 300)
 })
 
-// 监听创建者筛选变化，重置页码并请求后端
-watch(filterCreatedBy, () => {
+watch([filterType, filterStatus, filterCreatedBy], () => {
   currentPage.value = 1
+  loadTasks()
+})
+
+// 分页参数变化：重新请求后端对应页
+watch([currentPage, pageSize], () => {
   loadTasks()
 })
 

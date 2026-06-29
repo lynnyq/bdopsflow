@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	pb "github.com/lynnyq/bdopsflow/proto"
@@ -82,35 +83,64 @@ func (s *SchedulerService) GetTaskByID(ctx context.Context, id int64) (*model.Ta
 }
 
 func (s *SchedulerService) ListTasks(ctx context.Context, domainID int64, role string, page, pageSize int, createdBy ...int64) ([]*model.Task, int, error) {
-	if pageSize <= 0 {
-		pageSize = 20
+	filter := model.TaskListFilter{
+		DomainID: domainID,
+		Role:     role,
+		Page:     page,
+		PageSize: pageSize,
 	}
-	if pageSize > 100 {
-		pageSize = 100
+	if len(createdBy) > 0 && createdBy[0] > 0 {
+		filter.CreatedBy = createdBy[0]
 	}
-	if page <= 0 {
-		page = 1
+	return s.ListTasksWithFilter(ctx, filter)
+}
+
+// ListTasksWithFilter 按过滤条件分页查询任务列表
+// 支持 name 模糊匹配、type、is_enabled、created_by 过滤
+func (s *SchedulerService) ListTasksWithFilter(ctx context.Context, filter model.TaskListFilter) ([]*model.Task, int, error) {
+	if filter.PageSize <= 0 {
+		filter.PageSize = 20
+	}
+	if filter.PageSize > 100 {
+		filter.PageSize = 100
+	}
+	if filter.Page <= 0 {
+		filter.Page = 1
 	}
 
-	isSystemAdmin := role == "system_admin" || role == "admin"
+	isSystemAdmin := filter.Role == "system_admin" || filter.Role == "admin"
 
-	var whereClause string
+	var whereParts []string
 	var args []interface{}
 
-	if isSystemAdmin {
-		whereClause = ""
-	} else {
-		whereClause = " WHERE t.domain_id = ?"
-		args = append(args, domainID)
+	if !isSystemAdmin {
+		whereParts = append(whereParts, "t.domain_id = ?")
+		args = append(args, filter.DomainID)
 	}
 
-	if len(createdBy) > 0 && createdBy[0] > 0 {
-		if whereClause == "" {
-			whereClause = " WHERE t.created_by = ?"
-		} else {
-			whereClause += " AND t.created_by = ?"
-		}
-		args = append(args, createdBy[0])
+	if filter.CreatedBy > 0 {
+		whereParts = append(whereParts, "t.created_by = ?")
+		args = append(args, filter.CreatedBy)
+	}
+
+	if filter.Name != "" {
+		whereParts = append(whereParts, "t.name LIKE ?")
+		args = append(args, "%"+filter.Name+"%")
+	}
+
+	if filter.Type != "" {
+		whereParts = append(whereParts, "t.type = ?")
+		args = append(args, filter.Type)
+	}
+
+	if filter.IsEnabled != nil {
+		whereParts = append(whereParts, "t.is_enabled = ?")
+		args = append(args, filter.IsEnabled)
+	}
+
+	whereClause := ""
+	if len(whereParts) > 0 {
+		whereClause = " WHERE " + strings.Join(whereParts, " AND ")
 	}
 
 	countQuery := "SELECT COUNT(*) FROM bdopsflow_tasks t" + whereClause
@@ -140,7 +170,7 @@ func (s *SchedulerService) ListTasks(ctx context.Context, domainID int64, role s
 		total = int(rowInt64(row[0]))
 	}
 
-	offset := (page - 1) * pageSize
+	offset := (filter.Page - 1) * filter.PageSize
 	dataQuery := `
 		SELECT t.id, t.name, t.type, t.config, t.cron_expression, t.timeout_seconds,
 		       t.retry_count, t.retry_interval, t.is_enabled, t.status, t.domain_id, t.webhook_id, t.webhook_events,
@@ -150,7 +180,7 @@ func (s *SchedulerService) ListTasks(ctx context.Context, domainID int64, role s
 
 	dataArgs := make([]interface{}, len(args))
 	copy(dataArgs, args)
-	dataArgs = append(dataArgs, pageSize, offset)
+	dataArgs = append(dataArgs, filter.PageSize, offset)
 
 	var qr rqlite.QueryResult
 	if len(dataArgs) > 0 {

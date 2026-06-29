@@ -21,6 +21,7 @@ type mockTaskService struct {
 	createTaskFunc                func(ctx context.Context, query string, args ...interface{}) (*model.Task, error)
 	getTaskByIDFunc               func(ctx context.Context, id int64) (*model.Task, error)
 	listTasksFunc                 func(ctx context.Context, domainID int64, role string, page, pageSize int, createdBy ...int64) ([]*model.Task, int, error)
+	listTasksWithFilterFunc       func(ctx context.Context, filter model.TaskListFilter) ([]*model.Task, int, error)
 	updateTaskFunc                func(ctx context.Context, id int64, task *model.Task) error
 	deleteTaskFunc                func(ctx context.Context, id int64) error
 	triggerTaskFunc               func(ctx context.Context, taskID int64) (string, error)
@@ -55,6 +56,13 @@ func (m *mockTaskService) GetTaskByID(ctx context.Context, id int64) (*model.Tas
 func (m *mockTaskService) ListTasks(ctx context.Context, domainID int64, role string, page, pageSize int, createdBy ...int64) ([]*model.Task, int, error) {
 	if m.listTasksFunc != nil {
 		return m.listTasksFunc(ctx, domainID, role, page, pageSize, createdBy...)
+	}
+	return []*model.Task{}, 0, nil
+}
+
+func (m *mockTaskService) ListTasksWithFilter(ctx context.Context, filter model.TaskListFilter) ([]*model.Task, int, error) {
+	if m.listTasksWithFilterFunc != nil {
+		return m.listTasksWithFilterFunc(ctx, filter)
 	}
 	return []*model.Task{}, 0, nil
 }
@@ -295,7 +303,7 @@ func TestCreateTask_DefaultValues(t *testing.T) {
 
 func TestListTasks(t *testing.T) {
 	mock := &mockTaskService{
-		listTasksFunc: func(ctx context.Context, domainID int64, role string, page, pageSize int, createdBy ...int64) ([]*model.Task, int, error) {
+		listTasksWithFilterFunc: func(ctx context.Context, filter model.TaskListFilter) ([]*model.Task, int, error) {
 			return []*model.Task{
 				{ID: 1, Name: "task1", Type: "http", Status: "pending"},
 				{ID: 2, Name: "task2", Type: "shell", Status: "success"},
@@ -326,6 +334,107 @@ func TestListTasks(t *testing.T) {
 	if len(resp.Data.Items) != 2 {
 		t.Errorf("expected 2 bdopsflow_tasks, got %d", len(resp.Data.Items))
 	}
+}
+
+// TestListTasks_PageSizeBoundary 验证 page_size 参数的边界处理：
+// - 1~100 范围内原样透传
+// - 超过 100 或小于 1 重置为默认值 20
+func TestListTasks_PageSizeBoundary(t *testing.T) {
+	tests := []struct {
+		name         string
+		query        string
+		wantPageSize int
+	}{
+		{"page_size=50 allowed", "?page_size=50", 50},
+		{"page_size=100 allowed", "?page_size=100", 100},
+		{"page_size=101 reset to default", "?page_size=101", 20},
+		{"page_size=0 reset to default", "?page_size=0", 20},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var capturedPageSize int
+			mock := &mockTaskService{
+				listTasksWithFilterFunc: func(ctx context.Context, filter model.TaskListFilter) ([]*model.Task, int, error) {
+					capturedPageSize = filter.PageSize
+					return []*model.Task{}, 0, nil
+				},
+			}
+			handler := newTaskHandlerWithSvc(mock)
+			router := setupTestRouter(handler)
+
+			req, _ := http.NewRequest("GET", "/api/bdopsflow_tasks"+tt.query, nil)
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+
+			if w.Code != 200 {
+				t.Errorf("expected status 200, got %d", w.Code)
+			}
+			if capturedPageSize != tt.wantPageSize {
+				t.Errorf("pageSize = %d, want %d", capturedPageSize, tt.wantPageSize)
+			}
+		})
+	}
+}
+
+// TestListTasks_FilterParams 验证搜索/类型/状态/创建者过滤参数被正确传递到 service 层
+func TestListTasks_FilterParams(t *testing.T) {
+	tests := []struct {
+		name       string
+		query      string
+		wantName   string
+		wantType   string
+		wantEnable *bool
+		wantCreate int64
+	}{
+		{"search passed", "?search=backup", "backup", "", nil, 0},
+		{"type passed", "?type=shell", "", "shell", nil, 0},
+		{"is_enabled=true", "?is_enabled=true", "", "", boolPtr(true), 0},
+		{"is_enabled=false", "?is_enabled=false", "", "", boolPtr(false), 0},
+		{"is_enabled=invalid ignored", "?is_enabled=xxx", "", "", nil, 0},
+		{"created_by passed", "?created_by=42", "", "", nil, 42},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var captured model.TaskListFilter
+			mock := &mockTaskService{
+				listTasksWithFilterFunc: func(ctx context.Context, filter model.TaskListFilter) ([]*model.Task, int, error) {
+					captured = filter
+					return []*model.Task{}, 0, nil
+				},
+			}
+			handler := newTaskHandlerWithSvc(mock)
+			router := setupTestRouter(handler)
+
+			req, _ := http.NewRequest("GET", "/api/bdopsflow_tasks"+tt.query, nil)
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+
+			if w.Code != 200 {
+				t.Errorf("expected status 200, got %d", w.Code)
+			}
+			if captured.Name != tt.wantName {
+				t.Errorf("Name = %q, want %q", captured.Name, tt.wantName)
+			}
+			if captured.Type != tt.wantType {
+				t.Errorf("Type = %q, want %q", captured.Type, tt.wantType)
+			}
+			if (captured.IsEnabled == nil) != (tt.wantEnable == nil) {
+				t.Errorf("IsEnabled nil mismatch: got %v, want %v", captured.IsEnabled, tt.wantEnable)
+			} else if captured.IsEnabled != nil && *captured.IsEnabled != *tt.wantEnable {
+				t.Errorf("IsEnabled = %v, want %v", *captured.IsEnabled, *tt.wantEnable)
+			}
+			if captured.CreatedBy != tt.wantCreate {
+				t.Errorf("CreatedBy = %d, want %d", captured.CreatedBy, tt.wantCreate)
+			}
+		})
+	}
+}
+
+// boolPtr 返回 bool 值的指针，用于测试辅助
+func boolPtr(b bool) *bool {
+	return &b
 }
 
 func TestGetTask_NotFound(t *testing.T) {
