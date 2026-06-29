@@ -137,9 +137,9 @@ func (s *SchedulerService) GetAllExecutions(ctx context.Context, domainID int64,
 
 	isSystemAdmin := role == "system_admin" || role == "admin"
 	if !isSystemAdmin {
-		// 领域管理员和普通用户只能查看自己创建的任务的执行记录
-		whereClause += " AND t.created_by = ?"
-		args = append(args, userID)
+		// 领域管理员和普通用户只能查看自己所在领域的任务执行记录
+		whereClause += " AND t.domain_id = ?"
+		args = append(args, domainID)
 	}
 
 	if filter["id"] != "" {
@@ -451,9 +451,9 @@ func (s *SchedulerService) DeleteExecutionWithDomainCheck(ctx context.Context, i
 	checkArgs := []interface{}{id}
 
 	if !isSystemAdmin {
-		// 领域管理员和普通用户只能删除自己创建的任务的执行记录
-		checkQuery += " AND t.created_by = ?"
-		checkArgs = append(checkArgs, userID)
+		// 领域管理员和普通用户只能删除自己所在领域的任务执行记录
+		checkQuery += " AND t.domain_id = ?"
+		checkArgs = append(checkArgs, domainID)
 	}
 
 	checkStmt := rqlite.ParameterizedStatement{
@@ -521,9 +521,9 @@ func (s *SchedulerService) BatchDeleteExecutionsWithDomainCheck(ctx context.Cont
 	`
 
 	if !isSystemAdmin {
-		// 领域管理员和普通用户只能删除自己创建的任务的执行记录
-		checkQuery += " AND t.created_by = ?"
-		args = append(args, userID)
+		// 领域管理员和普通用户只能删除自己所在领域的任务执行记录
+		checkQuery += " AND t.domain_id = ?"
+		args = append(args, domainID)
 	}
 
 	checkStmt := rqlite.ParameterizedStatement{
@@ -578,9 +578,9 @@ func (s *SchedulerService) BatchDeleteExecutionsWithDomainCheck(ctx context.Cont
 		deleteExecQuery = `
 			DELETE FROM bdopsflow_task_executions
 			WHERE id IN (` + strings.Join(placeholders, ",") + `)
-			AND task_id IN (SELECT id FROM bdopsflow_tasks WHERE created_by = ?)
+			AND task_id IN (SELECT id FROM bdopsflow_tasks WHERE domain_id = ?)
 		`
-		deleteArgs = append(deleteArgs, userID)
+		deleteArgs = append(deleteArgs, domainID)
 	}
 
 	deleteExecStmt := rqlite.ParameterizedStatement{
@@ -825,9 +825,9 @@ func (s *SchedulerService) GetExecutionStats(ctx context.Context, domainID int64
 
 	isSystemAdmin := role == "system_admin" || role == "admin"
 	if !isSystemAdmin {
-		// 领域管理员和普通用户只能查看自己创建的任务的执行统计
-		whereClause += " AND t.created_by = ?"
-		args = append(args, userID)
+		// 领域管理员和普通用户只能查看自己所在领域的任务执行统计
+		whereClause += " AND t.domain_id = ?"
+		args = append(args, domainID)
 	}
 
 	if filter["id"] != "" {
