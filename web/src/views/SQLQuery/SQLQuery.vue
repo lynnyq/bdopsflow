@@ -339,7 +339,7 @@
                 <colgroup>
                   <col style="width: 50px" />
                   <col v-if="virtualPaddingLeft > 0" :style="{ width: virtualPaddingLeft + 'px' }" />
-                  <col v-for="ci in virtualVisibleColumns" :key="ci" style="width: 120px" />
+                  <col v-for="ci in virtualVisibleColumns" :key="ci" :style="{ width: getColWidth(ci) + 'px' }" />
                   <col v-if="virtualPaddingRight > 0" :style="{ width: virtualPaddingRight + 'px' }" />
                 </colgroup>
                 <thead>
@@ -352,7 +352,13 @@
                       class="vt-cell vt-header"
                       :class="{ 'vt-col-right': columnAlignMap[queryResult.columns[ci]] === 'right' }"
                       :title="queryResult.columns[ci]"
-                    >{{ queryResult.columns[ci] }}</th>
+                    >
+                      <span class="vt-header-text">{{ queryResult.columns[ci] }}</span>
+                      <div
+                        class="vt-resize-handle"
+                        @mousedown="startColResize($event, ci)"
+                      ></div>
+                    </th>
                     <th v-if="virtualPaddingRight > 0" class="vt-spacer-cell"></th>
                   </tr>
                 </thead>
@@ -927,13 +933,37 @@ const formatCellValue = (value: any): string => {
 // ==================== 虚拟滚动配置 ====================
 const MAX_DISPLAY_ROWS = 500;
 const VT_ROW_HEIGHT = 33;       // 每行高度(px)
-const VT_COL_WIDTH = 120;       // 每列宽度(px)
+const VT_DEFAULT_COL_WIDTH = 120; // 每列默认宽度(px)
+const VT_MIN_COL_WIDTH = 60;    // 每列最小宽度(px)
 const VT_INDEX_COL_WIDTH = 50;  // 行号列宽度(px)
 const VT_OVERSCAN = 5;          // 视口外额外渲染的行/列数
 
 const virtualTableRef = ref<HTMLElement>();
 const vtScrollTop = ref(0);
 const vtScrollLeft = ref(0);
+
+// 每列宽度状态管理
+const columnWidths = ref<number[]>([]);
+
+// 监听查询结果变化，初始化列宽
+watch(queryResult, (result) => {
+  vtScrollTop.value = 0;
+  vtScrollLeft.value = 0;
+  if (virtualTableRef.value) {
+    virtualTableRef.value.scrollTop = 0;
+    virtualTableRef.value.scrollLeft = 0;
+  }
+  if (result?.columns) {
+    columnWidths.value = result.columns.map(() => VT_DEFAULT_COL_WIDTH);
+  } else {
+    columnWidths.value = [];
+  }
+});
+
+// 获取指定列的宽度
+const getColWidth = (colIndex: number): number => {
+  return columnWidths.value[colIndex] ?? VT_DEFAULT_COL_WIDTH;
+};
 
 // 总行数/列数
 const vtTotalRows = computed(() => {
@@ -943,7 +973,13 @@ const vtTotalRows = computed(() => {
 const vtTotalCols = computed(() => queryResult.value?.columns?.length ?? 0);
 
 // 撑开滚动区域的总宽度
-const virtualTotalWidth = computed(() => VT_INDEX_COL_WIDTH + vtTotalCols.value * VT_COL_WIDTH);
+const virtualTotalWidth = computed(() => {
+  let total = VT_INDEX_COL_WIDTH;
+  for (let i = 0; i < vtTotalCols.value; i++) {
+    total += getColWidth(i);
+  }
+  return total;
+});
 
 // 计算可见行索引范围
 const virtualVisibleRowIndices = computed(() => {
@@ -963,9 +999,29 @@ const virtualVisibleColumns = computed(() => {
   const containerWidth = virtualTableRef.value.clientWidth || 800;
   const scrollLeft = vtScrollLeft.value;
   const effectiveLeft = Math.max(0, scrollLeft - VT_INDEX_COL_WIDTH);
-  const startCol = Math.max(0, Math.floor(effectiveLeft / VT_COL_WIDTH) - VT_OVERSCAN);
-  const visibleCount = Math.ceil(containerWidth / VT_COL_WIDTH) + VT_OVERSCAN * 2;
-  const endCol = Math.min(vtTotalCols.value, startCol + visibleCount);
+
+  // 根据每列实际宽度计算可见范围
+  let accumulated = 0;
+  let startCol = 0;
+  for (let i = 0; i < vtTotalCols.value; i++) {
+    const w = getColWidth(i);
+    if (accumulated + w > effectiveLeft) {
+      startCol = Math.max(0, i - VT_OVERSCAN);
+      break;
+    }
+    accumulated += w;
+  }
+
+  // 找到可见区域结束列
+  let visibleWidth = 0;
+  let endCol = startCol;
+  for (let i = startCol; i < vtTotalCols.value; i++) {
+    visibleWidth += getColWidth(i);
+    endCol = i + 1;
+    if (visibleWidth >= containerWidth + VT_OVERSCAN * VT_DEFAULT_COL_WIDTH) break;
+  }
+  endCol = Math.min(vtTotalCols.value, endCol + VT_OVERSCAN);
+
   const indices: number[] = [];
   for (let i = startCol; i < endCol; i++) indices.push(i);
   return indices;
@@ -986,13 +1042,21 @@ const virtualPaddingBottom = computed(() => {
 // 虚拟滚动左右留白
 const virtualPaddingLeft = computed(() => {
   const firstCol = virtualVisibleColumns.value[0] ?? 0;
-  return firstCol * VT_COL_WIDTH;
+  let left = 0;
+  for (let i = 0; i < firstCol; i++) {
+    left += getColWidth(i);
+  }
+  return left;
 });
 const virtualPaddingRight = computed(() => {
   const indices = virtualVisibleColumns.value;
   if (indices.length === 0) return 0;
   const lastCol = indices[indices.length - 1];
-  return Math.max(0, (vtTotalCols.value - lastCol - 1) * VT_COL_WIDTH);
+  let right = 0;
+  for (let i = lastCol + 1; i < vtTotalCols.value; i++) {
+    right += getColWidth(i);
+  }
+  return right;
 });
 
 // spacer 行的 colspan
@@ -1017,15 +1081,33 @@ const onVirtualScroll = () => {
   });
 };
 
-// 监听查询结果变化，重置滚动位置
-watch(queryResult, () => {
-  vtScrollTop.value = 0;
-  vtScrollLeft.value = 0;
-  if (virtualTableRef.value) {
-    virtualTableRef.value.scrollTop = 0;
-    virtualTableRef.value.scrollLeft = 0;
-  }
-});
+// 列宽拖拽调整
+const resizingColIndex = ref<number | null>(null);
+const resizeStartX = ref(0);
+const resizeStartWidth = ref(0);
+
+const startColResize = (e: MouseEvent, colIndex: number) => {
+  e.preventDefault();
+  e.stopPropagation();
+  resizingColIndex.value = colIndex;
+  resizeStartX.value = e.clientX;
+  resizeStartWidth.value = getColWidth(colIndex);
+  document.addEventListener('mousemove', onColResize);
+  document.addEventListener('mouseup', stopColResize);
+};
+
+const onColResize = (e: MouseEvent) => {
+  if (resizingColIndex.value === null) return;
+  const delta = e.clientX - resizeStartX.value;
+  const newWidth = Math.max(VT_MIN_COL_WIDTH, resizeStartWidth.value + delta);
+  columnWidths.value[resizingColIndex.value] = newWidth;
+};
+
+const stopColResize = () => {
+  resizingColIndex.value = null;
+  document.removeEventListener('mousemove', onColResize);
+  document.removeEventListener('mouseup', stopColResize);
+};
 
 const syncCurrentTabData = () => {
   const tab = tabs.value.find(t => t.id === activeTabId.value);
@@ -2352,6 +2434,8 @@ onUnmounted(() => {
   editorView?.destroy();
   document.removeEventListener('mousemove', onResize);
   document.removeEventListener('mouseup', stopResize);
+  document.removeEventListener('mousemove', onColResize);
+  document.removeEventListener('mouseup', stopColResize);
   window.removeEventListener('beforeunload', handleBeforeUnload);
 });
 
@@ -2959,9 +3043,6 @@ window.addEventListener('beforeunload', handleBeforeUnload);
   border: 1px solid var(--el-border-color-lighter);
   overflow: hidden;
   text-overflow: ellipsis;
-  width: 120px;
-  max-width: 120px;
-  min-width: 120px;
 }
 
 .vt-header {
@@ -2970,6 +3051,35 @@ window.addEventListener('beforeunload', handleBeforeUnload);
   padding: 8px 12px;
   text-align: left;
   user-select: none;
+  position: relative;
+}
+
+.vt-header-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+  padding-right: 8px;
+}
+
+.vt-resize-handle {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 5;
+  background: transparent;
+  transition: background 0.15s;
+}
+
+.vt-resize-handle:hover {
+  background: rgba(59, 130, 246, 0.3);
+}
+
+.vt-resize-handle:active {
+  background: rgba(59, 130, 246, 0.5);
 }
 
 .vt-col-index {
