@@ -56,51 +56,9 @@ func (s *CacheService) OnConfigChanged(key, value string) {
 	if key == "datasource.cache_ttl" || key == "datasource.cache_max_size" {
 		s.refreshRuntimeConfig()
 		slog.Info("cache service config updated", "key", key, "value", value)
-		return
 	}
-
-	// 查询行数限制变更时，主动失效所有查询缓存。
-	// 缓存 key 不包含 limit，若不清空，调整 default_limit 后仍会命中旧缓存，
-	// 导致新的行数限制无法立即生效（需等 TTL 过期才会用新 limit 重新查询）。
-	if key == "datasource.default_limit" {
-		if err := s.InvalidateAll(context.Background()); err != nil {
-			slog.Warn("failed to invalidate cache after default_limit changed", "error", err)
-		} else {
-			slog.Info("query cache invalidated due to default_limit change", "value", value)
-		}
-	}
-}
-
-// InvalidateAll 失效所有查询结果缓存
-func (s *CacheService) InvalidateAll(ctx context.Context) error {
-	pattern := "datasource:query:cache:*"
-	var cursor uint64
-	count := 0
-	for {
-		keys, nextCursor, err := s.redis.Scan(ctx, cursor, pattern, 100).Result()
-		if err != nil {
-			return fmt.Errorf("cache scan error: %w", err)
-		}
-		if len(keys) > 0 {
-			if err := s.redis.Del(ctx, keys...).Err(); err != nil {
-				return fmt.Errorf("cache delete error: %w", err)
-			}
-			count += len(keys)
-		}
-		cursor = nextCursor
-		if cursor == 0 {
-			break
-		}
-	}
-
-	if count > 0 {
-		s.mu.Lock()
-		s.stats.Evictions += int64(count)
-		s.mu.Unlock()
-		slog.Info("all query cache invalidated", "count", count)
-	}
-
-	return nil
+	// 注意：default_limit / max_export_rows 变更无需清空缓存。
+	// 缓存 key 已包含 limit 值，不同 limit 的查询结果会生成不同的 key，互不干扰。
 }
 
 // refreshRuntimeConfig 刷新运行时配置缓存
@@ -110,7 +68,9 @@ func (s *CacheService) refreshRuntimeConfig() {
 	s.runtimeCacheTTL = s.config.GetInt("datasource.cache_ttl")
 }
 
-func (s *CacheService) Get(ctx context.Context, datasourceID int64, database, sql string) (*driver.QueryResult, bool, error) {
+// Get 获取查询结果缓存。
+// limit 参与 cache key 计算，确保不同行数限制的查询结果互不干扰。
+func (s *CacheService) Get(ctx context.Context, datasourceID int64, database, sql string, limit int) (*driver.QueryResult, bool, error) {
 	s.mu.RLock()
 	ttl := s.runtimeCacheTTL
 	s.mu.RUnlock()
@@ -119,7 +79,7 @@ func (s *CacheService) Get(ctx context.Context, datasourceID int64, database, sq
 		return nil, false, nil
 	}
 
-	key := s.buildKey(datasourceID, database, sql)
+	key := s.buildKey(datasourceID, database, sql, limit)
 	data, err := s.redis.Get(ctx, key).Bytes()
 	if err == redis.Nil {
 		s.mu.Lock()
@@ -151,7 +111,9 @@ func (s *CacheService) Get(ctx context.Context, datasourceID int64, database, sq
 	return &result, true, nil
 }
 
-func (s *CacheService) Set(ctx context.Context, datasourceID int64, database, sql string, result *driver.QueryResult) error {
+// Set 写入查询结果缓存。
+// limit 参与 cache key 计算，确保不同行数限制的查询结果互不干扰。
+func (s *CacheService) Set(ctx context.Context, datasourceID int64, database, sql string, limit int, result *driver.QueryResult) error {
 	s.mu.RLock()
 	ttl := s.runtimeCacheTTL
 	s.mu.RUnlock()
@@ -165,7 +127,7 @@ func (s *CacheService) Set(ctx context.Context, datasourceID int64, database, sq
 		return fmt.Errorf("cache marshal error: %w", err)
 	}
 
-	key := s.buildKey(datasourceID, database, sql)
+	key := s.buildKey(datasourceID, database, sql, limit)
 	return s.redis.Set(ctx, key, data, time.Duration(ttl)*time.Second).Err()
 }
 
@@ -244,8 +206,11 @@ func (s *CacheService) InvalidateByDatabase(ctx context.Context, datasourceID in
 	return nil
 }
 
-func (s *CacheService) buildKey(datasourceID int64, database, sql string) string {
-	hash := md5.Sum([]byte(database + ":" + sql))
+// buildKey 构建查询结果缓存 key。
+// limit 参与 hash 计算，确保同一 SQL 在不同行数限制下生成不同的缓存条目，
+// 从根本上避免 default_limit 变更后命中旧缓存的时序问题。
+func (s *CacheService) buildKey(datasourceID int64, database, sql string, limit int) string {
+	hash := md5.Sum([]byte(fmt.Sprintf("%s:%s:%d", database, sql, limit)))
 	return fmt.Sprintf("datasource:query:cache:%d:%x", datasourceID, hash)
 }
 

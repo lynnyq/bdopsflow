@@ -152,8 +152,15 @@ func (h *QueryHandler) Execute(c *gin.Context) {
 		return
 	}
 
+	// 读取 defaultLimit 用于缓存 key 隔离。
+	// 缓存 key 包含 limit，确保不同行数限制的查询结果互不干扰，
+	// 调整 default_limit 后新查询会生成新 key，不会命中旧缓存。
+	h.runtimeConfig.mu.RLock()
+	defaultLimitForCache := h.runtimeConfig.defaultLimit
+	h.runtimeConfig.mu.RUnlock()
+
 	if h.cacheService != nil {
-		cached, hit, err := h.cacheService.Get(c.Request.Context(), req.DatasourceID, req.Database, req.SQL)
+		cached, hit, err := h.cacheService.Get(c.Request.Context(), req.DatasourceID, req.Database, req.SQL, defaultLimitForCache)
 		if err == nil && hit {
 			slog.Debug("query cache hit", "datasource_id", req.DatasourceID, "row_count", cached.RowCount)
 			queryID := "q_" + time.Now().Format("20060102") + "_" + uuid.New().String()[:8]
@@ -335,7 +342,7 @@ func (h *QueryHandler) executeQuery(ctx context.Context, cancel context.CancelFu
 	metrics.DatasourceQueries.WithLabelValues(ds.Type, "success").Inc()
 
 	if h.cacheService != nil {
-		if err := h.cacheService.Set(context.Background(), req.DatasourceID, req.Database, req.SQL, result); err != nil {
+		if err := h.cacheService.Set(context.Background(), req.DatasourceID, req.Database, req.SQL, defaultLimit, result); err != nil {
 			slog.Warn("failed to cache query result", "query_id", queryID, "datasource_id", req.DatasourceID, "error", err)
 		}
 	}
