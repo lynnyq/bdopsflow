@@ -549,6 +549,11 @@ func (h *QueryHandler) ExportCSV(c *gin.Context) {
 	maxExportRows = h.runtimeConfig.maxExportRows
 	h.runtimeConfig.mu.RUnlock()
 
+	// 安全兜底：配置未加载或为非正值时使用默认值，避免 ApplyLimitToSQL 不应用 LIMIT 导致全表导出
+	if maxExportRows <= 0 {
+		maxExportRows = 1000
+	}
+
 	if req.MaxRows > 0 && req.MaxRows < maxExportRows {
 		maxExportRows = req.MaxRows
 	}
@@ -564,53 +569,39 @@ func (h *QueryHandler) ExportCSV(c *gin.Context) {
 		return
 	}
 
-	var result *driver.QueryResult
+	// 注意：导出不复用普通查询的缓存。
+	// 普通查询使用 datasource.default_limit 限制结果集，导出使用 datasource.max_export_rows，
+	// 两者限制不同。缓存 key 不包含 limit，若复用会导致：
+	//   1. 导出命中普通查询缓存时，结果被 defaultLimit 截断（maxExportRows 不生效）
+	//   2. 导出结果写入缓存后，普通查询会拿到 maxExportRows 限制的结果（defaultLimit 失效）
+	// 因此导出始终使用 maxExportRows 重新执行查询，保证系统设置动态生效。
+	queryTimeout := 60
+	h.runtimeConfig.mu.RLock()
+	if qt := h.runtimeConfig.queryTimeout; qt > 0 {
+		queryTimeout = qt
+	}
+	h.runtimeConfig.mu.RUnlock()
 
-	if h.cacheService != nil {
-		cached, hit, cacheErr := h.cacheService.Get(c.Request.Context(), req.DatasourceID, req.Database, req.SQL)
-		if cacheErr != nil {
-			slog.Warn("export: cache lookup failed, will re-execute query", "error", cacheErr)
-		}
-		if hit && cached != nil {
-			result = cached
-		}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), time.Duration(queryTimeout)*time.Second)
+	defer cancel()
+
+	drv, err := h.manager.GetDriver(ctx, ds)
+	if err != nil {
+		Fail(c, CodeDatasourceNotFound, "连接数据源失败，请检查数据源配置")
+		return
+	}
+
+	// 应用导出行数限制到SQL层面
+	querySQL := driver.ApplyLimitToSQL(req.SQL, maxExportRows, ds.Type)
+	result, err := drv.QueryWithDB(ctx, querySQL, req.Database)
+	if err != nil {
+		Fail(c, CodeQueryError, fmt.Sprintf("查询执行失败: %v", err))
+		return
 	}
 
 	if result == nil {
-		queryTimeout := 60
-		h.runtimeConfig.mu.RLock()
-		if qt := h.runtimeConfig.queryTimeout; qt > 0 {
-			queryTimeout = qt
-		}
-		h.runtimeConfig.mu.RUnlock()
-
-		ctx, cancel := context.WithTimeout(c.Request.Context(), time.Duration(queryTimeout)*time.Second)
-		defer cancel()
-
-		drv, err := h.manager.GetDriver(ctx, ds)
-		if err != nil {
-			Fail(c, CodeDatasourceNotFound, "连接数据源失败，请检查数据源配置")
-			return
-		}
-
-		// 应用导出行数限制到SQL层面
-		querySQL := driver.ApplyLimitToSQL(req.SQL, maxExportRows, ds.Type)
-		result, err = drv.QueryWithDB(ctx, querySQL, req.Database)
-		if err != nil {
-			Fail(c, CodeQueryError, fmt.Sprintf("查询执行失败: %v", err))
-			return
-		}
-
-		if result == nil {
-			Fail(c, CodeQueryError, "查询返回空结果，请检查SQL语句或数据源连接")
-			return
-		}
-
-		if h.cacheService != nil {
-			if err := h.cacheService.Set(c.Request.Context(), req.DatasourceID, req.Database, req.SQL, result); err != nil {
-				slog.Warn("export: failed to cache query result", "error", err)
-			}
-		}
+		Fail(c, CodeQueryError, "查询返回空结果，请检查SQL语句或数据源连接")
+		return
 	}
 
 	c.Header("Content-Type", "text/csv; charset=utf-8")

@@ -56,7 +56,51 @@ func (s *CacheService) OnConfigChanged(key, value string) {
 	if key == "datasource.cache_ttl" || key == "datasource.cache_max_size" {
 		s.refreshRuntimeConfig()
 		slog.Info("cache service config updated", "key", key, "value", value)
+		return
 	}
+
+	// 查询行数限制变更时，主动失效所有查询缓存。
+	// 缓存 key 不包含 limit，若不清空，调整 default_limit 后仍会命中旧缓存，
+	// 导致新的行数限制无法立即生效（需等 TTL 过期才会用新 limit 重新查询）。
+	if key == "datasource.default_limit" {
+		if err := s.InvalidateAll(context.Background()); err != nil {
+			slog.Warn("failed to invalidate cache after default_limit changed", "error", err)
+		} else {
+			slog.Info("query cache invalidated due to default_limit change", "value", value)
+		}
+	}
+}
+
+// InvalidateAll 失效所有查询结果缓存
+func (s *CacheService) InvalidateAll(ctx context.Context) error {
+	pattern := "datasource:query:cache:*"
+	var cursor uint64
+	count := 0
+	for {
+		keys, nextCursor, err := s.redis.Scan(ctx, cursor, pattern, 100).Result()
+		if err != nil {
+			return fmt.Errorf("cache scan error: %w", err)
+		}
+		if len(keys) > 0 {
+			if err := s.redis.Del(ctx, keys...).Err(); err != nil {
+				return fmt.Errorf("cache delete error: %w", err)
+			}
+			count += len(keys)
+		}
+		cursor = nextCursor
+		if cursor == 0 {
+			break
+		}
+	}
+
+	if count > 0 {
+		s.mu.Lock()
+		s.stats.Evictions += int64(count)
+		s.mu.Unlock()
+		slog.Info("all query cache invalidated", "count", count)
+	}
+
+	return nil
 }
 
 // refreshRuntimeConfig 刷新运行时配置缓存
