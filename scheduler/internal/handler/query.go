@@ -118,15 +118,11 @@ func (h *QueryHandler) Execute(c *gin.Context) {
 		return
 	}
 
-	sqlPreview := req.SQL
-	if len(sqlPreview) > 200 {
-		sqlPreview = sqlPreview[:200] + "..."
-	}
+	sqlPreview := truncateSQLPreview(req.SQL)
 	slog.Debug("query execute request", "datasource_id", req.DatasourceID, "database", req.Database, "sql_preview", sqlPreview)
 
-	h.runtimeConfig.mu.RLock()
-	maxSQLLength := h.runtimeConfig.maxSQLLength
-	h.runtimeConfig.mu.RUnlock()
+	// 直接从 configService 读取，确保配置修改后立即生效
+	maxSQLLength := h.configService.GetInt("datasource.max_sql_length")
 
 	if maxSQLLength > 0 && len(req.SQL) > maxSQLLength {
 		slog.Warn("sql exceeds max length", "datasource_id", req.DatasourceID, "sql_length", len(req.SQL), "max_length", maxSQLLength)
@@ -140,6 +136,13 @@ func (h *QueryHandler) Execute(c *gin.Context) {
 		NotFound(c, "数据源不存在")
 		return
 	}
+
+	// 设置审计日志上下文：记录查询的目标数据源、数据库和 SQL 预览，
+	// 便于审计时追踪“谁在哪个数据源上执行了什么 SQL”。
+	// 放在 ds 查询之后，确保数据源存在再记录，且能拿到数据源名称。
+	c.Set("audit_resource_id", strconv.FormatInt(req.DatasourceID, 10))
+	c.Set("audit_resource_name", ds.Name)
+	c.Set("audit_detail", fmt.Sprintf("数据源: %s (ID: %d)\n数据库: %s\nSQL预览: %s", ds.Name, req.DatasourceID, defaultDBName(req.Database), sqlPreview))
 	if !ds.IsEnabled {
 		slog.Warn("datasource is disabled", "datasource_id", req.DatasourceID, "name", ds.Name)
 		Fail(c, CodeQueryDisabled, "数据源已被禁用，无法执行查询")
@@ -152,15 +155,15 @@ func (h *QueryHandler) Execute(c *gin.Context) {
 		return
 	}
 
-	// 读取 defaultLimit 用于缓存 key 隔离。
-	// 缓存 key 包含 limit，确保不同行数限制的查询结果互不干扰，
-	// 调整 default_limit 后新查询会生成新 key，不会命中旧缓存。
-	h.runtimeConfig.mu.RLock()
-	defaultLimitForCache := h.runtimeConfig.defaultLimit
-	h.runtimeConfig.mu.RUnlock()
+	// 直接从 configService 读取最新值，避免 runtimeConfig 异步更新延迟导致读到旧值。
+	// runtimeConfig 通过观察者模式异步刷新，配置刚修改后短时间内可能还是旧值。
+	defaultLimit := h.configService.GetInt("datasource.default_limit")
+	if defaultLimit <= 0 {
+		defaultLimit = 1000
+	}
 
 	if h.cacheService != nil {
-		cached, hit, err := h.cacheService.Get(c.Request.Context(), req.DatasourceID, req.Database, req.SQL, defaultLimitForCache)
+		cached, hit, err := h.cacheService.Get(c.Request.Context(), req.DatasourceID, req.Database, req.SQL, defaultLimit)
 		if err == nil && hit {
 			slog.Debug("query cache hit", "datasource_id", req.DatasourceID, "row_count", cached.RowCount)
 			queryID := "q_" + time.Now().Format("20060102") + "_" + uuid.New().String()[:8]
@@ -213,10 +216,8 @@ func (h *QueryHandler) Execute(c *gin.Context) {
 
 	queryID := "q_" + time.Now().Format("20060102") + "_" + uuid.New().String()[:8]
 
-	h.runtimeConfig.mu.RLock()
-	queryTimeout := h.runtimeConfig.queryTimeout
-	h.runtimeConfig.mu.RUnlock()
-
+	// 直接从 configService 读取，确保配置修改后立即生效
+	queryTimeout := h.configService.GetInt("datasource.query_timeout")
 	if queryTimeout <= 0 {
 		queryTimeout = 60
 	}
@@ -239,7 +240,7 @@ func (h *QueryHandler) Execute(c *gin.Context) {
 	}
 	h.registry.Register(runningQuery)
 
-	go h.executeQuerySafe(ctx, cancel, queryID, ds, req, uid, dID)
+	go h.executeQuerySafe(ctx, cancel, queryID, ds, req, uid, dID, defaultLimit)
 
 	Success(c, gin.H{
 		"query_id": queryID,
@@ -251,21 +252,21 @@ func (h *QueryHandler) executeQuerySafe(ctx context.Context, cancel context.Canc
 	DatasourceID int64  `json:"datasource_id" binding:"required"`
 	SQL          string `json:"sql" binding:"required"`
 	Database     string `json:"database"`
-}, uid int64, domainID int64) {
+}, uid int64, domainID int64, defaultLimit int) {
 	defer func() {
 		if r := recover(); r != nil {
 			slog.Error("query execution panic recovered", "query_id", queryID, "datasource_id", req.DatasourceID, "panic", r)
 			h.registry.UpdateError(queryID, fmt.Sprintf("查询执行异常: %v", r), 0)
 		}
 	}()
-	h.executeQuery(ctx, cancel, queryID, ds, req, uid, domainID)
+	h.executeQuery(ctx, cancel, queryID, ds, req, uid, domainID, defaultLimit)
 }
 
 func (h *QueryHandler) executeQuery(ctx context.Context, cancel context.CancelFunc, queryID string, ds *model.Datasource, req struct {
 	DatasourceID int64  `json:"datasource_id" binding:"required"`
 	SQL          string `json:"sql" binding:"required"`
 	Database     string `json:"database"`
-}, uid int64, domainID int64) {
+}, uid int64, domainID int64, defaultLimit int) {
 	h.registry.SetRunning(queryID)
 
 	drv, err := h.manager.GetDriver(ctx, ds)
@@ -276,11 +277,11 @@ func (h *QueryHandler) executeQuery(ctx context.Context, cancel context.CancelFu
 	}
 
 	startTime := time.Now()
-	// 应用默认查询行数限制（从运行时配置读取，支持热更新）
-	h.runtimeConfig.mu.RLock()
-	defaultLimit := h.runtimeConfig.defaultLimit
-	h.runtimeConfig.mu.RUnlock()
-
+	// defaultLimit 由 Execute 传入，确保整个请求生命周期（cache Get/ApplyLimitToSQL/cache Set）使用同一个值。
+	// 避免异步执行期间配置变更导致 cache key 与实际查询限制不一致。
+	if defaultLimit <= 0 {
+		defaultLimit = 1000
+	}
 	querySQL := driver.ApplyLimitToSQL(req.SQL, defaultLimit, ds.Type)
 
 	// 使用统一重试机制执行查询
@@ -370,12 +371,11 @@ func (h *QueryHandler) GetMetadata(c *gin.Context) {
 		return
 	}
 
-	metadataTimeout := 60
-	h.runtimeConfig.mu.RLock()
-	if mt := h.runtimeConfig.metadataTimeout; mt > 0 {
-		metadataTimeout = mt
+	// 直接从 configService 读取，确保配置修改后立即生效
+	metadataTimeout := h.configService.GetInt("datasource.metadata_timeout")
+	if metadataTimeout <= 0 {
+		metadataTimeout = 60
 	}
-	h.runtimeConfig.mu.RUnlock()
 	ctx, cancel := context.WithTimeout(c.Request.Context(), time.Duration(metadataTimeout)*time.Second)
 	defer cancel()
 
@@ -551,10 +551,8 @@ func (h *QueryHandler) ExportCSV(c *gin.Context) {
 		return
 	}
 
-	maxExportRows := 1000
-	h.runtimeConfig.mu.RLock()
-	maxExportRows = h.runtimeConfig.maxExportRows
-	h.runtimeConfig.mu.RUnlock()
+	// 直接从 configService 读取最新值，避免 runtimeConfig 异步更新延迟导致读到旧值。
+	maxExportRows := h.configService.GetInt("datasource.max_export_rows")
 
 	// 安全兜底：配置未加载或为非正值时使用默认值，避免 ApplyLimitToSQL 不应用 LIMIT 导致全表导出
 	if maxExportRows <= 0 {
@@ -576,18 +574,21 @@ func (h *QueryHandler) ExportCSV(c *gin.Context) {
 		return
 	}
 
+	// 设置审计日志上下文：导出操作需要记录数据源、SQL 和导出行数限制，
+	// 便于审计追踪“谁导出了哪个数据源的什么数据、导出规模多大”。
+	c.Set("audit_resource_id", strconv.FormatInt(req.DatasourceID, 10))
+	c.Set("audit_resource_name", ds.Name)
+	c.Set("audit_detail", fmt.Sprintf("数据源: %s (ID: %d)\n数据库: %s\nSQL预览: %s\n最大导出行数: %d", ds.Name, req.DatasourceID, defaultDBName(req.Database), truncateSQLPreview(req.SQL), maxExportRows))
+
 	// 注意：导出不复用普通查询的缓存。
 	// 普通查询使用 datasource.default_limit 限制结果集，导出使用 datasource.max_export_rows，
-	// 两者限制不同。缓存 key 不包含 limit，若复用会导致：
-	//   1. 导出命中普通查询缓存时，结果被 defaultLimit 截断（maxExportRows 不生效）
-	//   2. 导出结果写入缓存后，普通查询会拿到 maxExportRows 限制的结果（defaultLimit 失效）
+	// 两者限制不同。缓存 key 包含 limit，虽已隔离，但导出结果不应污染查询缓存，
+	// 且导出本身无需缓存（用户导出通常是一次性操作）。
 	// 因此导出始终使用 maxExportRows 重新执行查询，保证系统设置动态生效。
-	queryTimeout := 60
-	h.runtimeConfig.mu.RLock()
-	if qt := h.runtimeConfig.queryTimeout; qt > 0 {
-		queryTimeout = qt
+	queryTimeout := h.configService.GetInt("datasource.query_timeout")
+	if queryTimeout <= 0 {
+		queryTimeout = 60
 	}
-	h.runtimeConfig.mu.RUnlock()
 
 	ctx, cancel := context.WithTimeout(c.Request.Context(), time.Duration(queryTimeout)*time.Second)
 	defer cancel()
@@ -662,7 +663,11 @@ func (h *QueryHandler) GetHistory(c *gin.Context) {
 	var queryDomainID int64
 	if userRole == "system_admin" || userRole == "admin" {
 		if d := c.Query("domain_id"); d != "" {
-			queryDomainID, _ = strconv.ParseInt(d, 10, 64)
+			if parsed, err := strconv.ParseInt(d, 10, 64); err != nil {
+				slog.Warn("invalid domain_id parameter", "value", d, "error", err)
+			} else {
+				queryDomainID = parsed
+			}
 		}
 	} else {
 		queryDomainID = currentDomainID
@@ -679,11 +684,19 @@ func (h *QueryHandler) GetHistory(c *gin.Context) {
 
 	var datasourceID int64
 	if dsID := c.Query("datasource_id"); dsID != "" {
-		datasourceID, _ = strconv.ParseInt(dsID, 10, 64)
+		if parsed, err := strconv.ParseInt(dsID, 10, 64); err != nil {
+			slog.Warn("invalid datasource_id parameter", "value", dsID, "error", err)
+		} else {
+			datasourceID = parsed
+		}
 	}
 	var executedBy int64
 	if uid := c.Query("executed_by"); uid != "" {
-		executedBy, _ = strconv.ParseInt(uid, 10, 64)
+		if parsed, err := strconv.ParseInt(uid, 10, 64); err != nil {
+			slog.Warn("invalid executed_by parameter", "value", uid, "error", err)
+		} else {
+			executedBy = parsed
+		}
 	}
 	filterStatus := c.Query("status")
 	startTime := c.Query("start_time")
@@ -717,6 +730,9 @@ func (h *QueryHandler) DeleteQueryHistory(c *gin.Context) {
 		return
 	}
 
+	// 审计日志：记录删除的查询历史 ID
+	c.Set("audit_resource_id", strconv.FormatInt(id, 10))
+
 	Success(c, nil)
 }
 
@@ -740,6 +756,18 @@ func (h *QueryHandler) BatchDeleteQueryHistory(c *gin.Context) {
 		return
 	}
 
+	// 审计日志：记录批量删除的查询历史 IDs（最多展示前 20 个，避免日志过长）
+	idStrs := make([]string, 0, len(req.IDs))
+	maxShow := 20
+	for i, id := range req.IDs {
+		if i >= maxShow {
+			idStrs = append(idStrs, fmt.Sprintf("... 共 %d 条", len(req.IDs)))
+			break
+		}
+		idStrs = append(idStrs, strconv.FormatInt(id, 10))
+	}
+	c.Set("audit_detail", fmt.Sprintf("删除数量: %d\nIDs: %s", len(req.IDs), strings.Join(idStrs, ", ")))
+
 	Success(c, nil)
 }
 
@@ -747,6 +775,7 @@ func (h *QueryHandler) SaveSQL(c *gin.Context) {
 	var req struct {
 		Name         string `json:"name" binding:"required"`
 		DatasourceID int64  `json:"datasource_id" binding:"required"`
+		Database     string `json:"database"`
 		SQLText      string `json:"sql_text" binding:"required"`
 		Description  string `json:"description"`
 		IsPublic     *bool  `json:"is_public"`
@@ -774,6 +803,7 @@ func (h *QueryHandler) SaveSQL(c *gin.Context) {
 
 	saved := &model.SavedSQL{
 		Name: req.Name, DatasourceID: req.DatasourceID,
+		Database: req.Database,
 		SQLText: req.SQLText, Description: req.Description,
 		CreatedBy: int64Ptr(saveUID), UpdatedBy: int64Ptr(saveUID),
 		DomainID: saveDomainID, IsPublic: isPublic,
@@ -783,6 +813,11 @@ func (h *QueryHandler) SaveSQL(c *gin.Context) {
 		Fail(c, CodeQueryError, "保存SQL失败")
 		return
 	}
+
+	// 审计日志：记录保存的 SQL 名称、数据源 ID、数据库和 SQL 预览
+	c.Set("audit_resource_id", strconv.FormatInt(saved.ID, 10))
+	c.Set("audit_resource_name", req.Name)
+	c.Set("audit_detail", fmt.Sprintf("名称: %s\n数据源ID: %d\n数据库: %s\nSQL预览: %s", req.Name, req.DatasourceID, defaultDBName(req.Database), truncateSQLPreview(req.SQLText)))
 
 	Created(c, gin.H{"id": saved.ID})
 }
@@ -810,7 +845,11 @@ func (h *QueryHandler) ListSavedSQL(c *gin.Context) {
 	var queryDomainID int64
 	if userRole == "system_admin" || userRole == "admin" {
 		if d := c.Query("domain_id"); d != "" {
-			queryDomainID, _ = strconv.ParseInt(d, 10, 64)
+			if parsed, err := strconv.ParseInt(d, 10, 64); err != nil {
+				slog.Warn("invalid domain_id parameter", "value", d, "error", err)
+			} else {
+				queryDomainID = parsed
+			}
 		}
 	} else {
 		queryDomainID = currentDomainID
@@ -850,6 +889,7 @@ func (h *QueryHandler) UpdateSavedSQL(c *gin.Context) {
 	var req struct {
 		Name         string `json:"name" binding:"required"`
 		DatasourceID int64  `json:"datasource_id" binding:"required"`
+		Database     string `json:"database"`
 		SQLText      string `json:"sql_text" binding:"required"`
 		Description  string `json:"description"`
 		IsPublic     *bool  `json:"is_public"`
@@ -873,6 +913,7 @@ func (h *QueryHandler) UpdateSavedSQL(c *gin.Context) {
 	saved := &model.SavedSQL{
 		Name:         req.Name,
 		DatasourceID: req.DatasourceID,
+		Database:     req.Database,
 		SQLText:      req.SQLText,
 		Description:  req.Description,
 		UpdatedBy:    int64Ptr(updateUID),
@@ -883,6 +924,11 @@ func (h *QueryHandler) UpdateSavedSQL(c *gin.Context) {
 		Fail(c, CodeSavedSQLNotFound, "更新SQL记录失败")
 		return
 	}
+
+	// 审计日志：记录更新的 SQL 记录 ID、名称、数据源 ID 和数据库
+	c.Set("audit_resource_id", strconv.FormatInt(id, 10))
+	c.Set("audit_resource_name", req.Name)
+	c.Set("audit_detail", fmt.Sprintf("名称: %s\n数据源ID: %d\n数据库: %s\nSQL预览: %s", req.Name, req.DatasourceID, defaultDBName(req.Database), truncateSQLPreview(req.SQLText)))
 
 	Success(c, nil)
 }
@@ -898,6 +944,9 @@ func (h *QueryHandler) DeleteSavedSQL(c *gin.Context) {
 		Fail(c, CodeQueryError, "删除SQL记录失败")
 		return
 	}
+
+	// 审计日志：记录删除的 SQL 记录 ID
+	c.Set("audit_resource_id", strconv.FormatInt(id, 10))
 
 	Success(c, nil)
 }
@@ -1072,6 +1121,10 @@ func (h *QueryHandler) Cancel(c *gin.Context) {
 	}
 
 	slog.Info("query cancel signal sent", "query_id", queryID)
+
+	// 审计日志：记录取消的查询 ID
+	c.Set("audit_detail", fmt.Sprintf("查询ID: %s", queryID))
+
 	Success(c, nil)
 }
 
@@ -1167,6 +1220,12 @@ func (h *QueryHandler) ClearCache(c *gin.Context) {
 	}
 
 	slog.Info("cache cleared for datasource", "datasource_id", dsID, "datasource_name", ds.Name)
+
+	// 审计日志：记录清理缓存的数据源 ID 和名称
+	c.Set("audit_resource_id", strconv.FormatInt(dsID, 10))
+	c.Set("audit_resource_name", ds.Name)
+	c.Set("audit_detail", fmt.Sprintf("数据源: %s (ID: %d)", ds.Name, dsID))
+
 	Success(c, gin.H{"datasource_id": dsID, "message": "缓存已清除"})
 }
 
@@ -1204,4 +1263,23 @@ func joinSpaces(s string) string {
 		prevSpace = false
 	}
 	return b.String()
+}
+
+// truncateSQLPreview 将 SQL 截断为预览字符串，避免审计日志或调试日志中记录完整 SQL（可能很长）。
+// 截断时按 rune 处理，避免破坏多字节字符；超长时追加 "..." 表示已截断。
+func truncateSQLPreview(sql string) string {
+	const maxPreviewRunes = 200
+	r := []rune(strings.TrimSpace(sql))
+	if len(r) <= maxPreviewRunes {
+		return string(r)
+	}
+	return string(r[:maxPreviewRunes]) + "..."
+}
+
+// defaultDBName 返回请求中指定的数据库，未指定时返回 "(默认)" 便于审计日志可读。
+func defaultDBName(db string) string {
+	if db == "" {
+		return "(默认)"
+	}
+	return db
 }

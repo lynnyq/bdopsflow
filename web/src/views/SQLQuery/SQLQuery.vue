@@ -2309,6 +2309,7 @@ const handleConfirmSave = async () => {
       await queryAPI.updateSavedSQL(existing.id, {
         name: saveForm.value.name,
         datasource_id: dsId,
+        database: selectedDatabase.value,
         sql_text: sqlText.value,
         description: saveForm.value.description,
         is_public: saveForm.value.is_public
@@ -2319,6 +2320,7 @@ const handleConfirmSave = async () => {
       await queryAPI.saveSQL({
         name: saveForm.value.name,
         datasource_id: dsId,
+        database: selectedDatabase.value,
         sql_text: sqlText.value,
         description: saveForm.value.description,
         is_public: saveForm.value.is_public
@@ -2402,11 +2404,13 @@ const formatTime = (seconds?: number) => {
 const initFromRoute = () => {
   const dsId = route.query?.datasource_id as string;
   const sql = route.query?.sql as string;
+  const dbName = route.query?.database as string;
   if (dsId != null && dsId !== '') {
     const parsedId = parseInt(dsId);
     if (!isNaN(parsedId)) {
       selectedDatasourceId.value = parsedId;
-      handleDatasourceChange();
+      // 若路由携带 database 参数，传入 handleDatasourceChangeForTab 以便加载数据库列表后自动选中
+      handleDatasourceChangeForTab(parsedId, dbName || '');
     }
   }
   if (sql && editorView) {

@@ -1194,8 +1194,17 @@ const handleSaveConfirm = async () => {
 
   saving.value = true
   try {
+    // Determine request body based on mode (mirrors handleSend logic)
+    // In form mode, formData is the source of truth; without this serialization
+    // the saved request_body would be the auto-generated template, not user input.
+    let requestBody = requestConfig.value.request_body
+    if (requestMode.value === 'form' && currentMessageDef.value) {
+      requestBody = JSON.stringify(formData.value)
+    }
+
     const config: GRPCRequestConfig = {
       ...requestConfig.value,
+      request_body: requestBody,
       use_reflection: connectionMode.value === 'reflection',
       metadata: metadata.value.filter(m => m.key),
     }
@@ -1251,6 +1260,29 @@ const handleLoadTest = async (item: ApiTest) => {
     if (config.proto_file_id) {
       selectedProtoFileId.value = config.proto_file_id
       await handleProtoFileChange(config.proto_file_id)
+
+      // Restore currentMessageDef and formData from the saved request_body.
+      // handleProtoFileChange resets currentMessageDef=null and formData={};
+      // without this restoration the form would appear empty after loading.
+      if (config.service && config.method) {
+        const svc = protoServices.value.find(s => s.name === config.service)
+        const method = svc?.methods.find(m => m.name === config.method)
+        if (method) {
+          const inputType = method.input_type
+          const msgDef = messageDefs.value.find(m =>
+            m.full_name === inputType || m.name === inputType ||
+            m.full_name.endsWith('.' + inputType)
+          )
+          if (msgDef) {
+            currentMessageDef.value = msgDef
+            try {
+              formData.value = JSON.parse(requestConfig.value.request_body || '{}')
+            } catch {
+              formData.value = {}
+            }
+          }
+        }
+      }
     } else {
       protoServices.value = []
       selectedProtoFileId.value = null

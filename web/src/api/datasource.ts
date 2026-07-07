@@ -1,5 +1,5 @@
 import api from '@/utils/api'
-import type { Datasource, DatasourcePermission, QueryResult, QueryHistory, SavedSQL, TableInfo, ColumnInfo, SystemConfigItem } from '@/types'
+import type { Datasource, DatasourcePermission, QueryResult, QueryHistory, SavedSQL, TableInfo, ColumnInfo } from '@/types'
 import type { AxiosProgressEvent } from 'axios'
 
 export const datasourceAPI = {
@@ -68,17 +68,10 @@ export const queryAPI = {
     api.post('/query/history/batch-delete', { ids }),
   listSavedSQL: (params?: { domain_id?: number; page?: number; page_size?: number; search?: string }) =>
     api.get<{ items: SavedSQL[]; total: number; page: number; page_size: number }>('/query/saved-sql', { params }),
-  saveSQL: (data: { name: string; datasource_id: number; sql_text: string; description?: string; is_public?: boolean }) =>
+  saveSQL: (data: { name: string; datasource_id: number; database?: string; sql_text: string; description?: string; is_public?: boolean }) =>
     api.post('/query/saved-sql', data),
-  updateSavedSQL: (id: number, data: { name: string; datasource_id: number; sql_text: string; description?: string; is_public?: boolean }) =>
+  updateSavedSQL: (id: number, data: { name: string; datasource_id: number; database?: string; sql_text: string; description?: string; is_public?: boolean }) =>
     api.put(`/query/saved-sql/${id}`, data),
   deleteSavedSQL: (id: number) =>
     api.delete(`/query/saved-sql/${id}`),
-}
-
-export const systemConfigAPI = {
-  list: () =>
-    api.get<SystemConfigItem[]>('/admin/system-config'),
-  update: (key: string, value: { value: string }) =>
-    api.put(`/admin/system-config/${key}`, value),
 }

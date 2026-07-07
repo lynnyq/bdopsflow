@@ -248,34 +248,6 @@ export interface PermissionGroup {
   permissions: Permission[]
 }
 
-export interface AuditLog {
-  id: number
-  user_id: number
-  username: string
-  real_name: string
-  role: string
-  domain_id: number
-  action: string
-  resource: string
-  resource_id: string
-  resource_name: string
-  status: string
-  ip_address: string
-  user_agent: string
-  request_method: string
-  request_path: string
-  detail: string
-  created_at: string
-}
-
-export interface SystemConfig {
-  id: number
-  config_key: string
-  config_value: string
-  description: string
-  updated_at: string
-}
-
 export interface MenuPermissionDef {
   key: string
   label: string
@@ -361,6 +333,8 @@ export interface SavedSQL {
   id: number
   name: string
   datasource_id: number
+  datasource_name?: string
+  database?: string
   sql_text: string
   description?: string
   created_by?: number

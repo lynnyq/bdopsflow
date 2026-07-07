@@ -298,7 +298,7 @@ func TestExecuteQuerySafe_PanicRecovery(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer func() { done <- struct{}{} }()
-		h.executeQuerySafe(ctx, cancel, queryID, ds, req, 1, 1)
+		h.executeQuerySafe(ctx, cancel, queryID, ds, req, 1, 1, 1000)
 	}()
 
 	<-done

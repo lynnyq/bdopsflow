@@ -21,7 +21,7 @@
         <el-table-column prop="name" label="名称" :min-width="150" show-overflow-tooltip />
         <el-table-column label="数据源" width="150">
           <template #default="{ row }">
-            {{ row.datasource_name || row.datasource_id }}
+            {{ row.datasource_name || '-' }}
           </template>
         </el-table-column>
         <el-table-column label="保存用户" width="120" align="center">
@@ -105,6 +105,9 @@
             />
           </el-select>
         </el-form-item>
+        <el-form-item label="数据库">
+          <el-input v-model="editForm.database" placeholder="可选，留空使用默认数据库" />
+        </el-form-item>
         <el-form-item label="SQL 语句" prop="sql_text">
           <el-input
             v-model="editForm.sql_text"
@@ -158,6 +161,7 @@ const editFormRef = ref()
 const editForm = ref({
   name: '',
   datasource_id: 0 as number,
+  database: '',
   sql_text: '',
   description: '',
   is_public: false
@@ -236,6 +240,9 @@ const handleLoad = (row: SavedSQL) => {
   if (row.datasource_id != null) {
     query.datasource_id = String(row.datasource_id)
   }
+  if (row.database) {
+    query.database = row.database
+  }
   router.push({
     name: 'SQLQuery',
     query,
@@ -247,6 +254,7 @@ const handleEdit = (row: SavedSQL) => {
   editForm.value = {
     name: row.name,
     datasource_id: row.datasource_id,
+    database: row.database || '',
     sql_text: row.sql_text,
     description: row.description || '',
     is_public: row.is_public
@@ -265,6 +273,7 @@ const handleConfirmEdit = async () => {
     await queryAPI.updateSavedSQL(editingId.value, {
       name: editForm.value.name,
       datasource_id: editForm.value.datasource_id,
+      database: editForm.value.database,
       sql_text: editForm.value.sql_text,
       description: editForm.value.description,
       is_public: editForm.value.is_public
