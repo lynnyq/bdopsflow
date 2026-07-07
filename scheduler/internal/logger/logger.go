@@ -9,21 +9,43 @@ import (
 )
 
 var (
+	// Logger 全局 logger 指针，并发访问由 loggerMu 保护。
+	// 外部代码可读取此字段用于诊断，调用日志函数请使用 Info/Error/Warn/Debug。
 	Logger     *slog.Logger
+	loggerMu   sync.RWMutex
 	logFile    *os.File
 	logFileMu  sync.Mutex
 	logLevel   string
 	logFormat  string
 	logPath    string
+	initMu     sync.Mutex
 )
 
+// getLogger 安全地获取当前 logger。
+func getLogger() *slog.Logger {
+	loggerMu.RLock()
+	defer loggerMu.RUnlock()
+	return Logger
+}
+
+// setLogger 安全地设置当前 logger。
+func setLogger(l *slog.Logger) {
+	loggerMu.Lock()
+	Logger = l
+	loggerMu.Unlock()
+}
+
 func Init(level string, format string) {
+	initMu.Lock()
+	defer initMu.Unlock()
 	logLevel = level
 	logFormat = format
 	initializeLogger(level, format, "")
 }
 
 func InitWithFile(level string, format string, filePath string) {
+	initMu.Lock()
+	defer initMu.Unlock()
 	logLevel = level
 	logFormat = format
 	logPath = filePath
@@ -58,8 +80,9 @@ func initializeLogger(level string, format string, filePath string) {
 		handler = slog.NewJSONHandler(writer, opts)
 	}
 
-	Logger = slog.New(handler)
-	slog.SetDefault(Logger)
+	newLogger := slog.New(handler)
+	setLogger(newLogger)
+	slog.SetDefault(newLogger)
 	log.SetOutput(io.Discard)
 
 	slog.Info("logger initialized", "level", level, "format", format, "log_file", filePath)
@@ -79,19 +102,19 @@ func parseLevel(level string) slog.Level {
 }
 
 func Info(msg string, args ...any) {
-	Logger.Info(msg, args...)
+	getLogger().Info(msg, args...)
 }
 
 func Error(msg string, args ...any) {
-	Logger.Error(msg, args...)
+	getLogger().Error(msg, args...)
 }
 
 func Warn(msg string, args ...any) {
-	Logger.Warn(msg, args...)
+	getLogger().Warn(msg, args...)
 }
 
 func Debug(msg string, args ...any) {
-	Logger.Debug(msg, args...)
+	getLogger().Debug(msg, args...)
 }
 
 func ReopenLogFile() error {
@@ -128,8 +151,9 @@ func ReopenLogFile() error {
 		handler = slog.NewJSONHandler(logFile, opts)
 	}
 
-	Logger = slog.New(handler)
-	slog.SetDefault(Logger)
+	newLogger := slog.New(handler)
+	setLogger(newLogger)
+	slog.SetDefault(newLogger)
 	log.SetOutput(io.Discard)
 
 	slog.Info("log file reopened successfully", "log_file", logPath)

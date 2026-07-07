@@ -11,24 +11,24 @@ import (
 type TaskFunc func(ctx context.Context) error
 
 type Pool struct {
-	capacity  int32
-	running   int32
-	taskQueue chan TaskFunc
-	wg        sync.WaitGroup
-	ctx       context.Context
-	cancel    context.CancelFunc
-	mu        sync.RWMutex
-	workers   []context.CancelFunc
+	capacity int32
+	running  int64
+	ctx      context.Context
+	cancel   context.CancelFunc
+	mu       sync.RWMutex
+	workers  []context.CancelFunc
+	taskCh   chan TaskFunc
+	wg       sync.WaitGroup
 }
 
 func NewPool(capacity int32) *Pool {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Pool{
-		capacity:  capacity,
-		taskQueue: make(chan TaskFunc, capacity*2),
-		ctx:       ctx,
-		cancel:    cancel,
-		workers:   make([]context.CancelFunc, 0, capacity),
+		capacity: capacity,
+		taskCh:   make(chan TaskFunc, capacity*2),
+		ctx:      ctx,
+		cancel:   cancel,
+		workers:  make([]context.CancelFunc, 0, capacity),
 	}
 }
 
@@ -49,14 +49,19 @@ func (p *Pool) startWorker() {
 	go func() {
 		defer p.wg.Done()
 		for {
+			// 在读 channel 前重新读取 taskCh 引用，保证后续 UpdateCapacity 替换队列后
+			// 新的任务会被发送到新队列。
+			ch := p.getTaskCh()
 			select {
-			case task, ok := <-p.taskQueue:
+			case task, ok := <-ch:
 				if !ok {
 					return
 				}
-				atomic.AddInt32(&p.running, 1)
-				_ = task(p.ctx)
-				atomic.AddInt32(&p.running, -1)
+				atomic.AddInt64(&p.running, 1)
+				if err := task(p.ctx); err != nil {
+					slog.Error("pool task execution failed", "error", err)
+				}
+				atomic.AddInt64(&p.running, -1)
 			case <-workerCtx.Done():
 				return
 			}
@@ -64,26 +69,17 @@ func (p *Pool) startWorker() {
 	}()
 }
 
-func (p *Pool) worker() {
-	defer p.wg.Done()
-	for {
-		select {
-		case task, ok := <-p.taskQueue:
-			if !ok {
-				return
-			}
-			atomic.AddInt32(&p.running, 1)
-			_ = task(p.ctx)
-			atomic.AddInt32(&p.running, -1)
-		case <-p.ctx.Done():
-			return
-		}
-	}
+// getTaskCh 安全地获取当前任务 channel 引用。
+func (p *Pool) getTaskCh() chan TaskFunc {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.taskCh
 }
 
 func (p *Pool) Submit(task TaskFunc) error {
+	ch := p.getTaskCh()
 	select {
-	case p.taskQueue <- task:
+	case ch <- task:
 		return nil
 	default:
 		return fmt.Errorf("task queue full")
@@ -91,20 +87,22 @@ func (p *Pool) Submit(task TaskFunc) error {
 }
 
 func (p *Pool) Running() int32 {
-	return atomic.LoadInt32(&p.running)
+	return int32(atomic.LoadInt64(&p.running))
 }
 
 func (p *Pool) IncRunning() {
-	atomic.AddInt32(&p.running, 1)
+	atomic.AddInt64(&p.running, 1)
 }
 
 func (p *Pool) DecRunning() {
-	atomic.AddInt32(&p.running, -1)
+	atomic.AddInt64(&p.running, -1)
 }
 
 func (p *Pool) Stop() {
 	p.cancel()
-	close(p.taskQueue)
+	p.mu.Lock()
+	close(p.taskCh)
+	p.mu.Unlock()
 	p.wg.Wait()
 }
 
@@ -116,7 +114,7 @@ func (p *Pool) UpdateCapacity(newCapacity int32) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	oldCapacity := atomic.LoadInt32(&p.capacity)
+	oldCapacity := p.capacity
 	if newCapacity == oldCapacity {
 		return nil
 	}
@@ -142,21 +140,19 @@ func (p *Pool) UpdateCapacity(newCapacity int32) error {
 		}
 	}
 
-	atomic.StoreInt32(&p.capacity, newCapacity)
+	p.capacity = newCapacity
 
-	// 更新队列大小，但需要重新创建队列
-	if newCapacity != oldCapacity {
-		oldQueue := p.taskQueue
-		p.taskQueue = make(chan TaskFunc, newCapacity*2)
+	// 更新队列大小，重新创建队列
+	oldQueue := p.taskCh
+	p.taskCh = make(chan TaskFunc, newCapacity*2)
 
-		// 移动已有的任务到新队列
-		close(oldQueue)
-		for task := range oldQueue {
-			select {
-			case p.taskQueue <- task:
-			default:
-				slog.Warn("task dropped during capacity update")
-			}
+	// 移动已有的任务到新队列
+	close(oldQueue)
+	for task := range oldQueue {
+		select {
+		case p.taskCh <- task:
+		default:
+			slog.Warn("task dropped during capacity update")
 		}
 	}
 
@@ -164,5 +160,7 @@ func (p *Pool) UpdateCapacity(newCapacity int32) error {
 }
 
 func (p *Pool) Capacity() int32 {
-	return atomic.LoadInt32(&p.capacity)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.capacity
 }

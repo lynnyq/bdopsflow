@@ -451,38 +451,46 @@ func (e *TaskExecutor) executeShell(ctx context.Context, task *pb.Task, client *
 	}
 
 	// 监听 context 取消信号，杀死整个进程组
+	// 使用 done channel 同步 cmd.Wait() 完成，避免在外部 goroutine 读取 cmd.ProcessState
+	done := make(chan struct{})
 	go func() {
-		<-ctx.Done()
-		if ctx.Err() == context.Canceled || ctx.Err() == context.DeadlineExceeded {
-			// 向进程组发送 SIGTERM，杀死整个进程树
-			if cmd.Process != nil {
-				pgid, err := syscall.Getpgid(cmd.Process.Pid)
-				if err == nil {
-					// 向进程组发送信号（负 PID 表示进程组）
-					if err := syscall.Kill(-pgid, syscall.SIGTERM); err != nil {
-						slog.Warn("failed to send SIGTERM to process group",
-							"execution_id", task.ExecutionId,
-							"pgid", pgid,
-							"error", err)
-						// 降级：直接杀死主进程
-						cmd.Process.Kill()
-					} else {
-						slog.Info("sent SIGTERM to process group",
-							"execution_id", task.ExecutionId,
-							"pgid", pgid)
-						// 等待一小段时间，如果进程还没退出，发送 SIGKILL
-						time.Sleep(3 * time.Second)
-						if cmd.ProcessState == nil {
+		select {
+		case <-ctx.Done():
+			if ctx.Err() == context.Canceled || ctx.Err() == context.DeadlineExceeded {
+				// 向进程组发送 SIGTERM，杀死整个进程树
+				if cmd.Process != nil {
+					pgid, err := syscall.Getpgid(cmd.Process.Pid)
+					if err == nil {
+						// 向进程组发送信号（负 PID 表示进程组）
+						if err := syscall.Kill(-pgid, syscall.SIGTERM); err != nil {
+							slog.Warn("failed to send SIGTERM to process group",
+								"execution_id", task.ExecutionId,
+								"pgid", pgid,
+								"error", err)
+							// 降级：直接杀死主进程
+							cmd.Process.Kill()
+						} else {
+							slog.Info("sent SIGTERM to process group",
+								"execution_id", task.ExecutionId,
+								"pgid", pgid)
+							// 等待 SIGKILL 升级或进程自然退出
+							select {
+							case <-done:
+								return
+							case <-time.After(3 * time.Second):
+							}
 							syscall.Kill(-pgid, syscall.SIGKILL)
 							slog.Info("sent SIGKILL to process group",
 								"execution_id", task.ExecutionId,
 								"pgid", pgid)
 						}
+					} else {
+						cmd.Process.Kill()
 					}
-				} else {
-					cmd.Process.Kill()
 				}
 			}
+		case <-done:
+			// cmd.Wait() 已完成，无需操作
 		}
 	}()
 
@@ -530,6 +538,8 @@ func (e *TaskExecutor) executeShell(ctx context.Context, task *pb.Task, client *
 	}()
 
 	err = cmd.Wait()
+	// 通知取消监听 goroutine 进程已退出，避免其继续访问 cmd 相关字段
+	close(done)
 	wg.Wait() // 等待所有读取 goroutine 完成
 
 	output := fullOutput.String()
