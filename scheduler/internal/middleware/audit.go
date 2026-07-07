@@ -2,7 +2,9 @@ package middleware
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"net/http"
 	"strings"
 	"time"
 
@@ -62,6 +64,8 @@ var routePrefixRules = []struct {
 	{"/api/executors/", "executor"},
 	{"/api/query/saved-sql/", "saved_sql"},
 	{"/api/query/history/", "query_history"},
+	{"/api/query/clear-cache/", "datasource"},
+	{"/api/query/cancel/", "query"},
 	{"/api/logs/", "log"},
 	{"/api/interfaces/", "api_test"},
 	{"/api/certificates/", "certificate"},
@@ -79,6 +83,14 @@ func AuditMiddleware(auditService *service.AuditLogService) gin.HandlerFunc {
 
 		path := c.Request.URL.Path
 
+		// 用 defer recover 包裹 c.Next()，确保 handler panic 时仍能记录审计日志。
+		// panic 时 Gin 的 Recovery 中间件会捕获并返回 500，但若不在此处 recover，
+		// 后续审计日志构造和异步写入代码不会执行，导致最重要的故障场景无审计记录。
+		defer func() {
+			if r := recover(); r != nil {
+				c.AbortWithStatus(http.StatusInternalServerError)
+			}
+		}()
 		c.Next()
 
 		resource, action := resolveAuditInfo(method, path)
@@ -104,8 +116,9 @@ func AuditMiddleware(auditService *service.AuditLogService) gin.HandlerFunc {
 		role, _ := c.Get("role")
 		domainID, _ := c.Get("current_domain_id")
 
+		responseCode := c.Writer.Status()
 		status := "success"
-		if c.Writer.Status() >= 400 {
+		if responseCode >= 400 {
 			status = "failure"
 		}
 
@@ -134,11 +147,12 @@ func AuditMiddleware(auditService *service.AuditLogService) gin.HandlerFunc {
 			ResourceID:    toString(resourceID),
 			ResourceName:  toString(resourceName),
 			Status:        status,
+			ResponseCode:  responseCode,
 			IPAddress:     c.ClientIP(),
 			UserAgent:     truncateString(c.Request.UserAgent(), 500),
 			RequestMethod: method,
 			RequestPath:   path,
-			Detail:        toString(detail),
+			Detail:        truncateString(toString(detail), 2000),
 			CreatedAt:     time.Now(),
 		}
 
@@ -149,11 +163,27 @@ func AuditMiddleware(auditService *service.AuditLogService) gin.HandlerFunc {
 			"resource", resource,
 			"action", action,
 			"status", status,
+			"response_code", responseCode,
 			"user_id", auditUserID,
 		)
 
+		// 异步写入审计日志，不阻塞主请求。
+		// goroutine 内加 recover，防止 Create panic 导致 goroutine 崩溃且无错误日志。
 		go func() {
-			if err := auditService.Create(context.Background(), auditLog); err != nil {
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("audit log goroutine panicked",
+						"module", "middleware_audit",
+						"recover", r,
+						"action", action,
+						"resource", resource,
+						"path", path,
+					)
+				}
+			}()
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := auditService.Create(ctx, auditLog); err != nil {
 				slog.Error("failed to write audit log", "module", "middleware_audit", "error", err, "action", action, "resource", resource)
 			}
 		}()
@@ -202,6 +232,10 @@ func resolveAuditInfo(method, path string) (resource, action string) {
 		action = "delete"
 	} else if strings.Contains(path, "/clean") {
 		action = "clean"
+	} else if strings.Contains(path, "/clear-cache") {
+		action = "clear_cache"
+	} else if strings.Contains(path, "/cancel") {
+		action = "cancel"
 	} else if strings.Contains(path, "/pause") {
 		action = "pause"
 	} else if strings.Contains(path, "/resume") {
@@ -221,6 +255,8 @@ func resolveAuditInfo(method, path string) (resource, action string) {
 	return resource, action
 }
 
+// toString 将 gin.Context 中的任意值转为字符串。
+// 支持非 string 类型（如 int、float），避免 handler 设置 int 类型的 resource_id 时丢失。
 func toString(v interface{}) string {
 	if v == nil {
 		return ""
@@ -228,12 +264,14 @@ func toString(v interface{}) string {
 	if s, ok := v.(string); ok {
 		return s
 	}
-	return ""
+	return fmt.Sprintf("%v", v)
 }
 
-func truncateString(s string, maxLen int) string {
-	if len(s) <= maxLen {
+// truncateString 按 rune 截断字符串，避免截断 UTF-8 多字节字符产生乱码。
+func truncateString(s string, maxRunes int) string {
+	r := []rune(s)
+	if len(r) <= maxRunes {
 		return s
 	}
-	return s[:maxLen]
+	return string(r[:maxRunes])
 }

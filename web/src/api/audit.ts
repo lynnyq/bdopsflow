@@ -12,6 +12,7 @@ export interface AuditLog {
   resource_id?: string
   resource_name?: string
   status: string
+  response_code?: number
   ip_address?: string
   user_agent?: string
   request_method?: string
@@ -37,6 +38,7 @@ export const auditLogAPI = {
     action?: string
     resource?: string
     status?: string
+    domain_id?: number
     start_time?: string
     end_time?: string
     page?: number

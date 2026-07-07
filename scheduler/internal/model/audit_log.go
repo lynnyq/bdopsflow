@@ -14,6 +14,7 @@ type AuditLog struct {
 	ResourceID    string    `db:"resource_id" json:"resource_id,omitempty"`
 	ResourceName  string    `db:"resource_name" json:"resource_name,omitempty"`
 	Status        string    `db:"status" json:"status"`
+	ResponseCode  int       `db:"response_code" json:"response_code"`
 	IPAddress     string    `db:"ip_address" json:"ip_address,omitempty"`
 	UserAgent     string    `db:"user_agent" json:"user_agent,omitempty"`
 	RequestMethod string    `db:"request_method" json:"request_method,omitempty"`
@@ -27,6 +28,7 @@ type AuditLogFilter struct {
 	Action    string `form:"action"`
 	Resource  string `form:"resource"`
 	Status    string `form:"status"`
+	DomainID  int64  `form:"domain_id"`
 	StartTime string `form:"start_time"`
 	EndTime   string `form:"end_time"`
 	Page      int    `form:"page"`

@@ -10,7 +10,7 @@
           class="search-input"
           clearable
           @clear="handleSearch"
-          @keyup.enter="handleSearch"
+          @input="debouncedSearch"
         />
         <el-select v-model="filterForm.action" placeholder="操作类型" clearable class="filter-select" @change="handleSearch">
           <el-option v-for="item in actionOptions" :key="item.value" :label="item.label" :value="item.value" />
@@ -22,23 +22,68 @@
           <el-option label="成功" value="success" />
           <el-option label="失败" value="failure" />
         </el-select>
-        <el-date-picker
-          v-model="dateRange"
-          type="datetimerange"
-          range-separator="至"
-          start-placeholder="开始时间"
-          end-placeholder="结束时间"
-          format="YYYY-MM-DD HH:mm:ss"
-          value-format="YYYY-MM-DD HH:mm:ss"
-          class="date-picker"
-          @change="handleDateChange"
-        />
       </div>
       <div class="toolbar-right">
+        <el-button text @click="showAdvancedFilters = !showAdvancedFilters" class="advanced-filter-btn">
+          <el-icon><Filter /></el-icon>
+          高级筛选
+          <span v-if="activeFilterCount > 0" class="filter-count-badge">{{ activeFilterCount }}</span>
+          <el-icon class="arrow-icon" :class="{ 'is-active': showAdvancedFilters }">
+            <ArrowDown />
+          </el-icon>
+        </el-button>
         <el-button :icon="Refresh" @click="handleSearch" :loading="loading">刷新</el-button>
         <el-button :icon="Delete" @click="handleCleanExpired" type="warning">
           清理过期
         </el-button>
+      </div>
+    </div>
+
+    <!-- 高级筛选区域：时间范围 + 保留天数 + 重置 -->
+    <div v-if="showAdvancedFilters" class="advanced-filters">
+      <div class="advanced-filters-row">
+        <div class="filter-group">
+          <span class="filter-label">时间范围</span>
+          <el-date-picker
+            v-model="dateRange"
+            type="datetimerange"
+            range-separator="至"
+            start-placeholder="开始时间"
+            end-placeholder="结束时间"
+            format="YYYY-MM-DD HH:mm:ss"
+            value-format="YYYY-MM-DD HH:mm:ss"
+            class="filter-date"
+            @change="handleDateChange"
+          />
+        </div>
+        <div class="filter-group">
+          <span class="filter-label">保留天数</span>
+          <div class="retention-control">
+            <el-input-number
+              v-model="retentionDays"
+              :min="1"
+              :max="3650"
+              :step="1"
+              size="small"
+              controls-position="right"
+              class="retention-input"
+              :loading="retentionLoading"
+            />
+            <el-button
+              size="small"
+              type="primary"
+              plain
+              :loading="retentionSaving"
+              :disabled="retentionDays === originalRetentionDays"
+              @click="handleUpdateRetention"
+            >
+              保存
+            </el-button>
+          </div>
+        </div>
+        <div class="filter-group filter-actions">
+          <el-button @click="resetFilters" size="small">重置</el-button>
+        </div>
       </div>
     </div>
 
@@ -93,6 +138,11 @@
           </template>
         </el-table-column>
         <el-table-column prop="request_path" label="路径" min-width="180" show-overflow-tooltip />
+        <el-table-column label="操作" width="80" align="center" fixed="right">
+          <template #default="{ row }">
+            <el-button link type="primary" size="small" @click="showDetail(row)">详情</el-button>
+          </template>
+        </el-table-column>
         <template #empty>
           <div class="table-empty-state">
             <el-icon :size="32"><Document /></el-icon>
@@ -100,7 +150,7 @@
           </div>
         </template>
       </el-table>
-      
+
       <div class="pagination-container">
         <el-pagination
           v-model:current-page="currentPage"
@@ -113,13 +163,48 @@
         />
       </div>
     </div>
+
+    <!-- 详情抽屉：展示单条审计日志的完整信息（包括 detail、user_agent 等不在表格中显示的字段） -->
+    <el-drawer
+      v-model="detailVisible"
+      title="审计日志详情"
+      direction="rtl"
+      size="500px"
+    >
+      <div v-if="currentDetail" class="detail-content">
+        <div class="detail-row"><span class="label">时间</span><span>{{ formatTime(currentDetail.created_at) }}</span></div>
+        <div class="detail-row"><span class="label">操作人</span><span>{{ currentDetail.real_name || currentDetail.username }}</span></div>
+        <div class="detail-row"><span class="label">用户名</span><span>{{ currentDetail.username }}</span></div>
+        <div class="detail-row"><span class="label">角色</span><span>{{ currentDetail.role || '-' }}</span></div>
+        <div class="detail-row"><span class="label">域 ID</span><span>{{ currentDetail.domain_id ?? '-' }}</span></div>
+        <div class="detail-row"><span class="label">操作类型</span><span>{{ getActionLabel(currentDetail.action) }} ({{ currentDetail.action }})</span></div>
+        <div class="detail-row"><span class="label">资源类型</span><span>{{ getResourceLabel(currentDetail.resource) }} ({{ currentDetail.resource }})</span></div>
+        <div class="detail-row"><span class="label">资源 ID</span><span>{{ currentDetail.resource_id || '-' }}</span></div>
+        <div class="detail-row"><span class="label">资源名称</span><span>{{ currentDetail.resource_name || '-' }}</span></div>
+        <div class="detail-row">
+          <span class="label">状态</span>
+          <el-tag :type="currentDetail.status === 'success' ? 'success' : 'danger'" size="small">
+            {{ currentDetail.status === 'success' ? '成功' : '失败' }}
+          </el-tag>
+        </div>
+        <div class="detail-row"><span class="label">响应码</span><span>{{ currentDetail.response_code ?? '-' }}</span></div>
+        <div class="detail-row"><span class="label">IP 地址</span><span>{{ currentDetail.ip_address || '-' }}</span></div>
+        <div class="detail-row"><span class="label">请求方法</span><span>{{ currentDetail.request_method || '-' }}</span></div>
+        <div class="detail-row"><span class="label">请求路径</span><span class="mono">{{ currentDetail.request_path || '-' }}</span></div>
+        <div class="detail-row"><span class="label">User Agent</span><span class="mono">{{ currentDetail.user_agent || '-' }}</span></div>
+        <div class="detail-row detail-detail">
+          <span class="label">详情</span>
+          <pre class="detail-pre">{{ currentDetail.detail || '-' }}</pre>
+        </div>
+      </div>
+    </el-drawer>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Delete, Search, Refresh, Document } from '@element-plus/icons-vue'
+import { Delete, Search, Refresh, Document, Filter, ArrowDown } from '@element-plus/icons-vue'
 import { auditLogAPI } from '@/api'
 import { isHandledError } from '@/utils/api'
 import type { AuditLog } from '@/api/audit'
@@ -132,11 +217,38 @@ const pageSize = ref(20)
 const dateRange = ref<[string, string] | null>(null)
 const searchQuery = ref('')
 
+// 高级筛选区域展开/收起状态
+const showAdvancedFilters = ref(false)
+
+// 审计日志详情抽屉
+const detailVisible = ref(false)
+const currentDetail = ref<AuditLog | null>(null)
+
+// 审计日志保留天数：从后端 audit_log.retention_days 读取，支持在页面内修改
+const retentionDays = ref(90)
+const originalRetentionDays = ref(90)
+const retentionLoading = ref(false)
+const retentionSaving = ref(false)
+
+// 搜索防抖定时器
+let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null
+
 const filterForm = ref({
   username: '',
   action: '',
   resource: '',
   status: '',
+})
+
+// 当前生效的筛选条件数量（用于高级筛选按钮上的徽标提示）
+const activeFilterCount = computed(() => {
+  let count = 0
+  if (searchQuery.value) count++
+  if (filterForm.value.action) count++
+  if (filterForm.value.resource) count++
+  if (filterForm.value.status) count++
+  if (dateRange.value && dateRange.value[0]) count++
+  return count
 })
 
 const actionOptions = [
@@ -159,6 +271,17 @@ const actionOptions = [
   { value: 'resume', label: '恢复' },
   { value: 'online', label: '上线' },
   { value: 'offline', label: '下线' },
+  { value: 'generate_curl', label: '生成CURL' },
+  { value: 'delete_result', label: '删除结果' },
+  { value: 'parse', label: '解析Proto' },
+  { value: 'reflect', label: '反射调用' },
+  { value: 'generate_template', label: '生成模板' },
+  { value: 'generate_fields', label: '生成字段' },
+  { value: 'reveal', label: '查看Token' },
+  { value: 'cancel', label: '取消查询' },
+  { value: 'clear_cache', label: '清理缓存' },
+  { value: 'update_profile', label: '更新资料' },
+  { value: 'generate', label: '生成Token' },
 ]
 
 const resourceOptions = [
@@ -174,6 +297,10 @@ const resourceOptions = [
   { value: 'saved_sql', label: '保存SQL' },
   { value: 'query_history', label: '查询历史' },
   { value: 'log', label: '日志' },
+  { value: 'api_test', label: '接口测试' },
+  { value: 'certificate', label: '证书' },
+  { value: 'proto_file', label: 'Proto文件' },
+  { value: 'api_token', label: 'API令牌' },
 ]
 
 const actionLabelMap: Record<string, string> = Object.fromEntries(actionOptions.map(o => [o.value, o.label]))
@@ -203,9 +330,9 @@ const getRoleTagType = (role: string) => {
 }
 
 const getActionTagType = (action: string) => {
-  if (['create', 'login', 'register', 'online', 'resume'].includes(action)) return 'success'
-  if (['update', 'assign', 'change_password', 'config_change', 'trigger', 'test_connection', 'execute', 'export'].includes(action)) return 'warning'
-  if (['delete', 'revoke', 'reset_password', 'offline', 'pause', 'clean'].includes(action)) return 'danger'
+  if (['create', 'login', 'register', 'online', 'resume', 'generate'].includes(action)) return 'success'
+  if (['update', 'assign', 'change_password', 'config_change', 'trigger', 'test_connection', 'execute', 'export', 'update_profile'].includes(action)) return 'warning'
+  if (['delete', 'revoke', 'reset_password', 'offline', 'pause', 'clean', 'cancel', 'clear_cache'].includes(action)) return 'danger'
   return 'info'
 }
 
@@ -229,6 +356,37 @@ const formatTime = (t: string) => {
 }
 
 const handleDateChange = () => {
+  handleSearch()
+}
+
+// 搜索输入防抖：300ms 内连续输入只触发一次查询，避免频繁 API 调用
+const debouncedSearch = () => {
+  if (searchDebounceTimer) {
+    clearTimeout(searchDebounceTimer)
+  }
+  searchDebounceTimer = setTimeout(() => {
+    currentPage.value = 1
+    handleSearch()
+  }, 300)
+}
+
+// 展示单条审计日志详情
+const showDetail = (row: AuditLog) => {
+  currentDetail.value = row
+  detailVisible.value = true
+}
+
+// 重置所有筛选条件
+const resetFilters = () => {
+  searchQuery.value = ''
+  filterForm.value = {
+    username: '',
+    action: '',
+    resource: '',
+    status: '',
+  }
+  dateRange.value = null
+  currentPage.value = 1
   handleSearch()
 }
 
@@ -265,7 +423,7 @@ const handleSearch = async () => {
 const handleCleanExpired = async () => {
   try {
     await ElMessageBox.confirm(
-      '确认清理过期的审计日志？系统将根据保留天数配置自动清理过期记录。',
+      `确认清理过期的审计日志？系统将根据保留天数（${retentionDays.value} 天）自动清理过期记录。`,
       '清理确认',
       { confirmButtonText: '确认清理', cancelButtonText: '取消', type: 'warning' }
     )
@@ -273,13 +431,65 @@ const handleCleanExpired = async () => {
     const data = response.data
     ElMessage.success(`清理完成，共删除 ${data?.deleted_count || 0} 条过期日志`)
     handleSearch()
-  } catch {
-    // cancelled
+  } catch (err: any) {
+    // ElMessageBox 取消时 reject 的值是 'cancel' / 'close'，非错误
+    if (err !== 'cancel' && err !== 'close') {
+      if (!isHandledError(err)) {
+        ElMessage.error(err?.message || '清理失败')
+      }
+    }
+  }
+}
+
+// 加载当前保留天数配置
+const loadRetention = async () => {
+  retentionLoading.value = true
+  try {
+    const res = await auditLogAPI.getRetention()
+    const days = res.data?.retention_days
+    if (typeof days === 'number' && days > 0) {
+      retentionDays.value = days
+      originalRetentionDays.value = days
+    }
+  } catch (err: any) {
+    if (!isHandledError(err)) {
+      ElMessage.error(err?.message || '加载保留天数失败')
+    }
+  } finally {
+    retentionLoading.value = false
+  }
+}
+
+// 修改保留天数，成功后同步 originalRetentionDays（用于"保存"按钮 disabled 判断）
+const handleUpdateRetention = async () => {
+  if (retentionDays.value === originalRetentionDays.value) return
+  retentionSaving.value = true
+  try {
+    await auditLogAPI.updateRetention(retentionDays.value)
+    originalRetentionDays.value = retentionDays.value
+    ElMessage.success('保留天数已更新')
+  } catch (err: any) {
+    if (!isHandledError(err)) {
+      ElMessage.error(err?.message || '更新保留天数失败')
+    }
+    // 失败时回滚到原始值
+    retentionDays.value = originalRetentionDays.value
+  } finally {
+    retentionSaving.value = false
   }
 }
 
 onMounted(() => {
   handleSearch()
+  loadRetention()
+})
+
+// 组件卸载时清理防抖定时器，避免内存泄漏
+onUnmounted(() => {
+  if (searchDebounceTimer) {
+    clearTimeout(searchDebounceTimer)
+    searchDebounceTimer = null
+  }
 })
 </script>
 
@@ -333,6 +543,119 @@ onMounted(() => {
   gap: var(--space-3);
 }
 
+/* 高级筛选按钮 */
+.advanced-filter-btn {
+  font-weight: 500;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  color: var(--text-primary);
+  border-radius: var(--radius-md);
+  box-shadow: none;
+  transition: all var(--duration-normal) var(--ease-out);
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+}
+
+.advanced-filter-btn:hover {
+  background: var(--bg-primary);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-sm);
+}
+
+.advanced-filter-btn .arrow-icon {
+  transition: transform var(--duration-normal) var(--ease-out);
+}
+
+.advanced-filter-btn .arrow-icon.is-active {
+  transform: rotate(180deg);
+}
+
+/* 筛选条件数量徽标 */
+.filter-count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  background: var(--accent-primary);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 600;
+  border-radius: 9px;
+  line-height: 1;
+}
+
+/* 高级筛选区域 */
+.advanced-filters {
+  padding: var(--space-4);
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  margin-top: calc(-1 * var(--space-2));
+}
+
+.advanced-filters-row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.filter-group.filter-actions {
+  flex-shrink: 0;
+}
+
+.filter-label {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.filter-date {
+  width: 360px;
+}
+
+.filter-date :deep(.el-input__wrapper) {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  box-shadow: none;
+  transition: all var(--duration-normal) var(--ease-out);
+}
+
+.filter-date :deep(.el-input__wrapper:hover) {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+}
+
+.filter-date :deep(.el-input__wrapper.is-focus) {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+.retention-control {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.retention-input {
+  width: 110px;
+}
+
 .search-input {
   width: 200px;
 }
@@ -369,17 +692,6 @@ onMounted(() => {
 
 .filter-select :deep(.el-input__wrapper:hover) {
   border-color: var(--accent-primary);
-}
-
-.date-picker {
-  width: 360px;
-}
-
-.date-picker :deep(.el-input__wrapper) {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  box-shadow: none;
 }
 
 /* User Info */
@@ -456,6 +768,48 @@ onMounted(() => {
   justify-content: flex-end;
   padding: var(--space-4);
   border-top: 1px solid var(--border-subtle);
+}
+
+/* 详情抽屉 */
+.detail-content {
+  padding: 16px;
+}
+
+.detail-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 0.875rem;
+}
+
+.detail-row .label {
+  flex-shrink: 0;
+  width: 80px;
+  color: var(--text-muted);
+}
+
+.detail-row .mono {
+  font-family: var(--font-mono, 'SF Mono', 'Menlo', monospace);
+  word-break: break-all;
+}
+
+.detail-detail {
+  flex-direction: column;
+}
+
+.detail-pre {
+  margin-top: 8px;
+  padding: 12px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono, 'SF Mono', 'Menlo', monospace);
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 300px;
+  overflow-y: auto;
 }
 
 .method-badge {

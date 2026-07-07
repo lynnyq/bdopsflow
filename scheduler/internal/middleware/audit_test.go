@@ -46,6 +46,8 @@ func TestResolveAuditInfo(t *testing.T) {
 		{"POST", "/api/admin/audit-logs/clean", "", "clean"},
 		{"POST", "/api/dashboard/scheduler/pause", "", "pause"},
 		{"POST", "/api/dashboard/scheduler/resume", "", "resume"},
+		{"POST", "/api/query/clear-cache/123", "datasource", "clear_cache"},
+		{"POST", "/api/query/cancel/q_20260102_abc12345", "query", "cancel"},
 	}
 
 	for _, tt := range tests {
@@ -88,7 +90,10 @@ func TestToString(t *testing.T) {
 	}{
 		{nil, ""},
 		{"hello", "hello"},
-		{123, ""},
+		{123, "123"},      // 非 string 类型现在通过 fmt.Sprintf 转换
+		{int64(456), "456"},
+		{true, "true"},
+		{3.14, "3.14"},
 		{"", ""},
 	}
 
