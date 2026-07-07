@@ -12,32 +12,36 @@ import (
 	rqlite "github.com/rqlite/gorqlite"
 )
 
+// defaultConfigValues 内置默认配置值，作为数据库缺失时的兜底。
+// 与 configMetaList 共同构成配置项的"单一权威源"。
 var defaultConfigValues = map[string]string{
-	"datasource.default_limit":           "1000",
-	"datasource.max_export_rows":         "1000",
-	"datasource.cache_ttl":              "300",
-	"datasource.cache_max_size":         "100",
-	"datasource.query_timeout":          "60",
-	"datasource.max_concurrent_per_user": "5",
-	"datasource.max_concurrent_global":  "50",
+	"datasource.default_limit":                "1000",
+	"datasource.max_export_rows":              "1000",
+	"datasource.cache_ttl":                    "300",
+	"datasource.cache_max_size":               "100",
+	"datasource.query_timeout":                "60",
+	"datasource.max_concurrent_per_user":      "5",
+	"datasource.max_concurrent_global":        "50",
 	"datasource.max_concurrent_per_datasource": "10",
-	"datasource.allow_write_sql":        "false",
-	"datasource.history_retention_days": "30",
-	"datasource.connection_max_idle":    "2",
-	"datasource.connection_max_open":    "5",
-	"datasource.connection_max_lifetime": "1800",
-	"datasource.max_sql_length":         "65536",
-	"datasource.max_cell_size":          "65536",
-	"datasource.health_check_interval":  "300",
-	"datasource.test_timeout":           "10",
-	"datasource.metadata_timeout":        "60",
-	"web.enabled":                      "false",
-	"api_test.allow_private_network":   "false",
-	"wecom.robot_url":                  "https://qyapi.weixin.qq.com/cgi-bin/webhook/send",
-	"wecom.app_msg_url":                "https://qyapi.weixin.qq.com/cgi-bin/webhook/send",
-	"wecom.ewechat_url":                "https://qyapi.weixin.qq.com/cgi-bin/webhook/send",
+	"datasource.allow_write_sql":              "false",
+	"datasource.history_retention_days":       "30",
+	"datasource.connection_max_idle":          "2",
+	"datasource.connection_max_open":          "5",
+	"datasource.connection_max_lifetime":      "1800",
+	"datasource.max_sql_length":               "65536",
+	"datasource.max_cell_size":                "65536",
+	"datasource.health_check_interval":        "300",
+	"datasource.test_timeout":                 "10",
+	"datasource.metadata_timeout":             "60",
+	"web.enabled":                             "false",
+	"api_test.allow_private_network":          "false",
+	"audit_log.retention_days":                "90",
+	"wecom.robot_url":                         "https://qyapi.weixin.qq.com/cgi-bin/webhook/send",
+	"wecom.app_msg_url":                       "https://qyapi.weixin.qq.com/cgi-bin/app/send",
+	"wecom.ewechat_url":                       "https://qyapi.weixin.qq.com/cgi-bin/app/send",
 }
 
+// ConfigMeta 描述单个配置项的元数据，驱动前端 UI 渲染。
 type ConfigMeta struct {
 	Key          string `json:"key"`
 	Label        string `json:"label"`
@@ -51,142 +55,149 @@ type ConfigMeta struct {
 	Group        string `json:"group"`
 }
 
+// configMetaList 配置项元数据列表，是前端展示与 schema 初始化的权威源。
 var configMetaList = []ConfigMeta{
 	{
 		Key: "web.enabled", Label: "启用内置 Web 服务",
-		Description: "启用后，可通过调度器监听端口直接访问 Web UI，无需单独部署前端。禁用后仅提供 API 服务。",
+		Description:  "启用后，可通过调度器监听端口直接访问 Web UI，无需单独部署前端。禁用后仅提供 API 服务。",
 		Type:        "boolean", DefaultValue: "false",
 		Group: "系统",
 	},
 	{
 		Key: "api_test.allow_private_network", Label: "允许访问内网地址",
-		Description: "开启后，HTTP/gRPC 接口测试执行器可访问内网（私有 IP）地址；关闭时仅允许访问公网地址，防止 SSRF 攻击。默认关闭。",
+		Description:  "开启后，HTTP/gRPC 接口测试执行器可访问内网（私有 IP）地址；关闭时仅允许访问公网地址，防止 SSRF 攻击。默认关闭。",
 		Type:        "boolean", DefaultValue: "false",
 		Group: "安全",
 	},
 	{
+		Key: "audit_log.retention_days", Label: "审计日志保留天数",
+		Description:  "审计日志的保留天数，超过此天数的记录将被自动清理。影响数据库存储与合规要求。",
+		Type:        "number", DefaultValue: "90", MinValue: intPtr(1), MaxValue: intPtr(3650), Unit: "天",
+		Group: "其他",
+	},
+	{
 		Key: "wecom.robot_url", Label: "企业微信群机器人 URL",
-		Description: "用于推送 BDopsFlow 任务执行通知到企业微信群的机器人接口地址",
+		Description:  "用于推送 BDopsFlow 任务执行通知到企业微信群的机器人接口地址",
 		Type:        "text", DefaultValue: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send",
 		Group: "消息通知",
 	},
 	{
 		Key: "wecom.app_msg_url", Label: "企业微信应用消息 URL",
-		Description: "企业微信应用消息推送接口地址，用于发送应用消息给指定用户",
-		Type:        "text", DefaultValue: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send",
+		Description:  "企业微信应用消息推送接口地址，用于发送应用消息给指定用户",
+		Type:        "text", DefaultValue: "https://qyapi.weixin.qq.com/cgi-bin/app/send",
 		Group: "消息通知",
 	},
 	{
 		Key: "wecom.ewechat_url", Label: "企业微信网关 URL",
-		Description: "企业微信网关接口地址，用于群聊管理等高级功能",
-		Type:        "text", DefaultValue: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send",
+		Description:  "企业微信网关接口地址，用于群聊管理等高级功能",
+		Type:        "text", DefaultValue: "https://qyapi.weixin.qq.com/cgi-bin/app/send",
 		Group: "消息通知",
 	},
 	{
 		Key: "datasource.default_limit", Label: "默认查询行数",
-		Description: "SQL 查询默认返回的最大行数，限制单次查询结果集大小，防止返回过多数据导致前端卡顿",
+		Description:  "SQL 查询默认返回的最大行数，限制单次查询结果集大小，防止返回过多数据导致前端卡顿",
 		Type:        "number", DefaultValue: "1000", MinValue: intPtr(1), MaxValue: intPtr(100000), Unit: "行",
 		Group: "查询",
 	},
 	{
 		Key: "datasource.max_export_rows", Label: "最大导出行数",
-		Description: "CSV 导出时允许的最大行数，导出超过此限制将截断结果",
+		Description:  "CSV 导出时允许的最大行数，导出超过此限制将截断结果",
 		Type:        "number", DefaultValue: "1000", MinValue: intPtr(1), MaxValue: intPtr(1000000), Unit: "行",
 		Group: "查询",
 	},
 	{
 		Key: "datasource.query_timeout", Label: "查询超时时间",
-		Description: "单次 SQL 查询的最大执行时间，超时后自动取消查询并返回错误",
+		Description:  "单次 SQL 查询的最大执行时间，超时后自动取消查询并返回错误",
 		Type:        "number", DefaultValue: "60", MinValue: intPtr(1), MaxValue: intPtr(3600), Unit: "秒",
 		Group: "查询",
 	},
 	{
 		Key: "datasource.max_sql_length", Label: "最大 SQL 长度",
-		Description: "允许提交的 SQL 语句最大字符数，防止超长 SQL 影响系统性能",
+		Description:  "允许提交的 SQL 语句最大字符数，防止超长 SQL 影响系统性能",
 		Type:        "number", DefaultValue: "65536", MinValue: intPtr(1024), MaxValue: intPtr(1048576), Unit: "字符",
 		Group: "查询",
 	},
 	{
 		Key: "datasource.max_cell_size", Label: "最大单元格大小",
-		Description: "查询结果中单个单元格数据的最大字节数，超过此大小将截断显示",
+		Description:  "查询结果中单个单元格数据的最大字节数，超过此大小将截断显示",
 		Type:        "number", DefaultValue: "65536", MinValue: intPtr(1024), MaxValue: intPtr(10485760), Unit: "字节",
 		Group: "查询",
 	},
 	{
 		Key: "datasource.max_concurrent_per_user", Label: "单用户最大并发查询",
-		Description: "单个用户同时执行查询的最大数量，超过限制将排队等待",
+		Description:  "单个用户同时执行查询的最大数量，超过限制将排队等待",
 		Type:        "number", DefaultValue: "5", MinValue: intPtr(1), MaxValue: intPtr(50), Unit: "个",
 		Group: "并发",
 	},
 	{
 		Key: "datasource.max_concurrent_global", Label: "全局最大并发查询",
-		Description: "系统全局同时执行查询的最大数量，超过限制将排队等待",
+		Description:  "系统全局同时执行查询的最大数量，超过限制将排队等待",
 		Type:        "number", DefaultValue: "50", MinValue: intPtr(1), MaxValue: intPtr(500), Unit: "个",
 		Group: "并发",
 	},
 	{
 		Key: "datasource.max_concurrent_per_datasource", Label: "单数据源最大并发查询",
-		Description: "单个数据源同时执行查询的最大数量，超过限制将排队等待",
+		Description:  "单个数据源同时执行查询的最大数量，超过限制将排队等待",
 		Type:        "number", DefaultValue: "10", MinValue: intPtr(1), MaxValue: intPtr(100), Unit: "个",
 		Group: "并发",
 	},
 	{
 		Key: "datasource.allow_write_sql", Label: "允许 DML 语句（全局）",
-		Description: "全局开关，控制是否允许执行 INSERT/UPDATE/DELETE 等 DML 语句。注意：每个数据源可独立设置 DML 权限，此选项为全局兜底控制",
+		Description:  "全局开关，控制是否允许执行 INSERT/UPDATE/DELETE 等 DML 语句。注意：每个数据源可独立设置 DML 权限，此选项为全局兜底控制",
 		Type:        "boolean", DefaultValue: "false",
 		Group: "安全",
 	},
 	{
 		Key: "datasource.cache_ttl", Label: "缓存过期时间",
-		Description: "SQL 查询结果和数据源元数据（表结构、列信息等）缓存的存活时间，过期后下次查询将重新获取",
+		Description:  "SQL 查询结果和数据源元数据（表结构、列信息等）缓存的存活时间，过期后下次查询将重新获取",
 		Type:        "number", DefaultValue: "300", MinValue: intPtr(0), MaxValue: intPtr(86400), Unit: "秒",
 		Group: "缓存",
 	},
 	{
 		Key: "datasource.cache_max_size", Label: "缓存最大条目数",
-		Description: "元数据缓存的最大条目数量，超过后采用 LRU 淘汰策略",
+		Description:  "元数据缓存的最大条目数量，超过后采用 LRU 淘汰策略",
 		Type:        "number", DefaultValue: "100", MinValue: intPtr(1), MaxValue: intPtr(10000), Unit: "条",
 		Group: "缓存",
 	},
 	{
 		Key: "datasource.connection_max_idle", Label: "最小空闲连接数",
-		Description: "每个数据源连接池中保持的最小空闲连接数（常驻连接），适用于所有数据源类型（包括 Hive/Kyuubi/Spark）",
+		Description:  "每个数据源连接池中保持的最小空闲连接数（常驻连接），适用于所有数据源类型（包括 Hive/Kyuubi/Spark）",
 		Type:        "number", DefaultValue: "2", MinValue: intPtr(1), MaxValue: intPtr(100), Unit: "个",
 		Group: "连接池",
 	},
 	{
 		Key: "datasource.connection_max_open", Label: "最大打开连接数",
-		Description: "每个数据源连接池中允许的最大打开连接数，包括活跃和空闲连接。适用于所有数据源类型（包括 Hive/Kyuubi/Spark），修改后实时生效",
+		Description:  "每个数据源连接池中允许的最大打开连接数，包括活跃和空闲连接。适用于所有数据源类型（包括 Hive/Kyuubi/Spark），修改后实时生效",
 		Type:        "number", DefaultValue: "5", MinValue: intPtr(1), MaxValue: intPtr(200), Unit: "个",
 		Group: "连接池",
 	},
 	{
 		Key: "datasource.connection_max_lifetime", Label: "连接最大生命周期",
-		Description: "连接池中连接的最大存活时间，超时后连接将被关闭并重建。适用于所有数据源类型（包括 Hive/Kyuubi/Spark），修改后实时生效",
+		Description:  "连接池中连接的最大存活时间，超时后连接将被关闭并重建。适用于所有数据源类型（包括 Hive/Kyuubi/Spark），修改后实时生效",
 		Type:        "number", DefaultValue: "1800", MinValue: intPtr(60), MaxValue: intPtr(86400), Unit: "秒",
 		Group: "连接池",
 	},
 	{
 		Key: "datasource.health_check_interval", Label: "健康检查间隔",
-		Description: "数据源连接健康检查的执行间隔，定期检测连接是否可用",
+		Description:  "数据源连接健康检查的执行间隔，定期检测连接是否可用",
 		Type:        "number", DefaultValue: "300", MinValue: intPtr(30), MaxValue: intPtr(3600), Unit: "秒",
 		Group: "连接池",
 	},
 	{
 		Key: "datasource.test_timeout", Label: "测试连接超时",
-		Description: "测试数据源连接时的超时时间，超时未响应视为连接失败",
+		Description:  "测试数据源连接时的超时时间，超时未响应视为连接失败",
 		Type:        "number", DefaultValue: "10", MinValue: intPtr(1), MaxValue: intPtr(120), Unit: "秒",
 		Group: "连接池",
 	},
 	{
 		Key: "datasource.metadata_timeout", Label: "元数据查询超时",
-		Description: "获取数据源元数据（数据库列表、表列表、字段列表）时的超时时间，超时后返回错误提示",
+		Description:  "获取数据源元数据（数据库列表、表列表、字段列表）时的超时时间，超时后返回错误提示",
 		Type:        "number", DefaultValue: "60", MinValue: intPtr(5), MaxValue: intPtr(300), Unit: "秒",
 		Group: "查询",
 	},
 	{
 		Key: "datasource.history_retention_days", Label: "历史记录保留天数",
-		Description: "查询历史记录的保留天数，超过此天数的记录将被自动清理",
+		Description:  "查询历史记录的保留天数，超过此天数的记录将被自动清理",
 		Type:        "number", DefaultValue: "30", MinValue: intPtr(1), MaxValue: intPtr(365), Unit: "天",
 		Group: "其他",
 	},
@@ -207,6 +218,10 @@ type ConfigChangeEvent struct {
 	Value string
 }
 
+// notifyTimeout 配置变更通知的阻塞超时时间。
+// 超过此时间仍未入队则视为通知失败，避免安全相关配置静默丢失。
+const notifyTimeout = 2 * time.Second
+
 // Service 全局系统配置服务
 type Service struct {
 	db        database.DB
@@ -215,11 +230,13 @@ type Service struct {
 	observers map[ConfigObserver]struct{}
 	changeCh  chan ConfigChangeEvent
 	stopCh    chan struct{}
+	closed    bool
+	closeMu   sync.Mutex
 }
 
 var (
 	globalService *Service
-	once         sync.Once
+	once          sync.Once
 )
 
 // GetGlobalService 获取全局配置服务实例（单例）
@@ -267,11 +284,22 @@ func (s *Service) processChanges() {
 }
 
 // notifyObservers 通知所有观察者
+// 每个观察者使用独立 goroutine 通知，单个观察者 panic 不会影响其他观察者
 func (s *Service) notifyObservers(key, value string) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	for observer := range s.observers {
-		go observer.OnConfigChanged(key, value)
+		go func(o ConfigObserver) {
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("config observer panicked",
+						"observer", fmt.Sprintf("%T", o),
+						"key", key,
+						"recover", r)
+				}
+			}()
+			o.OnConfigChanged(key, value)
+		}(observer)
 	}
 }
 
@@ -353,142 +381,116 @@ func (s *Service) GetAllWithMeta() []ConfigMeta {
 	return result
 }
 
-// Set 设置配置值
-func (s *Service) Set(ctx context.Context, key, value string, changedBy int64) error {
-	var validators = map[string]func(string) error{
-		"datasource.cache_ttl": func(v string) error {
-			n, err := strconv.Atoi(v)
-			if err != nil || n < 0 {
-				return fmt.Errorf("must be non-negative integer")
-			}
-			return nil
-		},
-		"datasource.query_timeout": func(v string) error {
-			n, err := strconv.Atoi(v)
-			if err != nil || n < 1 {
-				return fmt.Errorf("must be positive integer")
-			}
-			return nil
-		},
-		"datasource.max_concurrent_per_user": func(v string) error {
-			n, err := strconv.Atoi(v)
-			if err != nil || n < 1 {
-				return fmt.Errorf("must be positive integer")
-			}
-			return nil
-		},
-		"datasource.max_concurrent_global": func(v string) error {
-			n, err := strconv.Atoi(v)
-			if err != nil || n < 1 {
-				return fmt.Errorf("must be positive integer")
-			}
-			return nil
-		},
-		"datasource.max_concurrent_per_datasource": func(v string) error {
-			n, err := strconv.Atoi(v)
-			if err != nil || n < 1 {
-				return fmt.Errorf("must be positive integer")
-			}
-			return nil
-		},
-		"datasource.metadata_timeout": func(v string) error {
-			n, err := strconv.Atoi(v)
-			if err != nil || n < 1 {
-				return fmt.Errorf("must be positive integer")
-			}
-			return nil
-		},
-		"datasource.default_limit": func(v string) error {
-			n, err := strconv.Atoi(v)
-			if err != nil || n < 1 {
-				return fmt.Errorf("must be positive integer")
-			}
-			return nil
-		},
-		"datasource.max_export_rows": func(v string) error {
-			n, err := strconv.Atoi(v)
-			if err != nil || n < 1 {
-				return fmt.Errorf("must be positive integer")
-			}
-			return nil
-		},
-		"datasource.allow_write_sql": func(v string) error {
-			if v != "true" && v != "false" {
-				return fmt.Errorf("must be true or false")
-			}
-			return nil
-		},
-		"web.enabled": func(v string) error {
-			if v != "true" && v != "false" {
-				return fmt.Errorf("must be true or false")
-			}
-			return nil
-		},
-		"api_test.allow_private_network": func(v string) error {
-			if v != "true" && v != "false" {
-				return fmt.Errorf("must be true or false")
-			}
-			return nil
-		},
+// InvalidConfigValueError 表示配置值校验失败（类型不匹配、超出范围、空值等）。
+// handler 层通过 errors.As 识别此错误类型并返回 400，避免依赖错误消息字符串。
+type InvalidConfigValueError struct {
+	Key string
+	Err error
+}
+
+func (e *InvalidConfigValueError) Error() string {
+	return fmt.Sprintf("invalid value for %s: %v", e.Key, e.Err)
+}
+
+func (e *InvalidConfigValueError) Unwrap() error {
+	return e.Err
+}
+
+// validateConfigValue 校验配置值合法性。
+// 校验规则与 configMetaList 的 MinValue/MaxValue 保持一致，
+// 同时对 boolean 类型强制只接受 "true"/"false"。
+// 返回 *InvalidConfigValueError 类型错误，便于 handler 层通过 errors.As 识别。
+func (s *Service) validateConfigValue(key, value string) error {
+	// 先查找元数据
+	var meta *ConfigMeta
+	for i := range configMetaList {
+		if configMetaList[i].Key == key {
+			meta = &configMetaList[i]
+			break
+		}
+	}
+	if meta == nil {
+		return &InvalidConfigValueError{Key: key, Err: fmt.Errorf("unknown config key")}
 	}
 
-	if validator, ok := validators[key]; ok {
-		if err := validator(value); err != nil {
-			return fmt.Errorf("invalid value for %s: %w", key, err)
+	switch meta.Type {
+	case "boolean":
+		if value != "true" && value != "false" {
+			return &InvalidConfigValueError{Key: key, Err: fmt.Errorf("must be true or false")}
 		}
+	case "number":
+		n, err := strconv.Atoi(value)
+		if err != nil {
+			return &InvalidConfigValueError{Key: key, Err: fmt.Errorf("must be integer")}
+		}
+		if meta.MinValue != nil && n < *meta.MinValue {
+			return &InvalidConfigValueError{Key: key, Err: fmt.Errorf("must be >= %d", *meta.MinValue)}
+		}
+		if meta.MaxValue != nil && n > *meta.MaxValue {
+			return &InvalidConfigValueError{Key: key, Err: fmt.Errorf("must be <= %d", *meta.MaxValue)}
+		}
+	case "text":
+		if value == "" {
+			return &InvalidConfigValueError{Key: key, Err: fmt.Errorf("must not be empty")}
+		}
+	}
+	return nil
+}
+
+// Set 设置配置值。
+// 使用 UPSERT（INSERT ... ON CONFLICT DO UPDATE）+ 历史记录插入，
+// 通过 WriteParameterized 批量提交，保证两步操作的原子性。
+// 任一 DB 写入失败都不会更新内存缓存，避免 DB 与缓存不一致。
+func (s *Service) Set(ctx context.Context, key, value string, changedBy int64) error {
+	if err := s.validateConfigValue(key, value); err != nil {
+		// validateConfigValue 返回 *InvalidConfigValueError，直接透传以保留类型信息
+		return err
 	}
 
 	oldValue := s.Get(key)
-
-	// 首先尝试更新
 	now := time.Now().Format(dsDateTimeFormat)
-	result, err := s.db.WriteOneParameterized(
-		rqlite.ParameterizedStatement{
-			Query:     "UPDATE bdopsflow_system_config SET config_value = ?, updated_at = ? WHERE config_key = ?",
-			Arguments: []interface{}{value, now, key},
-		},
-	)
-	if err != nil {
-		return fmt.Errorf("failed to update config: %w", err)
+
+	// UPSERT：存在则更新，不存在则插入。配合历史记录写入，作为一个事务批量提交。
+	upsertStmt := rqlite.ParameterizedStatement{
+		Query: `INSERT INTO bdopsflow_system_config (config_key, config_value, updated_at)
+		        VALUES (?, ?, ?)
+		        ON CONFLICT(config_key) DO UPDATE SET
+		          config_value = excluded.config_value,
+		          updated_at = excluded.updated_at`,
+		Arguments: []interface{}{key, value, now},
 	}
-	if result.Err != nil {
-		return fmt.Errorf("failed to update config: %w", result.Err)
+	historyStmt := rqlite.ParameterizedStatement{
+		Query: `INSERT INTO bdopsflow_system_config_history (config_key, old_value, new_value, changed_by, changed_at)
+		        VALUES (?, ?, ?, ?, ?)`,
+		Arguments: []interface{}{key, oldValue, value, changedBy, now},
 	}
 
-	// 如果没有行被更新，说明配置不存在，需要插入
-	if result.RowsAffected == 0 {
-		slog.Info("config not found, inserting new", "key", key, "value", value)
-		_, err = s.db.WriteOneParameterized(
-			rqlite.ParameterizedStatement{
-				Query:     "INSERT INTO bdopsflow_system_config (config_key, config_value, updated_at) VALUES (?, ?, ?)",
-				Arguments: []interface{}{key, value, now},
-			},
-		)
-		if err != nil {
-			return fmt.Errorf("failed to insert config: %w", err)
-		}
-	}
-
-	_, err = s.db.WriteOneParameterized(
-		rqlite.ParameterizedStatement{
-			Query:     "INSERT INTO bdopsflow_system_config_history (config_key, old_value, new_value, changed_by, changed_at) VALUES (?, ?, ?, ?, ?)",
-			Arguments: []interface{}{key, oldValue, value, changedBy, now},
-		},
-	)
+	results, err := s.db.WriteParameterized([]rqlite.ParameterizedStatement{upsertStmt, historyStmt})
 	if err != nil {
-		slog.Warn("failed to record config history", "key", key, "error", err)
+		return fmt.Errorf("failed to upsert config: %w", err)
+	}
+	if len(results) > 0 && results[0].Err != nil {
+		return fmt.Errorf("failed to upsert config: %w", results[0].Err)
+	}
+	if len(results) > 1 && results[1].Err != nil {
+		// 历史记录写入失败仅告警，不阻塞主流程（DB 与 cache 仍保持一致）
+		slog.Warn("failed to record config history", "key", key, "error", results[1].Err)
 	}
 
 	s.mu.Lock()
 	s.cache[key] = value
 	s.mu.Unlock()
 
-	// 发送配置变更事件（异步通知观察者）
+	// 发送配置变更事件。
+	// 使用阻塞发送 + 超时，避免 channel 满时静默丢弃安全相关配置变更通知。
 	select {
 	case s.changeCh <- ConfigChangeEvent{Key: key, Value: value}:
 		slog.Info("config changed and notified", "key", key, "value", value)
-	default:
-		slog.Warn("config change channel full, skipping notification", "key", key)
+	case <-time.After(notifyTimeout):
+		slog.Error("config change notification timeout, observer queue may be stuck",
+			"key", key, "value", value, "timeout", notifyTimeout)
+	case <-s.stopCh:
+		// 服务已关闭，忽略通知
 	}
 
 	return nil
@@ -550,8 +552,14 @@ func (s *Service) StartReloadTicker(interval time.Duration) {
 	}()
 }
 
-// Close 关闭配置服务
+// Close 关闭配置服务，释放后台 goroutine 与通道资源
 func (s *Service) Close() {
+	s.closeMu.Lock()
+	defer s.closeMu.Unlock()
+	if s.closed {
+		return
+	}
+	s.closed = true
 	close(s.stopCh)
 }
 

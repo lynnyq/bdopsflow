@@ -15,15 +15,13 @@ import (
 type DatasourceService struct {
 	db      database.DB
 	crypto  *Crypto
-	config  *ConfigService
 	manager *Manager
 }
 
-func NewDatasourceService(db database.DB, crypto *Crypto, config *ConfigService, manager *Manager) *DatasourceService {
+func NewDatasourceService(db database.DB, crypto *Crypto, manager *Manager) *DatasourceService {
 	return &DatasourceService{
 		db:      db,
 		crypto:  crypto,
-		config:  config,
 		manager: manager,
 	}
 }
@@ -891,10 +889,10 @@ func (s *DatasourceService) CreateSavedSQL(ctx context.Context, saved *model.Sav
 
 	now := time.Now().Format(dsDateTimeFormat)
 	stmt := rqlite.ParameterizedStatement{
-		Query: `INSERT INTO bdopsflow_saved_sql (name, datasource_id, sql_text, description, created_by, updated_by, domain_id, is_public, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		Query: `INSERT INTO bdopsflow_saved_sql (name, datasource_id, database, sql_text, description, created_by, updated_by, domain_id, is_public, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		Arguments: []interface{}{
-			saved.Name, saved.DatasourceID, saved.SQLText, saved.Description,
+			saved.Name, saved.DatasourceID, saved.Database, saved.SQLText, saved.Description,
 			createdBy, updatedBy, saved.DomainID, isPublic, now, now,
 		},
 	}
@@ -953,8 +951,8 @@ func (s *DatasourceService) GetSavedSQL(ctx context.Context, domainID int64, use
 	}
 
 	offset := (page - 1) * pageSize
-	dataQuery := `SELECT s.id, s.name, s.datasource_id, s.sql_text, s.description, s.created_by, u1.real_name as created_by_name, s.updated_by, u2.real_name as updated_by_name, s.domain_id, s.is_public, s.created_at, s.updated_at
-		FROM bdopsflow_saved_sql s LEFT JOIN bdopsflow_users u1 ON s.created_by = u1.id LEFT JOIN bdopsflow_users u2 ON s.updated_by = u2.id` + whereClause + " ORDER BY s.created_at DESC LIMIT ? OFFSET ?"
+	dataQuery := `SELECT s.id, s.name, s.datasource_id, d.name as datasource_name, s.database, s.sql_text, s.description, s.created_by, u1.real_name as created_by_name, s.updated_by, u2.real_name as updated_by_name, s.domain_id, s.is_public, s.created_at, s.updated_at
+		FROM bdopsflow_saved_sql s LEFT JOIN bdopsflow_datasources d ON s.datasource_id = d.id LEFT JOIN bdopsflow_users u1 ON s.created_by = u1.id LEFT JOIN bdopsflow_users u2 ON s.updated_by = u2.id` + whereClause + " ORDER BY s.created_at DESC LIMIT ? OFFSET ?"
 
 	dataArgs := make([]interface{}, len(args))
 	copy(dataArgs, args)
@@ -977,38 +975,40 @@ func (s *DatasourceService) GetSavedSQL(ctx context.Context, domainID int64, use
 		}
 
 		saved := &model.SavedSQL{
-			ID:            dsRowInt64(row[0]),
-			Name:          dsRowString(row[1]),
-			DatasourceID:  dsRowInt64(row[2]),
-			SQLText:       dsRowString(row[3]),
-			Description:   dsRowString(row[4]),
-			CreatedByName: dsRowString(row[6]),
-			UpdatedByName: dsRowString(row[8]),
-			DomainID:      dsRowInt64(row[9]),
-			IsPublic:      dsRowBool(row[10]),
-		}
-
-		if row[5] != nil {
-			createdBy := dsRowInt64(row[5])
-			saved.CreatedBy = &createdBy
+			ID:             dsRowInt64(row[0]),
+			Name:           dsRowString(row[1]),
+			DatasourceID:   dsRowInt64(row[2]),
+			DatasourceName: dsRowString(row[3]),
+			Database:       dsRowString(row[4]),
+			SQLText:        dsRowString(row[5]),
+			Description:    dsRowString(row[6]),
+			CreatedByName:  dsRowString(row[8]),
+			UpdatedByName:  dsRowString(row[10]),
+			DomainID:       dsRowInt64(row[11]),
+			IsPublic:       dsRowBool(row[12]),
 		}
 
 		if row[7] != nil {
-			updatedBy := dsRowInt64(row[7])
+			createdBy := dsRowInt64(row[7])
+			saved.CreatedBy = &createdBy
+		}
+
+		if row[9] != nil {
+			updatedBy := dsRowInt64(row[9])
 			saved.UpdatedBy = &updatedBy
 		}
 
-		if t, ok := row[11].(time.Time); ok {
+		if t, ok := row[13].(time.Time); ok {
 			saved.CreatedAt = t
-		} else if s, ok := row[11].(string); ok && s != "" {
+		} else if s, ok := row[13].(string); ok && s != "" {
 			if parsed, parseErr := dsParseTimeInLocalTimezone(s); parseErr == nil {
 				saved.CreatedAt = parsed
 			}
 		}
 
-		if t, ok := row[12].(time.Time); ok {
+		if t, ok := row[14].(time.Time); ok {
 			saved.UpdatedAt = t
-		} else if s, ok := row[12].(string); ok && s != "" {
+		} else if s, ok := row[14].(string); ok && s != "" {
 			if parsed, parseErr := dsParseTimeInLocalTimezone(s); parseErr == nil {
 				saved.UpdatedAt = parsed
 			}
@@ -1033,9 +1033,9 @@ func (s *DatasourceService) UpdateSavedSQL(ctx context.Context, id int64, saved 
 
 	now := time.Now().Format(dsDateTimeFormat)
 	stmt := rqlite.ParameterizedStatement{
-		Query: `UPDATE bdopsflow_saved_sql SET name = ?, datasource_id = ?, sql_text = ?, description = ?, updated_by = ?, is_public = ?, updated_at = ? WHERE id = ?`,
+		Query: `UPDATE bdopsflow_saved_sql SET name = ?, datasource_id = ?, database = ?, sql_text = ?, description = ?, updated_by = ?, is_public = ?, updated_at = ? WHERE id = ?`,
 		Arguments: []interface{}{
-			saved.Name, saved.DatasourceID, saved.SQLText, saved.Description,
+			saved.Name, saved.DatasourceID, saved.Database, saved.SQLText, saved.Description,
 			updatedBy, isPublic, now, id,
 		},
 	}

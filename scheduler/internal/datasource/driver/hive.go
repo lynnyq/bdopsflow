@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -22,7 +23,8 @@ type HiveDriver struct {
 	pool      *hiveConnPool
 	config    DatasourceConfig
 	unhealthy atomic.Bool
-	defaultDB string // 默认 database（从配置中获取）
+	mu        sync.RWMutex // 保护 defaultDB 并发访问
+	defaultDB string       // 默认 database（从配置中获取）
 }
 
 func NewHiveDriver() Driver {
@@ -88,7 +90,9 @@ func (d *HiveDriver) createHiveConnection(ctx context.Context) (*gohive.Connecti
 
 func (d *HiveDriver) Connect(ctx context.Context, config DatasourceConfig) error {
 	d.config = config
+	d.mu.Lock()
 	d.defaultDB = config.Database
+	d.mu.Unlock()
 
 	port := config.Port
 	if port == 0 {
@@ -122,7 +126,10 @@ func (d *HiveDriver) Connect(ctx context.Context, config DatasourceConfig) error
 		slog.Error("hive initial connection failed", "host", config.Host, "port", port, "error", err)
 		return errors.Wrap(err, "failed to connect to hive")
 	}
-	d.pool.put(initialConn, d.defaultDB)
+	d.mu.RLock()
+	defaultDB := d.defaultDB
+	d.mu.RUnlock()
+	d.pool.put(initialConn, defaultDB)
 
 	// 预热额外的 MinIdle-1 个连接
 	cfg := d.pool.GetConfig()
@@ -132,7 +139,7 @@ func (d *HiveDriver) Connect(ctx context.Context, config DatasourceConfig) error
 			slog.Warn("hive pre-warm connection failed", "index", i, "error", connErr)
 			break
 		}
-		d.pool.put(conn, d.defaultDB)
+		d.pool.put(conn, defaultDB)
 	}
 
 	slog.Info("hive connected, pool initialized", "host", config.Host, "port", port, "database", config.Database, "pool_config", fmt.Sprintf("max=%d min_idle=%d max_lifetime=%v", cfg.MaxOpen, cfg.MinIdle, cfg.MaxLifetime))
@@ -223,7 +230,10 @@ func (d *HiveDriver) Close() error {
 // Query 执行查询（使用默认 database context）。
 // 向后兼容，推荐使用 QueryWithDB。
 func (d *HiveDriver) Query(ctx context.Context, query string, args ...interface{}) (*QueryResult, error) {
-	return d.QueryWithDB(ctx, query, d.defaultDB)
+	d.mu.RLock()
+	defaultDB := d.defaultDB
+	d.mu.RUnlock()
+	return d.QueryWithDB(ctx, query, defaultDB)
 }
 
 // QueryWithDB 在指定 database context 下执行查询。
@@ -384,7 +394,10 @@ func (d *HiveDriver) queryWithDB(ctx context.Context, query string, database str
 }
 
 func (d *HiveDriver) GetDatabases(ctx context.Context) ([]string, error) {
-	result, err := d.TryQueryWithDB(ctx, normalizeSQL("SHOW DATABASES"), d.defaultDB)
+	d.mu.RLock()
+	defaultDB := d.defaultDB
+	d.mu.RUnlock()
+	result, err := d.TryQueryWithDB(ctx, normalizeSQL("SHOW DATABASES"), defaultDB)
 	if err != nil {
 		return nil, err
 	}
@@ -455,7 +468,9 @@ func (d *HiveDriver) UseDatabase(ctx context.Context, database string) error {
 		return nil
 	}
 	// 仅更新默认 database，不修改任何连接状态
+	d.mu.Lock()
 	d.defaultDB = database
+	d.mu.Unlock()
 	slog.Debug("hive default database updated", "database", database)
 	return nil
 }

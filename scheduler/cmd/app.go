@@ -133,6 +133,7 @@ type App struct {
 
 	schedulerService      *service.SchedulerService
 	permissionService     *service.PermissionService
+	authService           *service.AuthService
 	userAdminService      *service.UserAdminService
 	roleAdminService      *service.RoleAdminService
 	domainAdminService    *service.DomainAdminService
@@ -143,7 +144,6 @@ type App struct {
 	instancePermSvc       *service.InstancePermissionService
 
 	dsCrypto            *datasource.Crypto
-	dsConfigService     *datasource.ConfigService
 	dsManager           *datasource.Manager
 	dsService           *datasource.DatasourceService
 	dsCacheService      *datasource.CacheService
@@ -168,6 +168,11 @@ type App struct {
 
 func NewApp(cfg *config.Config) *App {
 	app := &App{cfg: cfg}
+
+	if err := cfg.Validate(); err != nil {
+		slog.Error("config validation failed", "error", err)
+		os.Exit(1)
+	}
 
 	middleware.InitJWT(cfg.JWTSecret, cfg.JWTExpiry, cfg.JWTRefreshExpiry)
 
@@ -289,6 +294,9 @@ func NewApp(cfg *config.Config) *App {
 	permissionService := service.NewPermissionService(logDB, redisClient)
 	app.permissionService = permissionService
 
+	authService := service.NewAuthService(logDB)
+	app.authService = authService
+
 	userAdminService := service.NewUserAdminService(logDB, permissionService, rsaUtil)
 	app.userAdminService = userAdminService
 
@@ -301,7 +309,13 @@ func NewApp(cfg *config.Config) *App {
 	executorDomainService := service.NewExecutorDomainService(logDB)
 	app.executorDomainService = executorDomainService
 
-	auditLogService := service.NewAuditLogService(logDB)
+	// 初始化全局系统配置服务（支持热更新）。
+	// 必须在依赖配置服务的下游组件（AuditLogService、数据源 Manager 等）之前初始化。
+	sysConfigService := system_config.InitGlobalService(logDB)
+	sysConfigService.StartReloadTicker(5 * time.Minute)
+	app.sysConfigService = sysConfigService
+
+	auditLogService := service.NewAuditLogService(logDB, sysConfigService)
 	app.auditLogService = auditLogService
 
 	apiTokenService := service.NewAPITokenService(logDB, rsaUtil, permissionService)
@@ -316,25 +330,13 @@ func NewApp(cfg *config.Config) *App {
 	}
 	app.dsCrypto = dsCrypto
 
-	// 初始化全局系统配置服务（支持热更新）
-	sysConfigService := system_config.InitGlobalService(logDB)
-	sysConfigService.StartReloadTicker(5 * time.Minute)
-	app.sysConfigService = sysConfigService
-
-	dsConfigService := datasource.NewConfigService(logDB)
-	dsConfigService.StartReloadTicker(5 * time.Minute)
-	app.dsConfigService = dsConfigService
-
-	// 注册 dsConfigService 为系统配置观察者，实现 web.enabled 等配置热加载
-	sysConfigService.RegisterObserver(dsConfigService)
-
-	dsManager := datasource.NewManager(dsCrypto, dsConfigService, sysConfigService)
+	dsManager := datasource.NewManager(dsCrypto, sysConfigService)
 	app.dsManager = dsManager
 
 	// 注册 Manager 为全局配置观察者，连接池配置变更时动态更新
 	sysConfigService.RegisterObserver(dsManager)
 
-	dsService := datasource.NewDatasourceService(logDB, dsCrypto, dsConfigService, dsManager)
+	dsService := datasource.NewDatasourceService(logDB, dsCrypto, dsManager)
 	app.dsService = dsService
 
 	// 使用全局系统配置服务创建缓存和并发服务（支持热更新）
@@ -352,17 +354,35 @@ func NewApp(cfg *config.Config) *App {
 
 	schedulerService.StartCleanupRoutine()
 
+	// 审计日志自动清理 goroutine：启动时立即执行一次，之后每 24 小时执行一次。
+	// goroutine 内加 recover 防止 panic 导致清理永久停止；
+	// 每次清理使用 30 秒超时 context，避免 DB 卡住时长时间阻塞。
 	go func() {
-		ticker := time.NewTicker(24 * time.Hour)
-		defer ticker.Stop()
-		for range ticker.C {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("audit log cleanup goroutine panicked", "recover", r)
+			}
+		}()
+
+		runAuditCleanup := func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
 			retentionDays := auditLogService.GetRetentionDays()
-			deleted, err := auditLogService.CleanExpired(context.Background(), retentionDays)
+			deleted, err := auditLogService.CleanExpired(ctx, retentionDays)
 			if err != nil {
 				slog.Error("failed to clean expired audit logs", "error", err)
 			} else if deleted > 0 {
 				slog.Info("cleaned expired audit logs", "deleted_count", deleted, "retention_days", retentionDays)
 			}
+		}
+
+		// 启动时立即执行一次，避免旧数据累积到次日
+		runAuditCleanup()
+
+		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			runAuditCleanup()
 		}
 	}()
 

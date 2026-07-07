@@ -198,7 +198,7 @@ func TestDsRowFloat64_StringScientificNotation(t *testing.T) {
 }
 
 func TestNewDatasourceService(t *testing.T) {
-	svc := NewDatasourceService(nil, nil, nil, nil)
+	svc := NewDatasourceService(nil, nil, nil)
 	if svc == nil {
 		t.Fatal("NewDatasourceService returned nil")
 	}
@@ -208,23 +208,16 @@ func TestNewDatasourceService(t *testing.T) {
 	if svc.crypto != nil {
 		t.Error("expected crypto to be nil")
 	}
-	if svc.config != nil {
-		t.Error("expected config to be nil")
-	}
 	if svc.manager != nil {
 		t.Error("expected manager to be nil")
 	}
 }
 
 func TestNewDatasourceService_WithComponents(t *testing.T) {
-	mgr := NewManager(nil, nil, nil)
-	cfg := &ConfigService{cache: make(map[string]string)}
-	svc := NewDatasourceService(nil, nil, cfg, mgr)
+	mgr := NewManager(nil, nil)
+	svc := NewDatasourceService(nil, nil, mgr)
 	if svc == nil {
 		t.Fatal("NewDatasourceService returned nil")
-	}
-	if svc.config != cfg {
-		t.Error("expected config to be set")
 	}
 	if svc.manager != mgr {
 		t.Error("expected manager to be set")
@@ -232,7 +225,7 @@ func TestNewDatasourceService_WithComponents(t *testing.T) {
 }
 
 func TestGetDatasourceDomainID_NilDB(t *testing.T) {
-	svc := NewDatasourceService(nil, nil, nil, nil)
+	svc := NewDatasourceService(nil, nil, nil)
 	defer func() {
 		if r := recover(); r == nil {
 			t.Error("expected panic when calling GetDatasourceDomainID with nil db, but did not panic")
@@ -242,7 +235,7 @@ func TestGetDatasourceDomainID_NilDB(t *testing.T) {
 }
 
 func TestCheckDatasourcePermission_NilDB(t *testing.T) {
-	svc := NewDatasourceService(nil, nil, nil, nil)
+	svc := NewDatasourceService(nil, nil, nil)
 	defer func() {
 		if r := recover(); r == nil {
 			t.Error("expected panic when calling CheckDatasourcePermission with nil db, but did not panic")

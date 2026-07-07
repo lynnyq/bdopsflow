@@ -81,12 +81,29 @@ type ColumnInfo struct {
 var driverRegistry = make(map[string]DriverFactory)
 var registryMu sync.RWMutex
 
+// 预编译正则，避免高频调用时重复编译
+// selectWithPrefixRe 匹配以 SELECT 或 WITH 开头并紧跟任意空白符的 SQL，
+// 兼容多行格式（SELECT 后为换行符或制表符的情况）。
+var selectWithPrefixRe = regexp.MustCompile(`^(SELECT|WITH)\s`)
+
+// hasLimitRe 匹配 SQL 中的 LIMIT 子句，使用 \s+ 兼容 LIMIT 前后为任意空白符的情况，
+// 避免多行 SQL 中 LIMIT 独占一行时漏检导致重复添加 LIMIT。
+var hasLimitRe = regexp.MustCompile(`\s+LIMIT\s+`)
+
 type DriverFactory func() Driver
 
 func RegisterDriver(dsType string, factory DriverFactory) {
 	registryMu.Lock()
 	defer registryMu.Unlock()
 	driverRegistry[dsType] = factory
+}
+
+// UnregisterDriver 从全局注册表中移除指定类型的驱动。
+// 主要用于测试清理，避免污染其他测试。
+func UnregisterDriver(dsType string) {
+	registryMu.Lock()
+	defer registryMu.Unlock()
+	delete(driverRegistry, dsType)
 }
 
 func GetDriver(dsType string) (Driver, error) {
@@ -220,13 +237,13 @@ func ApplyLimitToSQL(sql string, limit int, dsType string) string {
 
 	// 参考 Superset：只对 SELECT 和 WITH(CTE) 语句添加 LIMIT
 	// SHOW/DESCRIBE/DESC/EXPLAIN 等语句不支持 LIMIT，不添加
-	if !strings.HasPrefix(upperSQL, "SELECT ") &&
-		!strings.HasPrefix(upperSQL, "WITH ") {
+	// 使用预编译正则 \s 匹配任意空白符（空格、换行、制表符），兼容多行格式 SQL
+	if !selectWithPrefixRe.MatchString(upperSQL) {
 		return sql
 	}
 
-	// 检查是否已经有LIMIT子句
-	if strings.Contains(upperSQL, " LIMIT ") {
+	// 检查是否已经有LIMIT子句（使用 \s+ 匹配任意空白符，兼容多行 SQL）
+	if hasLimitRe.MatchString(upperSQL) {
 		// 提取用户指定的LIMIT值
 		userLimit := extractUserLimit(upperSQL)
 		if userLimit > 0 {

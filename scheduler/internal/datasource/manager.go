@@ -21,8 +21,7 @@ type Manager struct {
 	pools      map[int64]driver.Driver // 数据源 ID -> 驱动实例
 	poolMu     sync.RWMutex
 	crypto     *Crypto                 // 密码加解密
-	config     *ConfigService          // 配置文件服务
-	sysConfig  *sysconfig.Service      // 系统配置服务（运行时配置）
+	sysConfig  *sysconfig.Service      // 系统配置服务（运行时动态配置，支持热更新）
 	closed     bool
 	closeMu    sync.Mutex
 	lastCheck  map[int64]time.Time     // 数据源 ID -> 上次健康检查时间
@@ -37,13 +36,11 @@ type Manager struct {
 
 // NewManager 创建数据源连接池管理器
 // crypto: 密码加解密服务，可为 nil（不加密场景）
-// config: 配置文件服务，读取静态配置
-// sysConfig: 系统配置服务，读取运行时动态配置（优先级高于 config）
-func NewManager(crypto *Crypto, config *ConfigService, sysConfig *sysconfig.Service) *Manager {
+// sysConfig: 系统配置服务，读取运行时动态配置（支持热更新）
+func NewManager(crypto *Crypto, sysConfig *sysconfig.Service) *Manager {
 	return &Manager{
 		pools:           make(map[int64]driver.Driver),
 		crypto:          crypto,
-		config:          config,
 		sysConfig:       sysConfig,
 		lastCheck:       make(map[int64]time.Time),
 		connecting:      make(map[int64]struct{}),
@@ -195,7 +192,10 @@ func (m *Manager) connect(ctx context.Context, ds *model.Datasource) (driver.Dri
 		}
 	}
 
-	testTimeout := m.config.GetInt("datasource.test_timeout")
+	testTimeout := 0
+	if m.sysConfig != nil {
+		testTimeout = m.sysConfig.GetInt("datasource.test_timeout")
+	}
 	if testTimeout <= 0 {
 		testTimeout = 30
 	}
@@ -264,7 +264,10 @@ func (m *Manager) TestConnection(ctx context.Context, ds *model.Datasource) erro
 		}
 	}
 
-	testTimeout := m.config.GetInt("datasource.test_timeout")
+	testTimeout := 0
+	if m.sysConfig != nil {
+		testTimeout = m.sysConfig.GetInt("datasource.test_timeout")
+	}
 	if testTimeout <= 0 {
 		testTimeout = 10
 	}
@@ -338,7 +341,6 @@ func (m *Manager) updatePoolConfigFromSystemSettings() {
 }
 
 // getPoolConfigFromSystemSettings 从系统设置构建连接池配置
-// 优先从 sysConfigService 读取（实时生效），fallback 到 dsConfigService
 func (m *Manager) getPoolConfigFromSystemSettings() driver.PoolConfig {
 	cfg := driver.DefaultPoolConfig()
 
@@ -350,16 +352,6 @@ func (m *Manager) getPoolConfigFromSystemSettings() driver.PoolConfig {
 			cfg.MinIdle = minIdle
 		}
 		if maxLifetime := m.sysConfig.GetInt("datasource.connection_max_lifetime"); maxLifetime > 0 {
-			cfg.MaxLifetime = time.Duration(maxLifetime) * time.Second
-		}
-	} else {
-		if maxOpen := m.config.GetInt("datasource.connection_max_open"); maxOpen > 0 {
-			cfg.MaxOpen = maxOpen
-		}
-		if minIdle := m.config.GetInt("datasource.connection_max_idle"); minIdle > 0 {
-			cfg.MinIdle = minIdle
-		}
-		if maxLifetime := m.config.GetInt("datasource.connection_max_lifetime"); maxLifetime > 0 {
 			cfg.MaxLifetime = time.Duration(maxLifetime) * time.Second
 		}
 	}

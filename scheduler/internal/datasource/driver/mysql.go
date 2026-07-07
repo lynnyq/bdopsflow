@@ -133,8 +133,8 @@ func (d *MySQLDriver) GetTables(ctx context.Context, database string) ([]TableIn
 	if database == "" {
 		database = d.config.Database
 	}
-	query := fmt.Sprintf("SELECT TABLE_NAME, TABLE_COMMENT FROM information_schema.TABLES WHERE TABLE_SCHEMA = '%s' ORDER BY TABLE_NAME", escapeSQLString(database))
-	result, err := d.Query(ctx, query)
+	query := "SELECT TABLE_NAME, TABLE_COMMENT FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME"
+	result, err := d.Query(ctx, query, database)
 	if err != nil {
 		return nil, err
 	}
@@ -155,11 +155,8 @@ func (d *MySQLDriver) GetColumns(ctx context.Context, database, table string) ([
 	if database == "" {
 		database = d.config.Database
 	}
-	query := fmt.Sprintf(
-		"SELECT COLUMN_NAME, COLUMN_TYPE, COLUMN_COMMENT, IS_NULLABLE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = '%s' AND TABLE_NAME = '%s' ORDER BY ORDINAL_POSITION",
-		escapeSQLString(database), escapeSQLString(table),
-	)
-	result, err := d.Query(ctx, query)
+	query := "SELECT COLUMN_NAME, COLUMN_TYPE, COLUMN_COMMENT, IS_NULLABLE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? ORDER BY ORDINAL_POSITION"
+	result, err := d.Query(ctx, query, database, table)
 	if err != nil {
 		return nil, err
 	}
@@ -250,10 +247,6 @@ func convertMySQLValue(v interface{}) interface{} {
 	default:
 		return val
 	}
-}
-
-func escapeSQLString(s string) string {
-	return strings.ReplaceAll(s, "'", "''")
 }
 
 func escapeMySQLIdentifier(name string) string {

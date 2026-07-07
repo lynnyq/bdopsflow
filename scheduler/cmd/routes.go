@@ -6,10 +6,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/lynnyq/bdopsflow/scheduler/internal/datasource"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/handler"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/metrics"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/middleware"
+	sysconfig "github.com/lynnyq/bdopsflow/scheduler/internal/system_config"
 	"github.com/lynnyq/bdopsflow/scheduler/web"
 )
 
@@ -38,7 +38,7 @@ func setupRoutes(router *gin.Engine, app *App) {
 	// Prometheus metrics 端点，无需认证，使用自定义 Registry（不含 Go runtime 指标）
 	router.GET("/metrics", gin.WrapH(metrics.Handler().(http.Handler)))
 
-	authHandler := handler.NewAuthHandler(app.logDB, app.permissionService, app.rsaUtil, app.cfg.SSOEnabled, app.cfg.SSOUrl, app.ssoRsaUtil, app.cfg.SSOTimeout)
+	authHandler := handler.NewAuthHandler(app.authService, app.permissionService, app.rsaUtil, app.cfg.SSOEnabled, app.cfg.SSOUrl, app.ssoRsaUtil, app.cfg.SSOTimeout)
 	userAdminHandler := handler.NewUserAdminHandler(app.userAdminService)
 	router.POST("/api/auth/login", middleware.AuditMiddleware(app.auditLogService), authHandler.Login)
 	router.POST("/api/auth/sso-login", middleware.AuditMiddleware(app.auditLogService), authHandler.SSOLogin)
@@ -165,7 +165,7 @@ func setupRoutes(router *gin.Engine, app *App) {
 			admin.PUT("/system-config/:key", middleware.RequireSystemAdmin(app.permissionService), systemConfigHandler.Update)
 			admin.POST("/system-config/reload", middleware.RequireSystemAdmin(app.permissionService), systemConfigHandler.Reload)
 
-			auditLogHandler := handler.NewAuditLogHandler(app.auditLogService)
+			auditLogHandler := handler.NewAuditLogHandler(app.auditLogService, app.sysConfigService)
 			admin.GET("/audit-logs", middleware.RequireSystemAdmin(app.permissionService), auditLogHandler.List)
 			admin.GET("/audit-logs/stats", middleware.RequireSystemAdmin(app.permissionService), auditLogHandler.GetStats)
 			admin.POST("/audit-logs/clean", middleware.RequireSystemAdmin(app.permissionService), auditLogHandler.CleanExpired)
@@ -183,7 +183,7 @@ func setupRoutes(router *gin.Engine, app *App) {
 			webhooks.POST("/:id/test", middleware.RequirePermission(app.permissionService, "webhook", "create"), webhookHandler.Test)
 		}
 
-		dsHandler := handler.NewDatasourceHandler(app.dsService, app.dsManager, app.dsConfigService, app.instancePermSvc, app.permissionService, app.domainAdminService, app.userAdminService)
+		dsHandler := handler.NewDatasourceHandler(app.dsService, app.dsManager, app.instancePermSvc, app.permissionService, app.domainAdminService, app.userAdminService)
 		queryHandler := handler.NewQueryHandler(app.dsService, app.dsManager, app.sysConfigService, app.dsCacheService, app.dsConcurrentService, app.redisClient, app.nodeID)
 
 		datasources := protected.Group("/datasources")
@@ -264,12 +264,12 @@ func setupRoutes(router *gin.Engine, app *App) {
 		}
 	}
 
-	setupStaticRoutes(router, app.dsConfigService)
+	setupStaticRoutes(router, app.sysConfigService)
 }
 
-func setupStaticRoutes(router *gin.Engine, dsConfigService *datasource.ConfigService) {
+func setupStaticRoutes(router *gin.Engine, sysConfigService *sysconfig.Service) {
 	webEnabled := func() bool {
-		return dsConfigService.GetBool("web.enabled")
+		return sysConfigService.GetBool("web.enabled")
 	}
 
 	hasWebAssets := func() bool {
