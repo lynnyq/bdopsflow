@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -176,11 +177,11 @@ func TestDistributedQueryRegistry_CancelLocalOnly(t *testing.T) {
 
 	// Node A 注册查询
 	nodeA := NewDistributedQueryRegistry(client, "node-A")
-	cancelled := false
+	var cancelled atomic.Bool
 	query := &RunningQuery{
 		QueryID:    "q_cancel_local",
 		Status:     QueryStatusRunning,
-		CancelFunc: func() { cancelled = true },
+		CancelFunc: func() { cancelled.Store(true) },
 	}
 	nodeA.Register(query)
 
@@ -189,7 +190,7 @@ func TestDistributedQueryRegistry_CancelLocalOnly(t *testing.T) {
 	if !ok {
 		t.Fatal("should be able to cancel local query")
 	}
-	if !cancelled {
+	if !cancelled.Load() {
 		t.Error("CancelFunc should have been called")
 	}
 
@@ -207,11 +208,11 @@ func TestDistributedQueryRegistry_CancelCrossNode(t *testing.T) {
 
 	// Node A 注册查询
 	nodeA := NewDistributedQueryRegistry(client, "node-A")
-	cancelled := false
+	var cancelled atomic.Bool
 	query := &RunningQuery{
 		QueryID:    "q_cancel_remote",
 		Status:     QueryStatusRunning,
-		CancelFunc: func() { cancelled = true },
+		CancelFunc: func() { cancelled.Store(true) },
 	}
 	nodeA.Register(query)
 
@@ -231,10 +232,16 @@ func TestDistributedQueryRegistry_CancelCrossNode(t *testing.T) {
 	}
 
 	// 等待跨节点取消指令执行
-	time.Sleep(200 * time.Millisecond)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if cancelled.Load() {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 
 	// 验证 Node A 的查询已被取消
-	if !cancelled {
+	if !cancelled.Load() {
 		t.Error("CancelFunc on Node A should have been called via cross-node cancel")
 	}
 
