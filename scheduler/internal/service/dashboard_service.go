@@ -94,9 +94,9 @@ func (s *SchedulerService) GetDashboardStats(ctx context.Context, domainID int64
 		recentExecQuery = `
 			SELECT
 				SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success,
-				SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
+				SUM(CASE WHEN status IN ('failed', 'timeout') THEN 1 ELSE 0 END) as failed,
 				AVG(CASE WHEN end_time IS NOT NULL AND start_time IS NOT NULL
-					THEN julianday(end_time) - julianday(start_time) ELSE 0 END) * 86400 as avg_duration
+					THEN julianday(end_time) - julianday(start_time) END) * 86400 as avg_duration
 			FROM bdopsflow_task_executions
 			WHERE created_at > ?
 		`
@@ -105,9 +105,9 @@ func (s *SchedulerService) GetDashboardStats(ctx context.Context, domainID int64
 		recentExecQuery = `
 			SELECT
 				SUM(CASE WHEN te.status = 'success' THEN 1 ELSE 0 END) as success,
-				SUM(CASE WHEN te.status = 'failed' THEN 1 ELSE 0 END) as failed,
+				SUM(CASE WHEN te.status IN ('failed', 'timeout') THEN 1 ELSE 0 END) as failed,
 				AVG(CASE WHEN te.end_time IS NOT NULL AND te.start_time IS NOT NULL
-					THEN julianday(te.end_time) - julianday(te.start_time) ELSE 0 END) * 86400 as avg_duration
+					THEN julianday(te.end_time) - julianday(te.start_time) END) * 86400 as avg_duration
 			FROM bdopsflow_task_executions te
 			JOIN bdopsflow_tasks t ON te.task_id = t.id
 			WHERE te.created_at > ? AND t.domain_id = ?
@@ -170,7 +170,7 @@ func (s *SchedulerService) GetTrendData(ctx context.Context, domainID int64, rol
 				date(created_at) as exec_date,
 				COUNT(*) as total,
 				SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success,
-				SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
+				SUM(CASE WHEN status IN ('failed', 'timeout') THEN 1 ELSE 0 END) as failed
 			FROM bdopsflow_task_executions
 			WHERE created_at > ?
 			GROUP BY date(created_at)
@@ -183,7 +183,7 @@ func (s *SchedulerService) GetTrendData(ctx context.Context, domainID int64, rol
 				date(te.created_at) as exec_date,
 				COUNT(*) as total,
 				SUM(CASE WHEN te.status = 'success' THEN 1 ELSE 0 END) as success,
-				SUM(CASE WHEN te.status = 'failed' THEN 1 ELSE 0 END) as failed
+				SUM(CASE WHEN te.status IN ('failed', 'timeout') THEN 1 ELSE 0 END) as failed
 			FROM bdopsflow_task_executions te
 			JOIN bdopsflow_tasks t ON te.task_id = t.id
 			WHERE te.created_at > ? AND t.domain_id = ?
