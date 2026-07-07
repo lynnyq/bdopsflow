@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"log/slog"
 
 	"github.com/gin-gonic/gin"
@@ -46,8 +47,15 @@ func (h *SystemConfigHandler) Update(c *gin.Context) {
 		configUID = v
 	}
 	if err := h.configService.Set(c.Request.Context(), key, req.Value, configUID); err != nil {
+		// 参数校验失败（无效值/未知 key）返回 400；DB 写入失败返回 500
+		var invalidErr *sysconfig.InvalidConfigValueError
+		if errors.As(err, &invalidErr) {
+			slog.Warn("SystemConfigHandler.Update: invalid config value", "module", "handler_system_config", "key", key, "error", err)
+			BadRequest(c, err.Error())
+			return
+		}
 		slog.Error("SystemConfigHandler.Update: failed to update config", "module", "handler_system_config", "key", key, "error", err)
-		Fail(c, CodeBadRequest, err.Error())
+		InternalServerError(c, "更新配置失败: "+err.Error())
 		return
 	}
 
@@ -58,10 +66,10 @@ func (h *SystemConfigHandler) Update(c *gin.Context) {
 // Reload 手动触发配置重新加载
 func (h *SystemConfigHandler) Reload(c *gin.Context) {
 	slog.Info("SystemConfigHandler.Reload: manual reload triggered", "module", "handler_system_config")
-	
+
 	if err := h.configService.Reload(c.Request.Context()); err != nil {
 		slog.Error("SystemConfigHandler.Reload: failed to reload config", "module", "handler_system_config", "error", err)
-		Fail(c, CodeBadRequest, "配置重载失败: "+err.Error())
+		InternalServerError(c, "配置重载失败: "+err.Error())
 		return
 	}
 

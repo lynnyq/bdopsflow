@@ -475,14 +475,6 @@ func (h *UserAdminHandler) AssignUserRoles(c *gin.Context) {
 		return
 	}
 
-	operatorID, _ := c.Get("user_id")
-	var opID int64
-	if v, ok := operatorID.(int64); ok {
-		opID = v
-	}
-
-	_ = opID
-
 	operatorRole, _ := c.Get("role")
 	var role string
 	if v, ok := operatorRole.(string); ok {

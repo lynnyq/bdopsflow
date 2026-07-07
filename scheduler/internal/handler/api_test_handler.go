@@ -271,7 +271,9 @@ func (h *ApiTestHandler) Execute(c *gin.Context) {
 		if len(req.Assertions) > 0 {
 			assertions = req.Assertions
 		} else if httpConfig.PostScript != "" {
-			_ = json.Unmarshal([]byte(httpConfig.PostScript), &assertions)
+			if err := json.Unmarshal([]byte(httpConfig.PostScript), &assertions); err != nil {
+				slog.Warn("failed to parse post script assertions", "error", err)
+			}
 		}
 		if len(assertions) > 0 {
 			assertionResults := h.httpExec.ExecuteAssertions(result, assertions)
@@ -385,7 +387,9 @@ func (h *ApiTestHandler) ExecuteSaved(c *gin.Context) {
 	var reqBody struct {
 		Assertions []model.AssertionConfig `json:"assertions"`
 	}
-	_ = c.ShouldBindJSON(&reqBody)
+	if err := c.ShouldBindJSON(&reqBody); err != nil {
+		slog.Warn("failed to bind optional assertions from request body", "test_id", id, "error", err)
+	}
 
 	test, err := h.apiTestSvc.GetByID(c.Request.Context(), id)
 	if err != nil {
@@ -424,7 +428,9 @@ func (h *ApiTestHandler) ExecuteSaved(c *gin.Context) {
 		if len(reqBody.Assertions) > 0 {
 			assertions = reqBody.Assertions
 		} else if httpConfig.PostScript != "" {
-			_ = json.Unmarshal([]byte(httpConfig.PostScript), &assertions)
+			if err := json.Unmarshal([]byte(httpConfig.PostScript), &assertions); err != nil {
+				slog.Warn("failed to parse post script assertions", "error", err)
+			}
 		}
 		if len(assertions) > 0 {
 			assertionResults := h.httpExec.ExecuteAssertions(result, assertions)

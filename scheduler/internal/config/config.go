@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"log/slog"
 	"sync"
 
@@ -167,6 +168,17 @@ func (c *Config) Reload() error {
 		"jwt_expiry_hours", c.JWTExpiry,
 		"sso_enabled", c.SSOEnabled,
 	)
+	return nil
+}
+
+// Validate 校验配置项的合法性
+func (c *Config) Validate() error {
+	if c.JWTSecret == "" || c.JWTSecret == "your-secret-key-change-in-production" {
+		return fmt.Errorf("JWTSecret 未配置，请在 config.yaml 中设置安全的 JWT 密钥（至少 32 字符）")
+	}
+	if len(c.JWTSecret) < 32 {
+		return fmt.Errorf("JWTSecret 长度不足，至少需要 32 字符，当前长度: %d", len(c.JWTSecret))
+	}
 	return nil
 }
 

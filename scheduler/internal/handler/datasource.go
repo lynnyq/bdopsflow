@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -17,18 +18,16 @@ import (
 type DatasourceHandler struct {
 	dsService       *datasource.DatasourceService
 	manager         *datasource.Manager
-	config          *datasource.ConfigService
 	instancePermSvc *service.InstancePermissionService
 	permSvc         *service.PermissionService
 	domainSvc       *service.DomainAdminService
 	userAdminSvc    *service.UserAdminService
 }
 
-func NewDatasourceHandler(dsService *datasource.DatasourceService, manager *datasource.Manager, config *datasource.ConfigService, instancePermSvc *service.InstancePermissionService, permSvc *service.PermissionService, domainSvc *service.DomainAdminService, userAdminSvc *service.UserAdminService) *DatasourceHandler {
+func NewDatasourceHandler(dsService *datasource.DatasourceService, manager *datasource.Manager, instancePermSvc *service.InstancePermissionService, permSvc *service.PermissionService, domainSvc *service.DomainAdminService, userAdminSvc *service.UserAdminService) *DatasourceHandler {
 	return &DatasourceHandler{
 		dsService:       dsService,
 		manager:         manager,
-		config:          config,
 		instancePermSvc: instancePermSvc,
 		permSvc:         permSvc,
 		domainSvc:       domainSvc,
@@ -444,6 +443,19 @@ func (h *DatasourceHandler) TestConnection(c *gin.Context) {
 		return
 	}
 
+	// 先查询数据源用于审计日志（记录测试了哪个数据源）。
+	// 不复用 TestDatasource 内部的 GetByID，因为我们需要在请求前就设置审计上下文，
+	// 确保测试失败时审计日志仍能记录数据源名称。
+	ds, err := h.dsService.GetByID(c.Request.Context(), id)
+	if err != nil {
+		NotFound(c, "数据源不存在")
+		return
+	}
+
+	c.Set("audit_resource_id", strconv.FormatInt(id, 10))
+	c.Set("audit_resource_name", ds.Name)
+	c.Set("audit_detail", fmt.Sprintf("数据源: %s (ID: %d, 类型: %s)", ds.Name, id, ds.Type))
+
 	if err := h.dsService.TestDatasource(c.Request.Context(), id); err != nil {
 		slog.Error("datasource test connection failed", "id", id, "error", err)
 		FailWithData(c, CodeDatasourceConnectFailed, "连接测试失败", gin.H{
@@ -481,6 +493,13 @@ func (h *DatasourceHandler) TestConnectionByParams(c *gin.Context) {
 		BadRequest(c, "不支持的数据源类型")
 		return
 	}
+
+	// 审计日志：按参数测试连接时记录数据源类型和连接信息（不含密码）
+	hostPort := req.Host
+	if req.Port > 0 {
+		hostPort = fmt.Sprintf("%s:%d", req.Host, req.Port)
+	}
+	c.Set("audit_detail", fmt.Sprintf("类型: %s\n主机: %s\n数据库: %s", req.Type, hostPort, defaultDBName(req.Database)))
 
 	ds := &model.Datasource{
 		Type:           req.Type,
@@ -565,6 +584,16 @@ func (h *DatasourceHandler) GrantPermission(c *gin.Context) {
 		return
 	}
 
+	// 审计日志：记录授权的数据源 ID、权限类型和授权对象
+	c.Set("audit_resource_id", strconv.FormatInt(dsID, 10))
+	target := "未知"
+	if req.RoleID != nil {
+		target = fmt.Sprintf("角色ID: %d", *req.RoleID)
+	} else if req.UserID != nil {
+		target = fmt.Sprintf("用户ID: %d", *req.UserID)
+	}
+	c.Set("audit_detail", fmt.Sprintf("数据源ID: %d\n权限类型: %s\n授权对象: %s", dsID, req.PermissionType, target))
+
 	Created(c, nil)
 }
 
@@ -575,10 +604,19 @@ func (h *DatasourceHandler) RevokePermission(c *gin.Context) {
 		return
 	}
 
+	// 提取数据源 ID 用于审计（从路径参数获取，路径为 /api/datasources/:id/permissions/:perm_id）
+	dsID, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+
 	if err := h.dsService.RevokePermission(c.Request.Context(), permID); err != nil {
 		Fail(c, CodeQueryError, "撤销权限失败")
 		return
 	}
+
+	// 审计日志：记录撤销的权限 ID 和所属数据源
+	if dsID > 0 {
+		c.Set("audit_resource_id", strconv.FormatInt(dsID, 10))
+	}
+	c.Set("audit_detail", fmt.Sprintf("权限ID: %d", permID))
 
 	Success(c, nil)
 }
@@ -603,6 +641,9 @@ func (h *DatasourceHandler) UpdatePermission(c *gin.Context) {
 		return
 	}
 
+	// 提取数据源 ID 用于审计
+	dsID, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+
 	if err := h.dsService.UpdatePermission(c.Request.Context(), permID, req.PermissionType); err != nil {
 		if err == datasource.ErrPermissionNotFound {
 			NotFound(c, "权限记录不存在")
@@ -611,6 +652,12 @@ func (h *DatasourceHandler) UpdatePermission(c *gin.Context) {
 		Fail(c, CodeQueryError, "修改权限失败")
 		return
 	}
+
+	// 审计日志：记录修改的权限 ID、新权限类型和所属数据源
+	if dsID > 0 {
+		c.Set("audit_resource_id", strconv.FormatInt(dsID, 10))
+	}
+	c.Set("audit_detail", fmt.Sprintf("权限ID: %d\n新权限类型: %s", permID, req.PermissionType))
 
 	Success(c, nil)
 }

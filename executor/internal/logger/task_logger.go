@@ -3,6 +3,7 @@ package logger
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	pb "github.com/lynnyq/bdopsflow/proto"
@@ -52,7 +53,18 @@ func (l *TaskLogger) Debug(message string) {
 }
 
 func (l *TaskLogger) log(level, message string) {
-	fmt.Printf("[%s] [%s] %s\n", level, l.executionID, message)
+	switch level {
+	case "debug":
+		slog.Debug(message, "execution_id", l.executionID)
+	case "info":
+		slog.Info(message, "execution_id", l.executionID)
+	case "warn":
+		slog.Warn(message, "execution_id", l.executionID)
+	case "error":
+		slog.Error(message, "execution_id", l.executionID)
+	default:
+		slog.Info(message, "execution_id", l.executionID)
+	}
 
 	if l.client != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
