@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -9,6 +10,8 @@ import (
 	"time"
 
 	"github.com/lynnyq/bdopsflow/scheduler/internal/model"
+	"github.com/lynnyq/bdopsflow/scheduler/pkg/database"
+	rqlite "github.com/rqlite/gorqlite"
 )
 
 // TestNewAPITokenService 测试构造函数
@@ -319,6 +322,542 @@ func TestAPITokenModel(t *testing.T) {
 		// 验证结构体字段可访问
 		if token.TokenEncrypted != "secret" {
 			t.Error("TokenEncrypted应可访问")
+		}
+	})
+}
+
+// ===== APITokenService service-level tests =====
+
+// apiTokenRow 构造一行 api_token 查询结果（6 列）
+// 列顺序：0=id 1=user_id 2=token_encrypted 3=token_prefix 4=last_used_at 5=created_at
+func apiTokenRow(id, userID int64, encrypted, prefix string) []interface{} {
+	return []interface{}{id, userID, encrypted, prefix, nil, "2026-01-01T00:00:00Z"}
+}
+
+func apiTokenRowWithLastUsed(id, userID int64, encrypted, prefix, lastUsed string) []interface{} {
+	return []interface{}{id, userID, encrypted, prefix, lastUsed, "2026-01-01T00:00:00Z"}
+}
+
+func TestAPITokenService_GenerateToken(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("生成Token成功", func(t *testing.T) {
+		rsaUtil := newTestRSAUtil(t)
+		db := &MockDB{
+			WriteResult: database.NewWriteResult(1, 1),
+		}
+		svc := NewAPITokenService(db, rsaUtil, nil)
+		tokenString, apiToken, err := svc.GenerateToken(ctx, 100)
+		if err != nil {
+			t.Fatalf("期望无错误，实际: %v", err)
+		}
+		if !strings.HasPrefix(tokenString, "bdf_") {
+			t.Errorf("期望token以bdf_开头，实际=%s", tokenString[:4])
+		}
+		if len(tokenString) != 68 {
+			t.Errorf("期望token长度68，实际=%d", len(tokenString))
+		}
+		if apiToken == nil {
+			t.Fatal("期望返回非nil apiToken")
+		}
+		if apiToken.UserID != 100 {
+			t.Errorf("期望UserID=100，实际=%d", apiToken.UserID)
+		}
+		if apiToken.ID != 1 {
+			t.Errorf("期望ID=1，实际=%d", apiToken.ID)
+		}
+		// 应该有两次写入：删除旧token + 插入新token
+		if len(db.WriteStmts) != 2 {
+			t.Errorf("期望2次写入，实际=%d", len(db.WriteStmts))
+		}
+	})
+
+	t.Run("rsaUtil为nil时panic", func(t *testing.T) {
+		db := &MockDB{WriteResult: database.NewWriteResult(1, 1)}
+		svc := NewAPITokenService(db, nil, nil)
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("期望panic")
+			}
+		}()
+		svc.GenerateToken(ctx, 100)
+	})
+
+	t.Run("删除旧Token失败返回错误", func(t *testing.T) {
+		rsaUtil := newTestRSAUtil(t)
+		db := &MockDB{WriteError: ErrMockDB}
+		svc := NewAPITokenService(db, rsaUtil, nil)
+		_, _, err := svc.GenerateToken(ctx, 100)
+		if err == nil {
+			t.Fatal("期望返回错误")
+		}
+	})
+
+	t.Run("插入新Token失败返回错误", func(t *testing.T) {
+		rsaUtil := newTestRSAUtil(t)
+		// 让第一次写入成功，第二次失败
+		// MockDB 不支持分次控制 WriteOneParameterized，但可以用 WriteError
+		// 这里测试 WriteError 场景
+		db2 := &MockDB{WriteError: ErrMockDB}
+		svc := NewAPITokenService(db2, rsaUtil, nil)
+		_, _, err := svc.GenerateToken(ctx, 100)
+		if err == nil {
+			t.Fatal("期望返回错误")
+		}
+	})
+
+	t.Run("插入结果带错误返回错误", func(t *testing.T) {
+		rsaUtil := newTestRSAUtil(t)
+		db := &MockDB{
+			WriteResult: rqlite.WriteResult{Err: ErrMockDB},
+		}
+		svc := NewAPITokenService(db, rsaUtil, nil)
+		_, _, err := svc.GenerateToken(ctx, 100)
+		if err == nil {
+			t.Fatal("期望返回错误")
+		}
+	})
+}
+
+func TestAPITokenService_GetTokenInfo(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("找到Token", func(t *testing.T) {
+		db := &MockDB{
+			QueryResult: database.NewQueryResultWithRows([][]interface{}{
+				apiTokenRow(1, 100, "encrypted", "bdf_a1b2"),
+			}),
+		}
+		svc := NewAPITokenService(db, nil, nil)
+		token, err := svc.GetTokenInfo(ctx, 100)
+		if err != nil {
+			t.Fatalf("期望无错误，实际: %v", err)
+		}
+		if token == nil {
+			t.Fatal("期望返回非nil token")
+		}
+		if token.ID != 1 {
+			t.Errorf("期望ID=1，实际=%d", token.ID)
+		}
+		if token.UserID != 100 {
+			t.Errorf("期望UserID=100，实际=%d", token.UserID)
+		}
+		if token.TokenEncrypted != "encrypted" {
+			t.Errorf("期望TokenEncrypted=encrypted，实际=%s", token.TokenEncrypted)
+		}
+		if token.TokenPrefix != "bdf_a1b2" {
+			t.Errorf("期望TokenPrefix=bdf_a1b2，实际=%s", token.TokenPrefix)
+		}
+	})
+
+	t.Run("Token不存在返回ErrAPITokenNotFound", func(t *testing.T) {
+		db := &MockDB{
+			QueryResult: database.NewQueryResultWithRows(nil),
+		}
+		svc := NewAPITokenService(db, nil, nil)
+		_, err := svc.GetTokenInfo(ctx, 100)
+		if err == nil {
+			t.Fatal("期望返回错误")
+		}
+		if !errors.Is(err, ErrAPITokenNotFound) {
+			t.Errorf("期望ErrAPITokenNotFound，实际: %v", err)
+		}
+	})
+
+	t.Run("查询错误返回错误", func(t *testing.T) {
+		db := &MockDB{QueryError: ErrMockDB}
+		svc := NewAPITokenService(db, nil, nil)
+		_, err := svc.GetTokenInfo(ctx, 100)
+		if err == nil {
+			t.Fatal("期望返回错误")
+		}
+	})
+
+	t.Run("查询结果带错误返回错误", func(t *testing.T) {
+		db := &MockDB{
+			QueryResult: database.NewQueryResultWithErr(ErrMockDB),
+		}
+		svc := NewAPITokenService(db, nil, nil)
+		_, err := svc.GetTokenInfo(ctx, 100)
+		if err == nil {
+			t.Fatal("期望返回错误")
+		}
+	})
+
+	t.Run("带LastUsedAt", func(t *testing.T) {
+		db := &MockDB{
+			QueryResult: database.NewQueryResultWithRows([][]interface{}{
+				apiTokenRowWithLastUsed(1, 100, "enc", "bdf_test", "2026-06-01T00:00:00Z"),
+			}),
+		}
+		svc := NewAPITokenService(db, nil, nil)
+		token, err := svc.GetTokenInfo(ctx, 100)
+		if err != nil {
+			t.Fatalf("期望无错误，实际: %v", err)
+		}
+		if token.LastUsedAt == nil {
+			t.Fatal("期望LastUsedAt非nil")
+		}
+	})
+}
+
+func TestAPITokenService_RevealToken(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("解密Token成功", func(t *testing.T) {
+		rsaUtil := newTestRSAUtil(t)
+		// 先加密一个Token
+		plaintext := "bdf_testtoken123"
+		encrypted, err := rsaUtil.EncryptLarge(plaintext)
+		if err != nil {
+			t.Fatalf("加密失败: %v", err)
+		}
+
+		db := &MockDB{
+			QueryResult: database.NewQueryResultWithRows([][]interface{}{
+				apiTokenRow(1, 100, encrypted, "bdf_test"),
+			}),
+		}
+		svc := NewAPITokenService(db, rsaUtil, nil)
+		revealed, err := svc.RevealToken(ctx, 100)
+		if err != nil {
+			t.Fatalf("期望无错误，实际: %v", err)
+		}
+		if revealed != plaintext {
+			t.Errorf("期望revealed=%s，实际=%s", plaintext, revealed)
+		}
+	})
+
+	t.Run("Token不存在返回错误", func(t *testing.T) {
+		rsaUtil := newTestRSAUtil(t)
+		db := &MockDB{
+			QueryResult: database.NewQueryResultWithRows(nil),
+		}
+		svc := NewAPITokenService(db, rsaUtil, nil)
+		_, err := svc.RevealToken(ctx, 100)
+		if err == nil {
+			t.Fatal("期望返回错误")
+		}
+		if !errors.Is(err, ErrAPITokenNotFound) {
+			t.Errorf("期望ErrAPITokenNotFound，实际: %v", err)
+		}
+	})
+
+	t.Run("GetTokenInfo出错返回错误", func(t *testing.T) {
+		rsaUtil := newTestRSAUtil(t)
+		db := &MockDB{QueryError: ErrMockDB}
+		svc := NewAPITokenService(db, rsaUtil, nil)
+		_, err := svc.RevealToken(ctx, 100)
+		if err == nil {
+			t.Fatal("期望返回错误")
+		}
+	})
+
+	t.Run("rsaUtil为nil时panic", func(t *testing.T) {
+		db := &MockDB{
+			QueryResult: database.NewQueryResultWithRows([][]interface{}{
+				apiTokenRow(1, 100, "encrypted", "bdf_test"),
+			}),
+		}
+		svc := NewAPITokenService(db, nil, nil)
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("期望panic")
+			}
+		}()
+		svc.RevealToken(ctx, 100)
+	})
+}
+
+func TestAPITokenService_RevokeToken(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("撤销Token成功", func(t *testing.T) {
+		db := &MockDB{
+			QueryResult: database.NewQueryResultWithRows([][]interface{}{
+				apiTokenRow(1, 100, "encrypted", "bdf_test"),
+			}),
+			WriteResult: database.NewWriteResult(0, 1),
+		}
+		svc := NewAPITokenService(db, nil, nil)
+		err := svc.RevokeToken(ctx, 100)
+		if err != nil {
+			t.Fatalf("期望无错误，实际: %v", err)
+		}
+	})
+
+	t.Run("Token不存在返回错误", func(t *testing.T) {
+		db := &MockDB{
+			QueryResult: database.NewQueryResultWithRows(nil),
+		}
+		svc := NewAPITokenService(db, nil, nil)
+		err := svc.RevokeToken(ctx, 100)
+		if err == nil {
+			t.Fatal("期望返回错误")
+		}
+		if !errors.Is(err, ErrAPITokenNotFound) {
+			t.Errorf("期望ErrAPITokenNotFound，实际: %v", err)
+		}
+	})
+
+	t.Run("GetTokenInfo出错返回错误", func(t *testing.T) {
+		db := &MockDB{QueryError: ErrMockDB}
+		svc := NewAPITokenService(db, nil, nil)
+		err := svc.RevokeToken(ctx, 100)
+		if err == nil {
+			t.Fatal("期望返回错误")
+		}
+	})
+
+	t.Run("删除失败返回错误", func(t *testing.T) {
+		db := &MockDB{
+			QueryResult: database.NewQueryResultWithRows([][]interface{}{
+				apiTokenRow(1, 100, "encrypted", "bdf_test"),
+			}),
+			WriteError: ErrMockDB,
+		}
+		svc := NewAPITokenService(db, nil, nil)
+		err := svc.RevokeToken(ctx, 100)
+		if err == nil {
+			t.Fatal("期望返回错误")
+		}
+	})
+
+	t.Run("删除结果带错误返回错误", func(t *testing.T) {
+		db := &MockDB{
+			QueryResult: database.NewQueryResultWithRows([][]interface{}{
+				apiTokenRow(1, 100, "encrypted", "bdf_test"),
+			}),
+			WriteResult: rqlite.WriteResult{Err: ErrMockDB},
+		}
+		svc := NewAPITokenService(db, nil, nil)
+		err := svc.RevokeToken(ctx, 100)
+		if err == nil {
+			t.Fatal("期望返回错误")
+		}
+	})
+}
+
+func TestAPITokenService_ValidateToken(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("无效前缀返回ErrAPITokenInvalid", func(t *testing.T) {
+		svc := NewAPITokenService(&MockDB{}, nil, nil)
+		_, err := svc.ValidateToken(ctx, "invalid_token")
+		if err == nil {
+			t.Fatal("期望返回错误")
+		}
+		if !errors.Is(err, ErrAPITokenInvalid) {
+			t.Errorf("期望ErrAPITokenInvalid，实际: %v", err)
+		}
+	})
+
+	t.Run("Token长度不足返回ErrAPITokenInvalid", func(t *testing.T) {
+		svc := NewAPITokenService(&MockDB{}, nil, nil)
+		_, err := svc.ValidateToken(ctx, "bdf_ab")
+		if err == nil {
+			t.Fatal("期望返回错误")
+		}
+		if !errors.Is(err, ErrAPITokenInvalid) {
+			t.Errorf("期望ErrAPITokenInvalid，实际: %v", err)
+		}
+	})
+
+	t.Run("无Token记录返回ErrAPITokenInvalid", func(t *testing.T) {
+		db := &MockDB{
+			QueryResult: database.NewQueryResultWithRows(nil),
+		}
+		svc := NewAPITokenService(db, nil, nil)
+		_, err := svc.ValidateToken(ctx, "bdf_testtoken123")
+		if err == nil {
+			t.Fatal("期望返回错误")
+		}
+		if !errors.Is(err, ErrAPITokenInvalid) {
+			t.Errorf("期望ErrAPITokenInvalid，实际: %v", err)
+		}
+	})
+
+	t.Run("查询错误返回错误", func(t *testing.T) {
+		db := &MockDB{QueryError: ErrMockDB}
+		svc := NewAPITokenService(db, nil, nil)
+		_, err := svc.ValidateToken(ctx, "bdf_testtoken123")
+		if err == nil {
+			t.Fatal("期望返回错误")
+		}
+	})
+
+	t.Run("验证成功", func(t *testing.T) {
+		rsaUtil := newTestRSAUtil(t)
+		// 创建一个真实的Token并加密
+		tokenString := "bdf_" + strings.Repeat("a", 64)
+		encrypted, err := rsaUtil.EncryptLarge(tokenString)
+		if err != nil {
+			t.Fatalf("加密失败: %v", err)
+		}
+
+		// 第一次查询返回token记录，第二次查询返回用户活跃状态
+		db := &MockDB{
+			QueryResults: []rqlite.QueryResult{
+				// token 查询返回一行
+				database.NewQueryResultWithRows([][]interface{}{
+					apiTokenRow(1, 100, encrypted, "bdf_aaaa"),
+				}),
+				// 用户查询返回 is_active=true
+				database.NewQueryResultWithRows([][]interface{}{
+					{true},
+				}),
+			},
+		}
+		svc := NewAPITokenService(db, rsaUtil, nil)
+		userID, err := svc.ValidateToken(ctx, tokenString)
+		if err != nil {
+			t.Fatalf("期望无错误，实际: %v", err)
+		}
+		if userID != 100 {
+			t.Errorf("期望userID=100，实际=%d", userID)
+		}
+	})
+
+	t.Run("用户未激活返回ErrUserInactive", func(t *testing.T) {
+		rsaUtil := newTestRSAUtil(t)
+		tokenString := "bdf_" + strings.Repeat("a", 64)
+		encrypted, err := rsaUtil.EncryptLarge(tokenString)
+		if err != nil {
+			t.Fatalf("加密失败: %v", err)
+		}
+
+		db := &MockDB{
+			QueryResults: []rqlite.QueryResult{
+				// token 查询返回一行
+				database.NewQueryResultWithRows([][]interface{}{
+					apiTokenRow(1, 100, encrypted, "bdf_aaaa"),
+				}),
+				// 用户查询返回 is_active=false
+				database.NewQueryResultWithRows([][]interface{}{
+					{false},
+				}),
+			},
+		}
+		svc := NewAPITokenService(db, rsaUtil, nil)
+		_, err = svc.ValidateToken(ctx, tokenString)
+		if err == nil {
+			t.Fatal("期望返回错误")
+		}
+		if !errors.Is(err, ErrUserInactive) {
+			t.Errorf("期望ErrUserInactive，实际: %v", err)
+		}
+	})
+
+	t.Run("用户不存在返回ErrAPITokenInvalid", func(t *testing.T) {
+		rsaUtil := newTestRSAUtil(t)
+		tokenString := "bdf_" + strings.Repeat("a", 64)
+		encrypted, err := rsaUtil.EncryptLarge(tokenString)
+		if err != nil {
+			t.Fatalf("加密失败: %v", err)
+		}
+
+		db := &MockDB{
+			QueryResults: []rqlite.QueryResult{
+				// token 查询返回一行
+				database.NewQueryResultWithRows([][]interface{}{
+					apiTokenRow(1, 100, encrypted, "bdf_aaaa"),
+				}),
+				// 用户查询无结果
+				database.NewQueryResultWithRows(nil),
+			},
+		}
+		svc := NewAPITokenService(db, rsaUtil, nil)
+		_, err = svc.ValidateToken(ctx, tokenString)
+		if err == nil {
+			t.Fatal("期望返回错误")
+		}
+		if !errors.Is(err, ErrAPITokenInvalid) {
+			t.Errorf("期望ErrAPITokenInvalid，实际: %v", err)
+		}
+	})
+}
+
+func TestAPITokenService_GetTokenUserInfo(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("返回用户信息", func(t *testing.T) {
+		db := &MockDB{
+			QueryResult: database.NewQueryResultWithRows([][]interface{}{
+				{"alice", "Alice"},
+			}),
+		}
+		svc := NewAPITokenService(db, nil, nil)
+		username, realName, domainID, err := svc.GetTokenUserInfo(ctx, 100)
+		if err != nil {
+			t.Fatalf("期望无错误，实际: %v", err)
+		}
+		if username != "alice" {
+			t.Errorf("期望username=alice，实际=%s", username)
+		}
+		if realName != "Alice" {
+			t.Errorf("期望realName=Alice，实际=%s", realName)
+		}
+		if domainID != 0 {
+			t.Errorf("期望domainID=0（无permSvc），实际=%d", domainID)
+		}
+	})
+
+	t.Run("用户不存在返回ErrUserNotFound", func(t *testing.T) {
+		db := &MockDB{
+			QueryResult: database.NewQueryResultWithRows(nil),
+		}
+		svc := NewAPITokenService(db, nil, nil)
+		_, _, _, err := svc.GetTokenUserInfo(ctx, 100)
+		if err == nil {
+			t.Fatal("期望返回错误")
+		}
+		if !errors.Is(err, ErrUserNotFound) {
+			t.Errorf("期望ErrUserNotFound，实际: %v", err)
+		}
+	})
+
+	t.Run("查询错误返回错误", func(t *testing.T) {
+		db := &MockDB{QueryError: ErrMockDB}
+		svc := NewAPITokenService(db, nil, nil)
+		_, _, _, err := svc.GetTokenUserInfo(ctx, 100)
+		if err == nil {
+			t.Fatal("期望返回错误")
+		}
+	})
+
+	t.Run("查询结果带错误返回错误", func(t *testing.T) {
+		db := &MockDB{
+			QueryResult: database.NewQueryResultWithErr(ErrMockDB),
+		}
+		svc := NewAPITokenService(db, nil, nil)
+		_, _, _, err := svc.GetTokenUserInfo(ctx, 100)
+		if err == nil {
+			t.Fatal("期望返回错误")
+		}
+	})
+
+	t.Run("带permSvc返回默认领域", func(t *testing.T) {
+		// 第一次查询返回用户信息，第二次查询返回默认领域
+		db := &MockDB{
+			QueryResults: []rqlite.QueryResult{
+				// 用户信息查询
+				database.NewQueryResultWithRows([][]interface{}{
+					{"alice", "Alice"},
+				}),
+				// GetUserDefaultDomain 第一次查询（is_default=1）
+				database.NewQueryResultWithRows([][]interface{}{
+					{int64(5)},
+				}),
+			},
+		}
+		permSvc := NewPermissionService(db, nil)
+		svc := NewAPITokenService(db, nil, permSvc)
+		_, _, domainID, err := svc.GetTokenUserInfo(ctx, 100)
+		if err != nil {
+			t.Fatalf("期望无错误，实际: %v", err)
+		}
+		if domainID != 5 {
+			t.Errorf("期望domainID=5，实际=%d", domainID)
 		}
 	})
 }

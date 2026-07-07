@@ -179,7 +179,9 @@ func (h *APITokenHandler) Reveal(c *gin.Context) {
 	}
 
 	go func() {
-		if err := h.auditSvc.Create(context.Background(), auditLog); err != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := h.auditSvc.Create(ctx, auditLog); err != nil {
 			slog.Error("APITokenHandler.Reveal: failed to write audit log", "module", "handler_api_token", "error", err)
 		}
 	}()

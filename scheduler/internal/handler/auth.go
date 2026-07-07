@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -13,14 +14,12 @@ import (
 	"github.com/lynnyq/bdopsflow/scheduler/internal/middleware"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/model"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/service"
-	"github.com/lynnyq/bdopsflow/scheduler/pkg/database"
 	"github.com/lynnyq/bdopsflow/scheduler/pkg/rsautil"
-	rqlite "github.com/rqlite/gorqlite"
 	"golang.org/x/crypto/bcrypt"
 )
 
 type AuthHandler struct {
-	db         database.DB
+	authSvc    *service.AuthService
 	permSvc    *service.PermissionService
 	rsaUtil    *rsautil.RSAUtil
 	ssoEnabled bool
@@ -29,13 +28,13 @@ type AuthHandler struct {
 	ssoTimeout time.Duration
 }
 
-func NewAuthHandler(db database.DB, permSvc *service.PermissionService, rsaUtil *rsautil.RSAUtil, ssoEnabled bool, ssoUrl string, ssoRsaUtil *rsautil.RSAUtil, ssoTimeout int) *AuthHandler {
+func NewAuthHandler(authSvc *service.AuthService, permSvc *service.PermissionService, rsaUtil *rsautil.RSAUtil, ssoEnabled bool, ssoUrl string, ssoRsaUtil *rsautil.RSAUtil, ssoTimeout int) *AuthHandler {
 	timeout := time.Duration(ssoTimeout) * time.Second
 	if timeout <= 0 {
 		timeout = 10 * time.Second
 	}
 	return &AuthHandler{
-		db:         db,
+		authSvc:    authSvc,
 		permSvc:    permSvc,
 		rsaUtil:    rsaUtil,
 		ssoEnabled: ssoEnabled,
@@ -66,45 +65,27 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	slog.Debug("Login: request entry", "module", "handler_auth", "username", req.Username)
 
-	query := "SELECT id, username, real_name, phone, password, email, is_active FROM bdopsflow_users WHERE username = ?"
-	stmt := rqlite.ParameterizedStatement{
-		Query:     query,
-		Arguments: []interface{}{req.Username},
-	}
-	qr, err := h.db.QueryOneParameterized(stmt)
+	loginUser, found, err := h.authSvc.GetUserByUsername(c.Request.Context(), req.Username)
 	if err != nil {
 		slog.Error("Login: query user failed", "error", err, "username", req.Username)
 		InternalServerError(c, "服务器错误，请稍后重试")
 		return
 	}
 
-	if qr.Err != nil {
-		slog.Error("Login: query result error", "error", qr.Err, "username", req.Username)
-		InternalServerError(c, "服务器错误，请稍后重试")
-		return
-	}
-
-	if !qr.Next() {
+	if !found {
 		slog.Warn("Login: user not found", "module", "handler_auth", "username", req.Username)
 		metrics.AuthAttempts.WithLabelValues("local", "failed").Inc()
 		Fail(c, CodeInvalidCredentials, "用户名或密码错误")
 		return
 	}
 
-	row, err := qr.Slice()
-	if err != nil {
-		slog.Error("Login: slice user failed", "error", err, "username", req.Username)
-		InternalServerError(c, "服务器错误，请稍后重试")
-		return
-	}
-
-	userID := service.RowInt64(row[0])
-	username := service.RowString(row[1])
-	realName := service.RowString(row[2])
-	phone := service.RowString(row[3])
-	hashedPassword := service.RowString(row[4])
-	email := service.RowString(row[5])
-	isActive := service.RowBool(row[6])
+	userID := loginUser.ID
+	username := loginUser.Username
+	realName := loginUser.RealName
+	phone := loginUser.Phone
+	hashedPassword := loginUser.HashedPassword
+	email := loginUser.Email
+	isActive := loginUser.IsActive
 
 	decryptedPassword, err := h.rsaUtil.Decrypt(req.Password)
 	if err != nil {
@@ -157,12 +138,11 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 
 	go func() {
-		updateQuery := "UPDATE bdopsflow_users SET last_login_at = ? WHERE id = ?"
-		updateStmt := rqlite.ParameterizedStatement{
-			Query:     updateQuery,
-			Arguments: []interface{}{time.Now(), userID},
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if updateErr := h.authSvc.UpdateLastLogin(ctx, userID); updateErr != nil {
+			slog.Error("Login: update last login failed", "error", updateErr, "user_id", userID)
 		}
-		h.db.WriteOneParameterized(updateStmt)
 	}()
 
 	permissions, permErr := h.permSvc.GetUserPermissions(c.Request.Context(), userID)
@@ -229,34 +209,18 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 	}
 
 	// 检查用户是否被禁用
-	refreshUserQuery := "SELECT is_active FROM bdopsflow_users WHERE id = ?"
-	refreshUserStmt := rqlite.ParameterizedStatement{
-		Query:     refreshUserQuery,
-		Arguments: []interface{}{claims.UserID},
-	}
-	refreshQr, refreshErr := h.db.QueryOneParameterized(refreshUserStmt)
-	if refreshErr != nil {
-		slog.Error("RefreshToken: query user failed", "error", refreshErr, "user_id", claims.UserID)
+	isActive, userFound, err := h.authSvc.GetUserActiveStatus(c.Request.Context(), claims.UserID)
+	if err != nil {
+		slog.Error("RefreshToken: query user failed", "error", err, "user_id", claims.UserID)
 		InternalServerError(c, "服务器错误，请稍后重试")
 		return
 	}
-	if refreshQr.Err != nil {
-		slog.Error("RefreshToken: query user error", "error", refreshQr.Err, "user_id", claims.UserID)
-		InternalServerError(c, "服务器错误，请稍后重试")
-		return
-	}
-	if !refreshQr.Next() {
+	if !userFound {
 		slog.Warn("RefreshToken: user not found", "user_id", claims.UserID)
 		Fail(c, CodeInvalidToken, "用户不存在")
 		return
 	}
-	refreshRow, refreshSliceErr := refreshQr.Slice()
-	if refreshSliceErr != nil {
-		slog.Error("RefreshToken: slice failed", "error", refreshSliceErr, "user_id", claims.UserID)
-		InternalServerError(c, "服务器错误，请稍后重试")
-		return
-	}
-	if !service.RowBool(refreshRow[0]) {
+	if !isActive {
 		slog.Warn("RefreshToken: user is inactive", "user_id", claims.UserID)
 		Fail(c, CodeInvalidToken, "该账号已被禁用，请联系管理员")
 		return
@@ -342,44 +306,22 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
-	query := "INSERT INTO bdopsflow_users (username, real_name, phone, password, email, is_active, created_at) VALUES (?, ?, ?, ?, ?, 1, ?)"
-	stmt := rqlite.ParameterizedStatement{
-		Query:     query,
-		Arguments: []interface{}{req.Username, "", "", string(hashedPassword), req.Email, time.Now()},
-	}
-	result, err := h.db.WriteOneParameterized(stmt)
+	userID, err := h.authSvc.CreateUser(c.Request.Context(), req.Username, "", "", string(hashedPassword), req.Email)
 	if err != nil {
-		slog.Error("Register: db write failed", "module", "handler_auth", "username", req.Username, "error", err)
+		slog.Error("Register: create user failed", "module", "handler_auth", "username", req.Username, "error", err)
 		InternalServerError(c, "服务器错误，请稍后重试")
 		return
 	}
-
-	if result.Err != nil {
-		slog.Error("Register: db write result error", "module", "handler_auth", "username", req.Username, "error", result.Err)
-		InternalServerError(c, "服务器错误，请稍后重试")
-		return
-	}
-
-	userID := result.LastInsertID
 
 	slog.Info("Register: success", "module", "handler_auth", "user_id", userID, "username", req.Username)
 
-	roleQuery := "SELECT id FROM bdopsflow_roles WHERE code = 'user' LIMIT 1"
-	roleStmt := rqlite.ParameterizedStatement{
-		Query: roleQuery,
-	}
-	roleQr, roleErr := h.db.QueryOneParameterized(roleStmt)
-	if roleErr == nil && roleQr.Err == nil && roleQr.Next() {
-		roleRow, _ := roleQr.Slice()
-		if len(roleRow) > 0 {
-			roleID := service.RowInt64(roleRow[0])
-			if roleID > 0 {
-				assignStmt := rqlite.ParameterizedStatement{
-					Query:     "INSERT INTO bdopsflow_user_roles (user_id, role_id, created_at) VALUES (?, ?, ?)",
-					Arguments: []interface{}{userID, roleID, time.Now()},
-				}
-				h.db.WriteOneParameterized(assignStmt)
-			}
+	// 分配默认角色 "user"
+	roleID, roleErr := h.authSvc.GetRoleIDByCode(c.Request.Context(), "user")
+	if roleErr != nil {
+		slog.Warn("Register: query default role failed", "module", "handler_auth", "error", roleErr)
+	} else if roleID > 0 {
+		if assignErr := h.authSvc.AssignUserRole(c.Request.Context(), userID, roleID); assignErr != nil {
+			slog.Warn("Register: assign user role failed", "module", "handler_auth", "user_id", userID, "error", assignErr)
 		}
 	}
 
@@ -399,50 +341,25 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 
 	slog.Debug("GetCurrentUser: request entry", "module", "handler_auth", "user_id", userID)
 
-	query := "SELECT username, real_name, phone, email, is_active, last_login_at FROM bdopsflow_users WHERE id = ?"
-	stmt := rqlite.ParameterizedStatement{
-		Query:     query,
-		Arguments: []interface{}{userID},
-	}
-	qr, err := h.db.QueryOneParameterized(stmt)
+	uid, _ := userID.(int64)
+	userInfo, found, err := h.authSvc.GetUserByID(c.Request.Context(), uid)
 	if err != nil {
 		slog.Error("GetCurrentUser: query failed", "error", err, "user_id", userID)
 		InternalServerError(c, "服务器错误，请稍后重试")
 		return
 	}
 
-	if qr.Err != nil {
-		slog.Error("GetCurrentUser: query returned error", "error", qr.Err, "user_id", userID)
-		InternalServerError(c, "服务器错误，请稍后重试")
-		return
-	}
-
-	if !qr.Next() {
+	if !found {
 		NotFound(c, "用户不存在")
 		return
 	}
 
-	row, err := qr.Slice()
-	if err != nil {
-		slog.Error("GetCurrentUser: slice failed", "error", err, "user_id", userID)
-		InternalServerError(c, "服务器错误，请稍后重试")
-		return
-	}
-
-	username := service.RowString(row[0])
-	realName := service.RowString(row[1])
-	phone := service.RowString(row[2])
-	email := service.RowString(row[3])
-	isActive := service.RowBool(row[4])
-	lastLoginAt := service.ScanNullTime(row, 5)
-
-	if !isActive {
+	if !userInfo.IsActive {
 		slog.Warn("GetCurrentUser: user is inactive", "module", "handler_auth", "user_id", userID)
 		Unauthorized(c, "该账号已被禁用，请联系管理员")
 		return
 	}
 
-	uid, _ := userID.(int64)
 	permissions, permErr := h.permSvc.GetUserPermissions(c.Request.Context(), uid)
 	if permErr != nil {
 		slog.Error("GetCurrentUser: get permissions failed", "error", permErr, "user_id", uid)
@@ -465,8 +382,8 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 	}
 
 	var lastLoginAtStr *string
-	if lastLoginAt.Valid && !lastLoginAt.Time.IsZero() {
-		s := lastLoginAt.Time.Format(TimeResponseFormat)
+	if userInfo.LastLoginAt != nil && !userInfo.LastLoginAt.IsZero() {
+		s := userInfo.LastLoginAt.Format(TimeResponseFormat)
 		lastLoginAtStr = &s
 	}
 
@@ -481,11 +398,11 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 	Success(c, gin.H{
 		"user": map[string]interface{}{
 			"id":            userID,
-			"username":      username,
-			"real_name":     realName,
-			"phone":         phone,
-			"email":         email,
-			"is_active":     isActive,
+			"username":      userInfo.Username,
+			"real_name":     userInfo.RealName,
+			"phone":         userInfo.Phone,
+			"email":         userInfo.Email,
+			"is_active":     userInfo.IsActive,
 			"last_login_at": lastLoginAtStr,
 		},
 		"permissions":       permissions,
@@ -670,19 +587,9 @@ func (h *AuthHandler) SSOLogin(c *gin.Context) {
 		loginName = req.Username
 	}
 
-	query := "SELECT id, username, real_name, phone, email, is_active FROM bdopsflow_users WHERE username = ?"
-	stmt := rqlite.ParameterizedStatement{
-		Query:     query,
-		Arguments: []interface{}{loginName},
-	}
-	qr, err := h.db.QueryOneParameterized(stmt)
+	ssoUserInfo, ssoFound, err := h.authSvc.GetSSOUserByUsername(c.Request.Context(), loginName)
 	if err != nil {
 		slog.Error("SSOLogin: failed to query user", "error", err)
-		InternalServerError(c, "服务器错误，请稍后重试")
-		return
-	}
-	if qr.Err != nil {
-		slog.Error("SSOLogin: query error", "error", qr.Err)
 		InternalServerError(c, "服务器错误，请稍后重试")
 		return
 	}
@@ -691,19 +598,13 @@ func (h *AuthHandler) SSOLogin(c *gin.Context) {
 	var username, realName, phone, email string
 	var isActive bool
 
-	if qr.Next() {
-		row, sliceErr := qr.Slice()
-		if sliceErr != nil {
-			slog.Error("SSOLogin: failed to slice user", "error", sliceErr)
-			InternalServerError(c, "服务器错误，请稍后重试")
-			return
-		}
-		userID = service.RowInt64(row[0])
-		username = service.RowString(row[1])
-		realName = service.RowString(row[2])
-		phone = service.RowString(row[3])
-		email = service.RowString(row[4])
-		isActive = service.RowBool(row[5])
+	if ssoFound {
+		userID = ssoUserInfo.ID
+		username = ssoUserInfo.Username
+		realName = ssoUserInfo.RealName
+		phone = ssoUserInfo.Phone
+		email = ssoUserInfo.Email
+		isActive = ssoUserInfo.IsActive
 
 		if !isActive {
 			slog.Warn("SSOLogin: user is inactive", "module", "handler_auth", "user_id", userID, "username", username)
@@ -713,12 +614,11 @@ func (h *AuthHandler) SSOLogin(c *gin.Context) {
 		}
 
 		go func() {
-			updateQuery := "UPDATE bdopsflow_users SET last_login_at = ? WHERE id = ?"
-			updateStmt := rqlite.ParameterizedStatement{
-				Query:     updateQuery,
-				Arguments: []interface{}{time.Now(), userID},
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if updateErr := h.authSvc.UpdateLastLogin(ctx, userID); updateErr != nil {
+				slog.Error("SSOLogin: update last login failed", "error", updateErr, "user_id", userID)
 			}
-			h.db.WriteOneParameterized(updateStmt)
 		}()
 
 		slog.Info("SSOLogin: existing user login success", "module", "handler_auth", "user_id", userID, "username", username)
@@ -728,41 +628,21 @@ func (h *AuthHandler) SSOLogin(c *gin.Context) {
 		email = ssoUser.Email
 		isActive = true
 
-		insertQuery := "INSERT INTO bdopsflow_users (username, real_name, phone, password, email, is_active, created_at) VALUES (?, ?, ?, '', ?, 1, ?)"
-		insertStmt := rqlite.ParameterizedStatement{
-			Query:     insertQuery,
-			Arguments: []interface{}{loginName, realName, phone, email, time.Now()},
-		}
-		result, err := h.db.WriteOneParameterized(insertStmt)
+		userID, err = h.authSvc.CreateUser(c.Request.Context(), loginName, realName, phone, "", email)
 		if err != nil {
 			slog.Error("SSOLogin: failed to create user", "error", err)
 			InternalServerError(c, "服务器错误，请稍后重试")
 			return
 		}
-		if result.Err != nil {
-			slog.Error("SSOLogin: create user error", "error", result.Err)
-			InternalServerError(c, "服务器错误，请稍后重试")
-			return
-		}
-		userID = result.LastInsertID
 		username = loginName
 
-		roleQuery := "SELECT id FROM bdopsflow_roles WHERE code = 'user' LIMIT 1"
-		roleStmt := rqlite.ParameterizedStatement{
-			Query: roleQuery,
-		}
-		roleQr, roleErr := h.db.QueryOneParameterized(roleStmt)
-		if roleErr == nil && roleQr.Err == nil && roleQr.Next() {
-			roleRow, _ := roleQr.Slice()
-			if len(roleRow) > 0 {
-				roleID := service.RowInt64(roleRow[0])
-				if roleID > 0 {
-					assignStmt := rqlite.ParameterizedStatement{
-						Query:     "INSERT INTO bdopsflow_user_roles (user_id, role_id, created_at) VALUES (?, ?, ?)",
-						Arguments: []interface{}{userID, roleID, time.Now()},
-					}
-					h.db.WriteOneParameterized(assignStmt)
-				}
+		// 分配默认角色 "user"
+		roleID, roleErr := h.authSvc.GetRoleIDByCode(c.Request.Context(), "user")
+		if roleErr != nil {
+			slog.Warn("SSOLogin: query default role failed", "error", roleErr)
+		} else if roleID > 0 {
+			if assignErr := h.authSvc.AssignUserRole(c.Request.Context(), userID, roleID); assignErr != nil {
+				slog.Warn("SSOLogin: assign user role failed", "user_id", userID, "error", assignErr)
 			}
 		}
 
