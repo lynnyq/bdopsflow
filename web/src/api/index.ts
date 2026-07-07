@@ -1,11 +1,12 @@
 import api from '@/utils/api'
-import type { Task, TaskExecution, TaskExecutionListResponse, Executor, ExecutorWithDomains, Domain, LoginRequest, LoginResponse, TaskLog, DashboardStats, TrendData, PaginatedResponse, User, Role, Permission, CurrentUserResponse, AuditLog } from '@/types'
+import type { Task, TaskExecution, TaskExecutionListResponse, Executor, ExecutorWithDomains, Domain, LoginRequest, LoginResponse, TaskLog, DashboardStats, TrendData, PaginatedResponse, User, Role, Permission, CurrentUserResponse } from '@/types'
 import { userAdminAPI, roleAdminAPI, domainAdminAPI, permissionAPI, switchDomain } from './admin'
-import { datasourceAPI, queryAPI, systemConfigAPI } from './datasource'
+import { datasourceAPI, queryAPI } from './datasource'
+import { systemConfigAPI } from './systemConfig'
 import { auditLogAPI } from './audit'
 import { webhookAPI } from './webhook'
 import { apiTestAPI } from './apiTest'
-import type { AuditLogListResponse, AuditLogStats } from './audit'
+import type { AuditLog, AuditLogListResponse, AuditLogStats } from './audit'
 
 export { userAdminAPI, roleAdminAPI, domainAdminAPI, permissionAPI, switchDomain, datasourceAPI, queryAPI, systemConfigAPI, auditLogAPI, webhookAPI, apiTestAPI }
 export type { User, Role, Permission, AuditLog, AuditLogListResponse, AuditLogStats }

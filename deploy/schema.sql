@@ -330,7 +330,8 @@ INSERT OR IGNORE INTO bdopsflow_permissions (resource, action, description) VALU
 ('webhook', 'trigger', '手动触发Webhook'),
 ('webhook', 'manage', '完整管理Webhook'),
 
--- 审计日志
+-- 审计日志（注：当前路由使用 RequireSystemAdmin，这些权限作为预留定义，
+-- 未来若开放给领域管理员可改用 RequirePermission('audit_log', 'read')）
 ('audit_log', 'read', '查看审计日志'),
 ('audit_log', 'delete', '删除审计日志'),
 ('audit_log', 'manage', '完整管理审计日志'),
@@ -476,6 +477,7 @@ CREATE TABLE IF NOT EXISTS bdopsflow_saved_sql (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     datasource_id INTEGER NOT NULL,
+    database TEXT,
     sql_text TEXT NOT NULL,
     description TEXT,
     created_by INTEGER,
@@ -553,6 +555,7 @@ CREATE TABLE IF NOT EXISTS bdopsflow_audit_logs (
     resource_id TEXT,
     resource_name TEXT,
     status TEXT NOT NULL,
+    response_code INTEGER DEFAULT 0,
     ip_address TEXT,
     user_agent TEXT,
     request_method TEXT,
@@ -562,6 +565,7 @@ CREATE TABLE IF NOT EXISTS bdopsflow_audit_logs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON bdopsflow_audit_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_username ON bdopsflow_audit_logs(username);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON bdopsflow_audit_logs(action);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_resource ON bdopsflow_audit_logs(resource);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_status ON bdopsflow_audit_logs(status);
@@ -689,28 +693,36 @@ CREATE INDEX IF NOT EXISTS idx_bdopsflow_api_test_results_created_at ON bdopsflo
 
 -- ============================================================================
 -- 第五部分：系统配置初始化
+-- 说明：以下初始值需与 scheduler/internal/system_config/service.go 中
+-- defaultConfigValues 保持一致。配置项的元数据（label/description/type/min/max/unit/group）
+-- 以 service.go 中的 configMetaList 为权威源。
 -- ============================================================================
 
 INSERT OR IGNORE INTO bdopsflow_system_config (config_key, config_value, description, updated_at) VALUES
 ('web.enabled', 'false', '是否启用内置Web UI', datetime('now')),
+('api_test.allow_private_network', 'false', '是否允许HTTP/gRPC接口测试访问内网地址（SSRF防护）', datetime('now')),
+('audit_log.retention_days', '90', '审计日志保留天数', datetime('now')),
 ('datasource.default_limit', '1000', 'SQL查询默认限制行数', datetime('now')),
 ('datasource.max_export_rows', '1000', 'CSV导出最大行数', datetime('now')),
 ('datasource.cache_ttl', '300', '查询结果缓存TTL(秒)', datetime('now')),
-('datasource.cache_max_size', '100', '缓存最大内存占用(MB)', datetime('now')),
+('datasource.cache_max_size', '100', '缓存最大条目数', datetime('now')),
 ('datasource.query_timeout', '60', '查询超时时间(秒)', datetime('now')),
 ('datasource.max_concurrent_per_user', '5', '单用户并发查询限制', datetime('now')),
 ('datasource.max_concurrent_global', '50', '全局并发查询限制', datetime('now')),
-('datasource.allow_write_sql', 'false', '是否允许写操作SQL', datetime('now')),
+('datasource.max_concurrent_per_datasource', '10', '单数据源并发查询限制', datetime('now')),
+('datasource.allow_write_sql', 'false', '是否允许写操作SQL(全局兜底)', datetime('now')),
 ('datasource.history_retention_days', '30', '查询历史保留天数', datetime('now')),
-('datasource.connection_max_idle', '5', '连接池最大空闲连接数', datetime('now')),
-('datasource.connection_max_open', '10', '连接池最大打开连接数', datetime('now')),
+('datasource.connection_max_idle', '2', '连接池最小空闲连接数', datetime('now')),
+('datasource.connection_max_open', '5', '连接池最大打开连接数', datetime('now')),
 ('datasource.connection_max_lifetime', '1800', '连接最大生命周期(秒)', datetime('now')),
 ('datasource.max_sql_length', '65536', 'SQL文本最大长度(字节)', datetime('now')),
 ('datasource.max_cell_size', '65536', '单个单元格值最大字节数', datetime('now')),
-('datasource.health_check_interval', '300', '健康检查间隔(秒),0为禁用', datetime('now')),
+('datasource.health_check_interval', '300', '健康检查间隔(秒)', datetime('now')),
 ('datasource.test_timeout', '10', '连接测试超时时间(秒)', datetime('now')),
-('audit_log.retention_days', '90', '审计日志保留天数', datetime('now')),
-('wecom.robot_url', 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send', '企业微信群机器人URL', datetime('now'));
+('datasource.metadata_timeout', '60', '元数据查询超时时间(秒)', datetime('now')),
+('wecom.robot_url', 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send', '企业微信群机器人URL', datetime('now')),
+('wecom.app_msg_url', 'https://qyapi.weixin.qq.com/cgi-bin/app/send', '企业微信应用消息URL', datetime('now')),
+('wecom.ewechat_url', 'https://qyapi.weixin.qq.com/cgi-bin/app/send', '企业微信网关URL', datetime('now'));
 
 -- ============================================================================
 -- 初始化完成

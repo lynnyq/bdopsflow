@@ -107,7 +107,9 @@ api.interceptors.response.use(
         // 指数退避延迟：1s, 2s, 4s
         const delay = defaultRetryConfig.retryDelay * Math.pow(2, retryCount)
 
-        console.log(`[API Retry] ${originalRequest.url} - Attempt ${retryCount + 1}/${defaultRetryConfig.maxRetries} after ${delay}ms`)
+        if (import.meta.env.DEV) {
+          console.log(`[API Retry] ${originalRequest.url} - Attempt ${retryCount + 1}/${defaultRetryConfig.maxRetries} after ${delay}ms`)
+        }
 
         await new Promise(resolve => setTimeout(resolve, delay))
 

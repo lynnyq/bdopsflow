@@ -2,7 +2,15 @@
   <div class="system-config-page">
     <div class="page-header">
       <h2 class="page-title">系统配置</h2>
-      <span class="page-subtitle">管理数据源查询相关的全局配置参数</span>
+      <span class="page-subtitle">管理系统全局配置参数</span>
+      <el-button
+        class="reload-btn"
+        :icon="Refresh"
+        :loading="reloading"
+        @click="handleReload"
+      >
+        重载配置
+      </el-button>
     </div>
 
     <div v-for="group in groupedConfigs" :key="group.name" class="config-group">
@@ -18,6 +26,17 @@
             <el-tag v-if="item.value !== item.default_value" type="warning" effect="light" size="small" class="modified-tag">
               已修改
             </el-tag>
+            <el-button
+              v-if="item.value !== item.default_value"
+              link
+              type="primary"
+              size="small"
+              class="restore-btn"
+              :loading="loadingKeys[item.key]"
+              @click="handleRestoreDefault(item)"
+            >
+              恢复默认
+            </el-button>
           </div>
           <div class="config-description">{{ item.description }}</div>
           <div class="config-control">
@@ -33,10 +52,10 @@
             <template v-else-if="item.type === 'number'">
               <el-input-number
                 v-model="numValues[item.key]"
-                :min="item.min_value || 0"
-                :max="item.max_value || 999999"
+                :min="item.min_value ?? 0"
+                :max="item.max_value ?? 999999"
                 :step="getStep(item)"
-                @change="(val: number) => handleUpdate(item.key, String(val))"
+                @change="(val: number | undefined) => val != null && debouncedUpdate(item.key, String(val))"
                 :loading="loadingKeys[item.key]"
                 size="default"
                 controls-position="right"
@@ -45,11 +64,10 @@
             <template v-else-if="item.type === 'text'">
               <el-input
                 v-model="textValues[item.key]"
-                @blur="(e: any) => handleUpdate(item.key, e.target.value)"
+                @input="(val: string) => debouncedUpdate(item.key, val)"
                 :loading="loadingKeys[item.key]"
                 size="default"
                 placeholder="请输入配置值"
-                clearable
               />
             </template>
           </div>
@@ -74,30 +92,20 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, reactive } from 'vue'
+import { ref, computed, onMounted, onUnmounted, reactive } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Search, Connection, Setting, Lock, DataLine, Monitor } from '@element-plus/icons-vue'
+import { Search, Connection, Setting, Lock, DataLine, Monitor, ChatDotRound, Refresh } from '@element-plus/icons-vue'
 import { systemConfigAPI } from '@/api'
 import { isHandledError } from '@/utils/api'
+import type { SystemConfigItem } from '@/types'
 
-interface ConfigItem {
-  key: string
-  label: string
-  description: string
-  type: string
-  default_value: string
-  value: string
-  min_value?: number | null
-  max_value?: number | null
-  unit?: string
-  group: string
-}
-
-const configs = ref<ConfigItem[]>([])
+const configs = ref<SystemConfigItem[]>([])
 const loadingKeys = reactive<Record<string, boolean>>({})
 const boolValues = reactive<Record<string, boolean>>({})
 const numValues = reactive<Record<string, number>>({})
 const textValues = reactive<Record<string, string>>({})
+const debounceTimers: Record<string, ReturnType<typeof setTimeout> | null> = {}
+const reloading = ref(false)
 
 const groupIcons: Record<string, any> = {
   '查询': Search,
@@ -106,12 +114,12 @@ const groupIcons: Record<string, any> = {
   '缓存': DataLine,
   '连接池': Connection,
   '系统': Setting,
-  '消息通知': Monitor,
+  '消息通知': ChatDotRound,
   '其他': Setting,
 }
 
 const groupedConfigs = computed(() => {
-  const groups: Record<string, ConfigItem[]> = {}
+  const groups: Record<string, SystemConfigItem[]> = {}
   for (const item of configs.value) {
     if (!groups[item.group]) {
       groups[item.group] = []
@@ -125,15 +133,16 @@ const groupedConfigs = computed(() => {
   }))
 })
 
-const getStep = (item: ConfigItem) => {
-  if (!item.max_value || !item.min_value) return 1
+const getStep = (item: SystemConfigItem) => {
+  // 使用 == null 同时过滤 null 和 undefined；min_value=0 时不应被当作"缺失"
+  if (item.max_value == null || item.min_value == null) return 1
   const range = item.max_value - item.min_value
   if (range > 10000) return 100
   if (range > 1000) return 10
   return 1
 }
 
-const formatDefaultValue = (item: ConfigItem) => {
+const formatDefaultValue = (item: SystemConfigItem) => {
   if (item.type === 'boolean') {
     return item.default_value === 'true' ? '开启' : '关闭'
   }
@@ -150,7 +159,9 @@ const loadConfigs = async () => {
       if (item.type === 'boolean') {
         boolValues[item.key] = item.value === 'true'
       } else if (item.type === 'number') {
-        numValues[item.key] = parseInt(item.value, 10) || parseInt(item.default_value, 10) || 0
+        // 使用 isNaN 显式判断，避免 value="0" 时被 || 当作 falsy 而错误回退到 default_value
+        const parsed = parseInt(item.value, 10)
+        numValues[item.key] = isNaN(parsed) ? (parseInt(item.default_value, 10) || 0) : parsed
       } else if (item.type === 'text') {
         textValues[item.key] = item.value || item.default_value || ''
       }
@@ -162,13 +173,31 @@ const loadConfigs = async () => {
   }
 }
 
+// 将单个配置项的当前值同步到对应的 reactive（boolValues/numValues/textValues）。
+// 在 handleUpdate 成功后调用，避免后端 normalize（如 clamp 到 min/max）后前端状态不一致。
+const syncReactive = (item: SystemConfigItem) => {
+  if (item.type === 'boolean') {
+    boolValues[item.key] = item.value === 'true'
+  } else if (item.type === 'number') {
+    numValues[item.key] = parseInt(item.value, 10) || 0
+  } else if (item.type === 'text') {
+    textValues[item.key] = item.value || item.default_value || ''
+  }
+}
+
 const handleUpdate = async (key: string, value: string) => {
+  // 取消尚未触发的防抖调用，避免重复提交
+  if (debounceTimers[key]) {
+    clearTimeout(debounceTimers[key]!)
+    debounceTimers[key] = null
+  }
   loadingKeys[key] = true
   try {
     await systemConfigAPI.update(key, { value })
     const item = configs.value.find(c => c.key === key)
     if (item) {
       item.value = value
+      syncReactive(item)
     }
     ElMessage.success('配置已更新')
   } catch (err: any) {
@@ -177,21 +206,59 @@ const handleUpdate = async (key: string, value: string) => {
     }
     const item = configs.value.find(c => c.key === key)
     if (item) {
-      if (item.type === 'boolean') {
-        boolValues[key] = item.value === 'true'
-      } else if (item.type === 'number') {
-        numValues[key] = parseInt(item.value, 10) || 0
-      } else if (item.type === 'text') {
-        textValues[key] = item.value || item.default_value || ''
-      }
+      syncReactive(item)
     }
   } finally {
     loadingKeys[key] = false
   }
 }
 
+// 对 number/text 输入做 300ms 防抖，避免连续输入或快速点击步进按钮时频繁调用 API。
+// boolean switch 不需要防抖（仅在用户切换时触发一次）。
+const debouncedUpdate = (key: string, value: string) => {
+  if (debounceTimers[key]) {
+    clearTimeout(debounceTimers[key]!)
+  }
+  debounceTimers[key] = setTimeout(() => {
+    debounceTimers[key] = null
+    handleUpdate(key, value)
+  }, 300)
+}
+
+// 恢复单个配置项的默认值（按钮点击，无需防抖）。
+const handleRestoreDefault = (item: SystemConfigItem) => {
+  handleUpdate(item.key, item.default_value)
+}
+
+// 手动触发后端从 DB 重新加载配置到内存缓存。
+// 用于多节点部署时强制同步其他节点刚写入的配置，避免等待 5 分钟自动刷新周期。
+const handleReload = async () => {
+  reloading.value = true
+  try {
+    await systemConfigAPI.reload()
+    await loadConfigs()
+    ElMessage.success('配置已重载')
+  } catch (err: any) {
+    if (!isHandledError(err)) {
+      ElMessage.error(err.message || '重载配置失败')
+    }
+  } finally {
+    reloading.value = false
+  }
+}
+
 onMounted(() => {
   loadConfigs()
+})
+
+// 组件卸载时清理所有未触发的防抖定时器，避免幽灵 API 请求
+onUnmounted(() => {
+  for (const key in debounceTimers) {
+    if (debounceTimers[key]) {
+      clearTimeout(debounceTimers[key]!)
+      debounceTimers[key] = null
+    }
+  }
 })
 </script>
 
@@ -224,6 +291,10 @@ onMounted(() => {
 .page-subtitle {
   font-size: 0.85rem;
   color: var(--text-muted);
+}
+
+.reload-btn {
+  margin-left: auto;
 }
 
 .config-group {
@@ -300,6 +371,12 @@ onMounted(() => {
 
 .modified-tag {
   font-size: 0.7rem;
+}
+
+.restore-btn {
+  margin-left: auto;
+  font-size: 0.75rem;
+  padding: 0;
 }
 
 .config-description {
