@@ -190,6 +190,35 @@ export interface Webhook {
   updated_at: string
 }
 
+// Grafana 图表嵌入配置
+export interface GrafanaDashboard {
+  id: number
+  name: string
+  description: string
+  embed_url: string
+  width: 'third' | 'half' | 'full'
+  height_px: number
+  sort_order: number
+  enabled: number  // 0=禁用 1=启用（与后端 int 对齐）
+  created_at: string
+  updated_at: string
+}
+
+export interface GrafanaDashboardInput {
+  name: string
+  description?: string
+  embed_url: string
+  width: 'third' | 'half' | 'full'
+  height_px: number
+  sort_order: number
+  enabled: number
+}
+
+export interface GrafanaReorderItem {
+  id: number
+  sort_order: number
+}
+
 export interface Datasource {
   id: number
   name: string

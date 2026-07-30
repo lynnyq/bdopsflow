@@ -6,9 +6,10 @@ import { systemConfigAPI } from './systemConfig'
 import { auditLogAPI } from './audit'
 import { webhookAPI } from './webhook'
 import { apiTestAPI } from './apiTest'
+import { grafanaAPI } from './grafana'
 import type { AuditLog, AuditLogListResponse, AuditLogStats } from './audit'
 
-export { userAdminAPI, roleAdminAPI, domainAdminAPI, permissionAPI, switchDomain, datasourceAPI, queryAPI, systemConfigAPI, auditLogAPI, webhookAPI, apiTestAPI }
+export { userAdminAPI, roleAdminAPI, domainAdminAPI, permissionAPI, switchDomain, datasourceAPI, queryAPI, systemConfigAPI, auditLogAPI, webhookAPI, apiTestAPI, grafanaAPI }
 export type { User, Role, Permission, AuditLog, AuditLogListResponse, AuditLogStats }
 
 interface UpdateProfileRequest {

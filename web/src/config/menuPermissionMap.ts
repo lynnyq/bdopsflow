@@ -146,6 +146,13 @@ export const menuPermissionMap: MenuPermissionDef[] = [
         resources: ['webhook'],
       },
       {
+        key: 'grafana-dashboard-management',
+        label: 'Grafana 图表',
+        icon: 'DataLine',
+        path: '/admin/grafana-dashboards',
+        resources: ['config'],
+      },
+      {
         key: 'system-config',
         label: '系统配置',
         icon: 'Operation',

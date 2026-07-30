@@ -183,6 +183,22 @@ func setupRoutes(router *gin.Engine, app *App) {
 			webhooks.POST("/:id/test", middleware.RequirePermission(app.permissionService, "webhook", "create"), webhookHandler.Test)
 		}
 
+		// Grafana 图表嵌入
+		grafanaHandler := handler.NewGrafanaDashboardHandler(app.grafanaSvc)
+		// 公共查询（所有登录用户可访问，用于 Dashboard 嵌入）
+		protected.GET("/grafana-dashboards", grafanaHandler.ListEnabled)
+		// 管理接口（仅系统管理员）
+		grafanaAdmin := protected.Group("/admin/grafana-dashboards")
+		{
+			grafanaAdmin.GET("", middleware.RequireSystemAdmin(app.permissionService), grafanaHandler.ListAll)
+			grafanaAdmin.POST("", middleware.RequireSystemAdmin(app.permissionService), grafanaHandler.Create)
+			// 静态路由 reorder 优先于 :id 注册，避免冲突
+			grafanaAdmin.PUT("/reorder", middleware.RequireSystemAdmin(app.permissionService), grafanaHandler.Reorder)
+			grafanaAdmin.GET("/:id", middleware.RequireSystemAdmin(app.permissionService), grafanaHandler.GetByID)
+			grafanaAdmin.PUT("/:id", middleware.RequireSystemAdmin(app.permissionService), grafanaHandler.Update)
+			grafanaAdmin.DELETE("/:id", middleware.RequireSystemAdmin(app.permissionService), grafanaHandler.Delete)
+		}
+
 		dsHandler := handler.NewDatasourceHandler(app.dsService, app.dsManager, app.instancePermSvc, app.permissionService, app.domainAdminService, app.userAdminService)
 		queryHandler := handler.NewQueryHandler(app.dsService, app.dsManager, app.sysConfigService, app.dsCacheService, app.dsConcurrentService, app.redisClient, app.nodeID)
 

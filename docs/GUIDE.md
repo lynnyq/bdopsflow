@@ -2719,6 +2719,83 @@ cd scheduler && go test -v ./internal/service/ -run TestAudit
 
 ---
 
+## 11. Grafana 图表嵌入
+
+### 11.1 功能概述
+
+BDopsFlow 仪表盘支持嵌入多个 Grafana 图表，无需跳转即可在仪表盘页面查看关键监控。管理员可配置任意数量的 Grafana 图表，支持来自不同 Grafana 实例的图表混合展示。
+
+### 11.2 配置入口
+
+系统管理员登录后，在左侧菜单 **系统管理 → Grafana 图表** 进入管理页面。
+
+### 11.3 新建图表配置
+
+| 字段 | 说明 | 示例 |
+|------|------|------|
+| 名称 | 图表显示名 | QPS 监控 |
+| 描述 | 可选说明 | 网关 QPS 趋势 |
+| 嵌入 URL | Grafana 分享链接（必填，必须 http/https） | `https://grafana.example.com/d/abc/xxx?from=now-1h&to=now&kiosk` |
+| 宽度 | 网格宽度：1/3、1/2、整行 | 1/2 |
+| 高度 | iframe 高度，120-1200 px | 300 |
+| 排序号 | 越小越靠前 | 0 |
+| 启用 | 是否在仪表盘展示 | 是 |
+
+### 11.4 两种认证模式
+
+**模式一：匿名嵌入（推荐）**
+
+1. 在 Grafana 配置文件 `grafana.ini` 中启用匿名访问和嵌入：
+   ```ini
+   [auth.anonymous]
+   enabled = true
+   org_role = Viewer
+
+   [security]
+   allow_embedding = true
+   ```
+2. 在 Grafana 面板点击 **Share → Embed → Embed code**，复制 URL（建议加 `&kiosk` 参数隐藏顶栏）
+3. 粘贴到 BDopsFlow 图表配置的"嵌入 URL"字段
+
+**模式二：URL 带 Token 嵌入**
+
+1. 在 Grafana 创建最小权限的只读 Service Account Token
+2. 在分享 URL 后追加 `?auth_token=xxx`（或按 Grafana 版本要求的认证参数）
+3. 粘贴完整 URL 到 BDopsFlow 配置
+
+> **安全提示**：Token 模式下，完整 URL（含 Token）会通过 iframe 在所有登录用户可见的仪表盘加载。请使用最小权限只读 Token 并定期轮换。BDopsFlow 管理页表格会截断显示 URL（隐藏 query string），但编辑对话框中可见完整 URL。
+
+### 11.5 响应式布局
+
+仪表盘的 Grafana 图表区域使用 3 列网格：
+- 桌面端（≥ 992px）：1/3 图表占 1 列，1/2 图表占 2 列，整行图表占满 3 列
+- 移动端（≤ 768px）：所有图表单列堆叠
+
+### 11.6 排序管理
+
+在管理页表格中直接编辑"排序号"数字，点击工具栏"保存排序"按钮批量提交。多个图表按 `sort_order` 升序展示。
+
+### 11.7 启停与删除
+
+- **启停**：表格中"状态"列的 `el-switch` 可即时切换，无需进入编辑对话框
+- **删除**：点击操作列"删除"按钮，二次确认后硬删除
+
+### 11.8 常见问题
+
+**Q：iframe 显示空白或被拒绝**
+
+Grafana 侧需配置 `allow_embedding = true`。部分 Grafana 版本通过 `X-Frame-Options` 或 CSP 禁止嵌入，需检查 Grafana 的 `[security]` 配置。
+
+**Q：cookie 模式下图表不显示**
+
+Grafana 的 cookie 认证通常无法跨域传递，建议改用 URL Token 方式或匿名嵌入。
+
+**Q：仪表盘未显示 Grafana 区域**
+
+当没有启用的图表时，仪表盘不渲染 Grafana 区域。检查管理页是否有 `enabled=1` 的图表配置。
+
+---
+
 ## 相关文档
 
 - [配置指南](./CONFIGURATION.md) - 详细的配置说明和示例

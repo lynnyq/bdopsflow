@@ -141,6 +141,12 @@ const routes: RouteRecordRaw[] = [
         meta: { menuPermission: 'webhook-management' },
       },
       {
+        path: 'admin/grafana-dashboards',
+        name: 'GrafanaDashboards',
+        component: () => import('@/views/admin/GrafanaDashboards.vue'),
+        meta: { menuPermission: 'grafana-dashboard-management' },
+      },
+      {
         path: 'admin/system-config',
         name: 'SystemConfig',
         component: () => import('@/views/admin/SystemConfig.vue'),

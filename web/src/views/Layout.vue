@@ -230,6 +230,7 @@ const pageTitle = computed(() => {
     '/admin/roles': '角色管理',
     '/admin/domains': '领域管理',
     '/admin/webhooks': 'Webhook管理',
+    '/admin/grafana-dashboards': 'Grafana 图表',
     '/datasources': '数据源管理',
     '/datasources/create': '创建数据源',
     '/sql-query': 'SQL 查询',

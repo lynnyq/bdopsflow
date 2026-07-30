@@ -49,6 +49,8 @@ var routeAuditRules = map[string]auditRouteRule{
 	"/api/proto-files/fields":   {Resource: "proto_file", Action: "generate_fields"},
 	"/api/auth/api-token":       {Resource: "api_token", Action: "generate"},
 	"/api/auth/api-token/reveal": {Resource: "api_token", Action: "reveal"},
+	"/api/admin/grafana-dashboards":           {Resource: "grafana_dashboard", Action: "manage"},
+	"/api/admin/grafana-dashboards/reorder":   {Resource: "grafana_dashboard", Action: "reorder"},
 }
 
 var routePrefixRules = []struct {
@@ -71,6 +73,7 @@ var routePrefixRules = []struct {
 	{"/api/certificates/", "certificate"},
 	{"/api/proto-files/", "proto_file"},
 	{"/api/auth/api-token/", "api_token"},
+	{"/api/admin/grafana-dashboards/", "grafana_dashboard"},
 }
 
 func AuditMiddleware(auditService *service.AuditLogService) gin.HandlerFunc {

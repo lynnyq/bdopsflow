@@ -691,6 +691,23 @@ CREATE INDEX IF NOT EXISTS idx_bdopsflow_api_test_results_type ON bdopsflow_api_
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_api_test_results_executed_by ON bdopsflow_api_test_results(executed_by);
 CREATE INDEX IF NOT EXISTS idx_bdopsflow_api_test_results_created_at ON bdopsflow_api_test_results(created_at DESC);
 
+-- 27. Grafana 图表嵌入配置表
+CREATE TABLE IF NOT EXISTS bdopsflow_grafana_dashboards (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT    NOT NULL,
+    description TEXT,
+    embed_url   TEXT    NOT NULL,
+    width       TEXT    NOT NULL DEFAULT 'full',
+    height_px   INTEGER NOT NULL DEFAULT 300,
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    enabled     INTEGER NOT NULL DEFAULT 1,
+    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_grafana_dashboards_enabled_sort
+    ON bdopsflow_grafana_dashboards(enabled, sort_order);
+
 -- ============================================================================
 -- 第五部分：系统配置初始化
 -- 说明：以下初始值需与 scheduler/internal/system_config/service.go 中

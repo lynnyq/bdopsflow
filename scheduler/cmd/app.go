@@ -142,6 +142,7 @@ type App struct {
 	apiTokenService       *service.APITokenService
 	webhookSvc            *service.WebhookService
 	instancePermSvc       *service.InstancePermissionService
+	grafanaSvc            *service.GrafanaDashboardService
 
 	dsCrypto            *datasource.Crypto
 	dsManager           *datasource.Manager
@@ -389,6 +390,10 @@ func NewApp(cfg *config.Config) *App {
 	webhookSvc := service.NewWebhookService(logDB)
 	app.webhookSvc = webhookSvc
 	schedulerService.SetWebhookService(webhookSvc)
+
+	// Grafana 图表嵌入服务
+	grafanaSvc := service.NewGrafanaDashboardService(logDB)
+	app.grafanaSvc = grafanaSvc
 
 	instancePermSvc := service.NewInstancePermissionService(logDB, permissionService)
 	app.instancePermSvc = instancePermSvc

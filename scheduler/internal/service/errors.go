@@ -75,6 +75,13 @@ var (
 	// API Token相关错误
 	ErrAPITokenNotFound = errors.New("api token not found")
 	ErrAPITokenInvalid  = errors.New("api token invalid")
+
+	// Grafana 图表相关错误
+	ErrGrafanaDashboardNotFound = errors.New("grafana dashboard not found")
+	ErrGrafanaInvalidURL        = errors.New("grafana embed url must start with http:// or https://")
+	ErrGrafanaInvalidWidth      = errors.New("grafana width must be one of: third, half, full")
+	ErrGrafanaInvalidHeight     = errors.New("grafana height_px must be between 120 and 1200")
+	ErrGrafanaInvalidSortOrder  = errors.New("grafana sort_order must be >= 0")
 )
 
 var errorCodeMap = map[error]int{
@@ -106,6 +113,11 @@ var errorCodeMap = map[error]int{
 	ErrDispatcherNotConfigured:      10008,
 	ErrAPITokenNotFound:             15001,
 	ErrAPITokenInvalid:              15002,
+	ErrGrafanaDashboardNotFound:     19001,
+	ErrGrafanaInvalidURL:            19002,
+	ErrGrafanaInvalidWidth:          19003,
+	ErrGrafanaInvalidHeight:         19004,
+	ErrGrafanaInvalidSortOrder:      19005,
 }
 
 func GetErrorCode(err error) int {

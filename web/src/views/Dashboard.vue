@@ -217,17 +217,55 @@
         </div>
       </div>
     </section>
+
+    <!-- Grafana 嵌入图表 -->
+    <section v-if="grafanaDashboards.length > 0" class="grafana-section">
+      <div class="section-header">
+        <h2 class="section-title">
+          <el-icon><DataLine /></el-icon>
+          Grafana 监控图表
+        </h2>
+        <el-tooltip content="刷新图表列表" placement="top">
+          <el-button :icon="Refresh" circle size="small" @click="loadGrafanaDashboards" />
+        </el-tooltip>
+      </div>
+      <div class="grafana-grid">
+        <div
+          v-for="item in grafanaDashboards"
+          :key="item.id"
+          class="grafana-panel"
+          :class="`grafana-width-${item.width}`"
+        >
+          <div class="grafana-panel-header">
+            <span class="grafana-panel-title" :title="item.name">{{ item.name }}</span>
+            <el-tooltip content="在新窗口打开" placement="top">
+              <el-icon class="grafana-open-icon" @click="openGrafanaPanel(item)">
+                <TopRight />
+              </el-icon>
+            </el-tooltip>
+          </div>
+          <iframe
+            :src="item.embed_url"
+            :style="{ height: item.height_px + 'px' }"
+            class="grafana-iframe"
+            sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
+            loading="lazy"
+            referrerpolicy="no-referrer"
+          />
+        </div>
+      </div>
+    </section>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { VideoPlay, VideoPause, Refresh, List, CircleCheck, CircleClose, Clock, Timer, Cpu, DataLine } from '@element-plus/icons-vue'
-import { dashboardAPI, type HealthCheckResult } from '@/api'
+import { VideoPlay, VideoPause, Refresh, List, CircleCheck, CircleClose, Clock, Timer, Cpu, DataLine, TopRight } from '@element-plus/icons-vue'
+import { dashboardAPI, grafanaAPI, type HealthCheckResult } from '@/api'
 import { isHandledError } from '@/utils/api'
 import { useAuthStore } from '@/stores/auth'
-import type { DashboardStats, TrendData } from '@/types'
+import type { DashboardStats, TrendData, GrafanaDashboard } from '@/types'
 
 const authStore = useAuthStore()
 
@@ -402,9 +440,28 @@ const formatDuration = (seconds: number): string => {
   return `${hours}h${mins}m`
 }
 
+// Grafana 嵌入图表
+const grafanaDashboards = ref<GrafanaDashboard[]>([])
+
+const loadGrafanaDashboards = async () => {
+  try {
+    const response = await grafanaAPI.listEnabled()
+    grafanaDashboards.value = response.data?.items || []
+  } catch (error) {
+    // 静默处理，不影响 Dashboard 其他统计展示
+    console.warn('Failed to load grafana dashboards:', error)
+    grafanaDashboards.value = []
+  }
+}
+
+const openGrafanaPanel = (item: GrafanaDashboard) => {
+  window.open(item.embed_url, '_blank', 'noopener')
+}
+
 onMounted(() => {
   refreshData()
   loadHealthData()
+  loadGrafanaDashboards()
   refreshInterval = window.setInterval(refreshData, 30000)
   healthInterval = window.setInterval(loadHealthData, 60000)
 })
@@ -781,6 +838,93 @@ onUnmounted(() => {
   border-radius: var(--radius-lg);
   padding: var(--space-5);
   box-shadow: var(--shadow-sm);
+}
+
+/* Grafana 嵌入图表 */
+.grafana-section {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  box-shadow: var(--shadow-sm);
+}
+
+.grafana-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-4);
+}
+
+.grafana-panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.grafana-width-third {
+  grid-column: span 1;
+}
+
+.grafana-width-half {
+  grid-column: span 1;
+}
+
+.grafana-width-full {
+  grid-column: span 3;
+}
+
+@media (min-width: 992px) {
+  .grafana-width-half {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 768px) {
+  .grafana-grid {
+    grid-template-columns: 1fr;
+  }
+  .grafana-width-third,
+  .grafana-width-half {
+    grid-column: span 1;
+  }
+}
+
+.grafana-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.grafana-panel-title {
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 80%;
+}
+
+.grafana-open-icon {
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: color 0.2s;
+}
+
+.grafana-open-icon:hover {
+  color: var(--color-primary);
+}
+
+.grafana-iframe {
+  width: 100%;
+  border: none;
+  display: block;
 }
 
 .section-header {
