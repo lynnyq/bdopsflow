@@ -197,6 +197,8 @@ const updateOpenKeys = () => {
   const path = route.path
   if (path.startsWith('/datasources') || path.startsWith('/sql-query') || path.startsWith('/query-history') || path.startsWith('/saved-sql')) {
     openKeys.value = ['data-query']
+  } else if (path.startsWith('/interface/')) {
+    openKeys.value = ['interface']
   } else if (path.startsWith('/admin/')) {
     openKeys.value = ['system-admin']
   } else {
@@ -233,6 +235,11 @@ const pageTitle = computed(() => {
     '/sql-query': 'SQL 查询',
     '/query-history': '查询历史',
     '/saved-sql': '已保存 SQL',
+    '/interface/http': 'HTTP 测试',
+    '/interface/grpc': 'gRPC 测试',
+    '/interface/proto-files': 'Proto 文件',
+    '/interface/certificates': '证书管理',
+    '/interface/history': '执行历史',
     '/admin/system-config': '系统配置',
     '/admin/audit-logs': '审计日志',
   }
