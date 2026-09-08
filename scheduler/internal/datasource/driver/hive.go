@@ -350,11 +350,11 @@ func (d *HiveDriver) queryWithDB(ctx context.Context, query string, database str
 		}
 		cursor.Close()
 
-		resultCh <- queryResult{&QueryResult{
+		resultCh <- queryResult{NormalizeQueryResult(&QueryResult{
 			Columns:  columns,
 			Rows:     rows,
 			RowCount: int64(len(rows)),
-		}, nil}
+		}), nil}
 	}()
 
 	select {

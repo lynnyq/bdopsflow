@@ -106,11 +106,11 @@ func (d *MySQLDriver) Query(ctx context.Context, query string, args ...interface
 		resultRows = append(resultRows, row)
 	}
 
-	return &QueryResult{
+	return NormalizeQueryResult(&QueryResult{
 		Columns:  columns,
 		Rows:     resultRows,
 		RowCount: int64(len(resultRows)),
-	}, nil
+	}), nil
 }
 
 func (d *MySQLDriver) GetDatabases(ctx context.Context) ([]string, error) {

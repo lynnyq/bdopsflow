@@ -102,11 +102,11 @@ func (d *StarRocksDriver) Query(ctx context.Context, query string, args ...inter
 		resultRows = append(resultRows, row)
 	}
 
-	return &QueryResult{
+	return NormalizeQueryResult(&QueryResult{
 		Columns:  columns,
 		Rows:     resultRows,
 		RowCount: int64(len(resultRows)),
-	}, nil
+	}), nil
 }
 
 func (d *StarRocksDriver) GetDatabases(ctx context.Context) ([]string, error) {

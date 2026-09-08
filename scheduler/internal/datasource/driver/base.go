@@ -66,6 +66,25 @@ type QueryResult struct {
 	RowCount int64           `json:"row_count"`
 }
 
+// NormalizeQueryResult 确保 QueryResult 的 Columns 和 Rows 不为 nil，
+// 避免 JSON 序列化为 null 导致前端访问 .length 时报错。
+// 对于 UPDATE/DELETE/INSERT 等 DML 语句，部分驱动返回的 Columns 可能为 nil。
+func NormalizeQueryResult(result *QueryResult) *QueryResult {
+	if result == nil {
+		return &QueryResult{
+			Columns: []string{},
+			Rows:    [][]interface{}{},
+		}
+	}
+	if result.Columns == nil {
+		result.Columns = []string{}
+	}
+	if result.Rows == nil {
+		result.Rows = [][]interface{}{}
+	}
+	return result
+}
+
 type TableInfo struct {
 	Name    string `json:"name"`
 	Comment string `json:"comment"`
@@ -226,6 +245,7 @@ func extractGohiveError(err error, wrapMsg string) error {
 // 支持多种SQL语法：
 //   - MySQL/PostgreSQL/SQLite/StarRocks/Doris/Trino: LIMIT x 或 LIMIT x OFFSET y
 //   - Hive/Kyuubi/Spark: 仅支持 LIMIT x（不支持 OFFSET，会自动去除）
+//
 // 如果用户SQL中已有LIMIT，则取用户LIMIT和系统限制的较小值
 func ApplyLimitToSQL(sql string, limit int, dsType string) string {
 	if limit <= 0 {

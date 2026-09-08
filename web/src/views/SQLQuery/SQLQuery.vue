@@ -308,7 +308,7 @@
                   </span>
                   <span class="meta-item">
                     <el-icon :size="14"><Grid /></el-icon>
-                    {{ queryResult.columns.length }} 列
+                    {{ (queryResult.columns || []).length }} 列
                   </span>
                   <span class="meta-item">
                     <el-icon :size="14"><Clock /></el-icon>

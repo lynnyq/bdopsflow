@@ -333,11 +333,11 @@ func (d *SparkDriver) queryWithDB(ctx context.Context, query string, database st
 		}
 		cursor.Close()
 
-		resultCh <- queryResult{&QueryResult{
+		resultCh <- queryResult{NormalizeQueryResult(&QueryResult{
 			Columns:  columns,
 			Rows:     rows,
 			RowCount: int64(len(rows)),
-		}, nil}
+		}), nil}
 	}()
 
 	select {

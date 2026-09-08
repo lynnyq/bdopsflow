@@ -96,11 +96,11 @@ func (d *SQLiteDriver) Query(ctx context.Context, query string, args ...interfac
 		resultRows = append(resultRows, row)
 	}
 
-	return &QueryResult{
+	return NormalizeQueryResult(&QueryResult{
 		Columns:  columns,
 		Rows:     resultRows,
 		RowCount: int64(len(resultRows)),
-	}, nil
+	}), nil
 }
 
 func (d *SQLiteDriver) GetDatabases(ctx context.Context) ([]string, error) {
