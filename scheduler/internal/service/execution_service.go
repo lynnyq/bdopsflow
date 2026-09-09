@@ -21,8 +21,17 @@ type TaskExecutionWithNames struct {
 	ExecutorName string
 }
 
-func (s *SchedulerService) UpdateExecutionResult(ctx context.Context, executionID, status, output, errorMsg string) error {
-	now := time.Now().Format(DateTimeFormat)
+// UpdateExecutionResult 更新任务执行结果。
+// startUnix/endUnix 可选（Unix 秒）：由 executor 上报时传入真实执行时间；
+// <=0 或未传时回退为 time.Now()（用于调度层失败等无 executor 时间戳的场景）。
+func (s *SchedulerService) UpdateExecutionResult(ctx context.Context, executionID, status, output, errorMsg string, timeRange ...int64) error {
+	startTime := time.Now()
+	endTime := time.Now()
+	if len(timeRange) >= 2 && timeRange[0] > 0 && timeRange[1] > 0 {
+		startTime = time.Unix(timeRange[0], 0)
+		endTime = time.Unix(timeRange[1], 0)
+	}
+
 	query := `
 		UPDATE bdopsflow_task_executions
 		SET status = ?, output = ?, error = ?,
@@ -33,7 +42,7 @@ func (s *SchedulerService) UpdateExecutionResult(ctx context.Context, executionI
 
 	stmt := rqlite.ParameterizedStatement{
 		Query:     query,
-		Arguments: []interface{}{status, output, errorMsg, status, now, now, executionID},
+		Arguments: []interface{}{status, output, errorMsg, status, endTime.Format(DateTimeFormat), startTime.Format(DateTimeFormat), executionID},
 	}
 
 	result, err := s.DB.WriteOneParameterized(stmt)

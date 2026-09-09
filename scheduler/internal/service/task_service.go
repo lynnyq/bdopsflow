@@ -616,12 +616,17 @@ func (s *SchedulerService) RetryTask(ctx context.Context, taskID int64, retryTim
 	return s.dispatchTaskExecution(ctx, task, executionID, retryTimes, true)
 }
 
-func (s *SchedulerService) HandleTaskFailure(ctx context.Context, taskID int64, failedExecutionID, output, errorMsg string) error {
+func (s *SchedulerService) HandleTaskFailure(ctx context.Context, taskID int64, failedExecutionID, output, errorMsg string, durationMs ...int64) error {
+	execDurationMs := int64(0)
+	if len(durationMs) > 0 && durationMs[0] > 0 {
+		execDurationMs = durationMs[0]
+	}
+
 	task, err := s.GetTaskByID(ctx, taskID)
 	if err != nil {
 		slog.Error("HandleTaskFailure: failed to get task", "task_id", taskID, "error", err)
 		s.UpdateTaskStatusByID(ctx, taskID, "failed")
-		s.SendWebhookNotification(ctx, taskID, failedExecutionID, "failed", output, errorMsg, 0)
+		s.SendWebhookNotification(ctx, taskID, failedExecutionID, "failed", output, errorMsg, execDurationMs)
 		return err
 	}
 
@@ -632,7 +637,7 @@ func (s *SchedulerService) HandleTaskFailure(ctx context.Context, taskID int64, 
 			"failed_execution_id", failedExecutionID,
 		)
 		s.UpdateTaskStatusByID(ctx, taskID, "failed")
-		s.SendWebhookNotification(ctx, taskID, failedExecutionID, "failed", output, errorMsg, 0)
+		s.SendWebhookNotification(ctx, taskID, failedExecutionID, "failed", output, errorMsg, execDurationMs)
 		return nil
 	}
 
@@ -660,7 +665,7 @@ func (s *SchedulerService) HandleTaskFailure(ctx context.Context, taskID int64, 
 		)
 		s.redis.Del(ctx, retryLockKey)
 		s.UpdateTaskStatusByID(ctx, taskID, "failed")
-		s.SendWebhookNotification(ctx, taskID, failedExecutionID, "failed", output, errorMsg, 0)
+		s.SendWebhookNotification(ctx, taskID, failedExecutionID, "failed", output, errorMsg, execDurationMs)
 		return err
 	}
 
@@ -685,7 +690,7 @@ func (s *SchedulerService) HandleTaskFailure(ctx context.Context, taskID int64, 
 					"retry_times", retryTimes,
 				)
 				s.UpdateTaskStatusByID(context.Background(), taskID, "failed")
-				s.SendWebhookNotification(context.Background(), taskID, failedExecutionID, "failed", output, fmt.Sprintf("retry %d aborted: lost leadership", retryTimes), 0)
+				s.SendWebhookNotification(context.Background(), taskID, failedExecutionID, "failed", output, fmt.Sprintf("retry %d aborted: lost leadership", retryTimes), execDurationMs)
 				return
 			}
 
@@ -702,7 +707,7 @@ func (s *SchedulerService) HandleTaskFailure(ctx context.Context, taskID int64, 
 					"error", err,
 				)
 				s.UpdateTaskStatusByID(context.Background(), taskID, "failed")
-				s.SendWebhookNotification(context.Background(), taskID, failedExecutionID, "failed", output, fmt.Sprintf("retry %d failed: %v", retryTimes, err), 0)
+				s.SendWebhookNotification(context.Background(), taskID, failedExecutionID, "failed", output, fmt.Sprintf("retry %d failed: %v", retryTimes, err), execDurationMs)
 			} else {
 				slog.Info("HandleTaskFailure: retry scheduled successfully",
 					"task_id", taskID,
@@ -720,7 +725,7 @@ func (s *SchedulerService) HandleTaskFailure(ctx context.Context, taskID int64, 
 		)
 		s.redis.Del(ctx, retryLockKey)
 		s.UpdateTaskStatusByID(ctx, taskID, "failed")
-		s.SendWebhookNotification(ctx, taskID, failedExecutionID, "failed", output, errorMsg, 0)
+		s.SendWebhookNotification(ctx, taskID, failedExecutionID, "failed", output, errorMsg, execDurationMs)
 	}
 
 	return nil

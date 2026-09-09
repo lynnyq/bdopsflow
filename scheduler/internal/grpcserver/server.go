@@ -256,7 +256,7 @@ func (s *Server) ReportTaskResult(ctx context.Context, req *pb.ReportTaskResultR
 		"task_id", req.TaskId,
 	)
 
-	s.scheduler.UpdateExecutionResult(ctx, req.ExecutionId, req.Status, req.Output, req.Error)
+	s.scheduler.UpdateExecutionResult(ctx, req.ExecutionId, req.Status, req.Output, req.Error, req.StartTime, req.EndTime)
 
 	// 计算任务执行时长（优先用 executor 上报的精确时间戳）
 	var durationMs int64
@@ -277,7 +277,7 @@ func (s *Server) ReportTaskResult(ctx context.Context, req *pb.ReportTaskResultR
 		)
 
 		go func() {
-			if err := s.scheduler.HandleTaskFailure(context.Background(), req.TaskId, req.ExecutionId, req.Output, req.Error); err != nil {
+			if err := s.scheduler.HandleTaskFailure(context.Background(), req.TaskId, req.ExecutionId, req.Output, req.Error, durationMs); err != nil {
 				slog.Error("handle task failure failed",
 					"execution_id", req.ExecutionId,
 					"task_id", req.TaskId,
