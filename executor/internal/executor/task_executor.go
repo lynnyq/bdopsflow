@@ -168,6 +168,9 @@ func (e *TaskExecutor) Execute(ctx context.Context, task *pb.Task, client *grpcc
 		"executor_name", executorName,
 	)
 
+	// 记录任务开始时间，用于后续上报耗时
+	startTime := time.Now()
+
 	// 创建可取消的 context，同时支持超时和手动取消
 	var execCtx context.Context
 	var cancel context.CancelFunc
@@ -214,7 +217,7 @@ func (e *TaskExecutor) Execute(ctx context.Context, task *pb.Task, client *grpcc
 	)
 	sendLog(client, task, "info", fmt.Sprintf("Task execution finished, status: %s", status))
 
-	now := time.Now().Unix()
+	endTime := time.Now()
 	if client != nil {
 		if err := client.ReportResult(&pb.ReportTaskResultRequest{
 			ExecutionId: task.ExecutionId,
@@ -222,8 +225,8 @@ func (e *TaskExecutor) Execute(ctx context.Context, task *pb.Task, client *grpcc
 			Status:      status,
 			Output:      sanitizeUTF8(output),
 			Error:       sanitizeUTF8(errorMsg),
-			StartTime:   now,
-			EndTime:     time.Now().Unix(),
+			StartTime:   startTime.Unix(),
+			EndTime:     endTime.Unix(),
 			RetryTimes:  0,
 		}); err != nil {
 			slog.Error("failed to report task result",
