@@ -258,13 +258,16 @@ func (s *Server) ReportTaskResult(ctx context.Context, req *pb.ReportTaskResultR
 
 	s.scheduler.UpdateExecutionResult(ctx, req.ExecutionId, req.Status, req.Output, req.Error)
 
-	// 记录任务执行时长指标
+	// 计算任务执行时长（优先用 executor 上报的精确时间戳）
+	var durationMs int64
 	if req.StartTime > 0 && req.EndTime > 0 {
 		duration := time.Unix(req.EndTime, 0).Sub(time.Unix(req.StartTime, 0))
 		metrics.TaskDurationSeconds.Observe(duration.Seconds())
+		durationMs = duration.Milliseconds()
 	} else if req.StartTime > 0 {
 		duration := time.Since(time.Unix(req.StartTime, 0))
 		metrics.TaskDurationSeconds.Observe(duration.Seconds())
+		durationMs = duration.Milliseconds()
 	}
 
 	if req.Status == "failed" {
@@ -284,7 +287,7 @@ func (s *Server) ReportTaskResult(ctx context.Context, req *pb.ReportTaskResultR
 		}()
 	} else {
 		s.scheduler.UpdateTaskStatusByID(ctx, req.TaskId, "success")
-		s.scheduler.SendWebhookNotification(ctx, req.TaskId, req.ExecutionId, "success", req.Output, req.Error, 0)
+		s.scheduler.SendWebhookNotification(ctx, req.TaskId, req.ExecutionId, "success", req.Output, req.Error, durationMs)
 	}
 
 	return &pb.ReportTaskResultResponse{

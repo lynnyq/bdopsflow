@@ -187,6 +187,11 @@ func (s *SchedulerService) SendWebhookNotification(ctx context.Context, taskID i
 		return
 	}
 
+	// Fallback：如果调用方没传耗时（durationMs=0），从数据库的 start_time/end_time 计算
+	if durationMs <= 0 {
+		durationMs = s.getExecutionDurationFromDB(ctx, executionID)
+	}
+
 	task, err := s.GetTaskByID(ctx, taskID)
 	if err != nil {
 		return
@@ -325,4 +330,40 @@ func (s *SchedulerService) GetDomainName(ctx context.Context, domainID int64) st
 	}
 
 	return name
+}
+
+// getExecutionDurationFromDB 从数据库查询执行记录的 start_time 和 end_time 计算耗时（毫秒）。
+// 如果查询失败或时间缺失，返回 0。
+func (s *SchedulerService) getExecutionDurationFromDB(ctx context.Context, executionID string) int64 {
+	query := `SELECT start_time, end_time FROM bdopsflow_task_executions WHERE execution_id = ?`
+	stmt := rqlite.ParameterizedStatement{
+		Query:     query,
+		Arguments: []interface{}{executionID},
+	}
+	qr, err := s.DB.QueryOneParameterized(stmt)
+	if err != nil || qr.Err != nil || !qr.Next() {
+		return 0
+	}
+	row, err := qr.Slice()
+	if err != nil || len(row) < 2 {
+		return 0
+	}
+	startStr := rowString(row[0])
+	endStr := rowString(row[1])
+	if startStr == "" || endStr == "" {
+		return 0
+	}
+	start, err := time.Parse(DateTimeFormat, startStr)
+	if err != nil {
+		return 0
+	}
+	end, err := time.Parse(DateTimeFormat, endStr)
+	if err != nil {
+		return 0
+	}
+	duration := end.Sub(start)
+	if duration < 0 {
+		return 0
+	}
+	return duration.Milliseconds()
 }
