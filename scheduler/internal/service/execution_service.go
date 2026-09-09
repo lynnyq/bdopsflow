@@ -27,7 +27,8 @@ type TaskExecutionWithNames struct {
 func (s *SchedulerService) UpdateExecutionResult(ctx context.Context, executionID, status, output, errorMsg string, timeRange ...int64) error {
 	startTime := time.Now()
 	endTime := time.Now()
-	if len(timeRange) >= 2 && timeRange[0] > 0 && timeRange[1] > 0 {
+	// executor 上报了合法的起止时间（end > start）时使用；否则回退为 time.Now()
+	if len(timeRange) >= 2 && timeRange[0] > 0 && timeRange[1] > 0 && timeRange[1] >= timeRange[0] {
 		startTime = time.Unix(timeRange[0], 0)
 		endTime = time.Unix(timeRange[1], 0)
 	}

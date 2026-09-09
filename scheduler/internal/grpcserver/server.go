@@ -262,8 +262,16 @@ func (s *Server) ReportTaskResult(ctx context.Context, req *pb.ReportTaskResultR
 	var durationMs int64
 	if req.StartTime > 0 && req.EndTime > 0 {
 		duration := time.Unix(req.EndTime, 0).Sub(time.Unix(req.StartTime, 0))
-		metrics.TaskDurationSeconds.Observe(duration.Seconds())
-		durationMs = duration.Milliseconds()
+		if duration < 0 {
+			slog.Warn("executor reported negative duration, clock drift?",
+				"execution_id", req.ExecutionId,
+				"start_time", req.StartTime,
+				"end_time", req.EndTime,
+			)
+		} else {
+			metrics.TaskDurationSeconds.Observe(duration.Seconds())
+			durationMs = duration.Milliseconds()
+		}
 	} else if req.StartTime > 0 {
 		duration := time.Since(time.Unix(req.StartTime, 0))
 		metrics.TaskDurationSeconds.Observe(duration.Seconds())
