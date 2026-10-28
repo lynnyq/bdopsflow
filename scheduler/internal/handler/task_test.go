@@ -550,6 +550,127 @@ func TestTaskHandler_Update_InvalidID(t *testing.T) {
 	}
 }
 
+// newToggleMock 构造用于测试启用/停用切换的 mock 服务：
+// 返回一个已配置 Webhook 和指派执行器的任务，并捕获提交更新的任务对象
+func newToggleMock(t *testing.T) (*mockTaskService, **model.Task) {
+	webhookID := int64(42)
+	var captured *model.Task
+	mock := &mockTaskService{
+		getTaskByIDFunc: func(ctx context.Context, id int64) (*model.Task, error) {
+			return &model.Task{
+				ID:                 id,
+				Name:               "existing task",
+				Type:               "http",
+				Config:             `{"url":"http://example.com"}`,
+				IsEnabled:          true,
+				Status:             "success",
+				DomainID:           1,
+				WebhookID:          &webhookID,
+				WebhookEvents:      `["on_success"]`,
+				AssignedExecutorID: 7,
+			}, nil
+		},
+		updateTaskFunc: func(ctx context.Context, id int64, task *model.Task) error {
+			captured = task
+			return nil
+		},
+		listExecutorsByDomainFunc: func(ctx context.Context, domainID int64) ([]*model.Executor, error) {
+			return []*model.Executor{
+				{
+					ID:            7,
+					Name:          "executor-7",
+					Status:        "online",
+					LastHeartbeat: rqlite.NullTime{Time: time.Now().Add(-5 * time.Second), Valid: true},
+					Capacity:      10,
+					CurrentLoad:   1,
+				},
+			}, nil
+		},
+	}
+	return mock, &captured
+}
+
+// TestTaskHandler_Update_TogglePreservesWebhookAndExecutor 验证启用/停用切换
+// （只传 is_enabled）时，已保存的 Webhook 和指派执行器不被清空
+func TestTaskHandler_Update_TogglePreservesWebhookAndExecutor(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		mock, captured := newToggleMock(t)
+		handler := newTaskHandlerWithSvc(mock)
+		router := setupTestRouter(handler)
+
+		body := map[string]interface{}{"is_enabled": enabled}
+		jsonBody, _ := json.Marshal(body)
+		req, _ := http.NewRequest("PUT", "/api/bdopsflow_tasks/1", bytes.NewBuffer(jsonBody))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected HTTP 200 (is_enabled=%v), got %d, body: %s", enabled, w.Code, w.Body.String())
+		}
+		var resp Response
+		json.Unmarshal(w.Body.Bytes(), &resp)
+		if resp.Code != CodeSuccess {
+			t.Fatalf("expected code 0 (is_enabled=%v), got %d, body: %s", enabled, resp.Code, w.Body.String())
+		}
+
+		if *captured == nil {
+			t.Fatalf("expected UpdateTask to be called (is_enabled=%v)", enabled)
+		}
+		if (*captured).WebhookID == nil || *(*captured).WebhookID != 42 {
+			t.Errorf("is_enabled=%v: expected webhook_id preserved as 42, got %v", enabled, (*captured).WebhookID)
+		}
+		if (*captured).WebhookEvents != `["on_success"]` {
+			t.Errorf("is_enabled=%v: expected webhook_events preserved, got %q", enabled, (*captured).WebhookEvents)
+		}
+		if (*captured).AssignedExecutorID != 7 {
+			t.Errorf("is_enabled=%v: expected assigned_executor_id preserved as 7, got %d", enabled, (*captured).AssignedExecutorID)
+		}
+		if (*captured).IsEnabled != enabled {
+			t.Errorf("is_enabled=%v: expected task.IsEnabled updated, got %v", enabled, (*captured).IsEnabled)
+		}
+	}
+}
+
+// TestTaskHandler_Update_ExplicitClearWebhookAndExecutor 验证显式携带字段时
+// 仍可清空 Webhook 和指派执行器（编辑表单清空功能不回归）
+func TestTaskHandler_Update_ExplicitClearWebhookAndExecutor(t *testing.T) {
+	mock, captured := newToggleMock(t)
+	handler := newTaskHandlerWithSvc(mock)
+	router := setupTestRouter(handler)
+
+	body := map[string]interface{}{
+		"is_enabled":           true,
+		"webhook_id":           nil,
+		"webhook_events":       "[]",
+		"assigned_executor_id": 0,
+	}
+	jsonBody, _ := json.Marshal(body)
+	req, _ := http.NewRequest("PUT", "/api/bdopsflow_tasks/1", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected HTTP 200, got %d, body: %s", w.Code, w.Body.String())
+	}
+
+	if *captured == nil {
+		t.Fatal("expected UpdateTask to be called")
+	}
+	if (*captured).WebhookID != nil {
+		t.Errorf("expected webhook_id cleared to nil, got %v", (*captured).WebhookID)
+	}
+	if (*captured).WebhookEvents != "[]" {
+		t.Errorf("expected webhook_events cleared to \"[]\", got %q", (*captured).WebhookEvents)
+	}
+	if (*captured).AssignedExecutorID != 0 {
+		t.Errorf("expected assigned_executor_id cleared to 0, got %d", (*captured).AssignedExecutorID)
+	}
+}
+
 func TestTaskHandler_Executions(t *testing.T) {
 	mock := &mockTaskService{
 		getTaskExecsFunc: func(ctx context.Context, taskID int64) ([]*model.TaskExecution, error) {

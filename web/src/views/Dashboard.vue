@@ -158,9 +158,9 @@
         >
           暂停调度
         </el-button>
-        <el-button 
-          :icon="Refresh" 
-          @click="refreshData" 
+        <el-button
+          :icon="Refresh"
+          @click="handleRefreshAll"
           :loading="loading"
           class="refresh-btn"
         >
@@ -225,8 +225,8 @@
           <el-icon><DataLine /></el-icon>
           Grafana 监控图表
         </h2>
-        <el-tooltip content="刷新图表列表" placement="top">
-          <el-button :icon="Refresh" circle size="small" @click="loadGrafanaDashboards" />
+        <el-tooltip content="刷新图表" placement="top">
+          <el-button :icon="Refresh" circle size="small" @click="handleRefreshGrafana" />
         </el-tooltip>
       </div>
       <div class="grafana-grid">
@@ -245,6 +245,7 @@
             </el-tooltip>
           </div>
           <iframe
+            :key="`${item.id}-${iframeRefreshKey}`"
             :src="item.embed_url"
             :style="{ height: item.height_px + 'px' }"
             class="grafana-iframe"
@@ -442,6 +443,25 @@ const formatDuration = (seconds: number): string => {
 
 // Grafana 嵌入图表
 const grafanaDashboards = ref<GrafanaDashboard[]>([])
+// iframe 刷新键：变更后强制 Vue 销毁重建 Grafana iframe，使图表真正重新加载。
+// 仅重新拉取列表时 embed_url 不变，Vue 会复用旧 iframe 元素，浏览器不会重新加载图表。
+const iframeRefreshKey = ref(0)
+
+const refreshGrafanaCharts = () => {
+  iframeRefreshKey.value++
+}
+
+const handleRefreshGrafana = async () => {
+  await loadGrafanaDashboards()
+  refreshGrafanaCharts()
+}
+
+// 主"刷新数据"按钮：刷新统计数据并强制重载 Grafana 图表。
+// 30s 自动定时刷新只调用 refreshData，不重建 iframe，避免图表频繁闪烁。
+const handleRefreshAll = async () => {
+  await refreshData()
+  refreshGrafanaCharts()
+}
 
 const loadGrafanaDashboards = async () => {
   try {

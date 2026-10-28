@@ -346,6 +346,17 @@ func (h *TaskHandler) Update(c *gin.Context) {
 		return
 	}
 
+	// 先读取原始请求体，用于检测字段是否显式携带（区分"未提供"与"显式清空"）
+	var bodyBytes []byte
+	if c.Request.Body != nil {
+		bodyBytes, err = io.ReadAll(c.Request.Body)
+		if err != nil {
+			slog.Warn("TaskHandler.Update: failed to read request body", "error", err)
+			BadRequest(c, "failed to read request body")
+			return
+		}
+	}
+
 	var req struct {
 		Name               string      `json:"name"`
 		Type               string      `json:"type"`
@@ -363,7 +374,14 @@ func (h *TaskHandler) Update(c *gin.Context) {
 		AssignedExecutorID int64       `json:"assigned_executor_id"`
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := json.Unmarshal(bodyBytes, &req); err != nil {
+		slog.Warn("TaskHandler.Update: invalid request body", "error", err)
+		BadRequest(c, err.Error())
+		return
+	}
+
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(bodyBytes, &fields); err != nil {
 		slog.Warn("TaskHandler.Update: invalid request body", "error", err)
 		BadRequest(c, err.Error())
 		return
@@ -463,12 +481,18 @@ func (h *TaskHandler) Update(c *gin.Context) {
 	if req.DomainID > 0 {
 		currentTask.DomainID = req.DomainID
 	}
-	// WebhookID: 允许清空（设为 nil），前端 clearable select 清空时传 null
-	currentTask.WebhookID = req.WebhookID
-	// WebhookEvents: 允许清空，前端清空推送时机时传 "[]" 或 ""
-	currentTask.WebhookEvents = req.WebhookEvents
-	// 更新 AssignedExecutorID（允许设置为空字符串来清除）
-	currentTask.AssignedExecutorID = req.AssignedExecutorID
+	// WebhookID/WebhookEvents/AssignedExecutorID：仅当请求中显式携带该字段时才更新，
+	// 避免启用/停用等部分更新请求（只传 is_enabled）误清空已保存的执行器和 Webhook 配置。
+	// 显式传 null / "" / 0 仍可清空（与编辑表单行为兼容）。
+	if _, ok := fields["webhook_id"]; ok {
+		currentTask.WebhookID = req.WebhookID
+	}
+	if _, ok := fields["webhook_events"]; ok {
+		currentTask.WebhookEvents = req.WebhookEvents
+	}
+	if _, ok := fields["assigned_executor_id"]; ok {
+		currentTask.AssignedExecutorID = req.AssignedExecutorID
+	}
 
 	slog.Info("TaskHandler.Update: updating task",
 		"id", id,
