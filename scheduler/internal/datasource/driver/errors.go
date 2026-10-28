@@ -12,13 +12,13 @@ import (
 
 // 错误分类常量
 const (
-	ErrCategoryConnection    = "connection"
+	ErrCategoryConnection     = "connection"
 	ErrCategoryAuthentication = "authentication"
-	ErrCategoryQuery         = "query"
-	ErrCategoryTimeout       = "timeout"
-	ErrCategoryPermission    = "permission"
-	ErrCategoryResource      = "resource"
-	ErrCategoryUnknown       = "unknown"
+	ErrCategoryQuery          = "query"
+	ErrCategoryTimeout        = "timeout"
+	ErrCategoryPermission     = "permission"
+	ErrCategoryResource       = "resource"
+	ErrCategoryUnknown        = "unknown"
 )
 
 // DatasourceError 统一的数据源错误类型
@@ -89,7 +89,9 @@ func ClassifyError(err error, dsType string) *DatasourceError {
 		strings.Contains(errMsg, "access denied"),
 		strings.Contains(errMsg, "unauthorized"),
 		strings.Contains(errMsg, "invalid credentials"),
-		strings.Contains(errMsg, "wrong password"):
+		strings.Contains(errMsg, "wrong password"),
+		strings.Contains(errMsg, "wrongpass"),
+		strings.Contains(errMsg, "noauth"):
 		dsErr.Category = ErrCategoryAuthentication
 		dsErr.Retryable = false
 

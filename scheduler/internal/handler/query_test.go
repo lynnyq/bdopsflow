@@ -40,7 +40,7 @@ func TestIsSelectOnly_AllowedReadOnlySQL(t *testing.T) {
 
 	for _, tc := range allowed {
 		t.Run(tc.name, func(t *testing.T) {
-			if !h.isSelectOnly(tc.sql, false) {
+			if !h.isSelectOnly(tc.sql, false, "mysql") {
 				t.Errorf("isSelectOnly(%q, false) = false, want true", tc.sql)
 			}
 		})
@@ -65,7 +65,7 @@ func TestIsSelectOnly_DeniedWriteSQL(t *testing.T) {
 
 	for _, tc := range denied {
 		t.Run(tc.name, func(t *testing.T) {
-			if h.isSelectOnly(tc.sql, false) {
+			if h.isSelectOnly(tc.sql, false, "mysql") {
 				t.Errorf("isSelectOnly(%q, false) = true, want false", tc.sql)
 			}
 		})
@@ -82,7 +82,7 @@ func TestIsSelectOnly_AllowWriteEnabled(t *testing.T) {
 	}
 
 	for _, sql := range writeSQL {
-		if !h.isSelectOnly(sql, true) {
+		if !h.isSelectOnly(sql, true, "mysql") {
 			t.Errorf("isSelectOnly(%q, true) = false, want true", sql)
 		}
 	}
@@ -91,15 +91,15 @@ func TestIsSelectOnly_AllowWriteEnabled(t *testing.T) {
 func TestIsSelectOnly_DescNotConfusedWithOrder(t *testing.T) {
 	h := &QueryHandler{}
 
-	if !h.isSelectOnly("SELECT * FROM users ORDER BY id DESC", false) {
+	if !h.isSelectOnly("SELECT * FROM users ORDER BY id DESC", false, "mysql") {
 		t.Error("SELECT with ORDER BY DESC should be allowed")
 	}
 
-	if !h.isSelectOnly("DESC users", false) {
+	if !h.isSelectOnly("DESC users", false, "mysql") {
 		t.Error("DESC users should be allowed as read-only")
 	}
 
-	if !h.isSelectOnly("DESCRIBE users", false) {
+	if !h.isSelectOnly("DESCRIBE users", false, "mysql") {
 		t.Error("DESCRIBE users should be allowed as read-only")
 	}
 }
@@ -107,23 +107,23 @@ func TestIsSelectOnly_DescNotConfusedWithOrder(t *testing.T) {
 func TestIsSelectOnly_EdgeCases(t *testing.T) {
 	h := &QueryHandler{}
 
-	if h.isSelectOnly("", false) {
+	if h.isSelectOnly("", false, "mysql") {
 		t.Error("empty SQL should not be allowed")
 	}
 
-	if h.isSelectOnly("   ", false) {
+	if h.isSelectOnly("   ", false, "mysql") {
 		t.Error("whitespace-only SQL should not be allowed")
 	}
 
-	if !h.isSelectOnly("  SELECT  * FROM users  ", false) {
+	if !h.isSelectOnly("  SELECT  * FROM users  ", false, "mysql") {
 		t.Error("SELECT with leading/trailing whitespace should be allowed")
 	}
 
-	if !h.isSelectOnly("desc users", false) {
+	if !h.isSelectOnly("desc users", false, "mysql") {
 		t.Error("lowercase desc should be allowed")
 	}
 
-	if !h.isSelectOnly("describe users", false) {
+	if !h.isSelectOnly("describe users", false, "mysql") {
 		t.Error("lowercase describe should be allowed")
 	}
 }

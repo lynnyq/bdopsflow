@@ -154,6 +154,74 @@
               </el-row>
             </template>
 
+            <template v-else-if="form.type === 'redis'">
+              <el-row :gutter="16">
+                <el-col :span="24">
+                  <el-form-item label="连接模式" prop="connection_mode">
+                    <el-select v-model="form.connection_mode" placeholder="请选择连接模式" @change="handleRedisConnectionModeChange">
+                      <el-option label="单节点" value="single" />
+                      <el-option label="哨兵模式" value="sentinel" />
+                      <el-option label="集群模式" value="cluster" />
+                    </el-select>
+                  </el-form-item>
+                </el-col>
+              </el-row>
+              <template v-if="form.connection_mode === 'single'">
+                <el-row :gutter="16">
+                  <el-col :span="12">
+                    <el-form-item label="主机" prop="host">
+                      <el-input v-model="form.host" placeholder="请输入主机地址" />
+                    </el-form-item>
+                  </el-col>
+                  <el-col :span="12">
+                    <el-form-item label="端口" prop="port">
+                      <el-input-number v-model="form.port" :min="1" :max="65535" controls-position="right" style="width: 100%" />
+                    </el-form-item>
+                  </el-col>
+                </el-row>
+              </template>
+              <template v-if="form.connection_mode === 'sentinel'">
+                <el-row :gutter="16">
+                  <el-col :span="24">
+                    <el-form-item label="哨兵地址" prop="sentinel_addrs">
+                      <el-input v-model="form.sentinel_addrs" placeholder="host1:26379,host2:26379,host3:26379" type="textarea" :rows="2" />
+                      <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">多个哨兵节点用逗号分隔</div>
+                    </el-form-item>
+                  </el-col>
+                </el-row>
+                <el-row :gutter="16">
+                  <el-col :span="24">
+                    <el-form-item label="主节点名称" prop="master_name">
+                      <el-input v-model="form.master_name" placeholder="如 mymaster" />
+                    </el-form-item>
+                  </el-col>
+                </el-row>
+              </template>
+              <template v-if="form.connection_mode === 'cluster'">
+                <el-row :gutter="16">
+                  <el-col :span="24">
+                    <el-form-item label="集群节点地址" prop="cluster_addrs">
+                      <el-input v-model="form.cluster_addrs" placeholder="host1:6379,host2:6379,host3:6379" type="textarea" :rows="2" />
+                      <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">多个集群节点用逗号分隔</div>
+                    </el-form-item>
+                  </el-col>
+                </el-row>
+              </template>
+              <el-row :gutter="16">
+                <el-col :span="12">
+                  <el-form-item label="密码" prop="password">
+                    <el-input v-model="form.password" type="password" show-password :placeholder="isEdit ? '留空保持原密码' : '请输入密码（可选）'" />
+                  </el-form-item>
+                </el-col>
+                <el-col :span="12" v-if="form.connection_mode !== 'cluster'">
+                  <el-form-item label="数据库编号" prop="database">
+                    <el-input v-model="form.database" placeholder="默认 0" />
+                    <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">单节点/哨兵模式支持 0-15，集群模式固定为 0</div>
+                  </el-form-item>
+                </el-col>
+              </el-row>
+            </template>
+
             <template v-else-if="['hive', 'kyuubi', 'spark', 'trino'].includes(form.type)">
               <template v-if="form.connection_mode === 'direct'">
                 <el-row :gutter="16">
@@ -325,6 +393,7 @@ const dsTypeLabels: Record<string, string> = {
   mysql: 'MySQL',
   sqlite: 'SQLite',
   rqlite: 'Rqlite',
+  redis: 'Redis',
   hive: 'Hive',
   kyuubi: 'Kyuubi',
   trino: 'Trino',
@@ -360,6 +429,10 @@ const form = ref({
   is_enabled: true,
   allow_write_sql: false,
   domain_id: 0 as number,
+  // Redis 专用字段
+  sentinel_addrs: '',
+  cluster_addrs: '',
+  master_name: '',
 })
 
 const rules = computed<FormRules>(() => {
@@ -389,6 +462,19 @@ const rules = computed<FormRules>(() => {
     }
   }
 
+  if (form.value.type === 'redis') {
+    base.connection_mode = [{ required: true, message: '请选择连接模式', trigger: 'change' }]
+    if (form.value.connection_mode === 'single') {
+      base.host = [{ required: true, message: '请输入主机地址', trigger: 'blur' }]
+      base.port = [{ required: true, message: '请输入端口', trigger: 'blur' }]
+    } else if (form.value.connection_mode === 'sentinel') {
+      base.sentinel_addrs = [{ required: true, message: '请输入哨兵地址', trigger: 'blur' }]
+      base.master_name = [{ required: true, message: '请输入主节点名称', trigger: 'blur' }]
+    } else if (form.value.connection_mode === 'cluster') {
+      base.cluster_addrs = [{ required: true, message: '请输入集群节点地址', trigger: 'blur' }]
+    }
+  }
+
   if (['hive', 'kyuubi', 'spark', 'trino'].includes(form.value.type)) {
     base.auth_type = [{ required: true, message: '请选择认证方式', trigger: 'change' }]
     base.connection_mode = [{ required: true, message: '请选择连接模式', trigger: 'change' }]
@@ -410,6 +496,7 @@ const defaultPorts: Record<string, number> = {
   starrocks: 9030,
   doris: 9030,
   rqlite: 4001,
+  redis: 6379,
   hive: 10000,
   kyuubi: 10009,
   spark: 10000,
@@ -418,12 +505,29 @@ const defaultPorts: Record<string, number> = {
 
 const handleTypeChange = (type: string) => {
   form.value.port = defaultPorts[type] || 3306
-  form.value.connection_mode = type === 'rqlite' ? 'single' : 'direct'
+  if (type === 'rqlite' || type === 'redis') {
+    form.value.connection_mode = 'single'
+  } else {
+    form.value.connection_mode = 'direct'
+  }
   form.value.auth_type = 'simple'
   form.value.transport_mode = 'binary'
   form.value.http_path = ''
   form.value.ssl = false
   form.value.rqlite_hosts = ''
+  form.value.sentinel_addrs = ''
+  form.value.cluster_addrs = ''
+  form.value.master_name = ''
+  form.value.database = ''
+  testPassed.value = false
+}
+
+const handleRedisConnectionModeChange = () => {
+  form.value.host = ''
+  form.value.port = defaultPorts.redis || 6379
+  form.value.sentinel_addrs = ''
+  form.value.cluster_addrs = ''
+  form.value.master_name = ''
   testPassed.value = false
 }
 
@@ -475,6 +579,23 @@ const buildSubmitData = () => {
       config.ssl = true
     }
     data.config = JSON.stringify(config)
+  } else if (form.value.type === 'redis') {
+    data.connection_mode = form.value.connection_mode
+    data.password = form.value.password
+    data.database = form.value.database
+    const config: Record<string, unknown> = {}
+    if (form.value.connection_mode === 'single') {
+      data.host = form.value.host
+      data.port = form.value.port
+    } else if (form.value.connection_mode === 'sentinel') {
+      config.sentinel_addrs = form.value.sentinel_addrs
+      config.master_name = form.value.master_name
+    } else if (form.value.connection_mode === 'cluster') {
+      config.cluster_addrs = form.value.cluster_addrs
+    }
+    if (Object.keys(config).length > 0) {
+      data.config = JSON.stringify(config)
+    }
   }
 
   if (['hive', 'kyuubi', 'spark', 'trino'].includes(form.value.type)) {
@@ -591,7 +712,7 @@ const loadDatasource = async () => {
       username: ds.username || '',
       password: '',
       auth_type: ds.auth_type || 'simple',
-      connection_mode: ds.connection_mode || (ds.type === 'rqlite' ? 'single' : 'direct'),
+      connection_mode: ds.connection_mode || ((ds.type === 'rqlite' || ds.type === 'redis') ? 'single' : 'direct'),
       zk_hosts: ds.zk_hosts || '',
       zk_path: ds.zk_path || '',
       rqlite_hosts: ds.rqlite_hosts || '',
@@ -602,6 +723,9 @@ const loadDatasource = async () => {
       is_enabled: ds.is_enabled,
       allow_write_sql: ds.allow_write_sql || false,
       domain_id: ds.domain_id || 0,
+      sentinel_addrs: (configData.sentinel_addrs as string) || '',
+      cluster_addrs: (configData.cluster_addrs as string) || '',
+      master_name: (configData.master_name as string) || '',
     }
   } catch (err: unknown) {
     if (!isHandledError(err)) {
@@ -617,6 +741,7 @@ watch(
     form.value.database, form.value.username, form.value.password,
     form.value.auth_type, form.value.connection_mode, form.value.zk_hosts,
     form.value.zk_path, form.value.transport_mode, form.value.http_path, form.value.ssl,
+    form.value.sentinel_addrs, form.value.cluster_addrs, form.value.master_name,
   ],
   () => {
     if (!isEdit.value) {

@@ -795,6 +795,7 @@ func (h *DatasourceHandler) datasourceToMap(ds *model.Datasource) gin.H {
 		"zk_hosts":        ds.ZkHosts,
 		"zk_path":         ds.ZkPath,
 		"rqlite_hosts":    ds.RqliteHosts,
+		"config":          ds.Config,
 		"user_permission": ds.UserPermission,
 		"created_by_name": "", "updated_by_name": "",
 	}

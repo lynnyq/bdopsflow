@@ -149,7 +149,7 @@ func (h *QueryHandler) Execute(c *gin.Context) {
 		return
 	}
 
-	if !h.isSelectOnly(req.SQL, ds.AllowWriteSQL) {
+	if !h.isSelectOnly(req.SQL, ds.AllowWriteSQL, ds.Type) {
 		slog.Warn("sql type not allowed", "datasource_id", req.DatasourceID, "sql_preview", sqlPreview)
 		Fail(c, CodeQueryConnectFailed, "仅允许执行SELECT查询，DML/DDL操作需要数据源管理员启用写入权限")
 		return
@@ -569,7 +569,7 @@ func (h *QueryHandler) ExportCSV(c *gin.Context) {
 		return
 	}
 
-	if !h.isSelectOnly(req.SQL, ds.AllowWriteSQL) {
+	if !h.isSelectOnly(req.SQL, ds.AllowWriteSQL, ds.Type) {
 		Fail(c, CodeQueryConnectFailed, "仅允许执行SELECT查询，DML/DDL操作需要数据源管理员启用写入权限")
 		return
 	}
@@ -804,7 +804,7 @@ func (h *QueryHandler) SaveSQL(c *gin.Context) {
 	saved := &model.SavedSQL{
 		Name: req.Name, DatasourceID: req.DatasourceID,
 		Database: req.Database,
-		SQLText: req.SQLText, Description: req.Description,
+		SQLText:  req.SQLText, Description: req.Description,
 		CreatedBy: int64Ptr(saveUID), UpdatedBy: int64Ptr(saveUID),
 		DomainID: saveDomainID, IsPublic: isPublic,
 	}
@@ -1238,13 +1238,33 @@ func isPoolBusyError(err error) bool {
 	return strings.Contains(msg, "pool fully occupied")
 }
 
-func (h *QueryHandler) isSelectOnly(sql string, allowWriteSQL bool) bool {
+func (h *QueryHandler) isSelectOnly(sql string, allowWriteSQL bool, dsType string) bool {
 	if allowWriteSQL {
 		return true
+	}
+	// Redis 数据源：检查命令是否为只读命令
+	if dsType == "redis" {
+		return isRedisReadOnlyCommand(sql)
 	}
 	trimmed := strings.ToUpper(strings.TrimSpace(sql))
 	trimmed = joinSpaces(trimmed)
 	return strings.HasPrefix(trimmed, "SELECT ") || strings.HasPrefix(trimmed, "WITH ") || strings.HasPrefix(trimmed, "EXPLAIN ") || strings.HasPrefix(trimmed, "SHOW ") || strings.HasPrefix(trimmed, "DESCRIBE ") || strings.HasPrefix(trimmed, "DESC ") || trimmed == "SELECT" || trimmed == "DESC" || trimmed == "SHOW" || strings.HasPrefix(trimmed, "PRAGMA")
+}
+
+// isRedisReadOnlyCommand 判断 Redis 命令是否为只读命令。
+// 仅允许 GET、KEYS、SCAN、TTL 等只读操作，禁止 SET、DEL、INCR 等写操作。
+func isRedisReadOnlyCommand(cmd string) bool {
+	trimmed := strings.TrimSpace(cmd)
+	if trimmed == "" {
+		return false
+	}
+	// 提取命令名（第一个空格前的部分，转大写）
+	cmdName := trimmed
+	if idx := strings.IndexAny(trimmed, " \t\n\r"); idx > 0 {
+		cmdName = trimmed[:idx]
+	}
+	cmdName = strings.ToUpper(cmdName)
+	return driver.IsRedisReadOnlyCommand(cmdName)
 }
 
 func joinSpaces(s string) string {

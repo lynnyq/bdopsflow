@@ -559,7 +559,7 @@ func TestConvertTrinoValue(t *testing.T) {
 
 func TestSupportedTypes(t *testing.T) {
 	types := SupportedTypes()
-	expectedCount := 9
+	expectedCount := 10
 	if len(types) != expectedCount {
 		t.Errorf("SupportedTypes() returned %d types, want %d", len(types), expectedCount)
 	}

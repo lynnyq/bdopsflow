@@ -253,6 +253,7 @@ const dsTypeLabels: Record<string, string> = {
   mysql: 'MySQL',
   sqlite: 'SQLite',
   rqlite: 'Rqlite',
+  redis: 'Redis',
   hive: 'Hive',
   kyuubi: 'Kyuubi',
   trino: 'Trino',
@@ -303,6 +304,20 @@ const formatDateTime = (dateStr: string) => {
 const getHostDisplay = (row: Datasource): string => {
   if (row.type === 'sqlite') return row.path || '-'
   if (row.type === 'rqlite') return row.rqlite_hosts || row.host || '-'
+  if (row.type === 'redis') {
+    if (row.host) return `${row.host}:${row.port || 6379}`
+    // 哨兵/集群模式地址存储在 config 中
+    if (row.config) {
+      try {
+        const cfg = JSON.parse(row.config)
+        if (cfg.sentinel_addrs) return cfg.sentinel_addrs
+        if (cfg.cluster_addrs) return cfg.cluster_addrs
+      } catch (e) {
+        // ignore parse error
+      }
+    }
+    return '-'
+  }
   if (['hive', 'kyuubi', 'spark'].includes(row.type)) return row.zk_hosts || row.host || '-'
   return row.host || '-'
 }

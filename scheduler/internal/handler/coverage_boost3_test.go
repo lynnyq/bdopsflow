@@ -134,7 +134,7 @@ func TestIsSelectOnly_EdgeCases_V2(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			h := &QueryHandler{}
-			got := h.isSelectOnly(tt.sql, tt.allowWrite)
+			got := h.isSelectOnly(tt.sql, tt.allowWrite, "mysql")
 			if got != tt.want {
 				t.Errorf("isSelectOnly(%q, %v) = %v, want %v", tt.sql, tt.allowWrite, got, tt.want)
 			}

@@ -885,7 +885,8 @@ const dsTypeLabels: Record<string, string> = {
   starrocks: 'StarRocks',
   doris: 'Doris',
   sqlite: 'SQLite',
-  rqlite: 'rqlite'
+  rqlite: 'rqlite',
+  redis: 'Redis'
 };
 
 let editorView: EditorView | null = null;
@@ -2598,6 +2599,7 @@ window.addEventListener('beforeunload', handleBeforeUnload);
 .tag-doris { background: rgba(236, 72, 153, 0.15); color: #ec4899; }
 .tag-sqlite { background: rgba(107, 114, 128, 0.15); color: #6b7280; }
 .tag-rqlite { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
+.tag-redis { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
 
 .columns-section {
   flex: 1;

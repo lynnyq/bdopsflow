@@ -162,6 +162,7 @@ func init() {
 	RegisterDriver("starrocks", NewStarRocksDriver)
 	RegisterDriver("doris", NewDorisDriver)
 	RegisterDriver("rqlite", NewRqliteDriver)
+	RegisterDriver("redis", NewRedisDriver)
 }
 
 func normalizeSQL(sql string) string {
@@ -249,6 +250,11 @@ func extractGohiveError(err error, wrapMsg string) error {
 // 如果用户SQL中已有LIMIT，则取用户LIMIT和系统限制的较小值
 func ApplyLimitToSQL(sql string, limit int, dsType string) string {
 	if limit <= 0 {
+		return sql
+	}
+
+	// Redis 数据源使用命令而非 SQL，不支持 LIMIT 语法，直接返回原命令
+	if dsType == "redis" {
 		return sql
 	}
 
