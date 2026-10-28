@@ -1957,7 +1957,6 @@ onUnmounted(() => {
 
 /* ==================== Response Section ==================== */
 .response-section {
-  background: var(--bg-card);
   border: 1px solid var(--border-subtle);
   border-top: 2px solid var(--accent-primary);
   border-radius: var(--section-radius);

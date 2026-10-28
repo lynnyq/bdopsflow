@@ -2125,7 +2125,6 @@ watch(responseBodyMode, () => {
 
 /* ==================== Response Section ==================== */
 .response-section {
-  background: var(--bg-card);
   border: 1px solid var(--border-subtle);
   border-top: 2px solid #6366f1;
   border-radius: var(--section-radius);
