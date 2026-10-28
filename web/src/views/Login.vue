@@ -193,6 +193,7 @@ import { User, Lock, Key, Cpu, Connection, Monitor, CircleClose, Timer, Expand }
 import { useAuthStore } from '@/stores/auth'
 import axios from 'axios'
 import { translateErrorMessage } from '@/utils/error'
+import { secureRandom } from '@/utils/random'
 
 const router = useRouter()
 const route = useRoute()
@@ -293,13 +294,13 @@ const handleLogin = async () => {
 const getParticleStyle = (i: number) => {
   const colors = ['rgba(59, 130, 246, 0.3)', 'rgba(6, 182, 212, 0.3)', 'rgba(167, 139, 250, 0.3)']
   return {
-    left: `${Math.random() * 100}%`,
-    top: `${Math.random() * 100}%`,
-    width: `${Math.random() * 4 + 2}px`,
-    height: `${Math.random() * 4 + 2}px`,
+    left: `${secureRandom() * 100}%`,
+    top: `${secureRandom() * 100}%`,
+    width: `${secureRandom() * 4 + 2}px`,
+    height: `${secureRandom() * 4 + 2}px`,
     background: colors[i % 3],
-    animationDelay: `${Math.random() * 5}s`,
-    animationDuration: `${Math.random() * 10 + 10}s`
+    animationDelay: `${secureRandom() * 5}s`,
+    animationDuration: `${secureRandom() * 10 + 10}s`
   }
 }
 

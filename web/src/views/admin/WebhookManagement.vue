@@ -122,6 +122,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Delete, Plus, Search, Refresh, Connection, Edit, SwitchButton, Promotion } from '@element-plus/icons-vue'
 import { webhookAPI } from '@/api'
 import { isHandledError } from '@/utils/api'
+import { secureRandom } from '@/utils/random'
 import type { Webhook } from '@/types'
 import { useAuthStore } from '@/stores/auth'
 
@@ -196,7 +197,7 @@ const handleEdit = (row: Webhook) => {
   if (row.headers) {
     try {
       const parsed = typeof row.headers === 'string' ? JSON.parse(row.headers) : row.headers
-      headerList = Object.entries(parsed).map(([key, value]) => ({ key, value: String(value), _uid: Date.now() + Math.random() }))
+      headerList = Object.entries(parsed).map(([key, value]) => ({ key, value: String(value), _uid: Date.now() + secureRandom() }))
     } catch { /* ignore */ }
   }
   form.value = {
@@ -211,7 +212,7 @@ const handleEdit = (row: Webhook) => {
 }
 
 const addHeader = () => {
-  form.value.headerList.push({ key: '', value: '', _uid: Date.now() + Math.random() })
+  form.value.headerList.push({ key: '', value: '', _uid: Date.now() + secureRandom() })
 }
 
 const removeHeader = (header: any) => {

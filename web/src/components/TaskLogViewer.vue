@@ -86,6 +86,7 @@
 import { ref, watch, onUnmounted, nextTick, computed } from 'vue'
 import { Document, Close, InfoFilled, Loading, CircleClose } from '@element-plus/icons-vue'
 import { taskAPI } from '@/api'
+import { secureRandom } from '@/utils/random'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 const MAX_LOG_ENTRIES = 5000;
@@ -175,7 +176,7 @@ const loadHistoryLogs = async () => {
     if (res.data && res.data.length > 0) {
       logs.value = res.data.map(log => ({
         ...log,
-        _key: `${log.id || Date.now()}-${Math.random()}`
+        _key: `${log.id || Date.now()}-${secureRandom()}`
       }))
       
       // 同时从历史日志中收集 stdout 和 stderr 的内容
@@ -274,7 +275,7 @@ const connectSSE = () => {
           
           logs.value.push({
             ...data,
-            _key: `${Date.now()}-${Math.random()}`,
+            _key: `${Date.now()}-${secureRandom()}`,
           })
 
           if (logs.value.length > MAX_LOG_ENTRIES) {

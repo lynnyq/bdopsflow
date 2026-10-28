@@ -482,6 +482,7 @@ import {
 } from '@element-plus/icons-vue';
 import { datasourceAPI, queryAPI } from '@/api';
 import { isHandledError } from '@/utils/api';
+import { secureRandomHex } from '@/utils/random';
 import { useAuthStore } from '@/stores/auth';
 import type { Datasource, QueryResult, QueryHistory, TableInfo, ColumnInfo, SavedSQL } from '@/types';
 
@@ -503,7 +504,7 @@ interface SQLTab {
   errorMessage: string;
 }
 
-const generateTabId = () => `tab_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+const generateTabId = () => `tab_${Date.now()}_${secureRandomHex(6)}`;
 
 // 获取当前标签页可用的最小序号
 const getAvailableTabNumber = () => {
