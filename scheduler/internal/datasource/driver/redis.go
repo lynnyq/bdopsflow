@@ -191,6 +191,19 @@ func (d *RedisDriver) Close() error {
 // Query 执行 Redis 命令。
 // 输入的 query 参数为 Redis 命令字符串，例如 "GET key"、"SET key value"、"KEYS *"。
 // 支持带引号的字符串参数，例如 "SET key \"hello world\""。
+//
+// 结果展示策略：根据命令类型智能构造 QueryResult，而非全部塞进单列单行。
+//   - KEYS/SCAN          → 单列 "key"，每行一个 key
+//   - LRANGE/LINDEX/LPOS → 单列 "value"，每行一个元素
+//   - SMEMBERS/SSCAN     → 单列 "member"，每行一个元素
+//   - ZRANGE/WITHSCORES  → 两列 "member","score"；不带 WITHSCORES 则单列 "member"
+//   - HGETALL/HSCAN      → 两列 "field","value"
+//   - HKEYS              → 单列 "field"
+//   - HVALS              → 单列 "value"
+//   - MGET/HMGET         → 单列 "value"
+//   - GET/HGET/STRLEN等  → 单列 "value"
+//   - INFO/TIME/COMMAND  → 单列 "result"，展示原始文本
+//   - SET/DEL/INCR 等写命令 → 单列 "result"
 func (d *RedisDriver) Query(ctx context.Context, query string, args ...interface{}) (*QueryResult, error) {
 	if d.client == nil {
 		return nil, &DatasourceError{
@@ -243,14 +256,7 @@ func (d *RedisDriver) Query(ctx context.Context, query string, args ...interface
 		return nil, ClassifyError(err, "redis")
 	}
 
-	columns := []string{"result"}
-	row := []interface{}{formatRedisResult(rawResult)}
-
-	return NormalizeQueryResult(&QueryResult{
-		Columns:  columns,
-		Rows:     [][]interface{}{row},
-		RowCount: 1,
-	}), nil
+	return NormalizeQueryResult(buildRedisQueryResult(cmdArgs, rawResult)), nil
 }
 
 // QueryWithDB 执行 Redis 命令，执行前切换到指定数据库（仅单节点/哨兵模式有效）。
@@ -460,6 +466,243 @@ func formatRedisResult(result interface{}) string {
 		return string(data)
 	default:
 		return fmt.Sprintf("%v", v)
+	}
+}
+
+// ==========================================================================
+// Redis 命令类型分类（用于决定如何格式化查询结果）
+// ==========================================================================
+
+// redisArrayCmd 这些命令返回数组/列表/集合，需要展开成多行展示。
+// KEY/SCAN → []string
+// LIST/SET/ZSET 集合 → []string 或 []interface{}
+var redisArrayCmd = map[string]bool{
+	// Key 列表
+	"KEYS": true, "SCAN": true,
+	// List
+	"LRANGE": true,
+	// Set
+	"SMEMBERS": true, "SSCAN": true,
+	// ZSet（不带 WITHSCORES 时，带了会被特殊处理）
+	"ZRANGE": true, "ZREVRANGE": true, "ZRANGEBYSCORE": true,
+	"ZREVRANGEBYSCORE": true, "ZRANGEBYLEX": true, "ZREVRANGEBYLEX": true,
+	"ZSCAN": true, "ZRANDMEMBER": true,
+	// Hash
+	"HKEYS": true, "HVALS": true,
+	// 多值批量查询
+	"MGET": true, "HMGET": true,
+}
+
+// redisHashCmd 返回 field-value 对，需要展开成两列（field, value）。
+var redisHashCmd = map[string]bool{
+	"HGETALL": true, "HSCAN": true,
+}
+
+// redisZsetWithScoresCmd 这些命令可能带 WITHSCORES 参数，
+// 此时返回结果按 member, score, member, score 排列，需要拆成两列。
+var redisZsetWithScoresCmd = map[string]bool{
+	"ZRANGE": true, "ZREVRANGE": true, "ZRANGEBYSCORE": true,
+	"ZREVRANGEBYSCORE": true, "ZRANGEBYLEX": true, "ZREVRANGEBYLEX": true,
+	"ZSCAN": true,
+}
+
+// redisRawTextCmd 返回原始文本，保持单列单行。
+var redisRawTextCmd = map[string]bool{
+	"INFO": true, "COMMAND": true, "TIME": true,
+	"CLIENT": true, "CONFIG": true, "CLUSTER": true,
+	"SCRIPT": true, "MEMORY": true, "OBJECT": true,
+	"LASTSAVE": true, "ROLE": true, "ECHO": true, "PING": true,
+}
+
+// buildRedisQueryResult 根据 Redis 命令类型和原始返回值智能构造 QueryResult。
+// 使列表/集合/哈希等返回值展开为多行多列，而非全部挤在单列单行。
+func buildRedisQueryResult(cmdArgs []string, rawResult interface{}) *QueryResult {
+	if len(cmdArgs) == 0 {
+		return &QueryResult{Columns: []string{"result"}, Rows: [][]interface{}{{formatRedisResult(rawResult)}}, RowCount: 1}
+	}
+
+	cmdName := strings.ToUpper(cmdArgs[0])
+
+	// 判断命令参数中是否包含 WITHSCORES（ZRANGE 系列命令常用）
+	hasWithScores := false
+	for _, a := range cmdArgs[1:] {
+		if strings.EqualFold(a, "WITHSCORES") {
+			hasWithScores = true
+			break
+		}
+	}
+
+	// 1) 哈希类：返回 field-value 对
+	if redisHashCmd[cmdName] {
+		return buildHashResult(rawResult)
+	}
+
+	// 2) ZSet + WITHSCORES：拆成两列
+	if redisZsetWithScoresCmd[cmdName] && hasWithScores {
+		return buildZsetWithScoresResult(rawResult)
+	}
+
+	// 3) 数组类：展开成多行
+	if redisArrayCmd[cmdName] {
+		return buildArrayResult(cmdName, rawResult)
+	}
+
+	// 4) 原始文本类：单列单行
+	if redisRawTextCmd[cmdName] {
+		return &QueryResult{
+			Columns:  []string{"result"},
+			Rows:     [][]interface{}{{formatRedisResult(rawResult)}},
+			RowCount: 1,
+		}
+	}
+
+	// 5) 兜底：单列单行
+	return &QueryResult{
+		Columns:  []string{"value"},
+		Rows:     [][]interface{}{{formatRedisResult(rawResult)}},
+		RowCount: 1,
+	}
+}
+
+// buildArrayResult 将返回数组的 Redis 命令结果展开为多行单列。
+func buildArrayResult(cmdName string, rawResult interface{}) *QueryResult {
+	colName := arrayColName(cmdName)
+
+	switch v := rawResult.(type) {
+	case []string:
+		rows := make([][]interface{}, len(v))
+		for i, item := range v {
+			rows[i] = []interface{}{item}
+		}
+		return &QueryResult{Columns: []string{colName}, Rows: rows, RowCount: int64(len(rows))}
+	case []interface{}:
+		rows := make([][]interface{}, len(v))
+		for i, item := range v {
+			rows[i] = []interface{}{formatRedisResult(item)}
+		}
+		return &QueryResult{Columns: []string{colName}, Rows: rows, RowCount: int64(len(rows))}
+	case nil:
+		return &QueryResult{Columns: []string{colName}, Rows: [][]interface{}{}, RowCount: 0}
+	default:
+		// 理论上数组类命令不会走到这里，兜底降级
+		return &QueryResult{
+			Columns:  []string{colName},
+			Rows:     [][]interface{}{{formatRedisResult(rawResult)}},
+			RowCount: 1,
+		}
+	}
+}
+
+// buildHashResult 处理 HGETALL/HSCAN 等哈希命令的返回值，展开为两列 (field, value)。
+// go-redis Do 对于 HGETALL 返回 map[interface{}]interface{} 或 []interface{}（按 field,value 交错）。
+func buildHashResult(rawResult interface{}) *QueryResult {
+	var flat []interface{}
+
+	switch v := rawResult.(type) {
+	case map[string]string:
+		flat = make([]interface{}, 0, len(v)*2)
+		for k, val := range v {
+			flat = append(flat, k, val)
+		}
+	case map[string]interface{}:
+		flat = make([]interface{}, 0, len(v)*2)
+		for k, val := range v {
+			flat = append(flat, k, formatRedisResult(val))
+		}
+	case map[interface{}]interface{}:
+		flat = make([]interface{}, 0, len(v)*2)
+		for k, val := range v {
+			flat = append(flat, formatRedisResult(k), formatRedisResult(val))
+		}
+	case []interface{}:
+		flat = v
+	case []string:
+		flat = make([]interface{}, len(v))
+		for i, s := range v {
+			flat[i] = s
+		}
+	case nil:
+		return &QueryResult{Columns: []string{"field", "value"}, Rows: [][]interface{}{}, RowCount: 0}
+	default:
+		// 降级为单列
+		return &QueryResult{
+			Columns:  []string{"result"},
+			Rows:     [][]interface{}{{formatRedisResult(rawResult)}},
+			RowCount: 1,
+		}
+	}
+
+	// 构造两列行
+	n := len(flat) / 2
+	rows := make([][]interface{}, 0, n)
+	for i := 0; i < n; i++ {
+		field := formatRedisResult(flat[i*2])
+		var value string
+		if i*2+1 < len(flat) {
+			value = formatRedisResult(flat[i*2+1])
+		}
+		rows = append(rows, []interface{}{field, value})
+	}
+
+	return &QueryResult{Columns: []string{"field", "value"}, Rows: rows, RowCount: int64(len(rows))}
+}
+
+// buildZsetWithScoresResult 处理 ZRANGE ... WITHSCORES 等 ZSet 命令，
+// 返回按 member, score, member, score 排列的数组，展开为 (member, score) 两列。
+func buildZsetWithScoresResult(rawResult interface{}) *QueryResult {
+	var flat []interface{}
+
+	switch v := rawResult.(type) {
+	case []string:
+		flat = make([]interface{}, len(v))
+		for i, s := range v {
+			flat[i] = s
+		}
+	case []interface{}:
+		flat = v
+	case nil:
+		return &QueryResult{Columns: []string{"member", "score"}, Rows: [][]interface{}{}, RowCount: 0}
+	default:
+		return &QueryResult{
+			Columns:  []string{"member", "score"},
+			Rows:     [][]interface{}{{formatRedisResult(rawResult), ""}},
+			RowCount: 1,
+		}
+	}
+
+	n := len(flat) / 2
+	rows := make([][]interface{}, 0, n)
+	for i := 0; i < n; i++ {
+		member := formatRedisResult(flat[i*2])
+		var score string
+		if i*2+1 < len(flat) {
+			score = formatRedisResult(flat[i*2+1])
+		}
+		rows = append(rows, []interface{}{member, score})
+	}
+
+	return &QueryResult{Columns: []string{"member", "score"}, Rows: rows, RowCount: int64(len(rows))}
+}
+
+// arrayColName 根据命令类型为数组结果选择语义化的列名。
+func arrayColName(cmdName string) string {
+	switch cmdName {
+	case "KEYS", "SCAN":
+		return "key"
+	case "LRANGE":
+		return "value"
+	case "SMEMBERS", "SSCAN", "ZRANDMEMBER":
+		return "member"
+	case "ZRANGE", "ZREVRANGE", "ZRANGEBYSCORE", "ZREVRANGEBYSCORE", "ZRANGEBYLEX", "ZREVRANGEBYLEX", "ZSCAN":
+		return "member" // 不带 WITHSCORES 时 ZSet 只返回 member
+	case "HKEYS":
+		return "field"
+	case "HVALS":
+		return "value"
+	case "MGET", "HMGET":
+		return "value"
+	default:
+		return "value"
 	}
 }
 

@@ -346,6 +346,25 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * 数据源权限管理组件
+ *
+ * 用于管理员为指定数据源分配权限。支持按用户或角色授予以下权限：
+ * - read    读取（查看配置和元数据）
+ * - query   查询（执行 SQL 查询，含读取）
+ * - download 下载（导出结果，含查询、读取）
+ * - update  更新（修改数据源配置，含下载、查询、读取）
+ * - delete  删除
+ * - manage  管理（拥有所有权限，含权限管理）
+ *
+ * 主要功能：
+ * 1. 查看当前数据源的所有权限条目
+ * 2. 按名称、权限类型、目标类型（用户/角色）搜索过滤
+ * 3. 添加 / 修改 / 删除权限条目
+ * 4. 根据管理员作用域（系统管理员 / 领域管理员）自动过滤可分配的角色和用户
+ */
+
+// ==== Vue / UI 基础依赖 ====
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -354,6 +373,8 @@ import {
   ArrowLeft, Plus, Delete, Lock, Refresh, Search, Connection, User, UserFilled,
   View, Download, Edit, Setting, Check, Clock
 } from '@element-plus/icons-vue'
+
+// ==== 业务 API 与工具 ====
 import { datasourceAPI } from '@/api'
 import { isHandledError } from '@/utils/api'
 import { roleAdminAPI, userAdminAPI } from '@/api/admin'
@@ -361,40 +382,90 @@ import { useAuthStore } from '@/stores/auth'
 import type { DatasourcePermission } from '@/types'
 import type { Role, User as AdminUser } from '@/api/admin'
 
+// ==== 路由 / 认证 store ====
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
 
+// ==== 基础响应式状态 ====
+
+/** 当前数据源的 ID（从路由参数中解析） */
 const datasourceId = Number(route.params.id)
+
+/** 数据源显示名称 */
 const datasourceName = ref('')
+
+/** 数据源所属领域的 ID，用于后续按领域过滤用户列表 */
 const datasourceDomainId = ref<number | null>(null)
+
+/** 已授予的权限条目列表 */
 const permissions = ref<DatasourcePermission[]>([])
+
+/** 可分配的角色列表（根据当前管理员作用域过滤） */
 const roles = ref<Role[]>([])
+
+/** 可分配的用户列表（根据当前管理员作用域过滤） */
 const users = ref<AdminUser[]>([])
+
+/** 数据加载中（用于表格 loading 状态） */
 const loading = ref(false)
+
+/** 表单提交中（用于提交按钮 loading / 防重复提交） */
 const submitting = ref(false)
+
+/** 新增权限弹窗是否可见 */
 const addDialogVisible = ref(false)
+
+/** 编辑权限弹窗是否可见 */
 const editDialogVisible = ref(false)
+
+/** 新增权限的 el-form 实例引用 */
 const addFormRef = ref<FormInstance>()
+
+/** 编辑权限的 el-form 实例引用 */
 const editFormRef = ref<FormInstance>()
+
+/** 搜索关键字（匹配目标名称或权限类型） */
 const searchQuery = ref('')
+
+/** 权限类型筛选（read/query/download/update/delete/manage） */
 const filterType = ref<string | null>(null)
+
+/** 目标类型筛选（user / role） */
 const filterTarget = ref<string | null>(null)
 
+// ==== 表单定义与校验 ====
+
+/** 新增权限表单数据 */
 const addForm = ref({
+  /** 授权目标类型：user（用户）或 role（角色） */
   target_type: 'user' as 'user' | 'role',
+  /** 被授权的用户 ID（当 target_type === 'user' 时有效） */
   user_id: null as number | null,
+  /** 被授权的角色 ID（当 target_type === 'role' 时有效） */
   role_id: null as number | null,
+  /** 授予的权限类型（read/query/download/update/delete/manage） */
   permission_type: '',
 })
 
+/** 编辑权限表单数据（只允许修改权限类型） */
 const editForm = ref({
+  /** 被编辑的权限条目 ID */
   id: 0,
+  /** 目标类型：user 或 role（由原始条目推导） */
   target_type: 'user' as 'user' | 'role',
+  /** 目标显示名称（用户 / 角色名），只读展示 */
   target_name: '',
+  /** 修改后的权限类型 */
   permission_type: '',
 })
 
+/**
+ * 动态校验器：根据当前 target_type 校验对应的 user_id 或 role_id 是否填写
+ * @param _rule Element Plus 规则对象
+ * @param _value 被校验的值（此处未直接使用，因为校验依赖 addForm.target_type）
+ * @param callback Element Plus 校验回调
+ */
 const validateTarget = (_rule: any, _value: any, callback: any) => {
   if (addForm.value.target_type === 'user' && !addForm.value.user_id) {
     callback(new Error('请选择用户'))
@@ -405,6 +476,7 @@ const validateTarget = (_rule: any, _value: any, callback: any) => {
   }
 }
 
+/** 新增权限表单的校验规则 */
 const addRules: FormRules = {
   target_type: [{ required: true, message: '请选择授权方式', trigger: 'change' }],
   user_id: [{ validator: validateTarget, trigger: 'change' }],
@@ -412,10 +484,14 @@ const addRules: FormRules = {
   permission_type: [{ required: true, message: '请选择权限类型', trigger: 'change' }],
 }
 
+/** 编辑权限表单的校验规则（仅允许修改 permission_type） */
 const editRules: FormRules = {
   permission_type: [{ required: true, message: '请选择权限类型', trigger: 'change' }],
 }
 
+// ==== 权限常量定义 ====
+
+/** 权限类型 -> 中文标签 */
 const permissionLabels: Record<string, string> = {
   read: '读取',
   query: '查询',
@@ -425,6 +501,7 @@ const permissionLabels: Record<string, string> = {
   manage: '管理',
 }
 
+/** 权限类型 -> 详细描述（展示给用户了解权限含义） */
 const permissionDescs: Record<string, string> = {
   read: '查看数据源配置和元数据',
   query: '执行 SQL 查询（含读取）',
@@ -434,6 +511,10 @@ const permissionDescs: Record<string, string> = {
   manage: '管理权限和配置（含所有权限）',
 }
 
+/**
+ * 权限层级依赖表：某权限会自动包含的子权限列表
+ * 用于前端展示权限说明，后端也需同等处理
+ */
 const permissionHierarchy: Record<string, string[]> = {
   read: [],
   query: ['read'],
@@ -443,16 +524,26 @@ const permissionHierarchy: Record<string, string[]> = {
   manage: ['update', 'download', 'query', 'read', 'delete'],
 }
 
+// ==== 计算属性 ====
+
+/** 当前权限条目中涉及的唯一用户数量（用于顶部统计） */
 const uniqueUsersCount = computed(() => {
   const userIds = new Set(permissions.value.filter(p => p.user_id).map(p => p.user_id))
   return userIds.size
 })
 
+/** 当前权限条目中涉及的唯一角色数量（用于顶部统计） */
 const uniqueRolesCount = computed(() => {
   const roleIds = new Set(permissions.value.filter(p => p.role_id).map(p => p.role_id))
   return roleIds.size
 })
 
+/**
+ * 根据搜索关键字、权限类型、目标类型筛选权限条目
+ * - 搜索匹配：目标用户名 / 角色名 / 权限类型（大小写不敏感）
+ * - 类型筛选：精确匹配 permission_type
+ * - 目标筛选：按 user / role 过滤
+ */
 const filteredPermissions = computed(() => {
   return permissions.value.filter(p => {
     const targetName = p.user_id
@@ -469,16 +560,33 @@ const filteredPermissions = computed(() => {
   })
 })
 
+// ==== 辅助函数 ====
+
+/**
+ * 根据用户 ID 查找用户显示名
+ * @param userId 用户 ID
+ * @returns 用户用户名；找不到时返回 `用户 {userId}`
+ */
 const getUserName = (userId: number) => {
   const user = users.value.find((u: AdminUser) => u.id === userId)
   return user ? user.username : `用户 ${userId}`
 }
 
+/**
+ * 根据角色 ID 查找角色名称
+ * @param roleId 角色 ID
+ * @returns 角色名称；找不到时返回 `角色 {roleId}`
+ */
 const getRoleName = (roleId: number) => {
   const role = roles.value.find((r: Role) => r.id === roleId)
   return role ? role.name : `角色 ${roleId}`
 }
 
+/**
+ * 将后端角色标识（如 system_admin）转换为中文显示名
+ * @param role 后端返回的角色标识
+ * @returns 中文显示名
+ */
 const getRoleDisplayName = (role: string) => {
   const map: Record<string, string> = {
     system_admin: '系统管理员',
@@ -489,6 +597,11 @@ const getRoleDisplayName = (role: string) => {
   return map[role] || role
 }
 
+/**
+ * 根据角色标识返回 Element Plus Tag 组件的 type，用于区分严重程度
+ * @param role 角色标识
+ * @returns 'danger' | 'warning' | '' | 'info'
+ */
 const getRoleTagType = (role: string) => {
   const map: Record<string, string> = {
     system_admin: 'danger',
@@ -499,6 +612,11 @@ const getRoleTagType = (role: string) => {
   return map[role] || 'info'
 }
 
+/**
+ * 根据权限类型返回对应的 Element Plus 图标组件
+ * @param type 权限类型（read/query/download/update/delete/manage）
+ * @returns Vue 图标组件
+ */
 const getPermissionIcon = (type: string) => {
   const iconMap: Record<string, any> = {
     read: View,
@@ -511,10 +629,20 @@ const getPermissionIcon = (type: string) => {
   return iconMap[type] || Lock
 }
 
+/**
+ * 根据权限类型返回中文标签
+ * @param type 权限类型
+ * @returns 中文标签
+ */
 const getPermissionLabel = (type: string) => {
   return permissionLabels[type] || type
 }
 
+/**
+ * 将后端 ISO 日期字符串格式化为本地化的中文显示字符串
+ * @param dateStr ISO 格式日期字符串（为空时返回 '-'）
+ * @returns 格式化后的日期时间，如 2026/10/29 14:30:00
+ */
 const formatDateTime = (dateStr: string) => {
   if (!dateStr) return '-'
   const date = new Date(dateStr)
@@ -528,6 +656,13 @@ const formatDateTime = (dateStr: string) => {
   })
 }
 
+// ==== 数据加载函数 ====
+
+/**
+ * 加载数据源基本信息（名称、所属领域）
+ * 页面进入时调用，用于在权限列表头部展示数据源名称，
+ * 并在领域管理员场景下，为后续按领域过滤用户提供 domain_id
+ */
 const loadDatasource = async () => {
   try {
     const res = await datasourceAPI.get(datasourceId)
@@ -540,6 +675,10 @@ const loadDatasource = async () => {
   }
 }
 
+/**
+ * 加载当前数据源的全部权限条目
+ * 读取权限列表并兼容后端返回数组或 { items: [] } 两种格式
+ */
 const loadPermissions = async () => {
   loading.value = true
   try {
@@ -561,6 +700,11 @@ const loadPermissions = async () => {
   }
 }
 
+/**
+ * 加载可分配的角色列表
+ * - 系统管理员：返回全部角色
+ * - 领域管理员：仅返回非系统角色，以及属于当前领域或未归属特定领域的角色
+ */
 const loadRoles = async () => {
   try {
     const res = await roleAdminAPI.list()
@@ -579,6 +723,11 @@ const loadRoles = async () => {
   }
 }
 
+/**
+ * 加载可分配的用户列表
+ * - 系统管理员：查询全量用户（domainId 传 0 代表不限）
+ * - 领域管理员：优先按数据源所属领域过滤；若未拿到则回退到 authStore.currentDomainId
+ */
 const loadUsers = async () => {
   try {
     let domainId: number | undefined
@@ -593,16 +742,27 @@ const loadUsers = async () => {
   }
 }
 
+// ==== 事件处理函数 ====
+
+/**
+ * 新增权限表单的 target_type 切换回调
+ * 切换用户/角色授权方式时，清空另一个选择器的已选值，避免残留
+ */
 const handleTargetTypeChange = () => {
   addForm.value.user_id = null
   addForm.value.role_id = null
 }
 
+/** 点击「添加权限」按钮：重置表单并打开新增弹窗 */
 const handleAddPermission = () => {
   addForm.value = { target_type: 'user', user_id: null, role_id: null, permission_type: '' }
   addDialogVisible.value = true
 }
 
+/**
+ * 点击某条权限的「编辑」按钮：回填编辑表单并打开编辑弹窗
+ * @param row 当前行的权限条目
+ */
 const handleEditPermission = (row: DatasourcePermission) => {
   editForm.value = {
     id: row.id,
@@ -613,6 +773,9 @@ const handleEditPermission = (row: DatasourcePermission) => {
   editDialogVisible.value = true
 }
 
+/**
+ * 编辑弹窗的确认提交：校验后调用 updatePermission 更新 permission_type
+ */
 const handleSubmitEdit = async () => {
   if (!editFormRef.value) return
   await editFormRef.value.validate(async (valid) => {
@@ -635,6 +798,10 @@ const handleSubmitEdit = async () => {
   })
 }
 
+/**
+ * 新增弹窗的确认提交：根据 target_type 组装 grantPermission 的请求体
+ * user_id 与 role_id 二选一，由 target_type 决定
+ */
 const handleSubmitAdd = async () => {
   if (!addFormRef.value) return
   await addFormRef.value.validate(async (valid) => {
@@ -663,6 +830,10 @@ const handleSubmitAdd = async () => {
   })
 }
 
+/**
+ * 点击「删除」按钮：弹确认框后调用 revokePermission 撤销指定条目
+ * @param row 被删除的权限条目
+ */
 const handleDeletePermission = async (row: DatasourcePermission) => {
   const targetName = row.user_id ? getUserName(row.user_id) : getRoleName(row.role_id!)
   const targetType = row.user_id ? '用户' : '角色'
@@ -686,10 +857,14 @@ const handleDeletePermission = async (row: DatasourcePermission) => {
   }
 }
 
+/** 返回数据源列表页 */
 const handleBack = () => {
   router.push({ name: 'Datasources' })
 }
 
+// ==== 生命周期 ====
+
+/** 组件挂载后：依次加载数据源信息（为后续按领域过滤铺路），再并行加载权限、角色、用户 */
 onMounted(async () => {
   await loadDatasource()
   loadPermissions()

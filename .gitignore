@@ -41,21 +41,24 @@ dist-ssr/
 .cache/
 .vite/
 
+# Test coverage output (Vitest / c8 / istanbul)
+coverage/
+lcov.info
+lcov-report/
+.nyc_output/
+
 # Frontend build in scheduler: ignore built assets but keep web.go
 scheduler/web/assets/
 scheduler/web/index.html
 # Keep web.go
 !scheduler/web/web.go
 
-# npm / yarn / pnpm
+# npm / yarn / pnpm (ignore debug logs only, keep lock files tracked)
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
-package-lock.json
-yarn.lock
-pnpm-lock.yaml
 
 # ==============================
 # IDEs and Editors

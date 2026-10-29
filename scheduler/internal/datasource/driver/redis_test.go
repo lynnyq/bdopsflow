@@ -122,7 +122,7 @@ func TestRedisDriver_Connect_DefaultPort(t *testing.T) {
 	_ = drv.Connect(ctx, config)
 }
 
-// TestRedisDriver_Query_GET 测试 GET 命令查询。
+// TestRedisDriver_Query_GET 测试 GET 命令查询（单值，单列 "value"）。
 func TestRedisDriver_Query_GET(t *testing.T) {
 	mr := setupMiniredis(t)
 	mr.Set("foo", "bar")
@@ -148,7 +148,7 @@ func TestRedisDriver_Query_GET(t *testing.T) {
 	if result.RowCount != 1 {
 		t.Errorf("expected 1 row, got %d", result.RowCount)
 	}
-	if len(result.Columns) != 1 || result.Columns[0] != "result" {
+	if len(result.Columns) != 1 || result.Columns[0] != "value" {
 		t.Errorf("unexpected columns: %v", result.Columns)
 	}
 	if len(result.Rows) != 1 || len(result.Rows[0]) != 1 {
@@ -225,7 +225,7 @@ func TestRedisDriver_Query_QuotedArgs(t *testing.T) {
 	}
 }
 
-// TestRedisDriver_Query_KEYS 测试 KEYS 命令。
+// TestRedisDriver_Query_KEYS 测试 KEYS 命令（展开为多行单列 "key"）。
 func TestRedisDriver_Query_KEYS(t *testing.T) {
 	mr := setupMiniredis(t)
 	mr.Set("key1", "val1")
@@ -250,8 +250,256 @@ func TestRedisDriver_Query_KEYS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Query KEYS failed: %v", err)
 	}
-	if result.RowCount != 1 {
-		t.Errorf("expected 1 row, got %d", result.RowCount)
+	// 应该展开为多行：key1, key2
+	if result.RowCount != 2 {
+		t.Errorf("expected 2 rows (key1, key2), got %d", result.RowCount)
+	}
+	if len(result.Columns) != 1 || result.Columns[0] != "key" {
+		t.Errorf("unexpected columns: %v", result.Columns)
+	}
+	// 验证值包含 key1 和 key2
+	found := make(map[string]bool)
+	for _, row := range result.Rows {
+		found[row[0].(string)] = true
+	}
+	if !found["key1"] || !found["key2"] {
+		t.Errorf("expected key1 and key2, got %v", result.Rows)
+	}
+}
+
+// TestRedisDriver_Query_HGETALL 测试 HGETALL 哈希命令（两列 field/value）。
+func TestRedisDriver_Query_HGETALL(t *testing.T) {
+	mr := setupMiniredis(t)
+	mr.HSet("myhash", "name", "alice")
+	mr.HSet("myhash", "age", "30")
+
+	drv := NewRedisDriver()
+	config := DatasourceConfig{
+		Type:           "redis",
+		Host:           mr.Host(),
+		Port:           miniredisPort(t, mr),
+		ConnectionMode: redisModeSingle,
+	}
+
+	ctx := context.Background()
+	if err := drv.Connect(ctx, config); err != nil {
+		t.Fatalf("Connect failed: %v", err)
+	}
+	defer drv.Close()
+
+	result, err := drv.Query(ctx, "HGETALL myhash")
+	if err != nil {
+		t.Fatalf("Query HGETALL failed: %v", err)
+	}
+	if result.RowCount != 2 {
+		t.Errorf("expected 2 rows, got %d", result.RowCount)
+	}
+	if len(result.Columns) != 2 {
+		t.Fatalf("expected 2 columns (field, value), got %v", result.Columns)
+	}
+	if result.Columns[0] != "field" || result.Columns[1] != "value" {
+		t.Errorf("unexpected columns: %v", result.Columns)
+	}
+	// 哈希遍历无顺序，转成 map 验证
+	got := make(map[string]string)
+	for _, row := range result.Rows {
+		got[row[0].(string)] = row[1].(string)
+	}
+	if got["name"] != "alice" || got["age"] != "30" {
+		t.Errorf("expected name=alice, age=30, got %v", got)
+	}
+}
+
+// TestRedisDriver_Query_LRANGE 测试列表命令（单列 "value"，多行）。
+func TestRedisDriver_Query_LRANGE(t *testing.T) {
+	mr := setupMiniredis(t)
+	mr.RPush("mylist", "a", "b", "c")
+
+	drv := NewRedisDriver()
+	config := DatasourceConfig{
+		Type:           "redis",
+		Host:           mr.Host(),
+		Port:           miniredisPort(t, mr),
+		ConnectionMode: redisModeSingle,
+	}
+
+	ctx := context.Background()
+	if err := drv.Connect(ctx, config); err != nil {
+		t.Fatalf("Connect failed: %v", err)
+	}
+	defer drv.Close()
+
+	result, err := drv.Query(ctx, "LRANGE mylist 0 -1")
+	if err != nil {
+		t.Fatalf("Query LRANGE failed: %v", err)
+	}
+	if result.RowCount != 3 {
+		t.Errorf("expected 3 rows, got %d", result.RowCount)
+	}
+	if len(result.Columns) != 1 || result.Columns[0] != "value" {
+		t.Errorf("unexpected columns: %v", result.Columns)
+	}
+	if result.Rows[0][0] != "a" || result.Rows[1][0] != "b" || result.Rows[2][0] != "c" {
+		t.Errorf("expected [a,b,c], got %v", result.Rows)
+	}
+}
+
+// TestRedisDriver_Query_SMEMBERS 测试集合命令（单列 "member"，多行）。
+func TestRedisDriver_Query_SMEMBERS(t *testing.T) {
+	mr := setupMiniredis(t)
+	mr.SAdd("myset", "x", "y", "z")
+
+	drv := NewRedisDriver()
+	config := DatasourceConfig{
+		Type:           "redis",
+		Host:           mr.Host(),
+		Port:           miniredisPort(t, mr),
+		ConnectionMode: redisModeSingle,
+	}
+
+	ctx := context.Background()
+	if err := drv.Connect(ctx, config); err != nil {
+		t.Fatalf("Connect failed: %v", err)
+	}
+	defer drv.Close()
+
+	result, err := drv.Query(ctx, "SMEMBERS myset")
+	if err != nil {
+		t.Fatalf("Query SMEMBERS failed: %v", err)
+	}
+	if result.RowCount != 3 {
+		t.Errorf("expected 3 rows, got %d", result.RowCount)
+	}
+	if len(result.Columns) != 1 || result.Columns[0] != "member" {
+		t.Errorf("unexpected columns: %v", result.Columns)
+	}
+}
+
+// TestRedisDriver_Query_ZRANGE_WithScores 测试 ZRANGE ... WITHSCORES（两列 member/score）。
+func TestRedisDriver_Query_ZRANGE_WithScores(t *testing.T) {
+	mr := setupMiniredis(t)
+	mr.ZAdd("myzset", 1, "one")
+	mr.ZAdd("myzset", 2, "two")
+	mr.ZAdd("myzset", 3, "three")
+
+	drv := NewRedisDriver()
+	config := DatasourceConfig{
+		Type:           "redis",
+		Host:           mr.Host(),
+		Port:           miniredisPort(t, mr),
+		ConnectionMode: redisModeSingle,
+	}
+
+	ctx := context.Background()
+	if err := drv.Connect(ctx, config); err != nil {
+		t.Fatalf("Connect failed: %v", err)
+	}
+	defer drv.Close()
+
+	result, err := drv.Query(ctx, "ZRANGE myzset 0 -1 WITHSCORES")
+	if err != nil {
+		t.Fatalf("Query ZRANGE WITHSCORES failed: %v", err)
+	}
+	if result.RowCount != 3 {
+		t.Errorf("expected 3 rows, got %d", result.RowCount)
+	}
+	if len(result.Columns) != 2 {
+		t.Fatalf("expected 2 columns, got %v", result.Columns)
+	}
+	if result.Columns[0] != "member" || result.Columns[1] != "score" {
+		t.Errorf("unexpected columns: %v", result.Columns)
+	}
+}
+
+// TestRedisDriver_Query_ZRANGE_NoWithScores 测试不带 WITHSCORES 的 ZRANGE（单列 "member"）。
+func TestRedisDriver_Query_ZRANGE_NoWithScores(t *testing.T) {
+	mr := setupMiniredis(t)
+	mr.ZAdd("myzset2", 1, "one")
+	mr.ZAdd("myzset2", 2, "two")
+
+	drv := NewRedisDriver()
+	config := DatasourceConfig{
+		Type:           "redis",
+		Host:           mr.Host(),
+		Port:           miniredisPort(t, mr),
+		ConnectionMode: redisModeSingle,
+	}
+
+	ctx := context.Background()
+	if err := drv.Connect(ctx, config); err != nil {
+		t.Fatalf("Connect failed: %v", err)
+	}
+	defer drv.Close()
+
+	result, err := drv.Query(ctx, "ZRANGE myzset2 0 -1")
+	if err != nil {
+		t.Fatalf("Query ZRANGE failed: %v", err)
+	}
+	if len(result.Columns) != 1 || result.Columns[0] != "member" {
+		t.Errorf("unexpected columns: %v", result.Columns)
+	}
+	if result.RowCount != 2 {
+		t.Errorf("expected 2 rows, got %d", result.RowCount)
+	}
+}
+
+// TestRedisDriver_Query_MGET 测试 MGET 批量查询（单列 "value"，多行）。
+func TestRedisDriver_Query_MGET(t *testing.T) {
+	mr := setupMiniredis(t)
+	mr.Set("a", "1")
+	mr.Set("b", "2")
+
+	drv := NewRedisDriver()
+	config := DatasourceConfig{
+		Type:           "redis",
+		Host:           mr.Host(),
+		Port:           miniredisPort(t, mr),
+		ConnectionMode: redisModeSingle,
+	}
+
+	ctx := context.Background()
+	if err := drv.Connect(ctx, config); err != nil {
+		t.Fatalf("Connect failed: %v", err)
+	}
+	defer drv.Close()
+
+	result, err := drv.Query(ctx, "MGET a b")
+	if err != nil {
+		t.Fatalf("Query MGET failed: %v", err)
+	}
+	if len(result.Columns) != 1 || result.Columns[0] != "value" {
+		t.Errorf("unexpected columns: %v", result.Columns)
+	}
+	if result.RowCount != 2 {
+		t.Errorf("expected 2 rows, got %d", result.RowCount)
+	}
+}
+
+// TestRedisDriver_Query_RAWINFO 测试 INFO/Time 等原始文本命令（单列 "result"）。
+func TestRedisDriver_Query_RAWINFO(t *testing.T) {
+	mr := setupMiniredis(t)
+
+	drv := NewRedisDriver()
+	config := DatasourceConfig{
+		Type:           "redis",
+		Host:           mr.Host(),
+		Port:           miniredisPort(t, mr),
+		ConnectionMode: redisModeSingle,
+	}
+
+	ctx := context.Background()
+	if err := drv.Connect(ctx, config); err != nil {
+		t.Fatalf("Connect failed: %v", err)
+	}
+	defer drv.Close()
+
+	// PING 是原始文本类
+	result, err := drv.Query(ctx, "PING")
+	if err != nil {
+		t.Fatalf("Query PING failed: %v", err)
+	}
+	if len(result.Columns) != 1 || result.Columns[0] != "result" {
+		t.Errorf("unexpected columns for PING: %v", result.Columns)
 	}
 }
 

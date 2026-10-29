@@ -5,6 +5,7 @@ import ElementPlus from 'element-plus'
 import Dashboard from './Dashboard.vue'
 
 // vi.mock 工厂会被提升到文件顶部，内部数据必须自包含
+// as const 确保 width 保持字面量类型 'half' 而非被推断为 string（与 GrafanaDashboard 接口兼容）
 const { mockGrafanaItems } = vi.hoisted(() => ({
   mockGrafanaItems: [
     {
@@ -12,7 +13,7 @@ const { mockGrafanaItems } = vi.hoisted(() => ({
       name: '任务执行概览',
       description: '',
       embed_url: 'http://grafana.example.com/d/abc?kiosk',
-      width: 'half',
+      width: 'half' as const,
       height_px: 300,
       sort_order: 1,
       enabled: 1,
@@ -59,7 +60,8 @@ describe('Dashboard Grafana iframe 刷新', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.mocked(grafanaAPI.listEnabled).mockResolvedValue({ data: { items: mockGrafanaItems } })
+    // as any 绕过 AxiosResponse 完整形状要求（测试中不需要 status/headers 等）
+    vi.mocked(grafanaAPI.listEnabled).mockResolvedValue({ data: { items: mockGrafanaItems } } as any)
   })
 
   afterEach(() => {

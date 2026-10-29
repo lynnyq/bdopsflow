@@ -733,3 +733,194 @@ code, .mono {
     --btn-icon-size: 12px;
   }
 }
+
+/* ============================================
+   通用列表页面布局 - 消除 admin 页面重复样式
+   适用于 Users/Roles/Domains/WebhookManagement/GrafanaDashboards 等
+   ============================================ */
+
+/* 页面容器 */
+.page-container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding-bottom: var(--space-6);
+  height: 100%;
+}
+
+.page-container::-webkit-scrollbar {
+  width: 8px;
+}
+
+.page-container::-webkit-scrollbar-thumb {
+  background: var(--border-default);
+  border-radius: 4px;
+}
+
+.page-container::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+/* 工具栏 */
+.page-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: 1;
+}
+
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.search-input {
+  width: 280px;
+}
+
+.search-input :deep(.el-input__wrapper) {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  box-shadow: none;
+  transition: all var(--duration-normal) var(--ease-out);
+}
+
+.search-input :deep(.el-input__wrapper:hover) {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+}
+
+.search-input :deep(.el-input__wrapper.is-focus) {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+.refresh-btn {
+  font-weight: 500;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  color: var(--text-primary);
+  border-radius: var(--radius-md);
+  box-shadow: none;
+  transition: all var(--duration-normal) var(--ease-out);
+  padding: 8px 16px;
+}
+
+.refresh-btn:hover {
+  background: var(--bg-primary);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-sm);
+}
+
+.create-btn {
+  font-weight: 500;
+  background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
+  border: none;
+  color: white;
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+  transition: all var(--duration-normal) var(--ease-out);
+  padding: 8px 20px;
+}
+
+.create-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4);
+  filter: brightness(1.05);
+}
+
+/* 表格容器 */
+.table-wrapper {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.table-wrapper :deep(.el-table) {
+  border-radius: var(--radius-lg);
+}
+
+.table-wrapper :deep(.el-table--border::after),
+.table-wrapper :deep(.el-table--group::after),
+.table-wrapper :deep(.el-table::before) {
+  display: none;
+}
+
+.table-wrapper :deep(.el-table tr) {
+  transition: background-color var(--duration-normal) var(--ease-out);
+}
+
+.table-wrapper :deep(.el-table__row:hover) {
+  background-color: var(--bg-secondary) !important;
+}
+
+/* 表格空状态 */
+.table-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-8);
+  gap: var(--space-3);
+  color: var(--text-muted);
+}
+
+.table-empty-state .el-icon {
+  opacity: 0.4;
+}
+
+.table-empty-state p {
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+/* 对话框表单 */
+.dialog-form {
+  padding: var(--space-2) 0;
+}
+
+.dialog-form :deep(.el-form-item__label) {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.dialog-form :deep(.el-input__wrapper) {
+  border-radius: var(--radius-md);
+}
+
+.dialog-form :deep(.el-select) {
+  width: 100%;
+}
+
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  padding: var(--space-3) 0 0;
+}
+
+/* 通用工具类 */
+.full-width {
+  width: 100%;
+}

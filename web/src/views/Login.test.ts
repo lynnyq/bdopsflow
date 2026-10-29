@@ -1,8 +1,27 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
-import Login from '../views/Login.vue'
+import { createMemoryHistory, createRouter } from 'vue-router'
 import { createPinia, setActivePinia } from 'pinia'
 import ElementPlus from 'element-plus'
+import Login from './Login.vue'
+
+/** 创建带 mock router 的 mount 选项，消除 injection "Symbol(router)" not found 警告 */
+const mountWithRouter = (component: any, options: any = {}) => {
+  const router = createRouter({
+    history: createMemoryHistory(),
+    // 匹配空路径 '/' 避免 history.start() 时的 "No match found" 警告
+    routes: [
+      { path: '/', component },
+      { path: '/login', component },
+    ],
+  })
+  return mount(component, {
+    global: {
+      plugins: [createPinia(), ElementPlus, router],
+    },
+    ...options,
+  })
+}
 
 describe('Login', () => {
   beforeEach(() => {
@@ -10,11 +29,7 @@ describe('Login', () => {
   })
 
   it('renders login form', () => {
-    const wrapper = mount(Login, {
-      global: {
-        plugins: [createPinia(), ElementPlus],
-      },
-    })
+    const wrapper = mountWithRouter(Login)
 
     expect(wrapper.find('input[placeholder="请输入用户名"]').exists()).toBe(true)
     expect(wrapper.find('input[type="password"]').exists()).toBe(true)
@@ -22,11 +37,7 @@ describe('Login', () => {
   })
 
   it('has correct title', () => {
-    const wrapper = mount(Login, {
-      global: {
-        plugins: [createPinia(), ElementPlus],
-      },
-    })
+    const wrapper = mountWithRouter(Login)
 
     const header = wrapper.find('.card-header')
     expect(header.exists()).toBe(true)

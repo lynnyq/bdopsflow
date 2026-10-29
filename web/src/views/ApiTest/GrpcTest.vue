@@ -600,6 +600,17 @@
   </div>
 </template>
 
+/**
+ * gRPC 协议测试组件
+ *
+ * 功能特性：
+ * - 支持 Proto 文件解析与服务反射（reflection）两种连接模式
+ * - 可视化服务/方法选择，自动从 proto 定义生成请求模板
+ * - 表单模式与 JSON 模式双轨编辑请求体
+ * - TLS / mTLS 安全配置，关联证书管理
+ * - 历史记录、对比查看、保存用例、快速重发
+ * - CodeMirror 6 驱动的 JSON 请求/响应编辑器
+ */
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -623,25 +634,42 @@ import { EditorState } from '@codemirror/state'
 import { json } from '@codemirror/lang-json'
 import { oneDark } from '@codemirror/theme-one-dark'
 
-// --- State ---
+// ============================================================================
+// State
+// ============================================================================
+
+/** 搜索过滤关键词（保存的测试用例列表） */
 const searchQuery = ref('')
+/** 用户保存的所有 gRPC 测试用例 */
 const savedTests = ref<ApiTest[]>([])
+/** 当前正在编辑/执行的测试用例 ID；null 表示新请求尚未保存 */
 const currentTestId = ref<number | null>(null)
+/** 加载列表通用 loading 标志 */
 const loading = ref(false)
+/** 发送请求中 */
 const sending = ref(false)
+/** 保存用例中 */
 const saving = ref(false)
+/** 连接性测试中 */
 const connecting = ref(false)
 
+/** 连接模式：proto 表示依赖 Proto 文件，reflection 表示走服务反射 */
 const connectionMode = ref<'proto' | 'reflection'>('proto')
+/** 请求侧 Tab：service(服务列表) / request(请求体编辑) */
 const activeRequestTab = ref('service')
+/** 响应侧 Tab：body(响应体) / headers(响应头) / meta(元信息) */
 const activeResponseTab = ref('body')
+/** 响应体展示模式：json(格式化) / raw(原始文本) */
 const responseBodyMode = ref('json')
 
-// Panel resize state
+/** 面板布局模式：双栏 / 请求区最大化 / 响应区最大化 */
 const panelMode = ref<'both' | 'request-max' | 'response-max'>('both')
+/** 请求区块 DOM 引用，用于手动拖拽调整高度 */
 const requestSectionRef = ref<HTMLElement | null>(null)
+/** 拖拽分隔条中 */
 const isDragging = ref(false)
 
+/** 当前请求的完整 gRPC 配置（源数据） */
 const requestConfig = ref<GRPCRequestConfig>({
   address: '',
   service: '',
@@ -655,66 +683,95 @@ const requestConfig = ref<GRPCRequestConfig>({
   timeout: 30,
 })
 
+/** 独立维护的 metadata 键值列表（KVEditor 直接绑定） */
 const metadata = ref<{ key: string; value: string }[]>([])
+/** 当前用户可选择的 Proto 文件 */
 const protoFiles = ref<ProtoFile[]>([])
+/** 当前用户可选择的 TLS 证书 */
 const certificates = ref<CertificateSummary[]>([])
+/** 当前选中的 Proto 文件 ID */
 const selectedProtoFileId = ref<number | null>(null)
+/** 当前 Proto/反射得到的服务列表 */
 const protoServices = ref<ProtoService[]>([])
+/** 服务面板中默认展开的服务名集合 */
 const expandedServiceNames = ref<string[]>([])
+/** 后台正在解析 Proto 文件中 */
 const parsingProto = ref(false)
+/** 后台正在执行服务反射中 */
 const reflecting = ref(false)
 
-// Message field definitions and form data
+/** 所有 Message 类型定义（来自 Proto fields API） */
 const messageDefs = ref<ProtoMessageDef[]>([])
+/** 当前选中方法的输入 Message 定义，用于表单模式渲染 */
 const currentMessageDef = ref<ProtoMessageDef | null>(null)
+/** 表单模式下由 ProtoForm 组件回填的数据 */
 const formData = ref<Record<string, unknown>>({})
+/** 请求体编辑模式：form(可视化表单) / json(纯 JSON) */
 const requestMode = ref<'form' | 'json'>('form')
 
+/** 最近一次执行结果 */
 const lastResult = ref<ApiTestResult | null>(null)
+/** 当前测试用例的历史执行记录 */
 const historyResults = ref<ApiTestResult[]>([])
 
+/** 保存对话框显示状态 */
 const saveDialogVisible = ref(false)
+/** 保存对话框中的用例名称输入 */
 const saveName = ref('')
 
-// History comparison
+/** 历史对比：已勾选的两条记录 ID */
 const selectedHistoryIds = ref<number[]>([])
+/** 历史对比弹窗显示状态 */
 const compareDialogVisible = ref(false)
+/** 历史对比：左面板结果 */
 const compareLeft = ref<ApiTestResult | null>(null)
+/** 历史对比：右面板结果 */
 const compareRight = ref<ApiTestResult | null>(null)
 
-// CodeMirror
+/** CodeMirror 请求编辑器 DOM 宿主 */
 const requestEditorRef = ref<HTMLElement | null>(null)
+/** CodeMirror 响应编辑器 DOM 宿主 */
 const responseEditorRef = ref<HTMLElement | null>(null)
+/** CodeMirror 请求编辑器实例（模块级） */
 let requestEditorView: EditorView | null = null
+/** CodeMirror 响应编辑器实例（模块级，只读） */
 let responseEditorView: EditorView | null = null
 
-// --- Computed ---
+// ============================================================================
+// Computed
+// ============================================================================
+
+/** 经 searchQuery 过滤后的保存测试列表 */
 const filteredTests = computed(() => {
   if (!searchQuery.value) return savedTests.value
   const q = searchQuery.value.toLowerCase()
   return savedTests.value.filter(t => t.name.toLowerCase().includes(q))
 })
 
+/** 满足请求发送的基本条件：地址 + 服务 + 方法都已填写，且当前不在发送中 */
 const canSend = computed(() => {
   return requestConfig.value.address && requestConfig.value.service && requestConfig.value.method && !sending.value
 })
 
+/** 保存用例的基本条件：至少有地址，且当前不在保存中 */
 const canSave = computed(() => {
   return requestConfig.value.address && !saving.value
 })
 
+/** 当前已加载用例的名称，用于头部标题显示 */
 const currentTestName = computed(() => {
   if (!currentTestId.value) return ''
   const found = savedTests.value.find(t => t.id === currentTestId.value)
   return found?.name || ''
 })
 
+/** 最近一次执行结果中剔除 error 后的响应体字符串 */
 const responseBodyText = computed(() => {
   if (!lastResult.value || lastResult.value.error) return ''
   return lastResult.value.body || ''
 })
 
-// TLS security computed
+/** TLS 模式对应的图标组件 */
 const tlsSecurityIcon = computed(() => {
   switch (requestConfig.value.tls_mode) {
     case 'insecure': return Unlock
@@ -724,6 +781,7 @@ const tlsSecurityIcon = computed(() => {
   }
 })
 
+/** TLS 模式对应的 CSS 类（颜色） */
 const tlsSecurityClass = computed(() => {
   switch (requestConfig.value.tls_mode) {
     case 'insecure': return 'security-danger'
@@ -733,6 +791,7 @@ const tlsSecurityClass = computed(() => {
   }
 })
 
+/** TLS 模式对应的中文描述 */
 const tlsSecurityDesc = computed(() => {
   switch (requestConfig.value.tls_mode) {
     case 'insecure': return '不安全 - 未加密'
@@ -742,7 +801,15 @@ const tlsSecurityDesc = computed(() => {
   }
 })
 
-// --- Helpers ---
+// ============================================================================
+// Helpers
+// ============================================================================
+
+/**
+ * 从持久化的 config JSON 字符串中提取 gRPC 地址
+ * @param configStr 序列化后的 GRPCRequestConfig
+ * @returns 解析得到的 address；解析失败返回空字符串
+ */
 const getAddrFromConfig = (configStr: string): string => {
   try {
     const c = JSON.parse(configStr) as GRPCRequestConfig
@@ -752,6 +819,10 @@ const getAddrFromConfig = (configStr: string): string => {
   }
 }
 
+/**
+ * 把后端返回的 headers 字符串（可能是 object 或 [{key,value}] 数组）
+ * 统一转换为 Record<string, string> 形式
+ */
 const parseResponseHeadersMap = (headersStr: string): Record<string, string> => {
   if (!headersStr) return {}
   try {
@@ -772,6 +843,10 @@ const parseResponseHeadersMap = (headersStr: string): Record<string, string> => 
   }
 }
 
+/**
+ * 把 ISO 日期字符串格式化为相对时间（刚刚/X分钟前/X小时前/...）
+ * 超过 30 天则回退到 formatDateTime
+ */
 function formatRelativeTime(dateStr: string): string {
   if (!dateStr) return '-'
   const date = new Date(dateStr)
@@ -789,6 +864,7 @@ function formatRelativeTime(dateStr: string): string {
   return formatDateTime(dateStr)
 }
 
+/** 交互确认后，逐条删除当前测试用例的所有历史结果 */
 const handleClearHistory = async () => {
   if (!currentTestId.value) return
   try {
@@ -814,6 +890,7 @@ const handleClearHistory = async () => {
   }
 }
 
+/** 历史记录勾选状态切换；最多允许选中 2 条用于对比 */
 const toggleHistorySelect = (id: number, checked: boolean) => {
   if (checked) {
     if (selectedHistoryIds.value.length < 2) {
@@ -824,6 +901,7 @@ const toggleHistorySelect = (id: number, checked: boolean) => {
   }
 }
 
+/** 根据 selectedHistoryIds 构造 compareLeft / compareRight 并打开对比弹窗 */
 const handleCompare = () => {
   if (selectedHistoryIds.value.length !== 2) return
   const [leftId, rightId] = selectedHistoryIds.value
@@ -834,6 +912,7 @@ const handleCompare = () => {
   }
 }
 
+/** 用于对比弹窗：把 body 中的 JSON 格式化缩进 */
 const formatCompareBody = (body: string | undefined): string => {
   if (!body) return ''
   try {
@@ -843,7 +922,9 @@ const formatCompareBody = (body: string | undefined): string => {
   }
 }
 
-// Panel resize handlers
+// --- Panel resize handlers ---
+
+/** 切换面板布局模式；传入当前模式则自动回到 'both' */
 const togglePanelMode = (mode: 'both' | 'request-max' | 'response-max') => {
   panelMode.value = panelMode.value === mode ? 'both' : mode
   // Reset inline styles set by drag handler so CSS classes take effect
@@ -853,6 +934,7 @@ const togglePanelMode = (mode: 'both' | 'request-max' | 'response-max') => {
   }
 }
 
+/** 面板分隔条拖拽开始：监听 mousemove/mouseup，实时调整 requestSection 高度 */
 const handleResizeDragStart = (e: MouseEvent) => {
   e.preventDefault()
   isDragging.value = true
@@ -890,6 +972,7 @@ const handleResizeDragStart = (e: MouseEvent) => {
   document.addEventListener('mouseup', onMouseUp)
 }
 
+/** 把最近一次响应体复制到剪贴板；兼容不支持 Clipboard API 的环境 */
 const copyResponseBody = async () => {
   if (!responseBodyText.value) return
   try {
@@ -912,7 +995,11 @@ const copyResponseBody = async () => {
   }
 }
 
-// --- Data Loading ---
+// ============================================================================
+// Data Loading
+// ============================================================================
+
+/** 拉取当前用户保存的所有 gRPC 测试用例 */
 const loadSavedTests = async () => {
   loading.value = true
   try {
@@ -927,6 +1014,7 @@ const loadSavedTests = async () => {
   }
 }
 
+/** 拉取用户可关联的 Proto 文件 */
 const loadProtoFiles = async () => {
   try {
     const res = await protoFileAPI.list({ page: 1, page_size: 200 })
@@ -938,6 +1026,7 @@ const loadProtoFiles = async () => {
   }
 }
 
+/** 拉取用户可关联的 TLS 证书 */
 const loadCertificates = async () => {
   try {
     const res = await certificateAPI.list({ page: 1, page_size: 200 })
@@ -949,6 +1038,7 @@ const loadCertificates = async () => {
   }
 }
 
+/** 加载指定测试用例的历史执行记录（最多 20 条） */
 const loadHistory = async (testId: number) => {
   try {
     const res = await apiTestAPI.getResults(testId, { page: 1, page_size: 20 })
@@ -960,7 +1050,14 @@ const loadHistory = async (testId: number) => {
   }
 }
 
-// --- Proto Parsing ---
+// ============================================================================
+// Proto Parsing / Reflection / Message Templates
+// ============================================================================
+
+/**
+ * Proto 文件切换时：并行调用 parse（拿服务列表）和 fields（拿 Message 定义）
+ * @param fileId 选中的 Proto 文件 ID；null 时仅做清理
+ */
 const handleProtoFileChange = async (fileId: number | null) => {
   requestConfig.value.proto_file_id = fileId
   protoServices.value = []
@@ -1000,6 +1097,7 @@ const handleProtoFileChange = async (fileId: number | null) => {
   }
 }
 
+/** 通过服务反射（reflection）远程拉取服务列表，依赖 TLS 配置 */
 const handleReflect = async () => {
   if (!requestConfig.value.address) {
     ElMessage.warning('请输入服务器地址')
@@ -1029,6 +1127,10 @@ const handleReflect = async () => {
   }
 }
 
+/**
+ * 服务树中点击某个方法后：回填 service/method，查找 Message 定义，
+ * 并自动为 JSON 编辑器和 formData 填入初始模板
+ */
 const handleSelectMethod = async (svcName: string, method: ProtoMethod) => {
   requestConfig.value.service = svcName
   requestConfig.value.method = method.name
@@ -1061,12 +1163,13 @@ const handleSelectMethod = async (svcName: string, method: ProtoMethod) => {
   })
 }
 
-// Generate JSON template from a ProtoMessageDef
+/** 根据 Proto Message 定义生成格式化的 JSON 模板字符串 */
 const generateTemplateFromMessage = (msgDef: ProtoMessageDef): string => {
   const obj = buildTemplateObject(msgDef)
   return JSON.stringify(obj, null, 2)
 }
 
+/** 递归把 ProtoMessageDef 转成 JavaScript 对象（用于模板 / 表单初始化） */
 const buildTemplateObject = (msgDef: ProtoMessageDef): Record<string, unknown> => {
   const obj: Record<string, unknown> = {}
   for (const field of msgDef.fields) {
@@ -1075,6 +1178,7 @@ const buildTemplateObject = (msgDef: ProtoMessageDef): Record<string, unknown> =
   return obj
 }
 
+/** 根据字段 label 和 type 返回合理的默认值：map->{} / repeated->[] / 嵌套 message->递归对象 / 标量->零值 */
 const buildFieldDefaultValue = (field: ProtoMessageField): unknown => {
   // Map
   if (field.label === 'map') return {}
@@ -1095,7 +1199,14 @@ const buildFieldDefaultValue = (field: ProtoMessageField): unknown => {
   return ''
 }
 
-// --- Connect Test ---
+// ============================================================================
+// Connect Test
+// ============================================================================
+
+/**
+ * 仅校验能否成功建立 gRPC 连接（不调用具体方法）
+ * 后端侧通过 grpc_connect_test type 处理，不会落库保存结果
+ */
 const handleConnectTest = async () => {
   if (!requestConfig.value.address) {
     ElMessage.warning('请输入服务器地址')
@@ -1129,7 +1240,14 @@ const handleConnectTest = async () => {
   }
 }
 
-// --- Send ---
+// ============================================================================
+// Send
+// ============================================================================
+
+/**
+ * 发送 gRPC 请求：form 模式下先把 formData 序列化为请求体；
+ * 已保存的测试走 update + executeSaved 流程以确保 test_id 正确关联
+ */
 const handleSend = async () => {
   if (!canSend.value) return
 
@@ -1178,7 +1296,11 @@ const handleSend = async () => {
   }
 }
 
-// --- Save ---
+// ============================================================================
+// Save
+// ============================================================================
+
+/** 打开保存对话框；已存在的用例默认沿用现有名称 */
 const handleSave = () => {
   if (!canSave.value) return
   const existing = savedTests.value.find(t => t.id === currentTestId.value)
@@ -1186,6 +1308,7 @@ const handleSave = () => {
   saveDialogVisible.value = true
 }
 
+/** 保存确认：新建或更新 gRPC 用例，config 序列化后落库 */
 const handleSaveConfirm = async () => {
   if (!saveName.value.trim()) {
     ElMessage.warning('请输入名称')
@@ -1237,7 +1360,14 @@ const handleSaveConfirm = async () => {
   }
 }
 
-// --- Load / New / Delete ---
+// ============================================================================
+// Load / New / Delete
+// ============================================================================
+
+/**
+ * 从 savedTests 中打开一个用例：恢复 requestConfig、metadata、Proto 解析态、
+ * formData、编辑器内容以及历史记录
+ */
 const handleLoadTest = async (item: ApiTest) => {
   currentTestId.value = item.id
   try {
@@ -1306,6 +1436,7 @@ const handleLoadTest = async (item: ApiTest) => {
   }
 }
 
+/** 把所有状态重置为默认值，开始一个全新的 gRPC 测试 */
 const handleNewTest = () => {
   currentTestId.value = null
   requestConfig.value = {
@@ -1341,6 +1472,7 @@ const handleNewTest = () => {
   }
 }
 
+/** 确认删除某条用例；若删的是当前用例则自动触发 handleNewTest */
 const handleDeleteTest = async (item: ApiTest) => {
   try {
     await ElMessageBox.confirm(`确定要删除测试用例 "${item.name}" 吗？`, '确认删除', {
@@ -1361,7 +1493,11 @@ const handleDeleteTest = async (item: ApiTest) => {
   }
 }
 
-// --- CodeMirror Editor ---
+// ============================================================================
+// CodeMirror Editor
+// ============================================================================
+
+/** 初始化请求体 JSON 编辑器；通过 updateListener 把文档变更同步回 requestConfig */
 const initRequestEditor = () => {
   if (!requestEditorRef.value) return
 
@@ -1393,6 +1529,7 @@ const initRequestEditor = () => {
   })
 }
 
+/** 创建/重建只读响应体 JSON 编辑器：自动尝试格式化 lastResult.body */
 const createResponseJsonEditor = () => {
   if (!responseEditorRef.value) return
   if (responseEditorView) responseEditorView.destroy()
@@ -1422,7 +1559,11 @@ const createResponseJsonEditor = () => {
   responseEditorView = new EditorView({ state, parent: responseEditorRef.value })
 }
 
-// --- Lifecycle ---
+// ============================================================================
+// Lifecycle & Watch
+// ============================================================================
+
+/** 全局快捷键：Ctrl/Cmd+Enter 发送，Ctrl/Cmd+S 保存 */
 const handleGlobalKeydown = (e: KeyboardEvent) => {
   if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
     e.preventDefault()
@@ -1434,6 +1575,7 @@ const handleGlobalKeydown = (e: KeyboardEvent) => {
   }
 }
 
+/** 组件挂载：并行加载用例/Proto/证书，初始化请求编辑器，注册全局快捷键 */
 onMounted(async () => {
   await Promise.all([loadSavedTests(), loadProtoFiles(), loadCertificates()])
   await nextTick()
@@ -1441,6 +1583,7 @@ onMounted(async () => {
   document.addEventListener('keydown', handleGlobalKeydown)
 })
 
+/** 组件卸载：销毁 CodeMirror 实例，移除全局快捷键监听 */
 onUnmounted(() => {
   if (requestEditorView) {
     requestEditorView.destroy()
@@ -1453,12 +1596,12 @@ onUnmounted(() => {
   document.removeEventListener('keydown', handleGlobalKeydown)
 })
 
-// Sync metadata to requestConfig before send/save
+/** metadata 变更时同步过滤空 key 并写回 requestConfig.metadata（发送前统一使用） */
 watch(metadata, (val) => {
   requestConfig.value.metadata = val.filter(m => m.key)
 }, { deep: true })
 
-// When switching to JSON mode, generate JSON from message definition
+/** 切换到 JSON 编辑模式时，从 currentMessageDef 生成格式化 JSON 作为起点 */
 watch(requestMode, (mode) => {
   if (mode === 'json') {
     // Generate formatted JSON from message definition (not from empty formData)
@@ -1480,7 +1623,7 @@ watch(requestMode, (mode) => {
   }
 })
 
-// Clear state when connection mode changes
+/** 连接模式切换时：清空服务树、service/method 等与模式相关的状态 */
 watch(connectionMode, () => {
   protoServices.value = []
   requestConfig.value.service = ''
@@ -1488,7 +1631,7 @@ watch(connectionMode, () => {
   expandedServiceNames.value = []
 })
 
-// Watch lastResult to create response JSON editor
+/** lastResult 更新且位于响应体 Tab 时，重建只读 JSON 响应编辑器 */
 watch(lastResult, () => {
   nextTick(() => {
     if (lastResult.value && !lastResult.value.error && activeResponseTab.value === 'body') {
@@ -1497,13 +1640,14 @@ watch(lastResult, () => {
   })
 })
 
+/** 切到响应体 Tab 时，若 lastResult 有效则重建响应编辑器 */
 watch(activeResponseTab, () => {
   if (activeResponseTab.value === 'body' && lastResult.value && !lastResult.value.error) {
     nextTick(() => createResponseJsonEditor())
   }
 })
 
-// Watch responseBodyMode to recreate JSON editor when switching back from raw
+/** 响应体展示模式切回 json 时，重建格式化 JSON 编辑器 */
 watch(responseBodyMode, () => {
   if (responseBodyMode.value === 'json' && lastResult.value && !lastResult.value.error) {
     nextTick(() => createResponseJsonEditor())

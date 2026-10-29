@@ -567,6 +567,20 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * HttpTest - HTTP API 测试工具组件
+ *
+ * 类似 Postman 的 HTTP 请求构建与测试工具，支持：
+ * - 请求构建：Method / URL / Query Params / Headers / Body（JSON / Form-URL / Form-Data / Raw / Binary）
+ * - 认证：Bearer / Basic / API Key
+ * - 请求前/后脚本（preScript / postScript）
+ * - 超时控制、断言配置与执行结果展示
+ * - 基于 CodeMirror 6 的 JSON 编辑器（请求体 + 响应体只读查看）
+ * - 已保存请求的列表加载、保存、删除、更新
+ * - 请求执行历史记录（最多 20 条）、历史清空、历史 Diff 对比
+ * - 面板拖拽调整、快捷键（Ctrl/Cmd+Enter 发送，Ctrl/Cmd+S 保存）
+ * - 生成 cURL 命令、复制响应、剪贴板写入
+ */
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
@@ -584,12 +598,19 @@ import { formatDateTime } from '@/utils/format'
 import KVEditor from './KVEditor.vue'
 import type { ApiTest, ApiTestResult, AssertionConfig, AssertionResult, HTTPRequestConfig } from '@/api/apiTest'
 
-// ==================== Types ====================
+// ==================== Local Types ====================
+
+/** 通用键值对，用于 headers / params / body form */
 interface KVPair {
   key: string
   value: string
 }
 
+/**
+ * 本地使用的完整请求配置结构（UI 层数据模型）。
+ * 与后端 HTTPRequestConfig 对应，但扩展了 auth 对象的字段布局、bodyForm 数组、
+ * bodyBinary base64 内容、preScript / postScript 脚本等前端编辑需要的字段。
+ */
 interface RequestConfigLocal {
   method: string
   url: string
@@ -616,8 +637,11 @@ interface RequestConfigLocal {
 }
 
 // ==================== Constants ====================
+
+/** 所有支持的 HTTP Method 列表 */
 const httpMethods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']
 
+/** Element Plus Tag type 映射：method → tag type（用于左侧已保存请求列表） */
 const methodTagTypeMap: Record<string, string> = {
   GET: 'success',
   POST: 'warning',
@@ -628,6 +652,7 @@ const methodTagTypeMap: Record<string, string> = {
   OPTIONS: 'info',
 }
 
+/** method → 实际显示颜色（hex） */
 const methodColorMap: Record<string, string> = {
   GET: '#67c23a',
   POST: '#e6a23c',
@@ -638,10 +663,13 @@ const methodColorMap: Record<string, string> = {
   OPTIONS: '#909399',
 }
 
+/** 获取 HTTP Method 对应的 Element Plus Tag type */
 const getMethodTagType = (method: string): string => methodTagTypeMap[method] || 'info'
 
+/** 获取 HTTP Method 对应的显示颜色 */
 const getMethodColor = (method: string): string => methodColorMap[method] || '#909399'
 
+/** 根据响应状态码返回 Element Plus Tag type（2xx success / 3xx info / 4xx warning / 5xx danger） */
 const getStatusTagType = (code: number): string => {
   if (code >= 200 && code < 300) return 'success'
   if (code >= 300 && code < 400) return 'info'
@@ -650,50 +678,76 @@ const getStatusTagType = (code: number): string => {
 }
 
 // ==================== Reactive State ====================
+
+/** 左侧已保存请求列表的关键字过滤 */
 const searchQuery = ref('')
+/** 后端返回的全部已保存 HTTP 测试用例 */
 const savedTests = ref<ApiTest[]>([])
+/** 当前正在编辑 / 执行的已保存测试 ID，null 表示未保存的临时请求 */
 const currentTestId = ref<number | null>(null)
+/** 请求发送中（用于按钮 loading + 取消请求） */
 const sending = ref(false)
+/** 保存/更新请求中 */
 const saving = ref(false)
+/** 最近一次执行的响应结果 */
 const response = ref<ApiTestResult | null>(null)
+/** 请求执行错误信息（非响应体错误，如网络、超时、取消） */
 const responseError = ref('')
+/** 请求体区域当前激活的 Tab（params / headers / body / auth / script / assertions / settings） */
 const requestTab = ref('params')
+/** 响应区域当前激活的 Tab（body / headers / assertions） */
 const responseTab = ref('body')
+/** 响应体展示模式（json → CodeMirror，text → 纯文本） */
 const responseBodyMode = ref('json')
+/** 二进制文件上传时的文件名显示 */
 const binaryFileName = ref('')
 
-// Panel resize state
+// --- 面板布局状态 ---
+/** 三态面板模式：both（上下分割）/ request-max（请求最大化）/ response-max（响应最大化） */
 const panelMode = ref<'both' | 'request-max' | 'response-max'>('both')
+/** 请求面板 DOM 引用，用于拖拽时设置内联高度 */
 const requestSectionRef = ref<HTMLElement | null>(null)
+/** 是否正处于鼠标拖拽分割条状态 */
 const isDragging = ref(false)
 
+/** 当前正在编辑的请求配置（UI 层完整数据模型） */
 const requestConfig = ref<RequestConfigLocal>(createEmptyRequest())
 
+// --- 保存对话框 ---
 const saveDialogVisible = ref(false)
 const saveForm = ref({ name: '' })
+
+// --- cURL 生成对话框 ---
 const curlDialogVisible = ref(false)
 const curlCommand = ref('')
 
+// --- 断言与历史 ---
 const assertionResults = ref<AssertionResult[]>([])
 const historyList = ref<ApiTestResult[]>([])
 const selectedHistoryId = ref<number | null>(null)
 
-// History comparison
+// --- 历史对比 ---
+/** 多选的历史记录 ID（最多 2 个）用于 diff */
 const selectedHistoryIds = ref<number[]>([])
 const compareDialogVisible = ref(false)
 const compareLeft = ref<ApiTestResult | null>(null)
 const compareRight = ref<ApiTestResult | null>(null)
 
-// CodeMirror refs
+// --- CodeMirror 编辑器实例 ---
+/** 请求体 JSON 编辑器宿主 DOM */
 const bodyEditorRef = ref<HTMLElement>()
+/** 响应体只读 JSON 查看器宿主 DOM */
 const responseJsonEditorRef = ref<HTMLElement>()
 let bodyEditorView: EditorView | null = null
 let responseJsonEditorView: EditorView | null = null
 
-// AbortController for request cancellation
+// --- 请求取消 ---
+/** 当前发送请求的 AbortController，用于取消正在进行的请求 */
 let abortController: AbortController | null = null
 
 // ==================== Helpers ====================
+
+/** 构造一份默认的空请求配置（method=GET，其他字段均为空/默认值） */
 function createEmptyRequest(): RequestConfigLocal {
   return {
     method: 'GET',
@@ -714,6 +768,7 @@ function createEmptyRequest(): RequestConfigLocal {
   }
 }
 
+/** 向当前请求追加一条默认断言配置 */
 function addAssertion() {
   requestConfig.value.assertions.push({
     type: 'status_code',
@@ -723,26 +778,33 @@ function addAssertion() {
   })
 }
 
+// --- Computed 属性 ---
+
+/** 根据 searchQuery 过滤已保存请求列表（不区分大小写匹配 name） */
 const filteredTests = computed(() => {
   if (!searchQuery.value) return savedTests.value
   const q = searchQuery.value.toLowerCase()
   return savedTests.value.filter(t => t.name.toLowerCase().includes(q))
 })
 
+/** 已填写 key 的 Query Params 数量（用于 Tab 徽标显示） */
 const activeParamsCount = computed(() =>
   requestConfig.value.params.filter(p => p.key.trim()).length
 )
 
+/** 已填写 key 的 Headers 数量（用于 Tab 徽标显示） */
 const activeHeadersCount = computed(() =>
   requestConfig.value.headers.filter(h => h.key.trim()).length
 )
 
+/** 当前已保存请求的 name，未保存时为空字符串 */
 const currentTestName = computed(() => {
   if (!currentTestId.value) return ''
   const test = savedTests.value.find(t => t.id === currentTestId.value)
   return test?.name || ''
 })
 
+/** 根据当前 bodyType 推导提示性 Content-Type 字符串，展示在 UI 上 */
 const contentTypeHint = computed(() => {
   const map: Record<string, string> = {
     none: '',
@@ -755,6 +817,7 @@ const contentTypeHint = computed(() => {
   return map[requestConfig.value.bodyType] || ''
 })
 
+/** 从后端存储的 JSON config 字符串中提取 method，解析失败则返回 GET */
 function getConfigMethod(configStr: string): string {
   try {
     const cfg = JSON.parse(configStr)
@@ -764,6 +827,7 @@ function getConfigMethod(configStr: string): string {
   }
 }
 
+/** 将 params 数组同步拼入 URL 的 query string（编码 key/value） */
 function syncParamsToUrl() {
   const url = requestConfig.value.url
   const urlObj = url.split('?')[0]
@@ -776,6 +840,7 @@ function syncParamsToUrl() {
   requestConfig.value.url = `${urlObj}?${qs}`
 }
 
+/** 反向同步：从 URL 的 query string 解析出 params 数组 */
 const syncUrlToParams = () => {
   try {
     const urlStr = requestConfig.value.url
@@ -791,6 +856,7 @@ const syncUrlToParams = () => {
   } catch { /* invalid URL, ignore */ }
 }
 
+/** 将 UI 层的 RequestConfigLocal 序列化为后端接口所需的 HTTPRequestConfig */
 function buildHTTPRequestConfig(): HTTPRequestConfig {
   const cfg = requestConfig.value
   const config: HTTPRequestConfig = {
@@ -845,6 +911,7 @@ function buildHTTPRequestConfig(): HTTPRequestConfig {
   return config
 }
 
+/** 从后端返回的 HTTPRequestConfig JSON 字符串反向填充 UI 层 requestConfig */
 function loadConfigFromJSON(configStr: string) {
   try {
     const cfg = JSON.parse(configStr) as HTTPRequestConfig
@@ -888,6 +955,7 @@ function loadConfigFromJSON(configStr: string) {
   }
 }
 
+/** 将 response.headers（JSON 字符串）解析为对象，用于响应头 Tab 展示 */
 const parsedResponseHeaders = computed(() => {
   if (!response.value?.headers) return {}
   try {
@@ -897,6 +965,7 @@ const parsedResponseHeaders = computed(() => {
   }
 })
 
+/** 格式化字节数为 B / KB / MB 可读字符串 */
 function formatSize(body: string): string {
   if (!body) return '0 B'
   const bytes = new Blob([body]).size
@@ -905,6 +974,7 @@ function formatSize(body: string): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
+/** 将 ISO 日期字符串格式化为相对时间（刚刚 / N分钟前 / N小时前 / N天前） */
 function formatRelativeTime(dateStr: string): string {
   if (!dateStr) return '-'
   const date = new Date(dateStr)
@@ -922,6 +992,7 @@ function formatRelativeTime(dateStr: string): string {
   return formatDateTime(dateStr)
 }
 
+/** 将 AssertionResult 格式化为中文可读描述，如 "状态码 等于 \"200\" — 实际值: \"200\"" */
 function formatAssertionResult(result: AssertionResult): string {
   const a = result.assertion
   const operatorMap: Record<string, string> = {
@@ -946,7 +1017,9 @@ function formatAssertionResult(result: AssertionResult): string {
   return text
 }
 
-// Panel resize handlers
+// --- 面板拖拽与最大化 ---
+
+/** 切换面板模式（当前模式再次点击则回到 both），并清理拖拽遗留的内联样式 */
 const togglePanelMode = (mode: 'both' | 'request-max' | 'response-max') => {
   panelMode.value = panelMode.value === mode ? 'both' : mode
   // Reset inline styles set by drag handler so CSS classes take effect
@@ -956,6 +1029,7 @@ const togglePanelMode = (mode: 'both' | 'request-max' | 'response-max') => {
   }
 }
 
+/** 拖拽分割条开始：绑定 mousemove/mouseup 全局事件，实时调整请求面板高度 */
 const handleResizeDragStart = (e: MouseEvent) => {
   e.preventDefault()
   isDragging.value = true
@@ -993,6 +1067,7 @@ const handleResizeDragStart = (e: MouseEvent) => {
   document.addEventListener('mouseup', onMouseUp)
 }
 
+/** 格式化请求体 JSON（2 空格缩进），并同步更新 CodeMirror 编辑器内容 */
 function formatJsonBody() {
   try {
     const parsed = JSON.parse(requestConfig.value.bodyContent)
@@ -1010,6 +1085,8 @@ function formatJsonBody() {
 }
 
 // ==================== CodeMirror ====================
+
+/** 创建/重建请求体 CodeMirror 编辑器（仅 bodyType 为 json/raw 时启用 JSON 模式） */
 function createBodyEditor() {
   if (!bodyEditorRef.value) return
   if (bodyEditorView) bodyEditorView.destroy()
@@ -1036,6 +1113,7 @@ function createBodyEditor() {
   bodyEditorView = new EditorView({ state, parent: bodyEditorRef.value })
 }
 
+/** 根据当前 bodyType 决定创建还是销毁请求体编辑器（非 json/raw 类型隐藏编辑器） */
 function updateBodyEditor() {
   if (!bodyEditorRef.value) return
   if (requestConfig.value.bodyType !== 'json' && requestConfig.value.bodyType !== 'raw') {
@@ -1048,6 +1126,7 @@ function updateBodyEditor() {
   createBodyEditor()
 }
 
+/** 创建只读的响应体 JSON 查看器（自动尝试格式化响应 body） */
 function createResponseJsonEditor() {
   if (!responseJsonEditorRef.value) return
   if (responseJsonEditorView) responseJsonEditorView.destroy()
@@ -1077,12 +1156,14 @@ function createResponseJsonEditor() {
   responseJsonEditorView = new EditorView({ state, parent: responseJsonEditorRef.value })
 }
 
-// Watch body type changes to create/destroy editor
+// ==================== Watchers ====================
+
+/** bodyType 切换时重建/销毁请求体编辑器 */
 watch(() => requestConfig.value.bodyType, () => {
   nextTick(() => updateBodyEditor())
 })
 
-// Watch response to create JSON viewer
+/** 响应到达时，若当前为 json 模式则创建只读 JSON 查看器 */
 watch(response, () => {
   nextTick(() => {
     if (response.value && responseBodyMode.value === 'json') {
@@ -1091,6 +1172,7 @@ watch(response, () => {
   })
 })
 
+/** 响应体 Tab 切换到 json 时懒创建 JSON 查看器 */
 watch(responseBodyMode, () => {
   if (responseBodyMode.value === 'json' && response.value) {
     nextTick(() => createResponseJsonEditor())
@@ -1098,6 +1180,8 @@ watch(responseBodyMode, () => {
 })
 
 // ==================== API Calls ====================
+
+/** 从后端拉取所有已保存的 HTTP 测试用例 */
 async function loadSavedTests() {
   try {
     const res = await apiTestAPI.list({ type: 'http' })
@@ -1109,6 +1193,7 @@ async function loadSavedTests() {
   }
 }
 
+/** 加载指定已保存测试：填充 requestConfig、响应重置、加载其历史 */
 async function handleLoadTest(item: ApiTest) {
   currentTestId.value = item.id
   loadConfigFromJSON(item.config)
@@ -1119,6 +1204,7 @@ async function handleLoadTest(item: ApiTest) {
   loadHistory(item.id)
 }
 
+/** 新建空白请求：清空所有状态，销毁编辑器实例 */
 function handleNewRequest() {
   currentTestId.value = null
   requestConfig.value = createEmptyRequest()
@@ -1132,6 +1218,7 @@ function handleNewRequest() {
   }
 }
 
+/** 删除已保存请求（带确认对话框），删除后若当前编辑的是该请求则回退到新建状态 */
 async function handleDeleteTest(item: ApiTest) {
   try {
     await ElMessageBox.confirm(`确定删除接口 "${item.name}" 吗？`, '确认删除', {
@@ -1152,6 +1239,7 @@ async function handleDeleteTest(item: ApiTest) {
   }
 }
 
+/** 发送 HTTP 请求；若正在发送则改为中止。已保存测试先更新配置再调用 executeSaved。 */
 async function handleSend() {
   if (sending.value && abortController) {
     abortController.abort()
@@ -1216,6 +1304,7 @@ async function handleSend() {
   }
 }
 
+/** 保存请求：已保存的直接更新；未保存的弹出对话框，自动填充名称为 METHOD + pathname */
 function handleSave() {
   if (currentTestId.value) {
     // Update existing
@@ -1237,6 +1326,7 @@ function handleSave() {
   }
 }
 
+/** 更新已保存请求的配置 */
 async function doUpdateTest(id: number) {
   saving.value = true
   try {
@@ -1255,6 +1345,7 @@ async function doUpdateTest(id: number) {
   }
 }
 
+/** 保存对话框确认：创建新请求或更新已存在的同名请求 */
 async function handleConfirmSave() {
   if (!saveForm.value.name.trim()) {
     ElMessage.warning('请输入接口名称')
@@ -1281,6 +1372,7 @@ async function handleConfirmSave() {
   }
 }
 
+/** 调用后端生成当前请求的 cURL 命令 */
 async function handleGenerateCurl() {
   if (!requestConfig.value.url.trim()) {
     ElMessage.warning('请输入请求 URL')
@@ -1298,16 +1390,19 @@ async function handleGenerateCurl() {
   }
 }
 
+/** 复制 cURL 命令到剪贴板 */
 function copyCurl() {
   copyToClipboard(curlCommand.value)
 }
 
+/** 复制响应体到剪贴板 */
 function copyResponseBody() {
   if (response.value?.body) {
     copyToClipboard(response.value.body)
   }
 }
 
+/** 通用剪贴板写入：优先 navigator.clipboard，失败则回退到 execCommand */
 const copyToClipboard = async (text: string) => {
   try {
     await navigator.clipboard.writeText(text)
@@ -1330,6 +1425,7 @@ const copyToClipboard = async (text: string) => {
   }
 }
 
+/** 二进制文件选择：读取为 base64 DataURL，存储到 bodyBinary */
 function handleBinaryFileChange(file: any) {
   const raw = file.raw || file
   binaryFileName.value = raw.name || ''
@@ -1341,11 +1437,13 @@ function handleBinaryFileChange(file: any) {
   reader.readAsDataURL(raw)
 }
 
+/** 清空二进制文件字段 */
 function clearBinaryFile() {
   binaryFileName.value = ''
   requestConfig.value.bodyBinary = ''
 }
 
+/** 加载指定测试的执行历史（最多 20 条） */
 async function loadHistory(testId: number) {
   try {
     const res = await apiTestAPI.getResults(testId, { page: 1, page_size: 20 })
@@ -1356,6 +1454,7 @@ async function loadHistory(testId: number) {
   selectedHistoryIds.value = []
 }
 
+/** 清空当前测试的所有执行历史（带确认对话框） */
 async function handleClearHistory() {
   if (!currentTestId.value) return
   try {
@@ -1382,6 +1481,7 @@ async function handleClearHistory() {
   }
 }
 
+/** 点击历史记录：将该结果作为当前 response 展示，并解析断言结果 */
 function handleSelectHistory(item: ApiTestResult) {
   selectedHistoryId.value = item.id
   response.value = item
@@ -1398,6 +1498,7 @@ function handleSelectHistory(item: ApiTestResult) {
   }
 }
 
+/** 切换历史记录的对比多选状态（最多 2 个） */
 function toggleHistorySelect(id: number, checked: boolean) {
   if (checked) {
     if (selectedHistoryIds.value.length < 2) {
@@ -1408,6 +1509,7 @@ function toggleHistorySelect(id: number, checked: boolean) {
   }
 }
 
+/** 打开历史对比对话框（选中正好 2 条时可用） */
 function handleCompare() {
   if (selectedHistoryIds.value.length !== 2) return
   const [leftId, rightId] = selectedHistoryIds.value
@@ -1418,6 +1520,7 @@ function handleCompare() {
   }
 }
 
+/** 对比对话框中格式化响应体（尝试 JSON parse + 美化，失败则原样返回） */
 function formatCompareBody(body: string): string {
   if (!body) return ''
   try {
@@ -1428,6 +1531,8 @@ function formatCompareBody(body: string): string {
 }
 
 // ==================== Lifecycle ====================
+
+/** 全局快捷键处理器：Ctrl/Cmd+Enter 发送，Ctrl/Cmd+S 保存 */
 const handleGlobalKeydown = (e: KeyboardEvent) => {
   if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
     e.preventDefault()
