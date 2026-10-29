@@ -1630,8 +1630,7 @@ watch(() => form.value.timeout_seconds, (newVal) => {
   }
 }, { immediate: true })
 
-onMounted // 生命周期钩子
-/** 组件挂载生命周期 */
+/** 组件挂载生命周期：并行加载任务列表、执行器、用户列表 */
 onMounted(async () => {
   await Promise.all([
     loadTasks(),

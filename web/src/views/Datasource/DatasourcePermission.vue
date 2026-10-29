@@ -905,7 +905,6 @@ const handleBack = () => {
 // ==== 生命周期 ====
 
 /** 组件挂载后：依次加载数据源信息（为后续按领域过滤铺路），再并行加载权限、角色、用户 */
-onMounted // 生命周期钩子
 onMounted(async () => {
   await loadDatasource()
   loadPermissions()

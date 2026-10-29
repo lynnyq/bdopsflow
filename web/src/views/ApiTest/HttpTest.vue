@@ -1693,14 +1693,12 @@ const handleGlobalKeydown = (e: KeyboardEvent) => {
   }
 }
 
-onMounted // 生命周期钩子
 // --- 生命周期: onMounted ---
 onMounted(() => {
   loadSavedTests()
   document.addEventListener('keydown', handleGlobalKeydown)
 })
 
-onUnmounted // 生命周期钩子
 // --- 生命周期: onUnmounted ---
 onUnmounted(() => {
   bodyEditorView?.destroy()
