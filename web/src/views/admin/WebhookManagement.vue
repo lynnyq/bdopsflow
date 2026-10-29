@@ -1,5 +1,7 @@
+<!-- Webhook 管理页面：Webhook 回调配置的 CRUD、启用/禁用切换、测试触发 -->
 <template>
   <div class="webhook-management-page">
+    <!-- 页面工具栏：搜索 + 刷新 + 创建按钮 -->
     <div class="page-toolbar">
       <div class="toolbar-left">
         <el-input
@@ -117,28 +119,45 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * WebhookManagement.vue - Webhook 回调管理页面
+ *
+ * 功能：Webhook 配置的 CRUD、启用/禁用状态切换、手动测试触发（test 接口）。
+ * 所有操作按钮通过 authStore.hasPermission 控制可见性。
+ */
+// ========== Vue 核心 API ==========
 import { ref, computed, onMounted } from 'vue'
+// ========== Element Plus ==========
 import { ElMessage, ElMessageBox } from 'element-plus'
+// ========== Element Plus 图标 ==========
 import { Delete, Plus, Search, Refresh, Connection, Edit, SwitchButton, Promotion } from '@element-plus/icons-vue'
+// ========== API 层 ==========
 import { webhookAPI } from '@/api'
+// ========== 工具函数 ==========
 import { isHandledError } from '@/utils/api'
 import { secureRandom } from '@/utils/random'
+// ========== 类型定义 ==========
 import type { Webhook } from '@/types'
+// ========== Pinia Store ==========
 import { useAuthStore } from '@/stores/auth'
 
-const authStore = useAuthStore()
+const authStore = useAuthStore()  // 认证 Store：权限判断
 
-const canCreate = computed(() => authStore.hasPermission('webhook', 'create'))
-const canUpdate = computed(() => authStore.hasPermission('webhook', 'update'))
-const canDelete = computed(() => authStore.hasPermission('webhook', 'delete'))
+// ========== 权限计算 ==========
+const canCreate = computed(() => authStore.hasPermission('webhook', 'create'))  // 是否有创建权限
+const canUpdate = computed(() => authStore.hasPermission('webhook', 'update'))  // 是否有编辑权限
+const canDelete = computed(() => authStore.hasPermission('webhook', 'delete'))  // 是否有删除权限
 
-const webhooks = ref<(Webhook & { _testing?: boolean })[]>([])
-const loading = ref(false)
-const searchQuery = ref('')
-const dialogVisible = ref(false)
-const isEditing = ref(false)
-const editingId = ref<number | null>(null)
-const submitting = ref(false)
+// ========== 列表状态 ==========
+const webhooks = ref<(Webhook & { _testing?: boolean })[]>([])  // Webhook 列表
+const loading = ref(false)                                        // 列表加载状态
+const searchQuery = ref('')                                       // 搜索关键字
+
+// ========== 编辑弹窗状态 ==========
+const dialogVisible = ref(false)                                  // 弹窗可见性
+const isEditing = ref(false)                                      // 是否编辑模式
+const editingId = ref<number | null>(null)                        // 当前编辑的 Webhook ID
+const submitting = ref(false)                                      // 提交加载状态
 
 const form = ref({
   name: '',
@@ -157,6 +176,10 @@ const filteredWebhooks = computed(() => {
   return webhooks.value.filter(w => w.name.toLowerCase().includes(query) || w.url.toLowerCase().includes(query))
 })
 
+/**
+ * 加载 Webhook 列表
+ * @returns {Promise<void>}
+ */
 const loadWebhooks = async () => {
   loading.value = true
   try {
@@ -172,10 +195,16 @@ const loadWebhooks = async () => {
   }
 }
 
+/**
+ * 根据搜索条件重新查询
+ */
 const handleSearch = () => {
   // filteredWebhooks is computed, auto-updates
 }
 
+/**
+ * 打开新增对话框初始化空表单
+ */
 const handleCreate = () => {
   isEditing.value = false
   editingId.value = null
@@ -190,6 +219,10 @@ const handleCreate = () => {
   dialogVisible.value = true
 }
 
+/**
+ * 打开编辑对话框回填表单数据
+ * @param {Webhook} row - 当前行数据
+ */
 const handleEdit = (row: Webhook) => {
   isEditing.value = true
   editingId.value = row.id
@@ -211,10 +244,17 @@ const handleEdit = (row: Webhook) => {
   dialogVisible.value = true
 }
 
+/**
+ * 在 Webhook 表单中添加一个请求头字段
+ */
 const addHeader = () => {
   form.value.headerList.push({ key: '', value: '', _uid: Date.now() + secureRandom() })
 }
 
+/**
+ * 从 Webhook 表单中移除指定的请求头
+ * @param {any} header - 请求头对象
+ */
 const removeHeader = (header: any) => {
   const idx = form.value.headerList.indexOf(header)
   if (idx !== -1) {
@@ -222,6 +262,9 @@ const removeHeader = (header: any) => {
   }
 }
 
+/**
+ * 将 headers 数组转换为 JSON 字符串
+ */
 const buildHeadersJson = () => {
   const headers: Record<string, string> = {}
   for (const h of form.value.headerList) {
@@ -232,6 +275,10 @@ const buildHeadersJson = () => {
   return JSON.stringify(headers)
 }
 
+/**
+ * 提交表单，根据 isEdit 决定创建或更新
+ * @returns {Promise<void>}
+ */
 const handleSubmit = async () => {
   if (!form.value.name) {
     ElMessage.warning('名称为必填项')
@@ -274,6 +321,11 @@ const handleSubmit = async () => {
   }
 }
 
+/**
+ * 切换 Webhook 启用/禁用状态
+ * @param {Webhook & { _testing?: boolean }} row - 当前行数据
+ * @returns {Promise<void>}
+ */
 const handleToggleEnabled = async (row: Webhook & { _testing?: boolean }) => {
   try {
     const newStatus = !row.is_enabled
@@ -287,6 +339,11 @@ const handleToggleEnabled = async (row: Webhook & { _testing?: boolean }) => {
   }
 }
 
+/**
+ * 测试 Webhook 是否能正常推送
+ * @param {Webhook & { _testing?: boolean }} row - 当前行数据
+ * @returns {Promise<void>}
+ */
 const handleTest = async (row: Webhook & { _testing?: boolean }) => {
   row._testing = true
   try {
@@ -306,6 +363,11 @@ const handleTest = async (row: Webhook & { _testing?: boolean }) => {
   }
 }
 
+/**
+ * 删除单条记录（执行确认）
+ * @param {Webhook} row - 当前行数据
+ * @returns {Promise<void>}
+ */
 const handleDelete = async (row: Webhook) => {
   try {
     await ElMessageBox.confirm(
@@ -321,6 +383,10 @@ const handleDelete = async (row: Webhook) => {
   }
 }
 
+/**
+ * 格式化时间字符串为可读格式
+ * @param {string} t - t
+ */
 const formatTime = (t: string) => {
   if (!t) return '-'
   try {

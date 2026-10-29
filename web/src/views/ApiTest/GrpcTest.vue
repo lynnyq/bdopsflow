@@ -1,13 +1,25 @@
+<!--
+  gRPC 测试页面
+  功能：支持 gRPC 接口调试，包括 proto 文件上传、服务反射、方法选择、请求构造、
+       发送请求、查看响应、历史记录对比等。支持 TLS 安全连接和请求元数据设置。
+ 左侧保存列表 + 右侧请求/响应双栏布局。
+-->
 <template>
+  <!-- === .grpc-test-page 区块 === -->
   <div class="grpc-test-page">
+    <!-- === .main-content 区块 === -->
     <div class="main-content">
-      <!-- Left Panel: Saved Tests -->
+      <!-- === 左侧保存列表：搜索 + 已保存用例 === -->
       <aside class="saved-panel">
+        <!-- === .panel-header 区块 === -->
         <div class="panel-header">
           <span class="panel-title">gRPC 测试</span>
+          <!-- === 徽章组件 === -->
           <el-badge :value="savedTests.length" :max="99" type="info" class="panel-count-badge" />
         </div>
+        <!-- === .panel-search 区块 === -->
         <div class="panel-search">
+          <!-- === 输入框组件 === -->
           <el-input
             v-model="searchQuery"
             placeholder="搜索..."
@@ -16,6 +28,7 @@
             clearable
           />
         </div>
+        <!-- === .saved-list 区块 === -->
         <div class="saved-list">
           <div
             v-for="item in filteredTests"
@@ -24,30 +37,37 @@
             :class="{ active: currentTestId === item.id }"
             @click="handleLoadTest(item)"
           >
+            <!-- === 标签组件 === -->
             <el-tag size="small" effect="dark" class="grpc-badge" disable-transitions>gRPC</el-tag>
+            <!-- === .saved-item-info 区块 === -->
             <div class="saved-item-info">
               <span class="saved-name" :title="item.name">{{ item.name }}</span>
               <span class="saved-addr">{{ getAddrFromConfig(item.config) }}</span>
             </div>
+            <!-- === 图标组件 === -->
             <el-icon class="saved-delete" @click.stop="handleDeleteTest(item)">
               <Delete />
             </el-icon>
           </div>
+          <!-- === 条件渲染区块 === -->
           <div v-if="filteredTests.length === 0" class="empty-saved">
+            <!-- === 图标组件 === -->
             <el-icon :size="24"><Document /></el-icon>
             <p>{{ searchQuery ? '无匹配结果' : '暂无测试用例' }}</p>
           </div>
         </div>
+        <!-- === .panel-footer 区块 === -->
         <div class="panel-footer">
+          <!-- === 按钮组件 === -->
           <el-button type="primary" :icon="Plus" size="small" @click="handleNewTest" class="new-btn">
             新建测试
           </el-button>
         </div>
       </aside>
 
-      <!-- Right Panel -->
+      <!-- === 右侧请求/响应编辑器区域 === -->
       <main class="editor-area">
-        <!-- Request Editor -->
+        <!-- === 请求配置区域：地址 + Proto/Reflection 切换 + 服务方法选择 + 请求体 === -->
         <div
           ref="requestSectionRef"
           class="request-section"
@@ -58,19 +78,23 @@
         >
           <!-- Editing indicator -->
           <div v-if="currentTestName" class="current-test-name">
+            <!-- === 图标组件 === -->
             <el-icon :size="14"><EditPen /></el-icon>
             <span>{{ currentTestName }}</span>
           </div>
 
           <!-- Top Bar -->
           <div class="request-bar">
+            <!-- === 输入框组件 === -->
             <el-input
               v-model="requestConfig.address"
               placeholder="服务器地址 (如: localhost:50051)"
               class="address-input"
               clearable
             >
+              <!-- === 具名插槽 === -->
               <template #prefix>
+                <!-- === 图标组件 === -->
                 <el-icon><Connection /></el-icon>
               </template>
             </el-input>
@@ -139,7 +163,9 @@
             <div class="service-panel">
               <!-- Proto File Mode -->
               <template v-if="connectionMode === 'proto'">
+                <!-- === .proto-selector 区块 === -->
                 <div class="proto-selector">
+                  <!-- === <el-select> 组件 === -->
                   <el-select
                     v-model="selectedProtoFileId"
                     placeholder="选择 Proto 文件"
@@ -148,6 +174,7 @@
                     class="proto-select"
                     @change="handleProtoFileChange"
                   >
+                    <!-- === 下拉选项 === -->
                     <el-option
                       v-for="pf in protoFiles"
                       :key="pf.id"
@@ -156,21 +183,30 @@
                     />
                   </el-select>
                 </div>
+                <!-- === 条件渲染区块 === -->
                 <div v-if="parsingProto" class="service-loading">
+                  <!-- === 图标组件 === -->
                   <el-icon class="is-loading"><Refresh /></el-icon>
                   <span>解析中...</span>
                 </div>
+                <!-- === else 分支区块 === -->
                 <div v-else-if="protoServices.length > 0" class="service-tree">
+                  <!-- === <el-collapse> 组件 === -->
                   <el-collapse v-model="expandedServiceNames" class="service-collapse">
+                    <!-- === <el-collapse> 组件 === -->
                     <el-collapse-item
                       v-for="svc in protoServices"
                       :key="svc.name"
                       :name="svc.name"
                     >
+                      <!-- === 具名插槽 === -->
                       <template #title>
+                        <!-- === .service-name 区块 === -->
                         <div class="service-name">
+                          <!-- === 图标组件 === -->
                           <el-icon :size="16" class="svc-icon"><Folder /></el-icon>
                           <span>{{ svc.name }}</span>
+                          <!-- === 标签组件 === -->
                           <el-tag size="small" type="info" effect="plain" class="method-count-tag">{{ svc.methods.length }}</el-tag>
                         </div>
                       </template>
@@ -204,7 +240,9 @@
 
               <!-- Reflection Mode -->
               <template v-else>
+                <!-- === .reflection-bar 区块 === -->
                 <div class="reflection-bar">
+                  <!-- === 按钮组件 === -->
                   <el-button
                     type="primary"
                     :icon="Search"
@@ -215,21 +253,30 @@
                     发现服务
                   </el-button>
                 </div>
+                <!-- === 条件渲染区块 === -->
                 <div v-if="reflecting" class="service-loading">
+                  <!-- === 图标组件 === -->
                   <el-icon class="is-loading"><Refresh /></el-icon>
                   <span>发现中...</span>
                 </div>
+                <!-- === else 分支区块 === -->
                 <div v-else-if="protoServices.length > 0" class="service-tree">
+                  <!-- === <el-collapse> 组件 === -->
                   <el-collapse v-model="expandedServiceNames" class="service-collapse">
+                    <!-- === <el-collapse> 组件 === -->
                     <el-collapse-item
                       v-for="svc in protoServices"
                       :key="svc.name"
                       :name="svc.name"
                     >
+                      <!-- === 具名插槽 === -->
                       <template #title>
+                        <!-- === .service-name 区块 === -->
                         <div class="service-name">
+                          <!-- === 图标组件 === -->
                           <el-icon :size="16" class="svc-icon"><Folder /></el-icon>
                           <span>{{ svc.name }}</span>
+                          <!-- === 标签组件 === -->
                           <el-tag size="small" type="info" effect="plain" class="method-count-tag">{{ svc.methods.length }}</el-tag>
                         </div>
                       </template>
@@ -402,7 +449,9 @@
         >
           <div class="response-header">
             <div class="response-info">
+              <!-- === 条件/循环模板 === -->
               <template v-if="lastResult">
+                <!-- === 标签组件 === -->
                 <el-tag
                   :type="lastResult.error ? 'danger' : 'success'"
                   effect="dark"
@@ -419,11 +468,14 @@
                   gRPC {{ lastResult.status_code }}
                 </span>
                 <span class="response-meta-item">
+                  <!-- === 图标组件 === -->
                   <el-icon :size="14"><Clock /></el-icon>
                   {{ lastResult.latency_ms }}ms
                 </span>
               </template>
+              <!-- === 条件/循环模板 === -->
               <template v-if="sending && !lastResult">
+                <!-- === 图标组件 === -->
                 <el-icon class="is-loading"><Refresh /></el-icon>
                 <span>请求中...</span>
               </template>
@@ -442,20 +494,31 @@
             <!-- Body Tab -->
             <el-tab-pane label="响应体" name="body">
               <div class="response-body-content">
+                <!-- === 条件/循环模板 === -->
                 <template v-if="lastResult">
+                  <!-- === 条件渲染区块 === -->
                   <div v-if="lastResult.error" class="error-content">
+                    <!-- === 图标组件 === -->
                     <el-icon :size="16" color="var(--accent-danger)"><CircleCloseFilled /></el-icon>
                     <pre>{{ lastResult.error }}</pre>
                   </div>
+                  <!-- === 条件/循环模板 === -->
                   <template v-else>
+                    <!-- === .response-body-header 区块 === -->
                     <div class="response-body-header">
+                      <!-- === .response-body-modes 区块 === -->
                       <div class="response-body-modes">
+                        <!-- === 单选框组件 === -->
                         <el-radio-group v-model="responseBodyMode" size="small">
+                          <!-- === 单选框组件 === -->
                           <el-radio-button value="json">JSON</el-radio-button>
+                          <!-- === 单选框组件 === -->
                           <el-radio-button value="raw">Raw</el-radio-button>
                         </el-radio-group>
                       </div>
+                      <!-- === .response-body-actions 区块 === -->
                       <div class="response-body-actions">
+                        <!-- === 按钮组件 === -->
                         <el-button
                           v-if="lastResult?.body"
                           size="small"
@@ -463,12 +526,15 @@
                           class="copy-response-btn"
                           @click="copyResponseBody"
                         >
+                          <!-- === 图标组件 === -->
                           <el-icon><DocumentCopy /></el-icon>
                           复制
                         </el-button>
                       </div>
                     </div>
+                    <!-- === 条件渲染区块 === -->
                     <div v-if="responseBodyMode === 'json'" ref="responseEditorRef" class="response-json-editor"></div>
+                    <!-- === else 分支区块 === -->
                     <div v-else class="response-raw-wrapper">
                       <pre class="response-raw">{{ lastResult?.body || '' }}</pre>
                     </div>
@@ -480,11 +546,14 @@
             <!-- Metadata Tab -->
             <el-tab-pane label="响应头" name="resp-metadata">
               <div class="response-headers">
+                <!-- === 条件/循环模板 === -->
                 <template v-if="lastResult && lastResult.headers">
+                  <!-- === v-for 渲染区块 === -->
                   <div v-for="(value, key) in parseResponseHeadersMap(lastResult.headers)" :key="key" class="header-row">
                     <span class="header-key">{{ key }}</span>
                     <span class="header-value">{{ value }}</span>
                   </div>
+                  <!-- === 条件渲染区块 === -->
                   <div v-if="Object.keys(parseResponseHeadersMap(lastResult.headers)).length === 0" class="body-none">无响应头</div>
                 </template>
                 <div v-else class="body-none">暂无响应头</div>
@@ -565,8 +634,11 @@
           <el-input v-model="saveName" placeholder="输入测试用例名称" />
         </el-form-item>
       </el-form>
+      <!-- === 具名插槽 === -->
       <template #footer>
+        <!-- === 按钮组件 === -->
         <el-button @click="saveDialogVisible = false">取消</el-button>
+        <!-- === 按钮组件 === -->
         <el-button type="primary" @click="handleSaveConfirm" :loading="saving">保存</el-button>
       </template>
     </el-dialog>
@@ -593,7 +665,9 @@
           <pre class="compare-body">{{ formatCompareBody(compareRight.body) }}</pre>
         </div>
       </div>
+      <!-- === 具名插槽 === -->
       <template #footer>
+        <!-- === 按钮组件 === -->
         <el-button @click="compareDialogVisible = false">关闭</el-button>
       </template>
     </el-dialog>
@@ -743,60 +817,83 @@ let responseEditorView: EditorView | null = null
 
 /** 经 searchQuery 过滤后的保存测试列表 */
 const filteredTests = computed(() => {
+  /** 条件分支 */
   if (!searchQuery.value) return savedTests.value
   const q = searchQuery.value.toLowerCase()
+  /** 返回/抛出 */
   return savedTests.value.filter(t => t.name.toLowerCase().includes(q))
 })
 
 /** 满足请求发送的基本条件：地址 + 服务 + 方法都已填写，且当前不在发送中 */
 const canSend = computed(() => {
+  /** 返回/抛出 */
   return requestConfig.value.address && requestConfig.value.service && requestConfig.value.method && !sending.value
 })
 
 /** 保存用例的基本条件：至少有地址，且当前不在保存中 */
 const canSave = computed(() => {
+  /** 返回/抛出 */
   return requestConfig.value.address && !saving.value
 })
 
 /** 当前已加载用例的名称，用于头部标题显示 */
 const currentTestName = computed(() => {
+  /** 条件分支 */
   if (!currentTestId.value) return ''
   const found = savedTests.value.find(t => t.id === currentTestId.value)
+  /** 返回/抛出 */
   return found?.name || ''
 })
 
 /** 最近一次执行结果中剔除 error 后的响应体字符串 */
 const responseBodyText = computed(() => {
+  /** 条件分支 */
   if (!lastResult.value || lastResult.value.error) return ''
+  /** 返回/抛出 */
   return lastResult.value.body || ''
 })
 
 /** TLS 模式对应的图标组件 */
 const tlsSecurityIcon = computed(() => {
+  /** 分支选择 */
   switch (requestConfig.value.tls_mode) {
+    /** 分支选择 */
     case 'insecure': return Unlock
+    /** 分支选择 */
     case 'tls': return Lock
+    /** 分支选择 */
     case 'mtls': return CircleCheckFilled
+    /** 分支选择 */
     default: return Unlock
   }
 })
 
 /** TLS 模式对应的 CSS 类（颜色） */
 const tlsSecurityClass = computed(() => {
+  /** 分支选择 */
   switch (requestConfig.value.tls_mode) {
+    /** 分支选择 */
     case 'insecure': return 'security-danger'
+    /** 分支选择 */
     case 'tls': return 'security-warning'
+    /** 分支选择 */
     case 'mtls': return 'security-success'
+    /** 分支选择 */
     default: return 'security-danger'
   }
 })
 
 /** TLS 模式对应的中文描述 */
 const tlsSecurityDesc = computed(() => {
+  /** 分支选择 */
   switch (requestConfig.value.tls_mode) {
+    /** 分支选择 */
     case 'insecure': return '不安全 - 未加密'
+    /** 分支选择 */
     case 'tls': return '加密 - 服务端验证'
+    /** 分支选择 */
     case 'mtls': return '最安全 - 双向认证'
+    /** 分支选择 */
     default: return '不安全 - 未加密'
   }
 })
@@ -811,10 +908,13 @@ const tlsSecurityDesc = computed(() => {
  * @returns 解析得到的 address；解析失败返回空字符串
  */
 const getAddrFromConfig = (configStr: string): string => {
+  /** 异常处理 */
   try {
     const c = JSON.parse(configStr) as GRPCRequestConfig
+    /** 返回/抛出 */
     return c.address || ''
   } catch {
+    /** 返回/抛出 */
     return ''
   }
 }
@@ -822,23 +922,34 @@ const getAddrFromConfig = (configStr: string): string => {
 /**
  * 把后端返回的 headers 字符串（可能是 object 或 [{key,value}] 数组）
  * 统一转换为 Record<string, string> 形式
+ * @param {string} headersStr - 后端返回的序列化 headers 字符串
+ * @returns {Record<string, string>} 解析后的 header 键值对对象
  */
 const parseResponseHeadersMap = (headersStr: string): Record<string, string> => {
+  /** 条件分支 */
   if (!headersStr) return {}
+  /** 异常处理 */
   try {
     const parsed = JSON.parse(headersStr)
+    /** 条件分支 */
     if (typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as Record<string, string>
+    /** 条件分支 */
     if (Array.isArray(parsed)) {
       const map: Record<string, string> = {}
+      /** 循环 */
       for (const item of parsed) {
+        /** 条件分支 */
         if (item.key && item.value !== undefined) {
           map[item.key] = String(item.value)
         }
       }
+      /** 返回/抛出 */
       return map
     }
+    /** 返回/抛出 */
     return {}
   } catch {
+    /** 返回/抛出 */
     return {}
   }
 }
@@ -848,32 +959,47 @@ const parseResponseHeadersMap = (headersStr: string): Record<string, string> => 
  * 超过 30 天则回退到 formatDateTime
  */
 function formatRelativeTime(dateStr: string): string {
+  /** 条件分支 */
   if (!dateStr) return '-'
   const date = new Date(dateStr)
+  /** 条件分支 */
   if (isNaN(date.getTime())) return dateStr
   const now = new Date()
   const diffMs = now.getTime() - date.getTime()
   const diffSec = Math.floor(diffMs / 1000)
+  /** 条件分支 */
   if (diffSec < 60) return '刚刚'
   const diffMin = Math.floor(diffSec / 60)
+  /** 条件分支 */
   if (diffMin < 60) return `${diffMin}分钟前`
   const diffHour = Math.floor(diffMin / 60)
+  /** 条件分支 */
   if (diffHour < 24) return `${diffHour}小时前`
   const diffDay = Math.floor(diffHour / 24)
+  /** 条件分支 */
   if (diffDay < 30) return `${diffDay}天前`
+  /** 返回/抛出 */
   return formatDateTime(dateStr)
 }
 
-/** 交互确认后，逐条删除当前测试用例的所有历史结果 */
+/**
+ * 交互确认后，逐条删除当前测试用例的所有历史执行结果
+ * 循环调用 deleteResult，单条失败不影响后续删除；完成后清空本地状态
+ * @returns {Promise<void>}
+ */
 const handleClearHistory = async () => {
+  /** 条件分支 */
   if (!currentTestId.value) return
+  /** 异常处理 */
   try {
     await ElMessageBox.confirm('确定清空该测试的所有执行历史吗？', '确认清空', {
       confirmButtonText: '确定',
       cancelButtonText: '取消',
       type: 'warning',
     })
+    /** 循环 */
     for (const item of historyResults.value) {
+      /** 异常处理 */
       try {
         await apiTestAPI.deleteResult(item.id)
       } catch {
@@ -884,15 +1010,24 @@ const handleClearHistory = async () => {
     selectedHistoryIds.value = []
     ElMessage.success('历史已清空')
   } catch (err: unknown) {
+    /** 条件分支 */
     if (err !== 'cancel' && !isHandledError(err)) {
       ElMessage.error('清空历史失败')
     }
   }
 }
 
-/** 历史记录勾选状态切换；最多允许选中 2 条用于对比 */
+/**
+ * 历史记录勾选状态切换，最多允许选中 2 条用于对比功能
+ * 选中时若已有 2 条则拒绝新增；取消时从数组中过滤掉目标 ID
+ * @param {number} id - 历史记录 ID
+ * @param {boolean} checked - true 表示选中，false 表示取消
+ * @returns {void}
+ */
 const toggleHistorySelect = (id: number, checked: boolean) => {
+  /** 条件分支 */
   if (checked) {
+    /** 条件分支 */
     if (selectedHistoryIds.value.length < 2) {
       selectedHistoryIds.value.push(id)
     }
@@ -901,30 +1036,50 @@ const toggleHistorySelect = (id: number, checked: boolean) => {
   }
 }
 
-/** 根据 selectedHistoryIds 构造 compareLeft / compareRight 并打开对比弹窗 */
+/**
+ * 根据 selectedHistoryIds 构造 compareLeft / compareRight 并打开对比弹窗
+ * 要求必须恰好选中 2 条历史记录，否则静默跳过
+ * @returns {void}
+ */
 const handleCompare = () => {
+  /** 条件分支 */
   if (selectedHistoryIds.value.length !== 2) return
   const [leftId, rightId] = selectedHistoryIds.value
   compareLeft.value = historyResults.value.find(h => h.id === leftId) || null
   compareRight.value = historyResults.value.find(h => h.id === rightId) || null
+  /** 条件分支 */
   if (compareLeft.value && compareRight.value) {
     compareDialogVisible.value = true
   }
 }
 
-/** 用于对比弹窗：把 body 中的 JSON 格式化缩进 */
+/**
+ * 用于对比弹窗：把响应体中的 JSON 字符串格式化缩进（2 空格）
+ * 非 JSON 文本原样返回；空输入返回空字符串
+ * @param {string | undefined} body - 原始响应体文本
+ * @returns {string} 格式化后的 JSON 或原样返回的文本
+ */
 const formatCompareBody = (body: string | undefined): string => {
+  /** 条件分支 */
   if (!body) return ''
+  /** 异常处理 */
   try {
+    /** 返回/抛出 */
     return JSON.stringify(JSON.parse(body), null, 2)
   } catch {
+    /** 返回/抛出 */
     return body
   }
 }
 
 // --- Panel resize handlers ---
 
-/** 切换面板布局模式；传入当前模式则自动回到 'both' */
+/**
+ * 切换面板布局模式：both（上下平分）、request-max（请求区占主要空间）、response-max（响应区占主要空间）
+ * 点击当前激活的模式按钮会自动回到 'both' 并清除可能残留的 inline 样式
+ * @param {'both' | 'request-max' | 'response-max'} mode - 目标布局模式
+ * @returns {void}
+ */
 const togglePanelMode = (mode: 'both' | 'request-max' | 'response-max') => {
   panelMode.value = panelMode.value === mode ? 'both' : mode
   // Reset inline styles set by drag handler so CSS classes take effect
@@ -934,23 +1089,31 @@ const togglePanelMode = (mode: 'both' | 'request-max' | 'response-max') => {
   }
 }
 
-/** 面板分隔条拖拽开始：监听 mousemove/mouseup，实时调整 requestSection 高度 */
+/**
+ * 面板分隔条拖拽开始：监听全局 mousemove/mouseup，实时调整 requestSection 高度
+ * 高度限制 120px ~ editorArea 高度 - 120px；拖拽时自动退出 panelMode
+ * @param {MouseEvent} e - mousedown 事件
+ * @returns {void}
+ */
 const handleResizeDragStart = (e: MouseEvent) => {
   e.preventDefault()
   isDragging.value = true
   const editorArea = (e.target as HTMLElement).closest('.editor-area') as HTMLElement
+  /** 条件分支 */
   if (!editorArea) return
   const areaRect = editorArea.getBoundingClientRect()
   const areaHeight = areaRect.height
   const startY = e.clientY
   const startHeight = requestSectionRef.value?.offsetHeight || 0
 
+  /** on mouse move */
   const onMouseMove = (moveEvent: MouseEvent) => {
     const delta = moveEvent.clientY - startY
     const newHeight = startHeight + delta
     const minHeight = 120
     const maxHeight = areaHeight - 120
     const clampedHeight = Math.min(Math.max(newHeight, minHeight), maxHeight)
+    /** 条件分支 */
     if (requestSectionRef.value) {
       requestSectionRef.value.style.flex = 'none'
       requestSectionRef.value.style.height = `${clampedHeight}px`
@@ -958,6 +1121,7 @@ const handleResizeDragStart = (e: MouseEvent) => {
     panelMode.value = 'both'
   }
 
+  /** on mouse up */
   const onMouseUp = () => {
     isDragging.value = false
     document.removeEventListener('mousemove', onMouseMove)
@@ -972,9 +1136,15 @@ const handleResizeDragStart = (e: MouseEvent) => {
   document.addEventListener('mouseup', onMouseUp)
 }
 
-/** 把最近一次响应体复制到剪贴板；兼容不支持 Clipboard API 的环境 */
+/**
+ * 把最近一次响应体复制到剪贴板，优先使用 Clipboard API
+ * 浏览器不支持时降级为 document.execCommand('copy') 创建临时 textarea 方案
+ * @returns {Promise<void>}
+ */
 const copyResponseBody = async () => {
+  /** 条件分支 */
   if (!responseBodyText.value) return
+  /** 异常处理 */
   try {
     await navigator.clipboard.writeText(responseBodyText.value)
     ElMessage.success('已复制到剪贴板')
@@ -985,6 +1155,7 @@ const copyResponseBody = async () => {
     textarea.style.opacity = '0'
     document.body.appendChild(textarea)
     textarea.select()
+    /** 异常处理 */
     try {
       document.execCommand('copy')
       ElMessage.success('已复制到剪贴板')
@@ -999,13 +1170,19 @@ const copyResponseBody = async () => {
 // Data Loading
 // ============================================================================
 
-/** 拉取当前用户保存的所有 gRPC 测试用例 */
+/**
+ * 拉取当前用户保存的所有 gRPC 测试用例（最多 200 条）
+ * 用于左侧 saved-panel 的用例列表展示，component mount 时调用
+ * @returns {Promise<void>}
+ */
 const loadSavedTests = async () => {
   loading.value = true
+  /** 异常处理 */
   try {
     const res = await apiTestAPI.list({ type: 'grpc', page: 1, page_size: 200 })
     savedTests.value = res.data.items || []
   } catch (err: unknown) {
+    /** 条件分支 */
     if (!isHandledError(err)) {
       ElMessage.error((err as Error).message || '加载测试列表失败')
     }
@@ -1014,36 +1191,55 @@ const loadSavedTests = async () => {
   }
 }
 
-/** 拉取用户可关联的 Proto 文件 */
+/**
+ * 拉取用户可关联的 Proto 文件列表（最多 200 条）
+ * 用于连接模式下拉选择；选中后通过 handleProtoFileChange 解析服务树
+ * @returns {Promise<void>}
+ */
 const loadProtoFiles = async () => {
+  /** 异常处理 */
   try {
     const res = await protoFileAPI.list({ page: 1, page_size: 200 })
     protoFiles.value = res.data.items || []
   } catch (err: unknown) {
+    /** 条件分支 */
     if (!isHandledError(err)) {
       ElMessage.error((err as Error).message || '加载 Proto 文件列表失败')
     }
   }
 }
 
-/** 拉取用户可关联的 TLS 证书 */
+/**
+ * 拉取用户可关联的 TLS 证书列表（用于 gRPC over TLS 连接）
+ * 用于请求配置中的 certificate_id 下拉选择
+ * @returns {Promise<void>}
+ */
 const loadCertificates = async () => {
+  /** 异常处理 */
   try {
     const res = await certificateAPI.list({ page: 1, page_size: 200 })
     certificates.value = res.data.items || []
   } catch (err: unknown) {
+    /** 条件分支 */
     if (!isHandledError(err)) {
       ElMessage.error((err as Error).message || '加载证书列表失败')
     }
   }
 }
 
-/** 加载指定测试用例的历史执行记录（最多 20 条） */
+/**
+ * 加载指定测试用例的历史执行记录（最多 20 条）
+ * 用于右侧 history-panel 的历史列表展示，支持选中对比
+ * @param {number} testId - 测试用例 ID
+ * @returns {Promise<void>}
+ */
 const loadHistory = async (testId: number) => {
+  /** 异常处理 */
   try {
     const res = await apiTestAPI.getResults(testId, { page: 1, page_size: 20 })
     historyResults.value = res.data.items || []
   } catch (err: unknown) {
+    /** 条件分支 */
     if (!isHandledError(err)) {
       ElMessage.error((err as Error).message || '加载历史记录失败')
     }
@@ -1063,14 +1259,17 @@ const handleProtoFileChange = async (fileId: number | null) => {
   protoServices.value = []
   expandedServiceNames.value = []
 
+  /** 条件分支 */
   if (!fileId) return
 
   parsingProto.value = true
   messageDefs.value = []
   currentMessageDef.value = null
   formData.value = {}
+  /** 异常处理 */
   try {
     const pf = protoFiles.value.find(f => f.id === fileId)
+    /** 条件分支 */
     if (!pf) return
 
     // Parse services and load field definitions in parallel
@@ -1080,15 +1279,18 @@ const handleProtoFileChange = async (fileId: number | null) => {
     ])
 
     const result = parseRes.data as ProtoParseResult
+    /** 条件分支 */
     if (result.services) {
       protoServices.value = result.services
       expandedServiceNames.value = result.services.map(s => s.name)
     }
 
+    /** 条件分支 */
     if (fieldsRes) {
       messageDefs.value = fieldsRes.data.messages || []
     }
   } catch (err: unknown) {
+    /** 条件分支 */
     if (!isHandledError(err)) {
       ElMessage.error((err as Error).message || '解析 Proto 文件失败')
     }
@@ -1097,8 +1299,13 @@ const handleProtoFileChange = async (fileId: number | null) => {
   }
 }
 
-/** 通过服务反射（reflection）远程拉取服务列表，依赖 TLS 配置 */
+/**
+ * 通过服务反射（reflection）远程拉取服务列表，依赖已配置的 TLS 地址
+ * 适合没有 .proto 文件的场景，通过后端调用 gRPC ServerReflection API
+ * @returns {Promise<void>}
+ */
 const handleReflect = async () => {
+  /** 条件分支 */
   if (!requestConfig.value.address) {
     ElMessage.warning('请输入服务器地址')
     return
@@ -1108,6 +1315,7 @@ const handleReflect = async () => {
   protoServices.value = []
   expandedServiceNames.value = []
 
+  /** 异常处理 */
   try {
     const res = await protoFileAPI.reflect({
       address: requestConfig.value.address,
@@ -1119,6 +1327,7 @@ const handleReflect = async () => {
     expandedServiceNames.value = services.map((s: ProtoService) => s.name)
     ElMessage.success(`发现 ${services.length} 个服务`)
   } catch (err: unknown) {
+    /** 条件分支 */
     if (!isHandledError(err)) {
       ElMessage.error((err as Error).message || '服务反射失败')
     }
@@ -1151,6 +1360,7 @@ const handleSelectMethod = async (svcName: string, method: ProtoMethod) => {
 
   // Update JSON editor content
   nextTick(() => {
+    /** 条件分支 */
     if (requestEditorView) {
       requestEditorView.dispatch({
         changes: {
@@ -1163,22 +1373,40 @@ const handleSelectMethod = async (svcName: string, method: ProtoMethod) => {
   })
 }
 
-/** 根据 Proto Message 定义生成格式化的 JSON 模板字符串 */
+/**
+ * 根据 Proto Message 定义递归生成格式化的 JSON 模板字符串（2 空格缩进）
+ * 内部调用 buildTemplateObject 把字段树转为默认值对象
+ * @param {ProtoMessageDef} msgDef - Proto 消息定义对象
+ * @returns {string} 格式化后的 JSON 字符串，如 '{\n  "fieldName": ""\n}'
+ */
 const generateTemplateFromMessage = (msgDef: ProtoMessageDef): string => {
   const obj = buildTemplateObject(msgDef)
+  /** 返回/抛出 */
   return JSON.stringify(obj, null, 2)
 }
 
-/** 递归把 ProtoMessageDef 转成 JavaScript 对象（用于模板 / 表单初始化） */
+/**
+ * 递归把 ProtoMessageDef 转成 JavaScript 对象（用于模板生成和表单初始化）
+ * 遍历 fields，对每个字段调用 buildFieldDefaultValue 填默认值
+ * @param {ProtoMessageDef} msgDef - Proto 消息定义对象
+ * @returns {Record<string, unknown>} 字段名到默认值的映射对象
+ */
 const buildTemplateObject = (msgDef: ProtoMessageDef): Record<string, unknown> => {
   const obj: Record<string, unknown> = {}
+  /** 循环 */
   for (const field of msgDef.fields) {
     obj[field.name] = buildFieldDefaultValue(field)
   }
+  /** 返回/抛出 */
   return obj
 }
 
-/** 根据字段 label 和 type 返回合理的默认值：map->{} / repeated->[] / 嵌套 message->递归对象 / 标量->零值 */
+/**
+ * 根据字段 label 和 type 返回合理的默认值：
+ * map → {}，repeated → []，嵌套 message → 递归对象，bool → false，数值 → 0，字符串 → ""
+ * @param {ProtoMessageField} field - Proto 字段定义
+ * @returns {unknown} 适合 JSON 模板 / 表单初始化的默认值
+ */
 const buildFieldDefaultValue = (field: ProtoMessageField): unknown => {
   // Map
   if (field.label === 'map') return {}
@@ -1187,15 +1415,19 @@ const buildFieldDefaultValue = (field: ProtoMessageField): unknown => {
   // Nested message
   if (field.fields && field.fields.length > 0) {
     const obj: Record<string, unknown> = {}
+    /** 循环 */
     for (const f of field.fields) {
       obj[f.name] = buildFieldDefaultValue(f)
     }
+    /** 返回/抛出 */
     return obj
   }
   // Scalar
   if (field.type === 'bool') return false
+  /** 条件分支 */
   if (['int32', 'int64', 'uint32', 'uint64', 'sint32', 'sint64',
     'fixed32', 'fixed64', 'sfixed32', 'sfixed64', 'float', 'double'].includes(field.type)) return 0
+  /** 返回/抛出 */
   return ''
 }
 
@@ -1208,13 +1440,16 @@ const buildFieldDefaultValue = (field: ProtoMessageField): unknown => {
  * 后端侧通过 grpc_connect_test type 处理，不会落库保存结果
  */
 const handleConnectTest = async () => {
+  /** 条件分支 */
   if (!requestConfig.value.address) {
     ElMessage.warning('请输入服务器地址')
     return
   }
 
   connecting.value = true
+  /** 异常处理 */
   try {
+    /** config 变量声明 */
     const config: GRPCRequestConfig = {
       ...requestConfig.value,
       use_reflection: connectionMode.value === 'reflection',
@@ -1226,12 +1461,14 @@ const handleConnectTest = async () => {
       save_result: false,
     })
     const result = res.data
+    /** 条件分支 */
     if (result.error) {
       ElMessage.error(result.error)
     } else {
       ElMessage.success('连接成功')
     }
   } catch (err: unknown) {
+    /** 条件分支 */
     if (!isHandledError(err)) {
       ElMessage.error((err as Error).message || '连接失败')
     }
@@ -1249,16 +1486,20 @@ const handleConnectTest = async () => {
  * 已保存的测试走 update + executeSaved 流程以确保 test_id 正确关联
  */
 const handleSend = async () => {
+  /** 条件分支 */
   if (!canSend.value) return
 
   sending.value = true
+  /** 异常处理 */
   try {
     // Determine request body based on mode
     let requestBody = requestConfig.value.request_body
+    /** 条件分支 */
     if (requestMode.value === 'form' && currentMessageDef.value) {
       requestBody = JSON.stringify(formData.value)
     }
 
+    /** config 变量声明 */
     const config: GRPCRequestConfig = {
       ...requestConfig.value,
       request_body: requestBody,
@@ -1266,8 +1507,10 @@ const handleSend = async () => {
       metadata: metadata.value.filter(m => m.key),
     }
 
+    /** res: 可变变量 */
     let res: any
 
+    /** 条件分支 */
     if (currentTestId.value) {
       // 已保存的测试：先更新配置，再调用 executeSaved 以正确关联 test_id
       await apiTestAPI.update(currentTestId.value, { config: JSON.stringify(config) })
@@ -1284,10 +1527,12 @@ const handleSend = async () => {
     lastResult.value = res.data
     activeResponseTab.value = 'body'
 
+    /** 条件分支 */
     if (currentTestId.value) {
       await loadHistory(currentTestId.value)
     }
   } catch (err: unknown) {
+    /** 条件分支 */
     if (!isHandledError(err)) {
       ElMessage.error((err as Error).message || '请求执行失败')
     }
@@ -1300,31 +1545,44 @@ const handleSend = async () => {
 // Save
 // ============================================================================
 
-/** 打开保存对话框；已存在的用例默认沿用现有名称 */
+/**
+ * 打开保存 gRPC 测试用例对话框
+ * 已存在的用例默认沿用现有名称，新建用例自动填充 "service/method" 格式名称
+ * @returns {void}
+ */
 const handleSave = () => {
+  /** 条件分支 */
   if (!canSave.value) return
   const existing = savedTests.value.find(t => t.id === currentTestId.value)
   saveName.value = existing?.name || `${requestConfig.value.service}/${requestConfig.value.method}`
   saveDialogVisible.value = true
 }
 
-/** 保存确认：新建或更新 gRPC 用例，config 序列化后落库 */
+/**
+ * 保存确认：校验名称非空，form 模式下先把 formData 序列化为请求体
+ * 已存在的用例调用 update，新建用例调用 create，config 统一序列化为 JSON 字符串
+ * @returns {Promise<void>}
+ */
 const handleSaveConfirm = async () => {
+  /** 条件分支 */
   if (!saveName.value.trim()) {
     ElMessage.warning('请输入名称')
     return
   }
 
   saving.value = true
+  /** 异常处理 */
   try {
     // Determine request body based on mode (mirrors handleSend logic)
     // In form mode, formData is the source of truth; without this serialization
     // the saved request_body would be the auto-generated template, not user input.
     let requestBody = requestConfig.value.request_body
+    /** 条件分支 */
     if (requestMode.value === 'form' && currentMessageDef.value) {
       requestBody = JSON.stringify(formData.value)
     }
 
+    /** config 变量声明 */
     const config: GRPCRequestConfig = {
       ...requestConfig.value,
       request_body: requestBody,
@@ -1332,6 +1590,7 @@ const handleSaveConfirm = async () => {
       metadata: metadata.value.filter(m => m.key),
     }
 
+    /** 条件分支 */
     if (currentTestId.value) {
       await apiTestAPI.update(currentTestId.value, {
         name: saveName.value.trim(),
@@ -1352,6 +1611,7 @@ const handleSaveConfirm = async () => {
     saveDialogVisible.value = false
     await loadSavedTests()
   } catch (err: unknown) {
+    /** 条件分支 */
     if (!isHandledError(err)) {
       ElMessage.error((err as Error).message || '保存失败')
     }
@@ -1370,6 +1630,7 @@ const handleSaveConfirm = async () => {
  */
 const handleLoadTest = async (item: ApiTest) => {
   currentTestId.value = item.id
+  /** 异常处理 */
   try {
     const config = JSON.parse(item.config) as GRPCRequestConfig
     requestConfig.value = {
@@ -1387,6 +1648,7 @@ const handleLoadTest = async (item: ApiTest) => {
     metadata.value = config.metadata || []
     connectionMode.value = config.use_reflection ? 'reflection' : 'proto'
 
+    /** 条件分支 */
     if (config.proto_file_id) {
       selectedProtoFileId.value = config.proto_file_id
       await handleProtoFileChange(config.proto_file_id)
@@ -1397,14 +1659,17 @@ const handleLoadTest = async (item: ApiTest) => {
       if (config.service && config.method) {
         const svc = protoServices.value.find(s => s.name === config.service)
         const method = svc?.methods.find(m => m.name === config.method)
+        /** 条件分支 */
         if (method) {
           const inputType = method.input_type
           const msgDef = messageDefs.value.find(m =>
             m.full_name === inputType || m.name === inputType ||
             m.full_name.endsWith('.' + inputType)
           )
+          /** 条件分支 */
           if (msgDef) {
             currentMessageDef.value = msgDef
+            /** 异常处理 */
             try {
               formData.value = JSON.parse(requestConfig.value.request_body || '{}')
             } catch {
@@ -1436,7 +1701,11 @@ const handleLoadTest = async (item: ApiTest) => {
   }
 }
 
-/** 把所有状态重置为默认值，开始一个全新的 gRPC 测试 */
+/**
+ * 把所有状态重置为默认值，开始一个全新的 gRPC 测试
+ * 清空 requestConfig、metadata、Proto 服务树、编辑器内容、历史记录等所有测试相关状态
+ * @returns {void}
+ */
 const handleNewTest = () => {
   currentTestId.value = null
   requestConfig.value = {
@@ -1461,6 +1730,7 @@ const handleNewTest = () => {
   lastResult.value = null
   historyResults.value = []
 
+  /** 条件分支 */
   if (requestEditorView) {
     requestEditorView.dispatch({
       changes: {
@@ -1472,8 +1742,15 @@ const handleNewTest = () => {
   }
 }
 
-/** 确认删除某条用例；若删的是当前用例则自动触发 handleNewTest */
+/**
+ * 确认删除某条已保存的 gRPC 测试用例
+ * 若删除的是当前正在编辑的用例，自动触发 handleNewTest 重置所有状态
+ * 删除后刷新左侧用例列表
+ * @param {ApiTest} item - 要删除的测试用例对象
+ * @returns {Promise<void>}
+ */
 const handleDeleteTest = async (item: ApiTest) => {
+  /** 异常处理 */
   try {
     await ElMessageBox.confirm(`确定要删除测试用例 "${item.name}" 吗？`, '确认删除', {
       confirmButtonText: '确定',
@@ -1482,11 +1759,13 @@ const handleDeleteTest = async (item: ApiTest) => {
     })
     await apiTestAPI.delete(item.id)
     ElMessage.success('已删除')
+    /** 条件分支 */
     if (currentTestId.value === item.id) {
       handleNewTest()
     }
     await loadSavedTests()
   } catch (err: unknown) {
+    /** 条件分支 */
     if (err !== 'cancel' && !isHandledError(err)) {
       ElMessage.error((err as Error).message || '删除失败')
     }
@@ -1497,11 +1776,17 @@ const handleDeleteTest = async (item: ApiTest) => {
 // CodeMirror Editor
 // ============================================================================
 
-/** 初始化请求体 JSON 编辑器；通过 updateListener 把文档变更同步回 requestConfig */
+/**
+ * 初始化请求体 JSON 编辑器：使用 CodeMirror 6 的 basicSetup + json + oneDark 主题
+ * 通过 updateListener 把文档变更实时同步回 requestConfig.request_body
+ * @returns {void}
+ */
 const initRequestEditor = () => {
+  /** 条件分支 */
   if (!requestEditorRef.value) return
 
   const updateListener = EditorView.updateListener.of((update) => {
+    /** 条件分支 */
     if (update.docChanged) {
       requestConfig.value.request_body = update.state.doc.toString()
     }
@@ -1529,12 +1814,20 @@ const initRequestEditor = () => {
   })
 }
 
-/** 创建/重建只读响应体 JSON 编辑器：自动尝试格式化 lastResult.body */
+/**
+ * 创建 / 重建只读响应体 JSON 编辑器：自动尝试把 lastResult.body 解析格式化（2 空格缩进）
+ * 解析失败时显示原始文本；使用 CodeMirror readOnly 扩展防止用户修改
+ * @returns {void}
+ */
 const createResponseJsonEditor = () => {
+  /** 条件分支 */
   if (!responseEditorRef.value) return
+  /** 条件分支 */
   if (responseEditorView) responseEditorView.destroy()
 
+  /** formattedBody 可变变量 */
   let formattedBody = ''
+  /** 异常处理 */
   try {
     const parsed = JSON.parse(lastResult.value?.body || '')
     formattedBody = JSON.stringify(parsed, null, 2)
@@ -1565,10 +1858,12 @@ const createResponseJsonEditor = () => {
 
 /** 全局快捷键：Ctrl/Cmd+Enter 发送，Ctrl/Cmd+S 保存 */
 const handleGlobalKeydown = (e: KeyboardEvent) => {
+  /** 条件分支 */
   if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
     e.preventDefault()
     handleSend()
   }
+  /** 条件分支 */
   if ((e.ctrlKey || e.metaKey) && e.key === 's') {
     e.preventDefault()
     handleSave()
@@ -1585,10 +1880,12 @@ onMounted(async () => {
 
 /** 组件卸载：销毁 CodeMirror 实例，移除全局快捷键监听 */
 onUnmounted(() => {
+  /** 条件分支 */
   if (requestEditorView) {
     requestEditorView.destroy()
     requestEditorView = null
   }
+  /** 条件分支 */
   if (responseEditorView) {
     responseEditorView.destroy()
     responseEditorView = null
@@ -1603,6 +1900,7 @@ watch(metadata, (val) => {
 
 /** 切换到 JSON 编辑模式时，从 currentMessageDef 生成格式化 JSON 作为起点 */
 watch(requestMode, (mode) => {
+  /** 条件分支 */
   if (mode === 'json') {
     // Generate formatted JSON from message definition (not from empty formData)
     const jsonStr = currentMessageDef.value
@@ -1610,6 +1908,7 @@ watch(requestMode, (mode) => {
       : requestConfig.value.request_body
     requestConfig.value.request_body = jsonStr
     nextTick(() => {
+      /** 条件分支 */
       if (requestEditorView) {
         requestEditorView.dispatch({
           changes: {
@@ -1634,6 +1933,7 @@ watch(connectionMode, () => {
 /** lastResult 更新且位于响应体 Tab 时，重建只读 JSON 响应编辑器 */
 watch(lastResult, () => {
   nextTick(() => {
+    /** 条件分支 */
     if (lastResult.value && !lastResult.value.error && activeResponseTab.value === 'body') {
       createResponseJsonEditor()
     }
@@ -1642,6 +1942,7 @@ watch(lastResult, () => {
 
 /** 切到响应体 Tab 时，若 lastResult 有效则重建响应编辑器 */
 watch(activeResponseTab, () => {
+  /** 条件分支 */
   if (activeResponseTab.value === 'body' && lastResult.value && !lastResult.value.error) {
     nextTick(() => createResponseJsonEditor())
   }
@@ -1649,6 +1950,7 @@ watch(activeResponseTab, () => {
 
 /** 响应体展示模式切回 json 时，重建格式化 JSON 编辑器 */
 watch(responseBodyMode, () => {
+  /** 条件分支 */
   if (responseBodyMode.value === 'json' && lastResult.value && !lastResult.value.error) {
     nextTick(() => createResponseJsonEditor())
   }
@@ -1657,6 +1959,7 @@ watch(responseBodyMode, () => {
 
 <style scoped>
 /* ==================== CSS Variables ==================== */
+/* === .grpc-test-page 样式定义 === */
 .grpc-test-page {
   --panel-width: 250px;
   --panel-min-width: 200px;
@@ -1677,6 +1980,7 @@ watch(responseBodyMode, () => {
   margin: calc(-1 * var(--space-6));
 }
 
+/* === 主内容区 flex 布局（任务区 + 日志面板） === */
 .main-content {
   display: flex;
   flex: 1;
@@ -1687,6 +1991,7 @@ watch(responseBodyMode, () => {
 }
 
 /* ==================== Left Panel ==================== */
+/* === .saved-panel 样式定义 === */
 .saved-panel {
   width: var(--panel-width);
   min-width: var(--panel-min-width);
@@ -1701,10 +2006,12 @@ watch(responseBodyMode, () => {
   transition: box-shadow var(--transition-tab);
 }
 
+/* === .saved-panel 样式定义 === */
 .saved-panel:hover {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
 }
 
+/* === .panel-header 样式定义 === */
 .panel-header {
   display: flex;
   justify-content: space-between;
@@ -1714,27 +2021,32 @@ watch(responseBodyMode, () => {
   background: var(--bg-secondary);
 }
 
+/* === .panel-title 样式定义 === */
 .panel-title {
   font-weight: 600;
   font-size: var(--font-size-md);
   color: var(--text-primary);
 }
 
+/* === .el-badge__content) 样式定义 === */
 .panel-count-badge :deep(.el-badge__content) {
   font-size: 11px;
 }
 
+/* === .panel-search 样式定义 === */
 .panel-search {
   padding: var(--spacing-sm) var(--spacing-md);
   border-bottom: 1px solid var(--border-subtle);
 }
 
+/* === .saved-list 样式定义 === */
 .saved-list {
   flex: 1;
   overflow-y: auto;
   padding: var(--spacing-sm);
 }
 
+/* === .saved-item 样式定义 === */
 .saved-item {
   display: flex;
   align-items: center;
@@ -1746,20 +2058,24 @@ watch(responseBodyMode, () => {
   transition: all var(--duration-fast);
 }
 
+/* === .saved-item 样式定义 === */
 .saved-item:hover {
   background: var(--bg-hover);
   transform: translateX(2px);
 }
 
+/* === .active 样式定义 === */
 .saved-item.active {
   background: rgba(99, 102, 241, 0.1);
   border-left-color: #6366f1;
 }
 
+/* === .saved-delete 样式定义 === */
 .saved-item:hover .saved-delete {
   opacity: 1;
 }
 
+/* === .grpc-badge 样式定义 === */
 .grpc-badge {
   flex-shrink: 0;
   font-size: 11px;
@@ -1769,6 +2085,7 @@ watch(responseBodyMode, () => {
   border-color: #6366f1;
 }
 
+/* === .saved-item-info 样式定义 === */
 .saved-item-info {
   display: flex;
   flex-direction: column;
@@ -1777,6 +2094,7 @@ watch(responseBodyMode, () => {
   flex: 1;
 }
 
+/* === .saved-name 样式定义 === */
 .saved-name {
   flex: 1;
   font-size: 13px;
@@ -1787,6 +2105,7 @@ watch(responseBodyMode, () => {
   font-weight: 500;
 }
 
+/* === .saved-addr 样式定义 === */
 .saved-addr {
   font-size: 11px;
   color: var(--text-muted);
@@ -1796,6 +2115,7 @@ watch(responseBodyMode, () => {
   font-family: Monaco, Menlo, 'Ubuntu Mono', monospace;
 }
 
+/* === .saved-delete 样式定义 === */
 .saved-delete {
   opacity: 0;
   color: var(--text-muted);
@@ -1804,10 +2124,12 @@ watch(responseBodyMode, () => {
   cursor: pointer;
 }
 
+/* === .saved-delete 样式定义 === */
 .saved-delete:hover {
   color: var(--accent-danger);
 }
 
+/* === .empty-saved 样式定义 === */
 .empty-saved {
   display: flex;
   flex-direction: column;
@@ -1818,21 +2140,25 @@ watch(responseBodyMode, () => {
   gap: var(--spacing-sm);
 }
 
+/* === .empty-saved 样式定义 === */
 .empty-saved p {
   font-size: var(--font-size-sm);
   margin: 0;
 }
 
+/* === .panel-footer 样式定义 === */
 .panel-footer {
   padding: var(--spacing-md);
   border-top: 1px solid var(--border-subtle);
 }
 
+/* === .new-btn 样式定义 === */
 .new-btn {
   width: 100%;
 }
 
 /* ==================== Right Panel ==================== */
+/* === .editor-area 样式定义 === */
 .editor-area {
   flex: 1;
   display: flex;
@@ -1844,6 +2170,7 @@ watch(responseBodyMode, () => {
 }
 
 /* ==================== Request Section ==================== */
+/* === .request-section 样式定义 === */
 .request-section {
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
@@ -1858,17 +2185,20 @@ watch(responseBodyMode, () => {
   transition: max-height 0.3s ease, min-height 0.3s ease, flex 0.3s ease;
 }
 
+/* === .panel-maximized 样式定义 === */
 .request-section.panel-maximized {
   flex: 1;
   max-height: none;
   min-height: 0;
 }
 
+/* === .panel-minimized 样式定义 === */
 .request-section.panel-minimized {
   display: none;
 }
 
 /* ==================== Resize Handle ==================== */
+/* === .resize-handle 样式定义 === */
 .resize-handle {
   flex-shrink: 0;
   height: 8px;
@@ -1881,11 +2211,13 @@ watch(responseBodyMode, () => {
 }
 
 .resize-handle:hover .resize-line,
+/* === .resize-line 样式定义 === */
 .resize-handle:active .resize-line {
   background: #6366f1;
   height: 3px;
 }
 
+/* === .resize-line 样式定义 === */
 .resize-line {
   width: 40px;
   height: 2px;
@@ -1894,11 +2226,13 @@ watch(responseBodyMode, () => {
   transition: all 0.2s ease;
 }
 
+/* === .panel-toggle-btn 样式定义 === */
 .panel-toggle-btn {
   margin-left: auto;
   flex-shrink: 0;
 }
 
+/* === .current-test-name 样式定义 === */
 .current-test-name {
   display: flex;
   align-items: center;
@@ -1911,6 +2245,7 @@ watch(responseBodyMode, () => {
   font-weight: 500;
 }
 
+/* === .request-bar 样式定义 === */
 .request-bar {
   display: flex;
   align-items: center;
@@ -1921,31 +2256,37 @@ watch(responseBodyMode, () => {
   flex-wrap: wrap;
 }
 
+/* === .bar-divider 样式定义 === */
 .bar-divider {
   height: 24px;
   margin: 0 2px;
 }
 
+/* === .address-input 样式定义 === */
 .address-input {
   flex: 1;
 }
 
+/* === .mode-select 样式定义 === */
 .mode-select {
   width: 140px;
   flex-shrink: 0;
 }
 
+/* === .timeout-input 样式定义 === */
 .timeout-input {
   width: 100px;
   flex-shrink: 0;
 }
 
+/* === 超时提示文本（小号灰色） === */
 .timeout-hint {
   color: var(--text-muted);
   cursor: help;
   flex-shrink: 0;
 }
 
+/* === .send-btn 样式定义 === */
 .send-btn {
   font-weight: 600;
   background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
@@ -1956,12 +2297,14 @@ watch(responseBodyMode, () => {
   transition: all var(--duration-normal) var(--ease-out);
 }
 
+/* === .send-btn 样式定义 === */
 .send-btn:hover {
   transform: translateY(-1px);
   box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
   filter: brightness(1.05);
 }
 
+/* === .action-btn 样式定义 === */
 .action-btn {
   font-weight: 500;
   background: var(--bg-secondary);
@@ -1971,11 +2314,13 @@ watch(responseBodyMode, () => {
   transition: all var(--duration-normal) var(--ease-out);
 }
 
+/* === .action-btn 样式定义 === */
 .action-btn:hover {
   border-color: #6366f1;
   color: #6366f1;
 }
 
+/* === .request-tabs 样式定义 === */
 .request-tabs {
   padding: 0 var(--spacing-lg);
   flex: 1;
@@ -1984,10 +2329,12 @@ watch(responseBodyMode, () => {
   flex-direction: column;
 }
 
+/* === .el-tabs__header) 样式定义 === */
 .request-tabs :deep(.el-tabs__header) {
   flex-shrink: 0;
 }
 
+/* === .el-tabs__content) 样式定义 === */
 .request-tabs :deep(.el-tabs__content) {
   padding: var(--spacing-md) 0;
   flex: 1;
@@ -1996,23 +2343,28 @@ watch(responseBodyMode, () => {
   transition: opacity var(--transition-tab);
 }
 
+/* === .el-tab-pane) 样式定义 === */
 .request-tabs :deep(.el-tab-pane) {
   min-height: 100%;
 }
 
 /* ==================== Service Panel ==================== */
+/* === .service-panel 样式定义 === */
 .service-panel {
   padding: var(--spacing-md);
 }
 
+/* === .proto-selector 样式定义 === */
 .proto-selector {
   margin-bottom: var(--spacing-md);
 }
 
+/* === .proto-select 样式定义 === */
 .proto-select {
   width: 100%;
 }
 
+/* === .service-loading 样式定义 === */
 .service-loading {
   display: flex;
   align-items: center;
@@ -2022,16 +2374,19 @@ watch(responseBodyMode, () => {
   color: var(--text-muted);
 }
 
+/* === .service-tree 样式定义 === */
 .service-tree {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-sm);
 }
 
+/* === .service-collapse 样式定义 === */
 .service-collapse {
   border: none;
 }
 
+/* === .el-collapse-item__header) 样式定义 === */
 .service-collapse :deep(.el-collapse-item__header) {
   background: var(--bg-secondary);
   border: 1px solid var(--border-subtle);
@@ -2044,10 +2399,12 @@ watch(responseBodyMode, () => {
   transition: background var(--duration-fast) var(--ease-out);
 }
 
+/* === .el-collapse-item__header 样式定义 === */
 .service-collapse :deep(.el-collapse-item__header:hover) {
   background: var(--bg-hover);
 }
 
+/* === .el-collapse-item__wrap) 样式定义 === */
 .service-collapse :deep(.el-collapse-item__wrap) {
   border: 1px solid var(--border-subtle);
   border-top: none;
@@ -2055,10 +2412,12 @@ watch(responseBodyMode, () => {
   overflow: hidden;
 }
 
+/* === .el-collapse-item__content) 样式定义 === */
 .service-collapse :deep(.el-collapse-item__content) {
   padding: var(--spacing-xs) 0;
 }
 
+/* === .service-name 样式定义 === */
 .service-name {
   display: flex;
   align-items: center;
@@ -2066,15 +2425,18 @@ watch(responseBodyMode, () => {
   color: var(--text-primary);
 }
 
+/* === .svc-icon 样式定义 === */
 .svc-icon {
   color: #6366f1;
 }
 
+/* === .method-count-tag 样式定义 === */
 .method-count-tag {
   margin-left: auto;
   font-size: 11px;
 }
 
+/* === .method-item 样式定义 === */
 .method-item {
   display: flex;
   align-items: center;
@@ -2086,30 +2448,36 @@ watch(responseBodyMode, () => {
   border-left: 3px solid transparent;
 }
 
+/* === .method-item 样式定义 === */
 .method-item:hover {
   background: var(--bg-hover);
 }
 
+/* === .active 样式定义 === */
 .method-item.active {
   background: rgba(99, 102, 241, 0.08);
   color: #6366f1;
   border-left-color: #6366f1;
 }
 
+/* === .method-icon 样式定义 === */
 .method-icon {
   color: var(--accent-success);
   flex-shrink: 0;
 }
 
+/* === .method-name 样式定义 === */
 .method-name {
   font-weight: 500;
   color: var(--text-primary);
 }
 
+/* === .method-name 样式定义 === */
 .method-item.active .method-name {
   color: #6366f1;
 }
 
+/* === .method-type 样式定义 === */
 .method-type {
   color: var(--text-muted);
   font-size: 0.72rem;
@@ -2118,15 +2486,18 @@ watch(responseBodyMode, () => {
   font-family: Monaco, Menlo, 'Ubuntu Mono', monospace;
 }
 
+/* === .stream-tag 样式定义 === */
 .stream-tag {
   margin-left: var(--spacing-sm);
 }
 
+/* === .reflection-bar 样式定义 === */
 .reflection-bar {
   margin-bottom: var(--spacing-md);
 }
 
 /* ==================== Request Mode ==================== */
+/* === .request-mode-bar 样式定义 === */
 .request-mode-bar {
   margin-bottom: var(--spacing-sm);
   display: flex;
@@ -2134,14 +2505,17 @@ watch(responseBodyMode, () => {
   justify-content: space-between;
 }
 
+/* === .form-wrapper 样式定义 === */
 .form-wrapper {
   min-height: 200px;
 }
 
+/* === .form-container 样式定义 === */
 .form-container {
   padding: var(--spacing-sm) 0;
 }
 
+/* === .form-message-header 样式定义 === */
 .form-message-header {
   display: flex;
   align-items: center;
@@ -2156,26 +2530,31 @@ watch(responseBodyMode, () => {
   color: #6366f1;
 }
 
+/* === .editor-wrapper 样式定义 === */
 .editor-wrapper {
   height: 100%;
 }
 
 /* ==================== Editor ==================== */
+/* === .editor-container 样式定义 === */
 .editor-container {
   height: 100%;
   overflow: hidden;
 }
 
 /* ==================== Metadata Panel ==================== */
+/* === .metadata-panel 样式定义 === */
 .metadata-panel {
   padding: var(--spacing-md);
 }
 
 /* ==================== TLS Panel ==================== */
+/* === .tls-panel 样式定义 === */
 .tls-panel {
   padding: var(--spacing-md);
 }
 
+/* === .tls-mode-wrapper 样式定义 === */
 .tls-mode-wrapper {
   display: flex;
   flex-direction: column;
@@ -2183,10 +2562,12 @@ watch(responseBodyMode, () => {
   width: 100%;
 }
 
+/* === .tls-mode-select 样式定义 === */
 .tls-mode-select {
   width: 100%;
 }
 
+/* === .tls-option 样式定义 === */
 .tls-option {
   display: flex;
   align-items: center;
@@ -2194,14 +2575,17 @@ watch(responseBodyMode, () => {
   width: 100%;
 }
 
+/* === .tls-option-label 样式定义 === */
 .tls-option-label {
   flex: 1;
 }
 
+/* === .tls-option-tag 样式定义 === */
 .tls-option-tag {
   margin-left: var(--spacing-sm);
 }
 
+/* === .tls-security-indicator 样式定义 === */
 .tls-security-indicator {
   display: flex;
   align-items: center;
@@ -2214,6 +2598,7 @@ watch(responseBodyMode, () => {
 .security-warning { color: var(--accent-warning); }
 .security-success { color: var(--accent-success); }
 
+/* === .tls-mode-desc 样式定义 === */
 .tls-mode-desc {
   display: flex;
   align-items: center;
@@ -2224,28 +2609,33 @@ watch(responseBodyMode, () => {
   line-height: 1.5;
 }
 
+/* === .tls-mode-desc-danger 样式定义 === */
 .tls-mode-desc-danger {
   background: rgba(245, 108, 108, 0.06);
   color: var(--accent-danger);
   border: 1px solid rgba(245, 108, 108, 0.15);
 }
 
+/* === .tls-mode-desc-warning 样式定义 === */
 .tls-mode-desc-warning {
   background: rgba(230, 162, 60, 0.06);
   color: var(--accent-warning);
   border: 1px solid rgba(230, 162, 60, 0.15);
 }
 
+/* === .tls-mode-desc-success 样式定义 === */
 .tls-mode-desc-success {
   background: rgba(103, 194, 58, 0.06);
   color: var(--accent-success);
   border: 1px solid rgba(103, 194, 58, 0.15);
 }
 
+/* === .cert-select 样式定义 === */
 .cert-select {
   width: 100%;
 }
 
+/* === .cert-option 样式定义 === */
 .cert-option {
   display: flex;
   align-items: center;
@@ -2253,6 +2643,7 @@ watch(responseBodyMode, () => {
   width: 100%;
 }
 
+/* === .cert-option-name 样式定义 === */
 .cert-option-name {
   flex: 1;
   overflow: hidden;
@@ -2260,6 +2651,7 @@ watch(responseBodyMode, () => {
   white-space: nowrap;
 }
 
+/* === .cert-badges 样式定义 === */
 .cert-badges {
   margin-left: auto;
   display: flex;
@@ -2268,6 +2660,7 @@ watch(responseBodyMode, () => {
 }
 
 /* ==================== Response Section ==================== */
+/* === .response-section 样式定义 === */
 .response-section {
   border: 1px solid var(--border-subtle);
   border-top: 2px solid #6366f1;
@@ -2282,33 +2675,40 @@ watch(responseBodyMode, () => {
   transition: flex 0.3s ease, min-height 0.3s ease;
 }
 
+/* === .panel-maximized 样式定义 === */
 .response-section.panel-maximized {
   flex: 1;
   min-height: 0;
 }
 
+/* === .panel-minimized 样式定义 === */
 .response-section.panel-minimized {
   display: none;
 }
 
+/* === .response-fade-enter-active 样式定义 === */
 .response-fade-enter-active {
   transition: all 0.3s ease-out;
 }
 
+/* === .response-fade-leave-active 样式定义 === */
 .response-fade-leave-active {
   transition: all 0.2s ease-in;
 }
 
+/* === .response-fade-enter-from 样式定义 === */
 .response-fade-enter-from {
   opacity: 0;
   transform: translateY(10px);
 }
 
+/* === .response-fade-leave-to 样式定义 === */
 .response-fade-leave-to {
   opacity: 0;
   transform: translateY(-5px);
 }
 
+/* === .response-header 样式定义 === */
 .response-header {
   padding: var(--spacing-sm) var(--spacing-lg);
   border-bottom: 1px solid var(--border-subtle);
@@ -2319,6 +2719,7 @@ watch(responseBodyMode, () => {
   flex-shrink: 0;
 }
 
+/* === .response-info 样式定义 === */
 .response-info {
   display: flex;
   align-items: center;
@@ -2327,6 +2728,7 @@ watch(responseBodyMode, () => {
   color: var(--text-secondary);
 }
 
+/* === .status-badge 样式定义 === */
 .status-badge {
   font-weight: 700;
   font-size: 12px;
@@ -2335,12 +2737,14 @@ watch(responseBodyMode, () => {
   padding: 2px 8px;
 }
 
+/* === .response-meta-item 样式定义 === */
 .response-meta-item {
   display: flex;
   align-items: center;
   gap: 4px;
 }
 
+/* === .status-code 样式定义 === */
 .status-code {
   font-weight: 600;
   font-family: Monaco, Menlo, 'Ubuntu Mono', monospace;
@@ -2349,6 +2753,7 @@ watch(responseBodyMode, () => {
 .status-ok { color: var(--accent-success); }
 .status-error { color: var(--accent-danger); }
 
+/* === .copy-response-btn 样式定义 === */
 .copy-response-btn {
   color: var(--text-muted);
   background: var(--bg-secondary);
@@ -2359,11 +2764,13 @@ watch(responseBodyMode, () => {
   flex-shrink: 0;
 }
 
+/* === .copy-response-btn 样式定义 === */
 .copy-response-btn:hover {
   color: #6366f1;
   border-color: #6366f1;
 }
 
+/* === .response-tabs 样式定义 === */
 .response-tabs {
   padding: 0 var(--spacing-lg);
   flex: 1;
@@ -2372,10 +2779,12 @@ watch(responseBodyMode, () => {
   flex-direction: column;
 }
 
+/* === .el-tabs__header) 样式定义 === */
 .response-tabs :deep(.el-tabs__header) {
   flex-shrink: 0;
 }
 
+/* === .el-tabs__content) 样式定义 === */
 .response-tabs :deep(.el-tabs__content) {
   padding: var(--spacing-md) 0;
   flex: 1;
@@ -2384,12 +2793,14 @@ watch(responseBodyMode, () => {
   transition: opacity var(--transition-tab);
 }
 
+/* === .el-tab-pane) 样式定义 === */
 .response-tabs :deep(.el-tab-pane) {
   height: 100%;
   display: flex;
   flex-direction: column;
 }
 
+/* === .response-body-content 样式定义 === */
 .response-body-content {
   display: flex;
   flex-direction: column;
@@ -2398,6 +2809,7 @@ watch(responseBodyMode, () => {
   overflow: hidden;
 }
 
+/* === .response-body-header 样式定义 === */
 .response-body-header {
   display: flex;
   align-items: center;
@@ -2406,23 +2818,27 @@ watch(responseBodyMode, () => {
   flex-shrink: 0;
 }
 
+/* === .response-body-modes 样式定义 === */
 .response-body-modes {
   display: flex;
   align-items: center;
 }
 
+/* === .response-body-actions 样式定义 === */
 .response-body-actions {
   display: flex;
   align-items: center;
   gap: var(--spacing-xs);
 }
 
+/* === .response-raw-wrapper 样式定义 === */
 .response-raw-wrapper {
   flex: 1;
   min-height: 0;
   overflow: auto;
 }
 
+/* === .response-raw 样式定义 === */
 .response-raw {
   font-family: Monaco, Menlo, 'Ubuntu Mono', monospace;
   font-size: 13px;
@@ -2435,11 +2851,13 @@ watch(responseBodyMode, () => {
   border-radius: var(--radius-md);
 }
 
+/* === .response-json-editor 样式定义 === */
 .response-json-editor {
   flex: 1;
   min-height: 0;
 }
 
+/* === .error-content 样式定义 === */
 .error-content {
   display: flex;
   align-items: flex-start;
@@ -2447,6 +2865,7 @@ watch(responseBodyMode, () => {
   color: var(--accent-danger);
 }
 
+/* === .error-content 样式定义 === */
 .error-content pre {
   font-family: Monaco, Menlo, 'Ubuntu Mono', monospace;
   font-size: 0.82rem;
@@ -2462,12 +2881,14 @@ watch(responseBodyMode, () => {
 }
 
 /* ==================== Response Headers ==================== */
+/* === .response-headers 样式定义 === */
 .response-headers {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-xs);
 }
 
+/* === .header-row 样式定义 === */
 .header-row {
   display: flex;
   gap: var(--spacing-md);
@@ -2476,17 +2897,20 @@ watch(responseBodyMode, () => {
   border-bottom: 1px solid var(--border-subtle);
 }
 
+/* === .header-key 样式定义 === */
 .header-key {
   font-weight: 600;
   color: var(--text-primary);
   min-width: 200px;
 }
 
+/* === .header-value 样式定义 === */
 .header-value {
   color: var(--text-secondary);
   word-break: break-all;
 }
 
+/* === .body-none 样式定义 === */
 .body-none {
   padding: var(--spacing-xl);
   text-align: center;
@@ -2495,6 +2919,7 @@ watch(responseBodyMode, () => {
 }
 
 /* ==================== History ==================== */
+/* === .history-toolbar 样式定义 === */
 .history-toolbar {
   display: flex;
   align-items: center;
@@ -2502,12 +2927,14 @@ watch(responseBodyMode, () => {
   margin-bottom: var(--spacing-sm);
 }
 
+/* === .history-list 样式定义 === */
 .history-list {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-xs);
 }
 
+/* === .history-item 样式定义 === */
 .history-item {
   display: flex;
   align-items: center;
@@ -2519,26 +2946,31 @@ watch(responseBodyMode, () => {
   font-size: 13px;
 }
 
+/* === .history-item 样式定义 === */
 .history-item:hover {
   background: var(--bg-hover);
 }
 
+/* === .active 样式定义 === */
 .history-item.active {
   background: rgba(99, 102, 241, 0.1);
 }
 
+/* === .history-code 样式定义 === */
 .history-code {
   font-size: 12px;
   font-weight: 600;
   font-family: Monaco, Menlo, 'Ubuntu Mono', monospace;
 }
 
+/* === .history-latency 样式定义 === */
 .history-latency {
   color: var(--text-secondary);
   min-width: 60px;
   font-family: Monaco, Menlo, 'Ubuntu Mono', monospace;
 }
 
+/* === .history-time 样式定义 === */
 .history-time {
   color: var(--text-muted);
   margin-left: auto;
@@ -2546,6 +2978,7 @@ watch(responseBodyMode, () => {
 }
 
 /* ==================== Empty State ==================== */
+/* === .empty-response 样式定义 === */
 .empty-response {
   flex: 1;
   display: flex;
@@ -2559,6 +2992,7 @@ watch(responseBodyMode, () => {
   color: var(--text-muted);
 }
 
+/* === .empty-response 样式定义 === */
 .empty-response h3 {
   font-size: var(--font-size-lg);
   font-weight: 600;
@@ -2566,6 +3000,7 @@ watch(responseBodyMode, () => {
   margin: var(--spacing-md) 0 var(--spacing-sm);
 }
 
+/* === .empty-response 样式定义 === */
 .empty-response p {
   font-size: var(--font-size-sm);
   color: var(--text-secondary);
@@ -2573,11 +3008,13 @@ watch(responseBodyMode, () => {
 }
 
 /* ==================== Compare Dialog ==================== */
+/* === .compare-container 样式定义 === */
 .compare-container {
   display: flex;
   gap: var(--spacing-lg);
 }
 
+/* === .compare-panel 样式定义 === */
 .compare-panel {
   flex: 1;
   min-width: 0;
@@ -2586,6 +3023,7 @@ watch(responseBodyMode, () => {
   overflow: hidden;
 }
 
+/* === .compare-header 样式定义 === */
 .compare-header {
   display: flex;
   align-items: center;
@@ -2596,23 +3034,27 @@ watch(responseBodyMode, () => {
   font-size: 13px;
 }
 
+/* === .compare-code 样式定义 === */
 .compare-code {
   font-weight: 600;
   font-family: Monaco, Menlo, 'Ubuntu Mono', monospace;
   font-size: 12px;
 }
 
+/* === .compare-latency 样式定义 === */
 .compare-latency {
   color: var(--text-secondary);
   font-family: Monaco, Menlo, 'Ubuntu Mono', monospace;
 }
 
+/* === .compare-time 样式定义 === */
 .compare-time {
   color: var(--text-muted);
   font-size: 12px;
   margin-left: auto;
 }
 
+/* === .compare-body 样式定义 === */
 .compare-body {
   padding: var(--spacing-md);
   margin: 0;

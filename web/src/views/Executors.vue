@@ -248,8 +248,8 @@ const assignForm = ref({
 })
 
 const filters = ref({
-  name: '',
-  status: ''
+  name: '',  // 名称
+  status: ''  // 状态
 })
 
 const isAdmin = computed(() => authStore.isSystemAdmin)
@@ -275,30 +275,50 @@ const filteredExecutors = computed(() => {
   })
 })
 
+/**
+ * 根据执行器状态返回 Element Plus tag 类型
+ * @param {string} status - 执行器状态（online/offline）
+ * @returns {string} tag 类型（success/danger/info）
+ */
 const getStatusType = (status: string) => {
   switch (status) {
     case 'online': return 'success'
     case 'offline': return 'danger'
-    default: return 'info'
+    default: return 'info'  // default
   }
 }
 
+/**
+ * 将执行器状态编码转换为中文显示文本
+ * @param {string} status - 执行器状态编码
+ * @returns {string} 中文状态（在线/离线）
+ */
 const getStatusText = (status: string) => {
   switch (status) {
     case 'online': return '在线'
     case 'offline': return '离线'
-    default: return status
+    default: return status  // default
   }
 }
 
+/**
+ * 获取执行器状态指示器的 CSS 类名（小圆点颜色）
+ * @param {string} status - 执行器状态编码
+ * @returns {string} CSS 类名（dot-success/dot-danger/dot-info）
+ */
 const getStatusDotClass = (status: string) => {
   switch (status) {
     case 'online': return 'dot-success'
     case 'offline': return 'dot-danger'
-    default: return 'dot-info'
+    default: return 'dot-info'  // default
   }
 }
 
+/**
+ * 格式化时间字符串为人类可读格式（YYYY-MM-DD HH:mm:ss）
+ * @param {string | null | undefined} timeStr - 原始时间字符串
+ * @returns {string} 格式化后时间，无效时返回 '-'
+ */
 const formatTime = (timeStr: string | null | undefined) => {
   if (!timeStr) return '-'
   try {
@@ -318,6 +338,10 @@ const formatTime = (timeStr: string | null | undefined) => {
   }
 }
 
+/**
+ * 从后端加载执行器列表并更新页面数据
+ * @returns {Promise<void>}
+ */
 const loadExecutors = async () => {
   loading.value = true
   try {
@@ -332,6 +356,10 @@ const loadExecutors = async () => {
   }
 }
 
+/**
+ * 加载所有领域列表（仅管理员可见，用于执行器分配领域弹窗）
+ * @returns {Promise<void>}
+ */
 const loadDomains = async () => {
   try {
     const response = await domainAdminAPI.list()
@@ -340,15 +368,21 @@ const loadDomains = async () => {
   }
 }
 
+/**
+ * 变更执行器上下线状态，二次确认后调用后端接口
+ * @param {ExecutorWithDomains} row - 当前执行器行数据
+ * @param {string} status - 目标状态（online/offline）
+ * @returns {Promise<void>}
+ */
 const handleChangeStatus = async (row: ExecutorWithDomains, status: string) => {
   try {
     await ElMessageBox.confirm(
       `确定要将执行器 "${row.name}" 设置为${status === 'online' ? '上线' : '离线'}状态吗？`,
       '状态变更确认',
       {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
-        type: 'warning',
+        confirmButtonText: '确定',  // confirm button text
+        cancelButtonText: '取消',  // cancel button text
+        type: 'warning',  // 类型
       }
     )
 
@@ -367,6 +401,11 @@ const handleChangeStatus = async (row: ExecutorWithDomains, status: string) => {
   }
 }
 
+/**
+ * 删除执行器：先检查是否可删（有无绑定任务），二次确认后调用删除接口
+ * @param {ExecutorWithDomains} row - 当前执行器行数据
+ * @returns {Promise<void>}
+ */
 const handleDelete = async (row: ExecutorWithDomains) => {
   try {
     const deleteCheck = await executorAPI.canDelete(row.name)
@@ -387,9 +426,9 @@ const handleDelete = async (row: ExecutorWithDomains) => {
       confirmMessage,
       '删除确认',
       {
-        confirmButtonText: '删除',
-        cancelButtonText: '取消',
-        type: 'warning',
+        confirmButtonText: '删除',  // confirm button text
+        cancelButtonText: '取消',  // cancel button text
+        type: 'warning',  // 类型
       }
     )
 
@@ -403,6 +442,10 @@ const handleDelete = async (row: ExecutorWithDomains) => {
   }
 }
 
+/**
+ * 进入执行器容量编辑模式：保存原始值并聚焦输入框
+ * @param {ExecutorWithDomains} row - 当前执行器行数据
+ */
 const handleEditCapacity = (row: ExecutorWithDomains) => {
   editingRow.value = row.id
   tempCapacity.value = row.capacity || 1
@@ -411,6 +454,11 @@ const handleEditCapacity = (row: ExecutorWithDomains) => {
   }, 50)
 }
 
+/**
+ * 保存执行器容量修改（与 handleEditCapacity 配合使用）
+ * @param {ExecutorWithDomains} row - 当前执行器行数据
+ * @returns {Promise<void>}
+ */
 const handleSaveCapacity = async (row: ExecutorWithDomains) => {
   if (editingRow.value === null) return
 
@@ -433,6 +481,11 @@ const handleSaveCapacity = async (row: ExecutorWithDomains) => {
   }
 }
 
+/**
+ * 打开执行器领域分配弹窗，初始化当前已分配的领域 ID
+ * @param {ExecutorWithDomains} row - 当前执行器行数据
+ * @returns {Promise<void>}
+ */
 const handleAssignDomains = async (row: ExecutorWithDomains) => {
   currentExecutor.value = row
   assignForm.value.domain_ids = (row.domains || []).map(d => d.id)
@@ -442,11 +495,18 @@ const handleAssignDomains = async (row: ExecutorWithDomains) => {
   }
 }
 
+/**
+ * 重置领域分配表单（清空选中项和当前执行器引用）
+ */
 const resetAssignForm = () => {
   assignForm.value = { domain_ids: [] }
   currentExecutor.value = null
 }
 
+/**
+ * 保存领域分配结果，调用后端接口更新执行器所属领域
+ * @returns {Promise<void>}
+ */
 const handleSaveAssignDomains = async () => {
   if (!currentExecutor.value) return
   
@@ -474,6 +534,7 @@ onMounted(() => {
 </script>
 
 <style scoped>
+/* === executors page === */
 .executors-page {
   display: flex;
   flex-direction: column;
@@ -482,6 +543,7 @@ onMounted(() => {
   height: 100%;
 }
 
+/* === stats grid === */
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -489,6 +551,7 @@ onMounted(() => {
   margin-bottom: var(--space-4);
 }
 
+/* === stat card === */
 .stat-card {
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
@@ -501,12 +564,14 @@ onMounted(() => {
   transition: all var(--duration-normal) var(--ease-out);
 }
 
+/* === stat card === */
 .stat-card:hover {
   transform: translateY(-2px);
   box-shadow: var(--shadow-lg), var(--shadow-glow);
   border-color: var(--border-default);
 }
 
+/* === stat icon === */
 .stat-icon {
   width: 56px;
   height: 56px;
@@ -517,32 +582,38 @@ onMounted(() => {
   flex-shrink: 0;
 }
 
+/* === stat icon primary === */
 .stat-icon-primary {
   background: linear-gradient(135deg, rgba(37, 99, 235, 0.1), rgba(37, 99, 235, 0.05));
   color: var(--accent-primary);
 }
 
+/* === stat icon success === */
 .stat-icon-success {
   background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(16, 185, 129, 0.05));
   color: var(--accent-success);
 }
 
+/* === stat icon warning === */
 .stat-icon-warning {
   background: linear-gradient(135deg, rgba(245, 158, 11, 0.1), rgba(245, 158, 11, 0.05));
   color: var(--accent-warning);
 }
 
+/* === stat icon danger === */
 .stat-icon-danger {
   background: linear-gradient(135deg, rgba(239, 68, 68, 0.1), rgba(239, 68, 68, 0.05));
   color: var(--accent-danger);
 }
 
+/* === stat content === */
 .stat-content {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
 }
 
+/* === stat value === */
 .stat-value {
   font-family: var(--font-display);
   font-size: 1.75rem;
@@ -551,6 +622,7 @@ onMounted(() => {
   line-height: 1;
 }
 
+/* === stat label === */
 .stat-label {
   font-size: 0.8rem;
   color: var(--text-muted);
@@ -559,6 +631,7 @@ onMounted(() => {
   font-weight: 500;
 }
 
+/* === page toolbar === */
 .page-toolbar {
   display: flex;
   align-items: center;
@@ -571,6 +644,7 @@ onMounted(() => {
   box-shadow: var(--shadow-sm);
 }
 
+/* === toolbar left === */
 .toolbar-left {
   display: flex;
   align-items: center;
@@ -578,21 +652,26 @@ onMounted(() => {
   flex: 1;
 }
 
+/* === toolbar right === */
 .toolbar-right {
   display: flex;
   align-items: center;
   gap: var(--space-3);
 }
 
+/* === filter input === */
 .filter-input {
   width: 180px;
 }
 
+/* === filter select === */
 .filter-select {
   width: 140px;
 }
 
+/* === filter input === */
 .filter-input :deep(.el-input__wrapper),
+/* === filter select === */
 .filter-select :deep(.el-input__wrapper) {
   background: var(--bg-secondary);
   border: 1px solid var(--border-subtle);
@@ -601,18 +680,23 @@ onMounted(() => {
   transition: all var(--duration-normal) var(--ease-out);
 }
 
+/* === filter input === */
 .filter-input :deep(.el-input__wrapper:hover),
+/* === filter select === */
 .filter-select :deep(.el-input__wrapper:hover) {
   border-color: var(--accent-primary);
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
 }
 
+/* === filter input === */
 .filter-input :deep(.el-input__wrapper.is-focus),
+/* === filter select === */
 .filter-select :deep(.el-input__wrapper.is-focus) {
   border-color: var(--accent-primary);
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
 }
 
+/* === refresh btn === */
 .refresh-btn {
   font-weight: 500;
   background: var(--bg-secondary);
@@ -624,6 +708,7 @@ onMounted(() => {
   padding: 8px 16px;
 }
 
+/* === refresh btn === */
 .refresh-btn:hover {
   background: var(--bg-primary);
   border-color: var(--accent-primary);
@@ -632,10 +717,12 @@ onMounted(() => {
   box-shadow: var(--shadow-sm);
 }
 
+/* === refresh btn === */
 .refresh-btn:active {
   transform: translateY(0);
 }
 
+/* === table wrapper === */
 .table-wrapper {
   flex: 1;
   overflow: hidden;
@@ -665,6 +752,7 @@ onMounted(() => {
   background-color: var(--bg-secondary) !important;
 }
 
+/* === status dot === */
 .status-dot {
   width: 8px;
   height: 8px;
@@ -674,26 +762,31 @@ onMounted(() => {
   box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.2);
 }
 
+/* === dot success === */
 .dot-success {
   background: var(--accent-success);
   box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.2);
 }
 
+/* === dot warning === */
 .dot-warning {
   background: var(--accent-warning);
   box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.2);
 }
 
+/* === dot info === */
 .dot-info {
   background: var(--accent-primary);
   box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.2);
 }
 
+/* === dot danger === */
 .dot-danger {
   background: var(--accent-danger);
   box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2);
 }
 
+/* === table empty state === */
 .table-empty-state {
   display: flex;
   flex-direction: column;
@@ -704,32 +797,38 @@ onMounted(() => {
   color: var(--text-muted);
 }
 
+/* === table empty state === */
 .table-empty-state .el-icon {
   opacity: 0.4;
 }
 
+/* === table empty state === */
 .table-empty-state p {
   margin: 0;
   font-size: 0.875rem;
 }
 
+/* === action btn === */
 .action-btn {
   transition: all var(--duration-normal) var(--ease-out);
   opacity: 0.8;
   margin: 0 4px;
 }
 
+/* === action btn === */
 .action-btn:hover {
   opacity: 1;
   transform: scale(1.1);
 }
 
+/* === action btn === */
 .action-btn:disabled {
   opacity: 0.3;
   cursor: not-allowed;
   transform: none;
 }
 
+/* === capacity display === */
 .capacity-display {
   display: flex;
   align-items: center;
@@ -741,19 +840,23 @@ onMounted(() => {
   transition: all var(--duration-fast) var(--ease-out);
 }
 
+/* === capacity display === */
 .capacity-display:hover {
   background: var(--bg-secondary);
 }
 
+/* === capacity display === */
 .capacity-display:hover .edit-icon {
   opacity: 1;
 }
 
+/* === capacity value === */
 .capacity-value {
   font-weight: 500;
   color: var(--text-primary);
 }
 
+/* === edit icon === */
 .edit-icon {
   opacity: 0;
   font-size: 14px;
@@ -761,10 +864,12 @@ onMounted(() => {
   transition: opacity var(--duration-fast) var(--ease-out);
 }
 
+/* === domain tag === */
 .domain-tag {
   margin: 2px;
 }
 
+/* === global tag === */
 .global-tag {
   font-style: italic;
   color: var(--accent-primary);

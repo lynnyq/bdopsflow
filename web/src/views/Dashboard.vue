@@ -1,3 +1,9 @@
+<!--
+  首页仪表盘组件
+  功能：展示系统全局概览，包括任务/执行器/调度器统计、系统健康状态、执行趋势图、调度器控制、Grafana 监控图表
+  主要区域：统计概览、系统健康、执行统计、调度器控制、执行趋势、Grafana 嵌入面板
+  自动刷新：统计数据 30s，健康检查 60s
+-->
 <template>
   <div class="dashboard">
     <!-- Stats Overview -->
@@ -259,6 +265,18 @@
   </div>
 </template>
 
+/**
+ * 首页仪表盘脚本
+ * @description 负责系统概览统计、健康检查、执行趋势展示、调度器暂停/恢复控制，以及 Grafana 监控图表嵌入
+ *
+ * 自动刷新策略：
+ * - 统计数据/趋势：30 秒
+ * - 健康检查：60 秒
+ *
+ * 依赖：
+ * - dashboardAPI: 仪表盘后端接口
+ * - grafanaAPI: Grafana 嵌入面板接口
+ */
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
@@ -268,30 +286,40 @@ import { isHandledError } from '@/utils/api'
 import { useAuthStore } from '@/stores/auth'
 import type { DashboardStats, TrendData, GrafanaDashboard } from '@/types'
 
+// 认证 store：用于判断是否有调度器控制权
 const authStore = useAuthStore()
 
+// 是否有调度器控制权限（admin / system_admin 角色）
 const canControlScheduler = computed(() => {
   return authStore.roleCodes.includes('admin') || authStore.roleCodes.includes('system_admin')
 })
 
-const loading = ref(false)
-const actionLoading = ref(false)
+const loading = ref(false)          // 数据加载状态
+const actionLoading = ref(false)     // 调度器操作（暂停/恢复）加载状态
+// 仪表盘统计数据：任务、执行器、调度器三大维度
 const stats = ref<DashboardStats>({
   tasks: { total: 0, enabled: 0, cron: 0, running: 0, success: 0, failed: 0, avg_duration: 0 },
   executors: { total: 0, active: 0, online: 0, offline: 0 },
   scheduler: { paused: false, uptime: 0 }
 })
-const schedulerStatus = ref({ paused: false })
-const trends = ref<TrendData[]>([])
-const healthData = ref<HealthCheckResult | null>(null)
+const schedulerStatus = ref({ paused: false })  // 调度器当前暂停状态
+const trends = ref<TrendData[]>([])              // 最近 7 天执行趋势数据
+const healthData = ref<HealthCheckResult | null>(null)  // 系统健康检查结果
 
+// 定时器句柄：用于 onUnmounted 时清理
 let refreshInterval: number | null = null
 let healthInterval: number | null = null
 
+// 健康状态 CSS 类：healthy / unhealthy
 const healthStatusClass = computed(() => {
   return healthData.value?.status === 'healthy' ? 'healthy' : 'unhealthy'
 })
 
+/**
+ * 获取健康组件 key 对应的中文名称
+ * @param key - 组件标识（rqlite/redis/scheduler/leader）
+ * @returns 中文名称
+ */
 const getComponentName = (key: string): string => {
   const names: Record<string, string> = {
     rqlite: '数据库',
@@ -302,6 +330,11 @@ const getComponentName = (key: string): string => {
   return names[key] || key
 }
 
+/**
+ * 获取健康组件 key 对应的图标名称
+ * @param key - 组件标识
+ * @returns 图标组件名称
+ */
 const getComponentIcon = (key: string): string => {
   const icons: Record<string, string> = {
     rqlite: 'DataLine',
@@ -312,6 +345,9 @@ const getComponentIcon = (key: string): string => {
   return icons[key] || 'Monitor'
 }
 
+/**
+ * 加载系统健康检查数据（静默失败，不影响主流程）
+ */
 const loadHealthData = async () => {
   try {
     const response = await dashboardAPI.getHealth()
@@ -320,6 +356,9 @@ const loadHealthData = async () => {
   }
 }
 
+/**
+ * 加载仪表盘统计数据（任务/执行器/调度器三大维度）
+ */
 const loadDashboardStats = async () => {
   try {
     const response = await dashboardAPI.getStats()
@@ -351,6 +390,9 @@ const loadDashboardStats = async () => {
   }
 }
 
+/**
+ * 加载调度器当前暂停状态
+ */
 const loadSchedulerStatus = async () => {
   try {
     const response = await dashboardAPI.getSchedulerStatus()
@@ -361,6 +403,9 @@ const loadSchedulerStatus = async () => {
   }
 }
 
+/**
+ * 加载最近 7 天执行趋势数据
+ */
 const loadTrends = async () => {
   try {
     const response = await dashboardAPI.getTrends()
@@ -370,6 +415,9 @@ const loadTrends = async () => {
   }
 }
 
+/**
+ * 刷新所有主数据：并行加载统计、调度器状态、趋势
+ */
 const refreshData = async () => {
   loading.value = true
   try {
@@ -383,6 +431,9 @@ const refreshData = async () => {
   }
 }
 
+/**
+ * 暂停调度器：停止所有定时任务自动执行
+ */
 const handlePauseScheduler = async () => {
   actionLoading.value = true
   try {
@@ -398,6 +449,9 @@ const handlePauseScheduler = async () => {
   }
 }
 
+/**
+ * 恢复调度器：重启定时任务自动执行
+ */
 const handleResumeScheduler = async () => {
   actionLoading.value = true
   try {
@@ -413,6 +467,11 @@ const handleResumeScheduler = async () => {
   }
 }
 
+/**
+ * 根据趋势数据值计算柱状图高度（相对于最大值的百分比）
+ * @param value - 单日成功或失败数量
+ * @returns 柱高像素值（最小 10px）
+ */
 const getBarHeight = (value: number): number => {
   if (!trends.value || trends.value.length === 0) return 0
   const validTrends = trends.value.filter((t: TrendData) => t && typeof t.success === 'number' && typeof t.failed === 'number')
@@ -423,12 +482,22 @@ const getBarHeight = (value: number): number => {
   return Math.max(10, (safeValue / maxValue) * 100)
 }
 
+/**
+ * 格式化日期为 M/D 短格式
+ * @param date - ISO 日期字符串
+ * @returns 如 "6/30"
+ */
 const formatDate = (date: string): string => {
   if (!date) return ''
   const d = new Date(date)
   return `${d.getMonth() + 1}/${d.getDate()}`
 }
 
+/**
+ * 格式化秒数为人类可读时长
+ * @param seconds - 秒数
+ * @returns 如 "1m30s"、"2h5m"
+ */
 const formatDuration = (seconds: number): string => {
   if (!seconds || seconds === 0) return '0s'
   if (seconds < 1) return `${(seconds).toFixed(2)}s`
@@ -441,28 +510,36 @@ const formatDuration = (seconds: number): string => {
   return `${hours}h${mins}m`
 }
 
-// Grafana 嵌入图表
-const grafanaDashboards = ref<GrafanaDashboard[]>([])
-// iframe 刷新键：变更后强制 Vue 销毁重建 Grafana iframe，使图表真正重新加载。
-// 仅重新拉取列表时 embed_url 不变，Vue 会复用旧 iframe 元素，浏览器不会重新加载图表。
+// Grafana 嵌入图表相关
+const grafanaDashboards = ref<GrafanaDashboard[]>([])  // 已启用的 Grafana 面板列表
+// iframe 刷新键：变更后强制 Vue 销毁重建 Grafana iframe，使图表真正重新加载
 const iframeRefreshKey = ref(0)
 
+/**
+ * 强制刷新所有 Grafana iframe（递增 key 触发 Vue 重建）
+ */
 const refreshGrafanaCharts = () => {
   iframeRefreshKey.value++
 }
 
+/**
+ * Grafana 面板单独刷新：先拉取列表再重建 iframe
+ */
 const handleRefreshGrafana = async () => {
   await loadGrafanaDashboards()
   refreshGrafanaCharts()
 }
 
-// 主"刷新数据"按钮：刷新统计数据并强制重载 Grafana 图表。
-// 30s 自动定时刷新只调用 refreshData，不重建 iframe，避免图表频繁闪烁。
+// 主"刷新数据"按钮：刷新统计数据并强制重载 Grafana 图表
+// 30s 自动定时刷新只调用 refreshData，不重建 iframe，避免图表频繁闪烁
 const handleRefreshAll = async () => {
   await refreshData()
   refreshGrafanaCharts()
 }
 
+/**
+ * 加载已启用的 Grafana 面板列表（静默失败）
+ */
 const loadGrafanaDashboards = async () => {
   try {
     const response = await grafanaAPI.listEnabled()
@@ -474,6 +551,10 @@ const loadGrafanaDashboards = async () => {
   }
 }
 
+/**
+ * 在新标签页打开 Grafana 面板
+ * @param {GrafanaDashboard} item - Grafana 面板数据
+ */
 const openGrafanaPanel = (item: GrafanaDashboard) => {
   window.open(item.embed_url, '_blank', 'noopener')
 }

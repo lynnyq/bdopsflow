@@ -1,3 +1,8 @@
+<!--
+  Proto 文件管理组件
+  功能：上传/编辑/解析/删除 gRPC Proto 文件，支持 Proto 语法验证、依赖管理、树形展示解析结果
+  主要区域：工具栏（搜索+刷新+上传）、文件列表表格、上传/编辑弹窗（含行号编辑器和验证结果）、解析结果弹窗
+-->
 <template>
   <div class="proto-files-page">
     <div class="page-toolbar">
@@ -226,42 +231,62 @@
   </div>
 </template>
 
+/**
+ * Proto 文件管理脚本
+ * @description 负责 Proto 文件的上传/编辑/删除/解析验证，管理文件间依赖关系
+ *
+ * 核心功能：
+ * - 文件列表：分页展示，支持按文件名/包名搜索
+ * - 上传/编辑：含行号编辑器，支持 .proto 文件选择上传，自动解析包名和服务
+ * - 验证：调用后端 protoFileAPI.verify 检查语法正确性
+ * - 解析结果弹窗：树形展示包名、服务、方法列表
+ * - 依赖管理：每个 Proto 文件可声明依赖其他 Proto 文件
+ *
+ * 依赖：protoFileAPI（ApiTest 模块专属接口）、authStore
+ */
 <script setup lang="ts">
+// ========== Vue 核心 API ==========
 import { ref, computed, onMounted, watch } from 'vue'
+// ========== Element Plus ==========
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { UploadFile, FormRules } from 'element-plus'
+// ========== Element Plus 图标 ==========
 import {
   Refresh, Upload, Edit, Delete, Document, UploadFilled,
   Search, View, Check, CircleCheck, CircleClose, FolderOpened
 } from '@element-plus/icons-vue'
+// ========== API 层 ==========
 import { protoFileAPI } from '@/api/apiTest'
+// ========== 工具函数 ==========
 import { isHandledError } from '@/utils/api'
 import { formatDateTime } from '@/utils/format'
+// ========== API 类型 ==========
 import type { ProtoFile, ProtoParseResult } from '@/api/apiTest'
+// ========== Pinia Store ==========
 import { useAuthStore } from '@/stores/auth'
 
 const authStore = useAuthStore()
 
-const protoFiles = ref<ProtoFile[]>([])
-const loading = ref(false)
-const submitting = ref(false)
-const verifying = ref(false)
-const currentPage = ref(1)
-const pageSize = ref(20)
-const total = ref(0)
-const searchQuery = ref('')
+const protoFiles = ref<ProtoFile[]>([])    // Proto 文件列表
+const loading = ref(false)                  // 列表加载状态
+const submitting = ref(false)               // 表单提交状态
+const verifying = ref(false)                 // 验证加载状态
+const currentPage = ref(1)                  // 当前页码
+const pageSize = ref(20)                    // 每页条数
+const total = ref(0)                        // 总记录数
+const searchQuery = ref('')                 // 搜索关键字
 
-// Dialog state
+// 上传/编辑弹窗状态
 const dialogVisible = ref(false)
 const isEditing = ref(false)
 const editingId = ref<number | null>(null)
 const formData = ref({
-  name: '',
-  content: '',
-  dependencies: [] as number[],
+  name: '',        // 文件名（编辑时不可改）
+  content: '',     // Proto 文件原始内容
+  dependencies: [] as number[],  // 依赖的其他 Proto 文件 ID
 })
 
-// Verify state
+// 验证结果状态（上传/编辑时显示）
 const verifyResult = ref<ProtoParseResult | null>(null)
 const verifyError = ref('')
 
@@ -271,6 +296,12 @@ const parseDialogFileName = ref('')
 const parseDialogData = ref<ProtoParseResult | null>(null)
 const lineNumbersRef = ref<HTMLElement | null>(null)
 
+/**
+ * 校验 Proto 文件名是否合法（必须以 .proto 结尾且不含路径分隔符）
+ * @param {unknown} _rule - 表单校验规则
+ * @param {string} value - 文件名
+ * @param {(error?: Error) => void} callback - 校验回调函数
+ */
 const validateProtoName = (_rule: unknown, value: string, callback: (error?: Error) => void) => {
   if (!value) {
     callback(new Error('请输入文件名'))
@@ -299,6 +330,10 @@ const contentLineCount = computed(() => {
   return formData.value.content.split('\n').length
 })
 
+/**
+ * 同步内容区与行号区的滚动位置
+ * @param {Event} e - 滚动事件对象
+ */
 const syncLineScroll = (e: Event) => {
   const target = e.target as HTMLElement
   if (lineNumbersRef.value && target) {
@@ -306,6 +341,11 @@ const syncLineScroll = (e: Event) => {
   }
 }
 
+/**
+ * 解析 Proto 文件的 parsed_result JSON 字段
+ * @param {ProtoFile} row - Proto 文件数据
+ * @returns {ProtoParseResult | null} 解析结果或 null
+ */
 const parseProtoResult = (row: ProtoFile): ProtoParseResult | null => {
   if (!row.parsed_result) return null
   try {
@@ -315,16 +355,31 @@ const parseProtoResult = (row: ProtoFile): ProtoParseResult | null => {
   }
 }
 
+/**
+ * 获取 Proto 文件的 package 名称
+ * @param {ProtoFile} row - Proto 文件数据
+ * @returns {string} package 名称
+ */
 const getPackageName = (row: ProtoFile): string => {
   const parsed = parseProtoResult(row)
   return parsed?.package || ''
 }
 
+/**
+ * 获取 Proto 文件中定义的 service 数量
+ * @param {ProtoFile} row - Proto 文件数据
+ * @returns {number} service 数量
+ */
 const getServiceCount = (row: ProtoFile): number => {
   const parsed = parseProtoResult(row)
   return parsed?.services?.length || 0
 }
 
+/**
+ * 格式化文件内容大小为人类可读字符串
+ * @param {string} content - 文件内容
+ * @returns {string} 如 "1.2k 字符"
+ */
 const formatFileSize = (content: string): string => {
   if (!content) return '0 字符'
   const len = content.length
@@ -332,6 +387,11 @@ const formatFileSize = (content: string): string => {
   return `${(len / 1000).toFixed(1)}k 字符`
 }
 
+/**
+ * 获取 Proto 文件依赖的其他文件名称列表
+ * @param {ProtoFile} row - Proto 文件数据
+ * @returns {string} 依赖文件名，逗号分隔
+ */
 const getDependencyNames = (row: ProtoFile): string => {
   if (!row.dependencies) return ''
   try {
@@ -346,6 +406,10 @@ const getDependencyNames = (row: ProtoFile): string => {
   }
 }
 
+/**
+ * 加载 Proto 文件列表，支持分页和搜索
+ * @returns {Promise<void>}
+ */
 const loadProtoFiles = async () => {
   loading.value = true
   try {
@@ -377,12 +441,19 @@ watch(searchQuery, () => {
   }, 300)
 })
 
+/**
+ * 切换分页大小时重置到第 1 页并重新加载
+ * @param {number} size - 每页条数
+ */
 const handleSizeChange = (size: number) => {
   pageSize.value = size
   currentPage.value = 1
   loadProtoFiles()
 }
 
+/**
+ * 打开新增 Proto 文件对话框，初始化空表单
+ */
 const handleUpload = () => {
   isEditing.value = false
   editingId.value = null
@@ -392,6 +463,10 @@ const handleUpload = () => {
   dialogVisible.value = true
 }
 
+/**
+ * 打开编辑 Proto 文件对话框，回填文件数据
+ * @param {ProtoFile} row - 当前行的 Proto 文件数据
+ */
 const handleEdit = (row: ProtoFile) => {
   isEditing.value = true
   editingId.value = row.id
@@ -407,6 +482,10 @@ const handleEdit = (row: ProtoFile) => {
   dialogVisible.value = true
 }
 
+/**
+ * 处理上传文件选择事件，读取文件内容填充表单
+ * @param {UploadFile} file - 上传文件对象
+ */
 const handleFileSelect = (file: UploadFile) => {
   if (!file.raw) return
   const reader = new FileReader()
@@ -422,6 +501,10 @@ const handleFileSelect = (file: UploadFile) => {
   reader.readAsText(file.raw)
 }
 
+/**
+ * 调用后端解析 Proto 文件内容进行语法验证
+ * @returns {Promise<void>}
+ */
 const handleVerify = async () => {
   if (!formData.value.content.trim()) return
   verifying.value = true
@@ -451,6 +534,10 @@ const handleVerify = async () => {
   }
 }
 
+/**
+ * 在弹窗中展示 Proto 文件的解析详情
+ * @param {ProtoFile} row - Proto 文件数据
+ */
 const handleParse = (row: ProtoFile) => {
   const parsed = parseProtoResult(row)
   if (!parsed) {
@@ -462,6 +549,10 @@ const handleParse = (row: ProtoFile) => {
   parseDialogVisible.value = true
 }
 
+/**
+ * 提交 Proto 文件表单，根据 isEditing 决定创建或更新
+ * @returns {Promise<void>}
+ */
 const handleSubmit = async () => {
   if (!formData.value.name.trim()) {
     ElMessage.warning('请输入文件名')
@@ -499,6 +590,11 @@ const handleSubmit = async () => {
   }
 }
 
+/**
+ * 删除指定 Proto 文件，弹出确认框后调用后端接口
+ * @param {ProtoFile} row - 要删除的 Proto 文件数据
+ * @returns {Promise<void>}
+ */
 const handleDelete = async (row: ProtoFile) => {
   try {
     await ElMessageBox.confirm(`确定要删除 Proto 文件 "${row.name}" 吗？`, '确认删除', {
@@ -516,6 +612,9 @@ const handleDelete = async (row: ProtoFile) => {
   }
 }
 
+/**
+ * 重置 Proto 文件表单状态
+ */
 const resetForm = () => {
   formData.value = { name: '', content: '', dependencies: [] }
   isEditing.value = false

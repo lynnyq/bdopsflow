@@ -1,5 +1,7 @@
+<!-- mTLS 证书管理页面：支持 CA/客户端证书/私钥的上传、编辑、删除 -->
 <template>
   <div class="certificate-list-page">
+    <!-- 页面工具栏：搜索 + 新增按钮 -->
     <div class="page-toolbar">
       <div class="toolbar-left">
         <h3 class="page-title">证书管理</h3>
@@ -161,65 +163,90 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * Certificates.vue - mTLS 证书管理页面
+ *
+ * 功能：CA 证书 / 客户端证书 / 客户端私钥 的上传、编辑、删除。
+ * 列表页展示证书摘要（不含私钥），并显示每个证书被多少个 gRPC 测试引用。
+ */
+// ========== Vue 核心 API ==========
 import { ref, reactive, onMounted, watch } from 'vue'
+// ========== Element Plus ==========
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
+// ========== Element Plus 图标 ==========
 import { Plus, Edit, Delete, Document, Lock, View, Search } from '@element-plus/icons-vue'
+// ========== API 层 ==========
 import { certificateAPI, apiTestAPI } from '@/api/apiTest'
+// ========== API 类型 ==========
 import type { CertificateSummary, ApiTest } from '@/api/apiTest'
+// ========== Pinia Store ==========
+import { useAuthStore } from '@/stores/auth'
+// ========== 工具函数 ==========
 import { isHandledError } from '@/utils/api'
 import { formatDateTime } from '@/utils/format'
-import { useAuthStore } from '@/stores/auth'
 
-const authStore = useAuthStore()
+const authStore = useAuthStore()  // 认证 Store：判断是否系统管理员
 
-const certificates = ref<CertificateSummary[]>([])
-const grpcTests = ref<ApiTest[]>([])
-const loading = ref(false)
-const total = ref(0)
-const currentPage = ref(1)
-const pageSize = ref(20)
-const searchQuery = ref('')
+// ========== 列表状态 ==========
+const certificates = ref<CertificateSummary[]>([])  // 证书列表
+const grpcTests = ref<ApiTest[]>([])                  // gRPC 测试列表（用于计算引用数）
+const loading = ref(false)                             // 列表加载状态
+const total = ref(0)                                   // 总记录数
+const currentPage = ref(1)                             // 当前页码
+const pageSize = ref(20)                               // 每页条数
+const searchQuery = ref('')                            // 搜索关键字
 
-const dialogVisible = ref(false)
-const isEditing = ref(false)
-const editingId = ref<number | null>(null)
-const submitting = ref(false)
-const privateKeyChanged = ref(false)
-const hasPrivateKey = ref(false)
-const privateKeyRevealed = ref(false)
+// ========== 编辑弹窗状态 ==========
+const dialogVisible = ref(false)                       // 弹窗可见性
+const isEditing = ref(false)                           // 是否编辑模式
+const editingId = ref<number | null>(null)             // 当前编辑的证书 ID
+const submitting = ref(false)                           // 提交加载状态
+const privateKeyChanged = ref(false)                    // 私钥是否被修改
+const hasPrivateKey = ref(false)                        // 原证书是否含私钥
+const privateKeyRevealed = ref(false)                   // 私钥是否已显示
 
-const formRef = ref<FormInstance>()
+const formRef = ref<FormInstance>()                    // 表单 DOM 引用
 
+// 编辑表单数据
 const form = ref({
-  name: '',
-  ca_cert: '',
-  client_cert: '',
-  client_key: '',
+  name: '',          // 证书名称
+  ca_cert: '',       // CA 证书 PEM 内容
+  client_cert: '',   // 客户端证书 PEM 内容
+  client_key: '',    // 客户端私钥 PEM 内容（编辑时留空保持不变）
 })
 
+// PEM 格式校验错误信息（按字段名索引）
 const pemErrors = reactive<Record<string, string>>({
   ca_cert: '',
   client_cert: '',
   client_key: '',
 })
 
+/** PEM 格式示例（点击"粘贴示例"使用） */
 const PEM_SAMPLES: Record<string, string> = {
   ca_cert: '-----BEGIN CERTIFICATE-----\nMIID...CA证书内容...\n-----END CERTIFICATE-----',
   client_cert: '-----BEGIN CERTIFICATE-----\nMIID...客户端证书内容...\n-----END CERTIFICATE-----',
   client_key: '-----BEGIN PRIVATE KEY-----\nMIIE...私钥内容...\n-----END PRIVATE KEY-----',
 }
 
+/** 各字段有效的 PEM 文件头前缀 */
 const PEM_PREFIXES: Record<string, string[]> = {
   ca_cert: ['-----BEGIN CERTIFICATE-----'],
   client_cert: ['-----BEGIN CERTIFICATE-----'],
   client_key: ['-----BEGIN PRIVATE KEY-----', '-----BEGIN RSA PRIVATE KEY-----', '-----BEGIN EC PRIVATE KEY-----'],
 }
 
+// 表单校验规则（目前只要求名称必填）
 const formRules: FormRules = {
   name: [{ required: true, message: '请输入证书名称', trigger: 'blur' }],
 }
 
+/**
+ * 统计指定证书被多少个 gRPC 测试引用
+ * @param certId - 证书 ID
+ * @returns 引用次数
+ */
 const getCertUsageCount = (certId: number): number => {
   return grpcTests.value.filter(t => {
     if (t.type !== 'grpc') return false
@@ -232,6 +259,10 @@ const getCertUsageCount = (certId: number): number => {
   }).length
 }
 
+/**
+ * 校验指定字段的 PEM 格式是否有效
+ * @param field - 'ca_cert' | 'client_cert' | 'client_key'
+ */
 const validatePemField = (field: 'ca_cert' | 'client_cert' | 'client_key') => {
   const value = form.value[field]?.trim()
   pemErrors[field] = ''
@@ -243,6 +274,10 @@ const validatePemField = (field: 'ca_cert' | 'client_cert' | 'client_key') => {
   }
 }
 
+/**
+ * 将 PEM 示例内容粘贴到指定字段（便于快速填入测试数据）
+ * @param field - 目标 PEM 字段名
+ */
 const pasteSample = (field: 'ca_cert' | 'client_cert' | 'client_key') => {
   form.value[field] = PEM_SAMPLES[field]
   pemErrors[field] = ''
@@ -251,6 +286,9 @@ const pasteSample = (field: 'ca_cert' | 'client_cert' | 'client_key') => {
   }
 }
 
+/**
+ * 加载证书列表（支持分页和搜索）
+ */
 const loadCertificates = async () => {
   loading.value = true
   try {
@@ -282,12 +320,20 @@ watch(searchQuery, () => {
   }, 300)
 })
 
+/**
+ * 切换分页大小时重置到第 1 页并重新加载
+ * @param {number} size - 每页条数
+ */
 const handleSizeChange = (size: number) => {
   pageSize.value = size
   currentPage.value = 1
   loadCertificates()
 }
 
+/**
+ * 加载所有 gRPC 测试，用于统计证书引用次数
+ * @returns {Promise<void>}
+ */
 const loadGrpcTests = async () => {
   try {
     const res = await apiTestAPI.list({ type: 'grpc', page: 1, page_size: 1000 })
@@ -297,6 +343,9 @@ const loadGrpcTests = async () => {
   }
 }
 
+/**
+ * 打开新增证书对话框，初始化空表单
+ */
 const handleCreate = () => {
   isEditing.value = false
   editingId.value = null
@@ -308,6 +357,11 @@ const handleCreate = () => {
   dialogVisible.value = true
 }
 
+/**
+ * 打开编辑证书对话框，先获取证书详情再回填表单
+ * @param {CertificateSummary} row - 当前行的证书摘要数据
+ * @returns {Promise<void>}
+ */
 const handleEdit = async (row: CertificateSummary) => {
   isEditing.value = true
   editingId.value = row.id
@@ -334,6 +388,11 @@ const handleEdit = async (row: CertificateSummary) => {
   }
 }
 
+/**
+ * 删除指定证书，检查引用数后弹出确认框
+ * @param {CertificateSummary} row - 要删除的证书数据
+ * @returns {Promise<void>}
+ */
 const handleDelete = async (row: CertificateSummary) => {
   const usageCount = getCertUsageCount(row.id)
   let confirmMsg = `确定要删除证书 "${row.name}" 吗？`
@@ -356,6 +415,10 @@ const handleDelete = async (row: CertificateSummary) => {
   }
 }
 
+/**
+ * 提交证书表单，校验 PEM 格式后创建或更新
+ * @returns {Promise<void>}
+ */
 const handleSubmit = async () => {
   if (!formRef.value) return
   const valid = await formRef.value.validate().catch(() => false)
@@ -402,6 +465,9 @@ const handleSubmit = async () => {
   }
 }
 
+/**
+ * 重置证书表单状态
+ */
 const resetForm = () => {
   form.value = {
     name: '',
@@ -417,6 +483,9 @@ const resetForm = () => {
   formRef.value?.resetFields()
 }
 
+/**
+ * 编辑模式下检测私钥字段是否被修改
+ */
 const onPrivateKeyInput = () => {
   if (isEditing.value) {
     privateKeyChanged.value = true

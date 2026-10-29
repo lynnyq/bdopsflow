@@ -1,5 +1,13 @@
+<!--
+  用户管理页面组件
+  功能：系统管理员可查看/搜索/创建/编辑用户、分配角色和所属领域、重置密码、删除用户
+  主要区域：工具栏（搜索+刷新+创建）、用户列表表格、创建/编辑弹窗、重置密码弹窗
+  权限：system_admin 角色可删除用户；普通 admin 可管理非系统管理员用户
+-->
 <template>
   <div class="users-page">
+
+    <!-- ========== 工具栏区域：搜索框 + 刷新 + 创建按钮 ========== -->
     <div class="page-toolbar">
       <div class="toolbar-left">
         <el-input
@@ -18,6 +26,7 @@
       </div>
     </div>
 
+    <!-- ========== 用户列表表格 ========== -->
     <div class="table-wrapper">
       <el-table :data="filteredUsers" v-loading="loading" stripe height="100%">
         <el-table-column prop="id" label="ID" width="80" />
@@ -33,6 +42,7 @@
           </template>
         </el-table-column>
         <el-table-column prop="email" label="邮箱" :minWidth="200" show-overflow-tooltip />
+        <!-- 角色列：展示用户分配的所有角色标签 -->
         <el-table-column label="角色" width="200" align="center">
           <template #default="{ row }">
             <el-tag v-for="roleCode in (row.role_codes || [])" :key="roleCode" :type="getRoleTagType(roleCode)" effect="light" style="margin: 2px;">
@@ -40,6 +50,7 @@
             </el-tag>
           </template>
         </el-table-column>
+        <!-- 所属领域列 -->
         <el-table-column label="所属领域" width="200" align="center">
           <template #default="{ row }">
             <el-tag v-for="name in (row.domain_names || [])" :key="name" type="info" effect="light" style="margin: 2px;">
@@ -65,6 +76,7 @@
             {{ formatDate(row.created_at) }}
           </template>
         </el-table-column>
+        <!-- 操作列：根据权限动态显示编辑/重置密码/删除按钮 -->
         <el-table-column v-if="showActions" label="操作" width="220" fixed="right" align="center">
           <template #default="{ row }">
             <template v-if="canManageUser(row)">
@@ -89,6 +101,7 @@
       </el-table>
     </div>
 
+    <!-- ========== 创建用户对话框 ========== -->
     <el-dialog
       v-model="showCreateDialog"
       title="创建用户"
@@ -440,31 +453,52 @@
   </div>
 </template>
 
+/**
+ * 用户管理页面脚本
+ * @description 负责用户的 CRUD、角色分配、领域分配、密码重置等管理功能
+ *
+ * 权限模型：
+ * - system_admin：最高权限，可删除所有用户，管理系统管理员
+ * - admin/domain_admin：可创建/编辑/重置密码，不可删除系统管理员
+ *
+ * 依赖：
+ * - userAdminAPI：用户管理接口
+ * - roleAdminAPI：角色管理接口
+ * - domainAdminAPI：领域管理接口
+ */
 <script setup lang="ts">
+// ========== Vue 核心 API ==========
 import { ref, onMounted, computed } from 'vue'
+// ========== Element Plus ==========
 import { ElMessage, ElMessageBox } from 'element-plus'
+// ========== Element Plus 图标 ==========
 import {
   Plus, Edit, Delete, Document, Search, Refresh, Key,
   Message, Lock, UserFilled, Grid, Phone,
   User as UserIcon
 } from '@element-plus/icons-vue'
+// ========== 管理后台 API ==========
 import { userAdminAPI, roleAdminAPI, domainAdminAPI, type User, type Role, type Domain } from '@/api/admin'
+// ========== 通用 API ==========
 import { adminAPI } from '@/api'
+// ========== 工具函数 ==========
 import { encryptPassword, validatePassword, PASSWORD_RULES } from '@/utils/password'
-import { useAuthStore } from '@/stores/auth'
 import { handleError } from '@/utils/error'
+// ========== Pinia Store ==========
+import { useAuthStore } from '@/stores/auth'
 
+// 认证 store：判断当前用户角色和权限范围
 const authStore = useAuthStore()
 
-const users = ref<User[]>([])
-const roles = ref<Role[]>([])
-const domains = ref<Domain[]>([])
-const loading = ref(false)
-const submitting = ref(false)
-const showCreateDialog = ref(false)
-const showEditDialog = ref(false)
-const showResetPasswordDialog = ref(false)
-const searchQuery = ref('')
+const users = ref<User[]>([])          // 用户列表
+const roles = ref<Role[]>([])          // 角色列表（用于创建/编辑弹窗的下拉选项）
+const domains = ref<Domain[]>([])      // 领域列表（用于分配所属领域）
+const loading = ref(false)              // 列表加载状态
+const submitting = ref(false)           // 表单提交状态
+const showCreateDialog = ref(false)     // 创建用户弹窗可见性
+const showEditDialog = ref(false)       // 编辑用户弹窗可见性
+const showResetPasswordDialog = ref(false)  // 重置密码弹窗可见性
+const searchQuery = ref('')             // 搜索关键字
 
 const showActions = computed(() => authStore.isSystemAdmin || authStore.isDomainAdmin || authStore.hasPermission('user', 'update'))
 
@@ -499,6 +533,12 @@ const resetPasswordForm = ref({
   confirmPassword: '',
 })
 
+/**
+ * 校验密码强度是否符合要求
+ * @param {any} _rule - 表单校验规则（未使用）
+ * @param {any} value - 当前密码值
+ * @param {any} callback - 校验回调函数
+ */
 const validatePasswordStrength = (_rule: any, value: any, callback: any) => {
   if (value === '') {
     callback(new Error('请输入密码'))
@@ -512,6 +552,12 @@ const validatePasswordStrength = (_rule: any, value: any, callback: any) => {
   }
 }
 
+/**
+ * 校验两次密码输入是否一致
+ * @param {any} _rule - 表单校验规则（未使用）
+ * @param {any} value - 确认密码值
+ * @param {any} callback - 校验回调函数
+ */
 const validateConfirmPassword = (_rule: any, value: any, callback: any) => {
   if (value === '') {
     callback(new Error('请再次输入密码'))
@@ -583,6 +629,9 @@ const formRef = ref()
 const editFormRef = ref()
 const resetPasswordFormRef = ref()
 
+/**
+ * 打开创建用户对话框，初始化表单数据
+ */
 const handleOpenCreate = () => {
   userForm.value = {
     id: 0,
@@ -599,6 +648,10 @@ const handleOpenCreate = () => {
   showCreateDialog.value = true
 }
 
+/**
+ * 对话框关闭后重置对应表单的校验状态
+ * @param {'create' | 'edit' | 'reset'} type - 对话框类型
+ */
 const handleDialogClosed = (type: 'create' | 'edit' | 'reset') => {
   if (type === 'create') {
     formRef.value?.resetFields()
@@ -609,17 +662,31 @@ const handleDialogClosed = (type: 'create' | 'edit' | 'reset') => {
   }
 }
 
+/**
+ * 判断当前用户是否有管理用户的权限
+ * @param {User} _user - 用户对象（未使用）
+ * @returns {boolean} 是否有管理权限
+ */
 const canManageUser = (_user: User): boolean => {
   if (authStore.isSystemAdmin) return true
   if (authStore.isDomainAdmin) return true
   return authStore.hasPermission('user', 'update')
 }
 
+/**
+ * 根据角色编码查找角色显示名称
+ * @param {string} role - 角色编码
+ * @returns {string} 角色显示名称
+ */
 const getRoleLabel = (role: string): string => {
   const found = roles.value.find((r: Role) => r.code === role)
   return found ? found.name : role
 }
 
+/**
+ * 从后端加载用户列表并更新页面数据
+ * @returns {Promise<void>}
+ */
 const loadUsers = async () => {
   loading.value = true
   try {
@@ -632,6 +699,10 @@ const loadUsers = async () => {
   }
 }
 
+/**
+ * 加载角色列表，非系统管理员隐藏 system_admin 角色
+ * @returns {Promise<void>}
+ */
 const loadRoles = async () => {
   try {
     const response = await roleAdminAPI.list()
@@ -645,6 +716,10 @@ const loadRoles = async () => {
   }
 }
 
+/**
+ * 加载领域列表，非系统管理员仅显示有权限的领域
+ * @returns {Promise<void>}
+ */
 const loadDomains = async () => {
   try {
     const response = await domainAdminAPI.list()
@@ -659,6 +734,10 @@ const loadDomains = async () => {
   }
 }
 
+/**
+ * 提交创建用户表单，加密密码后调用后端接口
+ * @returns {Promise<void>}
+ */
 const handleCreate = async () => {
   const form = formRef.value
   if (!form) return
@@ -694,6 +773,10 @@ const handleCreate = async () => {
   })
 }
 
+/**
+ * 打开编辑用户对话框，回填用户数据
+ * @param {User} row - 当前行的用户数据
+ */
 const handleEdit = (row: User) => {
   userForm.value = {
     id: row.id,
@@ -710,6 +793,10 @@ const handleEdit = (row: User) => {
   showEditDialog.value = true
 }
 
+/**
+ * 提交更新用户表单，调用后端接口修改用户信息
+ * @returns {Promise<void>}
+ */
 const handleUpdate = async () => {
   const form = editFormRef.value
   if (!form) return
@@ -739,6 +826,11 @@ const handleUpdate = async () => {
   })
 }
 
+/**
+ * 删除指定用户，弹出确认框后调用后端接口
+ * @param {User} row - 要删除的用户数据
+ * @returns {Promise<void>}
+ */
 const handleDelete = async (row: User) => {
   try {
     await ElMessageBox.confirm(
@@ -761,6 +853,10 @@ const handleDelete = async (row: User) => {
   }
 }
 
+/**
+ * 打开重置密码对话框，初始化表单
+ * @param {User} row - 要重置密码的用户数据
+ */
 const handleResetPassword = (row: User) => {
   resetPasswordForm.value = {
     userId: row.id,
@@ -771,6 +867,10 @@ const handleResetPassword = (row: User) => {
   showResetPasswordDialog.value = true
 }
 
+/**
+ * 提交重置密码表单，加密后调用后端接口更新密码
+ * @returns {Promise<void>}
+ */
 const handleConfirmResetPassword = async () => {
   const form = resetPasswordFormRef.value
   if (!form) return
@@ -793,6 +893,11 @@ const handleConfirmResetPassword = async () => {
   })
 }
 
+/**
+ * 根据角色编码返回对应的标签颜色类型
+ * @param {string} role - 角色编码
+ * @returns {'primary' | 'success' | 'info' | 'warning' | 'danger'} Element Plus 标签类型
+ */
 const getRoleTagType = (role: string): 'primary' | 'success' | 'info' | 'warning' | 'danger' => {
   switch (role) {
     case 'system_admin':
@@ -804,6 +909,11 @@ const getRoleTagType = (role: string): 'primary' | 'success' | 'info' | 'warning
   }
 }
 
+/**
+ * 将日期字符串格式化为中文本地化显示
+ * @param {string | undefined} date - 日期字符串
+ * @returns {string} 格式化后的日期，空值返回 '-'
+ */
 const formatDate = (date: string | undefined) => {
   if (!date) return '-'
   return new Date(date).toLocaleString('zh-CN')
@@ -817,6 +927,7 @@ onMounted(() => {
 </script>
 
 <style scoped>
+/* ========== 页面容器 ========== */
 .users-page {
   display: flex;
   flex-direction: column;
@@ -825,6 +936,7 @@ onMounted(() => {
   height: 100%;
 }
 
+/* 自定义滚动条样式 */
 .users-page::-webkit-scrollbar {
   width: 8px;
 }
@@ -838,6 +950,7 @@ onMounted(() => {
   background: var(--bg-secondary);
 }
 
+/* ========== 工具栏区域 ========== */
 .page-toolbar {
   display: flex;
   align-items: center;
@@ -863,6 +976,7 @@ onMounted(() => {
   gap: var(--space-3);
 }
 
+/* ========== 搜索框样式 ========== */
 .search-input {
   width: 280px;
 }
@@ -885,6 +999,7 @@ onMounted(() => {
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
 }
 
+/* ========== 按钮样式 ========== */
 .refresh-btn {
   font-weight: 500;
   background: var(--bg-secondary);

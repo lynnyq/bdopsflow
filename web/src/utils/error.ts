@@ -1,5 +1,17 @@
+/**
+ * @file error.ts - 统一的错误处理、翻译与消息提示工具
+ *
+ * 功能概览：
+ *  - ErrorType：常见错误类型枚举（网络/超时/服务端/认证/验证/未知等）
+ *  - ERROR_CODE_MAP：后端业务错误码 → 中文提示的映射表
+ *  - translateErrorMessage：将后端返回的英文错误信息翻译成中文
+ *  - handleError / handleSuccess / handleWarning / handleInfo：
+ *    统一的 ElMessage 提示封装
+ *  - formatErrorMessage / validateFieldError / withRetry / 等辅助函数
+ */
 import { ElMessage } from 'element-plus'
 
+/** 常见错误类型枚举，用于 UI 层友好提示 */
 export enum ErrorType {
   NETWORK = '网络错误，请检查网络连接',
   TIMEOUT = '请求超时，请稍后重试',
@@ -11,6 +23,7 @@ export enum ErrorType {
   FORBIDDEN = '没有权限执行此操作',
 }
 
+/** 后端业务错误码 → 中文提示的映射表（覆盖 HTTP 状态码 + 自定义业务码） */
 export const ERROR_CODE_MAP: Record<number, string> = {
   400: '请求参数错误',
   401: '未登录或登录已过期',
@@ -56,11 +69,12 @@ export const ERROR_CODE_MAP: Record<number, string> = {
   5002: '缓存服务错误',
 }
 
+/** 根据后端业务码查找对应的中文提示 */
 export const getErrorMessageByCode = (code: number): string | undefined => {
   return ERROR_CODE_MAP[code]
 }
 
-// 英文化错误信息映射表
+/** 后端返回的常见英文错误信息 → 中文提示的精确匹配表 */
 const errorMessageMap: Record<string, string> = {
   'unauthorized': '未授权，请重新登录',
   'invalid credentials': '用户名或密码错误',
@@ -101,6 +115,14 @@ const errorMessageMap: Record<string, string> = {
   'invalid permission type': '无效的权限类型',
 }
 
+/**
+ * 将后端返回的错误信息翻译成中文。
+ * 优先使用 errorCode 查表，其次使用精确匹配 / 部分匹配 / 关键词兜底，
+ * 若已为中文则直接返回原文。
+ * @param errorMsg - 后端返回的错误文本
+ * @param errorCode - 可选的后端业务错误码
+ * @returns 翻译后的中文错误信息
+ */
 export const translateErrorMessage = (errorMsg: string, errorCode?: number): string => {
   if (!errorMsg && errorCode === undefined) return ErrorType.UNKNOWN
 
@@ -152,6 +174,13 @@ export const translateErrorMessage = (errorMsg: string, errorCode?: number): str
   return errorMsg
 }
 
+/**
+ * 统一处理 HTTP 请求错误：根据 error.response.status 分别提示不同类型的错误，
+ * 底层使用 translateErrorMessage 翻译英文消息，并通过 ElMessage 弹出提示。
+ * @param error - axios catch 捕获的错误对象
+ * @param fallback - 无法识别时的兜底提示
+ * @returns 最终展示给用户的中文错误信息
+ */
 export const handleError = (
   error: any,
   fallback: string = ErrorType.UNKNOWN
@@ -197,19 +226,25 @@ export const handleError = (
   }
 }
 
+/** 统一的成功消息提示（ElMessage.success） */
 export const handleSuccess = (message: string = '操作成功') => {
   ElMessage.success(message)
 }
 
+/** 统一的警告消息提示（ElMessage.warning） */
 export const handleWarning = (message: string) => {
   ElMessage.warning(message)
 }
 
+/** 统一的普通消息提示（ElMessage.info） */
 export const handleInfo = (message: string) => {
   ElMessage.info(message)
 }
 
-// 格式化错误消息
+/**
+ * 从错误对象中提取可读的错误消息字符串。
+ * 兼容 string / Error / axios response.data 等多种形态。
+ */
 export const formatErrorMessage = (error: any): string => {
   if (!error) return '未知错误'
   if (typeof error === 'string') return error
@@ -219,7 +254,10 @@ export const formatErrorMessage = (error: any): string => {
   return '操作失败'
 }
 
-// 验证表单字段错误
+/**
+ * 从表单校验错误对象中提取指定字段的首条错误信息。
+ * Element Plus 的 validate 回调会返回 errors: { field: [{ message }] } 结构。
+ */
 export const validateFieldError = (errors: any, field: string): string | undefined => {
   if (!errors) return undefined
   const fieldError = errors[field]
@@ -229,7 +267,13 @@ export const validateFieldError = (errors: any, field: string): string | undefin
   return undefined
 }
 
-// 网络请求重试包装器
+/**
+ * 带指数退避重试的异步函数包装器。
+ * 仅 5xx 错误会触发重试，4xx 客户端错误直接抛出让上层处理。
+ * @param fn - 要执行的异步函数
+ * @param maxRetries - 最大重试次数
+ * @param delay - 初始重试延迟（毫秒），下一次会翻倍
+ */
 export const withRetry = async <T>(
   fn: () => Promise<T>,
   maxRetries: number = 3,
@@ -256,7 +300,10 @@ export const withRetry = async <T>(
   throw lastError!
 }
 
-// 空值处理工具
+/**
+ * 空值安全的通用格式化工具：null/undefined/空字符串返回 fallback，
+ * 对象返回 JSON，其他转为字符串。用于表格单元格等场景。
+ */
 export const formatValue = (value: any, fallback: string = '-'): string => {
   if (value === null || value === undefined || value === '') {
     return fallback
@@ -267,13 +314,16 @@ export const formatValue = (value: any, fallback: string = '-'): string => {
   return String(value)
 }
 
-// 数字格式化
+/** 将数字格式化为指定小数位的字符串，null/undefined 返回 '-' */
 export const formatNumber = (num: number | null | undefined, decimals: number = 0): string => {
   if (num === null || num === undefined) return '-'
   return num.toFixed(decimals)
 }
 
-// 日期格式化
+/**
+ * 将 Date 或 ISO 字符串格式化为指定模板的日期时间字符串。
+ * 支持占位符：YYYY / MM / DD / HH / mm / ss
+ */
 export const formatDate = (date: string | Date | null | undefined, format: string = 'YYYY-MM-DD HH:mm:ss'): string => {
   if (!date) return '-'
 
@@ -297,14 +347,17 @@ export const formatDate = (date: string | Date | null | undefined, format: strin
     .replace('ss', seconds)
 }
 
-// 文本截断
+/** 将超长文本截断并追加 "..."，用于列表摘要展示 */
 export const truncateText = (text: string, maxLength: number = 50): string => {
   if (!text) return ''
   if (text.length <= maxLength) return text
   return text.substring(0, maxLength) + '...'
 }
 
-// 脱敏工具
+/**
+ * 敏感文本脱敏：保留末尾 showChars 个字符，其余替换为 *。
+ * 长度不足时整体显示为 "***"。常用于手机号、邮箱、密钥等展示。
+ */
 export const maskSensitive = (text: string, showChars: number = 4): string => {
   if (!text || text.length <= showChars) return '***'
   const maskLength = text.length - showChars

@@ -1,28 +1,39 @@
+<!-- 数据源权限管理页面：管理指定数据源的用户/角色访问权限，支持权限授予、修改和撤销 -->
 <template>
   <div class="datasource-permission-page">
+    <!-- 页面头部：返回按钮、数据源信息、统计 -->
     <div class="page-header">
       <div class="header-left">
         <el-button :icon="ArrowLeft" @click="handleBack" class="back-btn">返回列表</el-button>
+        <!-- 头部区域 -->
         <div class="header-divider"></div>
+        <!-- 头部区域 -->
         <div class="header-info">
           <h2 class="page-title">权限管理</h2>
+          <!-- 数据源 -->
           <div class="ds-badge">
             <el-icon><Connection /></el-icon>
             <span>{{ datasourceName || '加载数据源...' }}</span>
           </div>
         </div>
       </div>
+      <!-- 头部区域 -->
       <div class="header-stats">
+        <!-- 统计 -->
         <div class="stat-item">
           <span class="stat-value">{{ permissions.length }}</span>
           <span class="stat-label">权限总数</span>
         </div>
+        <!-- 统计 -->
         <div class="stat-divider"></div>
+        <!-- 统计 -->
         <div class="stat-item">
           <span class="stat-value">{{ uniqueUsersCount }}</span>
           <span class="stat-label">已授权用户</span>
         </div>
+        <!-- 统计 -->
         <div class="stat-divider"></div>
+        <!-- 统计 -->
         <div class="stat-item">
           <span class="stat-value">{{ uniqueRolesCount }}</span>
           <span class="stat-label">已授权角色</span>
@@ -30,6 +41,7 @@
       </div>
     </div>
 
+    <!-- 搜索和筛选工具栏 -->
     <div class="page-toolbar">
       <div class="toolbar-left">
         <el-input
@@ -46,6 +58,7 @@
             :label="label"
             :value="key"
           >
+            <!-- 筛选器 -->
             <div class="filter-option">
               <el-icon :size="14"><component :is="getPermissionIcon(key)" /></el-icon>
               <span>{{ label }}</span>
@@ -57,21 +70,27 @@
           <el-option label="角色" value="role" />
         </el-select>
       </div>
+      <!-- 工具栏右侧 -->
       <div class="toolbar-right">
         <el-button :icon="Refresh" @click="loadPermissions" :loading="loading" class="refresh-btn">刷新</el-button>
         <el-button :icon="Plus" @click="handleAddPermission" class="create-btn">添加权限</el-button>
       </div>
     </div>
 
+    <!-- 权限列表表格 -->
     <div class="table-wrapper">
       <el-table :data="filteredPermissions" v-loading="loading" stripe height="100%">
+        <!-- ID 列 -->
         <el-table-column prop="id" label="ID" width="80" align="center" />
+        <!-- 授权对象列：用户或角色 -->
         <el-table-column label="授权对象" :min-width="200">
           <template #default="{ row }">
             <div class="target-cell">
+              <!-- 用户 -->
               <div class="target-avatar" :class="row.user_id ? 'user-avatar' : 'role-avatar'">
                 <el-icon :size="16"><component :is="row.user_id ? User : UserFilled" /></el-icon>
               </div>
+              <!-- 信息 -->
               <div class="target-info">
                 <span class="target-name">
                   <el-tag v-if="row.user_id" size="small" type="success" effect="plain" class="target-tag">用户</el-tag>
@@ -83,8 +102,10 @@
             </div>
           </template>
         </el-table-column>
+        <!-- 权限类型列：显示徽章和包含关系 -->
         <el-table-column prop="permission_type" label="权限类型" width="200" align="center">
           <template #default="{ row }">
+            <!-- 权限徽章展示 -->
             <div class="permission-cell">
               <div class="permission-badge" :class="`permission-${row.permission_type}`">
                 <el-icon :size="14"><component :is="getPermissionIcon(row.permission_type)" /></el-icon>
@@ -96,6 +117,7 @@
             </div>
           </template>
         </el-table-column>
+        <!-- 授权人列 -->
         <el-table-column prop="granted_by" label="授权人" width="140" align="center">
           <template #default="{ row }">
             <div class="granted-by-cell">
@@ -104,6 +126,7 @@
             </div>
           </template>
         </el-table-column>
+        <!-- 授权时间列 -->
         <el-table-column prop="granted_at" label="授权时间" width="180">
           <template #default="{ row }">
             <div class="time-cell">
@@ -112,6 +135,7 @@
             </div>
           </template>
         </el-table-column>
+        <!-- 操作列：修改/删除权限 -->
         <el-table-column label="操作" width="160" fixed="right" align="center">
           <template #default="{ row }">
             <el-button type="primary" link size="small" @click="handleEditPermission(row)" class="edit-btn">
@@ -124,6 +148,7 @@
             </el-button>
           </template>
         </el-table-column>
+        <!-- 表格空状态：无权限数据提示 -->
         <template #empty>
           <div class="table-empty-state">
             <div class="empty-icon">
@@ -136,6 +161,7 @@
       </el-table>
     </div>
 
+    <!-- 添加权限对话框 -->
     <el-dialog
       v-model="addDialogVisible"
       title="添加权限"
@@ -143,8 +169,11 @@
       :close-on-click-modal="false"
       class="permission-dialog"
     >
+      <!-- 对话框内容容器 -->
       <div class="dialog-content">
+        <!-- 授权对象选择区块 -->
         <div class="dialog-section">
+          <!-- 区块标题：图标 + 主标题 + 副标题 -->
           <div class="section-header">
             <div class="section-icon target-icon">
               <el-icon :size="18"><User /></el-icon>
@@ -154,6 +183,7 @@
               <span class="title-desc">选择按用户或按角色分配数据源访问权限</span>
             </div>
           </div>
+          <!-- 区块内容 -->
           <div class="section-body">
             <el-form ref="addFormRef" :model="addForm" :rules="addRules" label-position="top" class="dialog-form">
               <el-form-item label="授权方式" prop="target_type">
@@ -214,7 +244,9 @@
           </div>
         </div>
 
+        <!-- 权限类型配置区块 -->
         <div class="dialog-section">
+          <!-- 权限选择区块标题 -->
           <div class="section-header">
             <div class="section-icon perm-icon">
               <el-icon :size="18"><Lock /></el-icon>
@@ -224,6 +256,7 @@
               <span class="title-desc">选择要授予的权限类型</span>
             </div>
           </div>
+          <!-- 权限选择表单区 -->
           <div class="section-body">
             <el-form :model="addForm" :rules="addRules" label-position="top" class="dialog-form">
               <el-form-item label="权限类型" prop="permission_type">
@@ -399,12 +432,14 @@ const datasourceName = ref('')
 const datasourceDomainId = ref<number | null>(null)
 
 /** 已授予的权限条目列表 */
+// ========== 权限列表状态 ==========
 const permissions = ref<DatasourcePermission[]>([])
 
 /** 可分配的角色列表（根据当前管理员作用域过滤） */
 const roles = ref<Role[]>([])
 
 /** 可分配的用户列表（根据当前管理员作用域过滤） */
+// ========== 用户/角色数据 ==========
 const users = ref<AdminUser[]>([])
 
 /** 数据加载中（用于表格 loading 状态） */
@@ -426,6 +461,7 @@ const addFormRef = ref<FormInstance>()
 const editFormRef = ref<FormInstance>()
 
 /** 搜索关键字（匹配目标名称或权限类型） */
+// ========== 基础状态 ==========
 const searchQuery = ref('')
 
 /** 权限类型筛选（read/query/download/update/delete/manage） */
@@ -492,6 +528,7 @@ const editRules: FormRules = {
 // ==== 权限常量定义 ====
 
 /** 权限类型 -> 中文标签 */
+// ========== 权限常量定义 ==========
 const permissionLabels: Record<string, string> = {
   read: '读取',
   query: '查询',
@@ -544,6 +581,7 @@ const uniqueRolesCount = computed(() => {
  * - 类型筛选：精确匹配 permission_type
  * - 目标筛选：按 user / role 过滤
  */
+// filteredPermissions
 const filteredPermissions = computed(() => {
   return permissions.value.filter(p => {
     const targetName = p.user_id
@@ -679,6 +717,7 @@ const loadDatasource = async () => {
  * 加载当前数据源的全部权限条目
  * 读取权限列表并兼容后端返回数组或 { items: [] } 两种格式
  */
+// ========== 数据加载 ==========
 const loadPermissions = async () => {
   loading.value = true
   try {
@@ -754,6 +793,7 @@ const handleTargetTypeChange = () => {
 }
 
 /** 点击「添加权限」按钮：重置表单并打开新增弹窗 */
+// ========== 权限 CRUD ==========
 const handleAddPermission = () => {
   addForm.value = { target_type: 'user', user_id: null, role_id: null, permission_type: '' }
   addDialogVisible.value = true
@@ -865,6 +905,7 @@ const handleBack = () => {
 // ==== 生命周期 ====
 
 /** 组件挂载后：依次加载数据源信息（为后续按领域过滤铺路），再并行加载权限、角色、用户 */
+onMounted // 生命周期钩子
 onMounted(async () => {
   await loadDatasource()
   loadPermissions()
@@ -873,7 +914,9 @@ onMounted(async () => {
 })
 </script>
 
+/* ==================== 样式定义 ==================== */
 <style scoped>
+/* 页面整体容器 */
 .datasource-permission-page {
   display: flex;
   flex-direction: column;
@@ -882,6 +925,7 @@ onMounted(async () => {
   min-height: 0;
 }
 
+/* 页面头部 */
 .page-header {
   display: flex;
   align-items: center;
@@ -893,12 +937,14 @@ onMounted(async () => {
   box-shadow: var(--shadow-sm);
 }
 
+/* 头部左侧 */
 .header-left {
   display: flex;
   align-items: center;
   gap: var(--space-3);
 }
 
+/* 返回列表按钮 */
 .back-btn {
   font-weight: 500;
   color: var(--text-secondary);
@@ -914,18 +960,21 @@ onMounted(async () => {
   background: rgba(59, 130, 246, 0.04);
 }
 
+/* 头部分隔线 */
 .header-divider {
   width: 1px;
   height: 32px;
   background: var(--border-default);
 }
 
+/* 头部信息：页面标题 + 数据源名称 */
 .header-info {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
+/* 页面主标题 */
 .page-title {
   font-size: 1.25rem;
   font-weight: 600;
@@ -933,6 +982,7 @@ onMounted(async () => {
   margin: 0;
 }
 
+/* 数据源信息徽章 */
 .ds-badge {
   display: inline-flex;
   align-items: center;
@@ -946,6 +996,7 @@ onMounted(async () => {
   width: fit-content;
 }
 
+/* 头部统计信息 */
 .header-stats {
   display: flex;
   align-items: center;
@@ -955,6 +1006,7 @@ onMounted(async () => {
   border-radius: var(--radius-lg);
 }
 
+/* 单个统计项 */
 .stat-item {
   display: flex;
   flex-direction: column;
@@ -962,6 +1014,7 @@ onMounted(async () => {
   gap: 2px;
 }
 
+/* 统计数值 */
 .stat-value {
   font-size: 1.5rem;
   font-weight: 700;
@@ -969,17 +1022,20 @@ onMounted(async () => {
   line-height: 1;
 }
 
+/* 统计标签 */
 .stat-label {
   font-size: 12px;
   color: var(--text-muted);
 }
 
+/* 统计项分隔线 */
 .stat-divider {
   width: 1px;
   height: 32px;
   background: var(--border-default);
 }
 
+/* 页面工具栏 */
 .page-toolbar {
   display: flex;
   align-items: center;
@@ -992,6 +1048,7 @@ onMounted(async () => {
   box-shadow: var(--shadow-sm);
 }
 
+/* 工具栏左侧：搜索框 + 筛选器 */
 .toolbar-left {
   display: flex;
   align-items: center;
@@ -999,12 +1056,14 @@ onMounted(async () => {
   flex: 1;
 }
 
+/* 工具栏右侧：刷新 + 添加权限按钮 */
 .toolbar-right {
   display: flex;
   align-items: center;
   gap: var(--space-3);
 }
 
+/* 搜索输入框 */
 .search-input {
   width: 260px;
 }
@@ -1030,16 +1089,19 @@ onMounted(async () => {
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
 }
 
+/* 筛选下拉框 */
 .filter-select {
   width: 150px;
 }
 
+/* 下拉选项 */
 .filter-option {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
+/* 刷新按钮 */
 .refresh-btn {
   font-weight: 500;
   background: var(--bg-secondary);
@@ -1059,6 +1121,7 @@ onMounted(async () => {
   box-shadow: var(--shadow-sm);
 }
 
+/* 添加权限按钮 */
 .create-btn {
   font-weight: 500;
   background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
@@ -1076,6 +1139,7 @@ onMounted(async () => {
   filter: brightness(1.05);
 }
 
+/* 表格容器 */
 .table-wrapper {
   flex: 1;
   overflow: hidden;
@@ -1106,12 +1170,14 @@ onMounted(async () => {
   background-color: var(--bg-secondary) !important;
 }
 
+/* 授权对象单元格 */
 .target-cell {
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
+/* 头像容器 */
 .target-avatar {
   display: flex;
   align-items: center;
@@ -1123,20 +1189,24 @@ onMounted(async () => {
   box-shadow: 0 2px 6px rgba(59, 130, 246, 0.25);
 }
 
+/* 用户头像样式 */
 .target-avatar.user-avatar {
   background: linear-gradient(135deg, #22c55e, #16a34a);
 }
 
+/* 角色头像样式 */
 .target-avatar.role-avatar {
   background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
 }
 
+/* 授权对象信息 */
 .target-info {
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 
+/* 授权对象名称 */
 .target-name {
   font-size: 14px;
   font-weight: 500;
@@ -1146,15 +1216,18 @@ onMounted(async () => {
   gap: 6px;
 }
 
+/* 用户/角色类型标签 */
 .target-tag {
   flex-shrink: 0;
 }
 
+/* 授权对象 ID */
 .target-id {
   font-size: 11px;
   color: var(--text-muted);
 }
 
+/* 权限类型徽章 */
 .permission-badge {
   display: inline-flex;
   align-items: center;
@@ -1195,6 +1268,7 @@ onMounted(async () => {
   color: #8b5cf6;
 }
 
+/* 权限类型单元格 */
 .permission-cell {
   display: flex;
   flex-direction: column;
@@ -1202,12 +1276,14 @@ onMounted(async () => {
   gap: 4px;
 }
 
+/* 权限包含说明 */
 .permission-includes {
   font-size: 11px;
   color: var(--text-muted);
   line-height: 1.2;
 }
 
+/* 迷你权限徽章（用于下拉选项） */
 .perm-badge-mini {
   display: flex;
   align-items: center;
@@ -1247,6 +1323,7 @@ onMounted(async () => {
   color: #8b5cf6;
 }
 
+/* 授权人单元格 */
 .granted-by-cell {
   display: flex;
   align-items: center;
@@ -1256,6 +1333,7 @@ onMounted(async () => {
   font-size: 13px;
 }
 
+/* 时间单元格 */
 .time-cell {
   display: flex;
   align-items: center;
@@ -1264,10 +1342,12 @@ onMounted(async () => {
   font-size: 13px;
 }
 
+/* 删除按钮 */
 .delete-btn {
   gap: 4px;
 }
 
+/* 表格空状态 */
 .table-empty-state {
   display: flex;
   flex-direction: column;
@@ -1277,6 +1357,7 @@ onMounted(async () => {
   gap: var(--space-3);
 }
 
+/* 空状态图标 */
 .empty-icon {
   display: flex;
   align-items: center;
@@ -1288,6 +1369,7 @@ onMounted(async () => {
   color: var(--text-muted);
 }
 
+/* 空状态标题 */
 .empty-title {
   margin: 0;
   font-size: 1rem;
@@ -1295,17 +1377,20 @@ onMounted(async () => {
   color: var(--text-primary);
 }
 
+/* 空状态提示 */
 .empty-hint {
   font-size: 0.875rem;
   color: var(--text-muted);
 }
 
+/* 对话框内容容器 */
 .dialog-content {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
 }
 
+/* 对话框分区 */
 .dialog-section {
   background: var(--bg-secondary);
   border: 1px solid var(--border-default);
@@ -1319,6 +1404,7 @@ onMounted(async () => {
   box-shadow: 0 2px 8px rgba(59, 130, 246, 0.08);
 }
 
+/* 分区头部：图标 + 标题 + 描述 */
 .section-header {
   display: flex;
   align-items: center;
@@ -1328,6 +1414,7 @@ onMounted(async () => {
   border-bottom: 1px solid var(--border-default);
 }
 
+/* 分区图标 */
 .section-icon {
   display: flex;
   align-items: center;
@@ -1348,23 +1435,27 @@ onMounted(async () => {
   box-shadow: 0 2px 8px rgba(139, 92, 246, 0.3);
 }
 
+/* 分区标题区 */
 .section-title {
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 
+/* 分区主标题 */
 .title-text {
   font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
 }
 
+/* 分区副标题/描述 */
 .title-desc {
   font-size: 12px;
   color: var(--text-muted);
 }
 
+/* 分区内容区 */
 .section-body {
   padding: var(--space-4);
 }
@@ -1394,6 +1485,7 @@ onMounted(async () => {
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
 }
 
+/* 单选项标签 */
 .radio-label {
   display: flex;
   align-items: center;
@@ -1416,16 +1508,19 @@ onMounted(async () => {
   font-size: 14px;
 }
 
+/* 修改按钮 */
 .edit-btn {
   gap: 4px;
 }
 
+/* 用户下拉选项 */
 .user-select-option {
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
+/* 用户下拉头像 */
 .user-select-avatar {
   display: flex;
   align-items: center;
@@ -1437,23 +1532,27 @@ onMounted(async () => {
   color: white;
 }
 
+/* 用户下拉名称 */
 .user-select-name {
   font-weight: 500;
   color: var(--text-primary);
 }
 
+/* 用户下拉 ID */
 .user-select-id {
   margin-left: auto;
   font-size: 12px;
   color: var(--text-muted);
 }
 
+/* 角色下拉选项 */
 .role-select-option {
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
+/* 角色下拉头像 */
 .role-select-avatar {
   display: flex;
   align-items: center;
@@ -1465,39 +1564,46 @@ onMounted(async () => {
   color: white;
 }
 
+/* 角色下拉名称 */
 .role-select-name {
   font-weight: 500;
   color: var(--text-primary);
 }
 
+/* 角色下拉 ID */
 .role-select-id {
   margin-left: auto;
   font-size: 12px;
   color: var(--text-muted);
 }
 
+/* 权限下拉选项 */
 .perm-select-option {
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
+/* 权限下拉信息 */
 .perm-select-info {
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 
+/* 权限下拉主标签 */
 .perm-select-label {
   font-weight: 500;
   color: var(--text-primary);
 }
 
+/* 权限下拉描述 */
 .perm-select-desc {
   font-size: 12px;
   color: var(--text-muted);
 }
 
+/* 权限层级包含提示 */
 .perm-hierarchy-hint {
   display: flex;
   align-items: center;
@@ -1515,6 +1621,7 @@ onMounted(async () => {
   color: #22c55e;
 }
 
+/* 对话框底部按钮区 */
 .dialog-footer {
   display: flex;
   justify-content: flex-end;
@@ -1534,6 +1641,7 @@ onMounted(async () => {
 }
 </style>
 
+/* ==================== 样式定义 ==================== */
 <style>
 .permission-select-popper {
   z-index: 9999 !important;

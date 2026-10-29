@@ -4,6 +4,10 @@
  * 供 stores / api / views 等各模块统一引用。
  */
 
+// ============================================================================
+// 一、用户认证与登录相关类型
+// ============================================================================
+
 /** 用户基础信息 */
 export interface User {
   id: number                    // 用户 ID
@@ -21,6 +25,10 @@ export interface User {
   domain_ids?: number[]         // 可访问的领域 ID 列表
 }
 
+// ============================================================================
+// 二、RBAC 权限模型相关类型（Permission / Role / PermissionGroup / Menu 映射）
+// ============================================================================
+
 /** RBAC 权限：声明某个 resource 上允许的 action */
 export interface Permission {
   id: number          // 权限 ID
@@ -29,12 +37,20 @@ export interface Permission {
   description: string // 权限描述
 }
 
+// ============================================================================
+// 三、领域 / 租户相关类型（Domain / DomainInfo / DomainWithStats）
+// ============================================================================
+
 /** 用户可访问的领域（租户）简化信息 */
 export interface DomainInfo {
   domain_id: number       // 领域 ID
   domain_name: string     // 领域名称
   is_default: boolean     // 是否用户默认选中的领域
 }
+
+// ============================================================================
+// 四、登录 / 会话相关接口返回体（LoginResponse / CurrentUserResponse / SwitchDomainResponse）
+// ============================================================================
 
 /** 登录接口返回体 */
 export interface LoginResponse {
@@ -65,6 +81,10 @@ export interface SwitchDomainResponse {
   role_codes: string[]          // 新领域下的角色编码列表
 }
 
+// ============================================================================
+// 五、角色定义（Role）与领域（Domain）详细类型
+// ============================================================================
+
 /** RBAC 角色定义 */
 export interface Role {
   id: number                  // 角色 ID
@@ -94,6 +114,10 @@ export interface DomainWithStats extends Domain {
   executor_count: number  // 领域下执行器数量
   task_count: number      // 领域下任务数量
 }
+
+// ============================================================================
+// 六、调度任务（Task / TaskConfig / TaskExecution / TaskLog）相关类型
+// ============================================================================
 
 /** 调度任务（HTTP / Shell 等） */
 export interface Task {
@@ -129,6 +153,10 @@ export interface TaskConfig {
   body?: string       // HTTP 请求体
   script?: string     // Shell 任务脚本
 }
+
+// ============================================================================
+// 七、执行器（Executor）与任务执行记录相关类型
+// ============================================================================
 
 /** 执行器：接收调度请求、实际执行任务的后端节点 */
 export interface Executor {
@@ -194,6 +222,10 @@ export interface TaskLog {
   log_time: string    // 日志时间
 }
 
+// ============================================================================
+// 八、Webhook 回调配置相关类型
+// ============================================================================
+
 /** Webhook 回调配置 */
 export interface Webhook {
   id: number              // Webhook ID
@@ -211,6 +243,10 @@ export interface Webhook {
   created_at: string
   updated_at: string
 }
+
+// ============================================================================
+// 九、Grafana 仪表盘嵌入配置相关类型（Dashboard 页面使用）
+// ============================================================================
 
 /** Grafana 图表嵌入配置（用于仪表盘） */
 export interface GrafanaDashboard {
@@ -242,6 +278,10 @@ export interface GrafanaReorderItem {
   id: number              // 图表配置 ID
   sort_order: number      // 新的排序值
 }
+
+// ============================================================================
+// 十、数据源（Datasource）及其权限相关类型
+// ============================================================================
 
 /** 数据源：数据库连接配置 */
 export interface Datasource {
@@ -275,6 +315,10 @@ export interface Datasource {
   created_at: string
   updated_at: string
 }
+
+// ============================================================================
+// 十一、权限分配辅助类型（DatasourcePermission / WebhookPermission / PermissionGroup）
+// ============================================================================
 
 /** 数据源级权限分配记录 */
 export interface DatasourcePermission {
@@ -315,6 +359,10 @@ export interface MenuPermissionDef {
   children?: MenuPermissionDef[]  // 子菜单
 }
 
+// ============================================================================
+// 十二、通用工具类型（PaginatedResponse / ExecutorWithDomains / LoginRequest）
+// ============================================================================
+
 /** 统一分页响应包装 */
 export interface PaginatedResponse<T> {
   items?: T[]      // 数据项（后端两种字段名二选一）
@@ -334,6 +382,10 @@ export interface LoginRequest {
   username: string
   password: string
 }
+
+// ============================================================================
+// 十三、仪表盘统计相关类型（DashboardStats / TrendData）
+// ============================================================================
 
 /** 仪表盘统计数据 */
 export interface DashboardStats {
@@ -365,6 +417,10 @@ export interface TrendData {
   success: number     // 成功数
   failed: number      // 失败数
 }
+
+// ============================================================================
+// 十四、SQL 查询相关类型（QueryResult / QueryHistory / SavedSQL / TableInfo / ColumnInfo）
+// ============================================================================
 
 /** SQL 查询结果 */
 export interface QueryResult {
@@ -426,6 +482,10 @@ export interface ColumnInfo {
   comment?: string       // 列注释
   nullable: boolean      // 是否允许 NULL
 }
+
+// ============================================================================
+// 十五、系统运行时配置项相关类型
+// ============================================================================
 
 /** 系统运行时配置项 */
 export interface SystemConfigItem {

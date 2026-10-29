@@ -1,5 +1,7 @@
+<!-- SQL 查询历史页面：展示所有用户的 SQL 执行记录，支持多维度筛选和详情查看 -->
 <template>
   <div class="query-history-page">
+    <!-- 工具栏：搜索 + 数据源/状态/用户/日期范围筛选 -->
     <div class="page-toolbar">
       <div class="toolbar-left">
         <el-input
@@ -145,31 +147,50 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * QueryHistory.vue - SQL 查询历史页面
+ *
+ * 展示所有用户在 SQLQuery 页面执行过的 SQL 记录，
+ * 支持按关键字、数据源、执行状态、执行用户、日期范围多维度筛选。
+ * 点击"重新执行"可跳转到 SQLQuery 页面自动加载该条历史。
+ */
+// ========== Vue 核心 API ==========
 import { ref, onMounted, watch } from 'vue'
+// ========== Vue Router ==========
 import { useRouter } from 'vue-router'
+// ========== Element Plus ==========
 import { ElMessage, ElMessageBox } from 'element-plus'
+// ========== Element Plus 图标 ==========
 import { Search, Refresh, Document, VideoPlay, Delete } from '@element-plus/icons-vue'
+// ========== API 层 ==========
 import { queryAPI, datasourceAPI, userAdminAPI } from '@/api'
+// ========== 工具函数 ==========
 import { isHandledError } from '@/utils/api'
+// ========== 类型定义 ==========
 import type { QueryHistory, Datasource, User } from '@/types'
 
 const router = useRouter()
 
-const historyList = ref<QueryHistory[]>([])
-const loading = ref(false)
-const searchQuery = ref('')
-const filterDatasourceID = ref<number | null>(null)
-const filterStatus = ref<string | null>(null)
-const filterExecutedBy = ref<number | null>(null)
-const dateRange = ref<[string, string] | null>(null)
-const datasourceList = ref<Datasource[]>([])
-const userList = ref<User[]>([])
-const currentPage = ref(1)
-const pageSize = ref(20)
-const total = ref(0)
-const selectedIds = ref<number[]>([])
-const batchDeleting = ref(false)
+// ========== 列表与筛选状态 ==========
+const historyList = ref<QueryHistory[]>([])            // 查询历史列表
+const loading = ref(false)                               // 列表加载状态
+const searchQuery = ref('')                              // 搜索关键字
+const filterDatasourceID = ref<number | null>(null)      // 数据源筛选
+const filterStatus = ref<string | null>(null)            // 状态筛选
+const filterExecutedBy = ref<number | null>(null)        // 执行用户筛选
+const dateRange = ref<[string, string] | null>(null)     // 日期范围筛选
+const datasourceList = ref<Datasource[]>([])             // 数据源下拉选项
+const userList = ref<User[]>([])                         // 用户下拉选项
+const currentPage = ref(1)                               // 当前页码
+const pageSize = ref(20)                                 // 每页条数
+const total = ref(0)                                     // 总记录数
+const selectedIds = ref<number[]>([])                    // 批量选中的记录 ID
+const batchDeleting = ref(false)                         // 批量删除加载状态
 
+/**
+ * 将日期字符串格式化为本地化中文显示
+ * @param {string} dateStr - 日期字符串
+ */
 const formatDateTime = (dateStr: string) => {
   if (!dateStr) return '-'
   const date = new Date(dateStr)
@@ -183,6 +204,10 @@ const formatDateTime = (dateStr: string) => {
   })
 }
 
+/**
+ * 加载 SQL 查询历史列表
+ * @returns {Promise<void>}
+ */
 const loadHistory = async () => {
   loading.value = true
   try {
@@ -220,6 +245,10 @@ const loadHistory = async () => {
   }
 }
 
+/**
+ * 加载数据源列表供筛选使用
+ * @returns {Promise<void>}
+ */
 const loadDatasources = async () => {
   try {
     const res = await datasourceAPI.list({ page: 1, page_size: 200 })
@@ -229,6 +258,10 @@ const loadDatasources = async () => {
   }
 }
 
+/**
+ * 加载用户列表供筛选使用
+ * @returns {Promise<void>}
+ */
 const loadUsers = async () => {
   try {
     const res = await userAdminAPI.listByDomain()
@@ -256,10 +289,18 @@ watch(searchQuery, () => {
   }, 300)
 })
 
+/**
+ * 表格多选回调更新选中 ID 列表
+ * @param {QueryHistory[]} selection - 选中行数组
+ */
 const handleSelectionChange = (selection: QueryHistory[]) => {
   selectedIds.value = selection.map(item => item.id)
 }
 
+/**
+ * 重新执行选中的历史 SQL 查询
+ * @param {QueryHistory} row - 当前行数据
+ */
 const handleReExecute = (row: QueryHistory) => {
   const query: Record<string, string> = { sql: row.sql_text }
   if (row.datasource_id != null) {
@@ -271,6 +312,11 @@ const handleReExecute = (row: QueryHistory) => {
   })
 }
 
+/**
+ * 删除单条记录（执行确认）
+ * @param {QueryHistory} row - 当前行数据
+ * @returns {Promise<void>}
+ */
 const handleDelete = async (row: QueryHistory) => {
   try {
     await ElMessageBox.confirm('确定要删除该查询历史记录吗？', '删除确认', {
@@ -288,6 +334,10 @@ const handleDelete = async (row: QueryHistory) => {
   }
 }
 
+/**
+ * 批量删除选中记录（执行确认）
+ * @returns {Promise<void>}
+ */
 const handleBatchDelete = async () => {
   try {
     await ElMessageBox.confirm(`确定要删除选中的 ${selectedIds.value.length} 条查询历史记录吗？`, '批量删除确认', {

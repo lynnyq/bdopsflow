@@ -1,3 +1,9 @@
+<!--
+  执行日志查询页面组件
+  功能：展示所有任务执行记录，支持多维度筛选（ID、执行ID、任务名、执行节点、状态、时间范围、执行时长），
+       支持查看单条执行的完整日志输出，支持批量删除操作
+  主要区域：统计卡片、工具栏（含高级筛选）、执行记录表格、日志详情侧面板
+-->
 <template>
   <div class="logs-page">
     <div class="main-content">
@@ -297,6 +303,21 @@
   </div>
 </template>
 
+/**
+ * 执行日志查询页面脚本
+ * @description 负责执行记录列表的加载、筛选、分页、删除，以及日志详情查看功能
+ *
+ * 主要功能：
+ * - 多维度筛选：ID、执行ID、任务名、执行节点、状态、时间范围、执行时长
+ * - 统计卡片：展示总日志数、成功数、失败数、运行中数量
+ * - 分页列表：展示执行记录，支持行选中和批量删除
+ * - 日志详情：点击查看单条执行的完整输出和错误信息
+ *
+ * 依赖：
+ * - logAPI: 执行日志相关后端接口
+ * - useAuthStore: 用户权限校验
+ * - TaskLogViewer: 日志详情查看组件
+ */
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
@@ -308,34 +329,48 @@ import TaskLogViewer from '@/components/TaskLogViewer.vue'
 import type { TaskExecutionListResponse } from '@/types'
 import { isHandledError } from '@/utils/api'
 
+// 路由实例：用于读取 query 参数进行初始化筛选
 const route = useRoute()
+// 认证 store：用于权限判断
 const authStore = useAuthStore()
 
+// 是否有删除权限（log.delete 或 log.manage）
 const canDelete = computed(() => {
   return authStore.hasPermission('log', 'delete') || authStore.hasPermission('log', 'manage')
 })
+// 执行记录列表数据
 const executions = ref<TaskExecutionListResponse[]>([])
+// 列表加载状态
 const loading = ref(false)
+// 是否显示日志详情面板
 const showLogs = ref(false)
+// 当前查看日志的执行 ID
 const currentExecutionId = ref('')
+// 当前选中/查看的执行记录对象
 const currentExecution = ref<TaskExecutionListResponse | null>(null)
+// 表格多选的执行记录 ID 列表
 const selectedIds = ref<number[]>([])
+// 是否展开高级筛选区域
 const showAdvancedFilters = ref(false)
 
+// 筛选条件集合
 const filters = ref({
-  id: '',
-  execution_id: '',
-  task_name: '',
-  executor_name: '',
-  status: '',
-  start_time_from: '',
-  start_time_to: '',
-  end_time_from: '',
-  end_time_to: '',
-  duration_min: null as number | null,
-  duration_max: null as number | null
+  id: '',                   // 执行记录 ID
+  execution_id: '',         // 执行实例 UUID
+  task_name: '',            // 任务名称模糊搜索
+  executor_name: '',        // 执行节点名称模糊搜索
+  status: '',               // 执行状态（success/failed/running/pending）
+  start_time_from: '',      // 开始时间范围-起
+  start_time_to: '',        // 开始时间范围-止
+  end_time_from: '',        // 结束时间范围-起
+  end_time_to: '',          // 结束时间范围-止
+  duration_min: null as number | null,  // 执行时长最小值（秒）
+  duration_max: null as number | null   // 执行时长最大值（秒）
 })
 
+/**
+ * 重置所有筛选条件，恢复默认值并重新加载第 1 页数据
+ */
 const resetFilters = () => {
   filters.value = {
     id: '',
@@ -354,22 +389,27 @@ const resetFilters = () => {
 }
 
 // 分页相关
-const total = ref(0)
-const currentPage = ref(1)
-const pageSize = ref(20)
+const total = ref(0)       // 总记录数
+const currentPage = ref(1) // 当前页码
+const pageSize = ref(20)   // 每页条数
 
-// 统计数据
+// 统计数据：后端返回的执行状态计数
 const stats = ref({
   success: 0,
   failed: 0,
   running: 0
 })
 
-// 统计计算属性
+// 统计计算属性：分别映射成功/失败/运行中的数量
 const successCount = computed(() => stats.value.success)
 const failedCount = computed(() => stats.value.failed)
 const runningCount = computed(() => stats.value.running)
 
+/**
+ * 获取状态对应的 Element Plus tag 类型
+ * @param status - 执行状态字符串
+ * @returns tag 类型（success/danger/warning/info）
+ */
 const getStatusType = (status: string) => {
   switch (status) {
     case 'success': return 'success'
@@ -380,6 +420,11 @@ const getStatusType = (status: string) => {
   }
 }
 
+/**
+ * 获取状态对应的中文显示文本
+ * @param status - 执行状态字符串
+ * @returns 中文状态描述
+ */
 const getStatusText = (status: string) => {
   switch (status) {
     case 'success': return '成功'
@@ -390,6 +435,11 @@ const getStatusText = (status: string) => {
   }
 }
 
+/**
+ * 获取状态对应的状态指示器 CSS 类名
+ * @param status - 执行状态字符串
+ * @returns CSS 类名
+ */
 const getStatusDotClass = (status: string) => {
   switch (status) {
     case 'success': return 'dot-success'
@@ -400,6 +450,11 @@ const getStatusDotClass = (status: string) => {
   }
 }
 
+/**
+ * 表格行样式类名回调：当前正在查看日志的执行记录高亮显示
+ * @param row - 当前行数据对象
+ * @returns CSS 类名
+ */
 const tableRowClassName = ({ row }: { row: TaskExecutionListResponse }) => {
   if (currentExecution.value?.execution_id === row.execution_id) {
     return 'current-row'
@@ -407,6 +462,11 @@ const tableRowClassName = ({ row }: { row: TaskExecutionListResponse }) => {
   return ''
 }
 
+/**
+ * 格式化时间字符串为 YYYY-MM-DD HH:mm:ss
+ * @param timeStr - 原始时间字符串（ISO 格式等）
+ * @returns 格式化后的时间字符串，无效时返回 '-'
+ */
 const formatTime = (timeStr: string | null | undefined) => {
   if (!timeStr) return '-'
   try {
@@ -426,6 +486,13 @@ const formatTime = (timeStr: string | null | undefined) => {
   }
 }
 
+/**
+ * 格式化执行时长为人类可读格式
+ * @param startTime - 开始时间字符串
+ * @param endTime - 结束时间字符串（可为空）
+ * @param status - 执行状态（running 时以当前时间计算）
+ * @returns 格式化后的时长字符串，如 "1m 30s"、"2h 5m"、"500ms" 等
+ */
 const formatDuration = (startTime: string | null | undefined, endTime: string | null | undefined, status?: string | null) => {
   if (!startTime) return '-'
   
@@ -467,6 +534,11 @@ const formatDuration = (startTime: string | null | undefined, endTime: string | 
   }
 }
 
+/**
+ * 加载执行记录列表和统计数据
+ * @param page - 目标页码，默认为当前页
+ * @description 并行请求列表接口和统计接口，自动合并筛选条件
+ */
 const loadExecutions = async (page: number = currentPage.value) => {
   loading.value = true
   try {
@@ -529,6 +601,7 @@ const loadExecutions = async (page: number = currentPage.value) => {
 
 // task_name / executor_name 变化：防抖后重置到第 1 页并重新请求后端
 let filterDebounceTimer: ReturnType<typeof setTimeout> | null = null
+// 监听任务名和执行节点名的筛选输入，300ms 防抖后自动触发查询
 watch([() => filters.value.task_name, () => filters.value.executor_name], () => {
   if (filterDebounceTimer) {
     clearTimeout(filterDebounceTimer)
@@ -538,26 +611,45 @@ watch([() => filters.value.task_name, () => filters.value.executor_name], () => 
   }, 300)
 })
 
+/**
+ * 表格多选回调：同步更新选中的执行记录 ID 列表
+ * @param selection - 选中行的数据数组
+ */
 const handleSelectionChange = (selection: TaskExecutionListResponse[]) => {
   selectedIds.value = selection.map(item => item.id)
 }
 
+/**
+ * 表格行点击：高亮当前行（供样式使用）
+ * @param row - 点击的行数据
+ */
 const handleRowClick = (row: TaskExecutionListResponse) => {
   currentExecution.value = row
 }
 
+/**
+ * 查看单条执行的日志详情
+ * @param row - 目标执行记录
+ */
 const viewLogs = (row: TaskExecutionListResponse) => {
   currentExecution.value = row
   currentExecutionId.value = row.execution_id || ''
   showLogs.value = true
 }
 
+/**
+ * 关闭日志详情面板，清空关联状态
+ */
 const closeLogs = () => {
   showLogs.value = false
   currentExecution.value = null
   currentExecutionId.value = ''
 }
 
+/**
+ * 删除单条执行记录（含确认弹窗）
+ * @param row - 要删除的执行记录
+ */
 const handleDelete = async (row: TaskExecutionListResponse) => {
   try {
     await ElMessageBox.confirm(
@@ -579,6 +671,9 @@ const handleDelete = async (row: TaskExecutionListResponse) => {
   }
 }
 
+/**
+ * 批量删除选中的执行记录（含确认弹窗）
+ */
 const handleBatchDelete = async () => {
   try {
     await ElMessageBox.confirm(
@@ -601,16 +696,27 @@ const handleBatchDelete = async () => {
   }
 }
 
+/**
+ * 分页器每页条数变化处理
+ * @param val - 新的每页条数
+ */
 const handleSizeChange = (val: number) => {
   pageSize.value = val
   loadExecutions(1)
 }
 
+/**
+ * 分页器页码变化处理
+ * @param val - 新的页码
+ */
 const handleCurrentChange = (val: number) => {
   currentPage.value = val
   loadExecutions(val)
 }
 
+/**
+ * 组件挂载时初始化：检查路由参数带入的筛选条件，加载第一页数据
+ */
 onMounted(() => {
   // 检查路由参数
   if (route.query.task_name) {
@@ -621,6 +727,7 @@ onMounted(() => {
 })
 </script>
 
+/* ===== 页面容器 ===== */
 <style scoped>
 .logs-page {
   display: flex;

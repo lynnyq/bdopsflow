@@ -1,12 +1,23 @@
+<!--
+  HTTP 接口测试页面
+  功能：类似 Postman 的 HTTP 接口调试工具。支持 GET/POST/PUT/DELETE/PATCH/HEAD/OPTIONS 方法、
+       请求头/Query 参数/Body(form-data/json/raw/binary) 构造、Basic Auth/Bearer Token 鉴权、
+       响应查看（Body/Headers/Assertion）、测试用例保存、cURL 导出。
+  布局：左侧保存列表 + 右侧请求/响应双栏，支持面板拖拽调整。
+-->
 <template>
   <div class="http-test-page">
+    <!-- 页面整体容器 -->
+    <!-- 内容区域：左侧保存列表 + 右侧编辑器 -->
     <div class="main-content">
-      <!-- Left Panel: Saved Tests -->
-      <aside class="saved-panel">
+      <!-- === 左侧：已保存的 HTTP 接口列表 === -->
+        <aside class="saved-panel">
         <div class="panel-header">
           <span class="panel-title">接口列表</span>
+          <!-- panel-count-badge 区块 -->
           <el-badge :value="savedTests.length" :max="99" type="info" class="panel-count-badge" />
         </div>
+        <!-- 面板 -->
         <div class="panel-search">
           <el-input
             v-model="searchQuery"
@@ -16,6 +27,7 @@
             clearable
           />
         </div>
+        <!-- 列表 -->
         <div class="saved-list">
           <div
             v-for="item in filteredTests"
@@ -25,6 +37,7 @@
             :style="{ borderLeftColor: getMethodColor(getConfigMethod(item.config)) }"
             @click="handleLoadTest(item)"
           >
+            <!-- drag-handle 区块 -->
             <el-icon class="drag-handle"><Rank /></el-icon>
             <el-tag
               :type="getMethodTagType(getConfigMethod(item.config))"
@@ -36,15 +49,18 @@
               {{ getConfigMethod(item.config) }}
             </el-tag>
             <span class="saved-name" :title="item.name">{{ item.name }}</span>
+            <!-- 删除按钮 -->
             <el-icon class="saved-delete" @click.stop="handleDeleteTest(item)">
               <Delete />
             </el-icon>
           </div>
+          <!-- 空状态 -->
           <div v-if="filteredTests.length === 0" class="empty-saved">
             <el-icon :size="24"><Document /></el-icon>
             <p>暂无保存的接口</p>
           </div>
         </div>
+        <!-- 底部区域 -->
         <div class="panel-footer">
           <el-button type="primary" :icon="Plus" size="small" @click="handleNewRequest" class="new-btn">
             新建请求
@@ -54,13 +70,13 @@
 
       <!-- Right Panel -->
       <main class="editor-area">
-        <!-- Request Editor -->
+        <!-- Request Editor：请求编辑面板，包含 URL/Headers/Body 标签页 -->
         <div
           ref="requestSectionRef"
           class="request-section"
           :class="{
             'panel-maximized': panelMode === 'request-max',
-            'panel-minimized': panelMode === 'response-max',
+            'panel-minimized': panelMode === 'response-max'
           }"
         >
           <!-- Current test name -->
@@ -76,6 +92,7 @@
               class="method-select"
               size="default"
             >
+              <!-- 下拉选项 -->
               <el-option
                 v-for="m in httpMethods"
                 :key="m"
@@ -85,6 +102,7 @@
                 <span :class="`method-text method-${m.toLowerCase()}`">{{ m }}</span>
               </el-option>
             </el-select>
+            <!-- bar-divider 区块 -->
             <el-divider direction="vertical" class="bar-divider" />
             <el-input
               v-model="requestConfig.url"
@@ -94,6 +112,7 @@
               @blur="syncUrlToParams"
             >
               <template #prefix>
+                <!-- 图标 -->
                 <el-icon><Link /></el-icon>
               </template>
             </el-input>
@@ -149,9 +168,10 @@
             </el-tooltip>
           </div>
 
+          <!-- 请求参数/Headers/Body/认证/Settings/断言 等 Tab 切换区 -->
           <!-- Request Tabs -->
           <el-tabs v-model="requestTab" class="request-tabs">
-            <!-- Params Tab -->
+            <!-- URL Query 参数 Tab：KV 编辑器自动同步 URL -->
             <el-tab-pane name="params">
               <template #label>
                 参数 <el-badge v-if="activeParamsCount > 0" :value="activeParamsCount" type="info" class="tab-badge" />
@@ -329,19 +349,23 @@
           <div class="resize-line"></div>
         </div>
 
-        <!-- Response Viewer -->
+        <!-- 响应结果展示区（包含状态码、耗时、大小、响应体/头 Tab） -->
         <transition name="response-fade">
           <div
             class="response-section"
             :class="{
               'panel-maximized': panelMode === 'response-max',
-              'panel-minimized': panelMode === 'request-max',
+              'panel-minimized': panelMode === 'request-max'
             }"
             v-if="response || responseError || sending"
           >
+            <!-- 响应头部：状态码徽章 + 耗时 + 大小 + 操作按钮 -->
             <div class="response-header">
+              <!-- 响应状态信息区 -->
               <div class="response-info">
+                <!-- 有响应时展示状态码/耗时/大小 -->
                 <template v-if="response">
+                  <!-- 状态码徽章 -->
                   <el-tag
                     :type="getStatusTagType(response.status_code)"
                     effect="dark"
@@ -350,10 +374,12 @@
                   >
                     {{ response.status_code }}
                   </el-tag>
+                  <!-- 响应耗时 -->
                   <span class="response-meta-item">
                     <el-icon :size="14"><Clock /></el-icon>
                     {{ response.latency_ms }}ms
                   </span>
+                  <!-- 响应体大小 -->
                   <span class="response-meta-item">
                     <el-icon :size="14"><Document /></el-icon>
                     {{ formatSize(response.body) }}
@@ -378,13 +404,16 @@
               </el-tooltip>
             </div>
 
+            <!-- 响应标签页：Body / Headers -->
             <el-tabs v-model="responseTab" class="response-tabs">
-              <!-- Body Tab -->
+              <!-- 响应体 Tab -->
               <el-tab-pane name="body">
                 <template #label>
                   响应体
                 </template>
+                <!-- 响应体头部：展示模式切换 + 复制按钮 -->
                 <div class="response-body-header">
+                  <!-- 展示模式：JSON / Raw / Preview -->
                   <div class="response-body-modes">
                     <el-radio-group v-model="responseBodyMode" size="small">
                       <el-radio-button value="json">JSON</el-radio-button>
@@ -392,6 +421,7 @@
                       <el-radio-button value="preview">Preview</el-radio-button>
                     </el-radio-group>
                   </div>
+                  <!-- 复制响应体按钮 -->
                   <el-button
                     v-if="response?.body"
                     size="small"
@@ -403,12 +433,15 @@
                     复制
                   </el-button>
                 </div>
+                <!-- JSON 格式化展示模式 -->
                 <div v-if="responseBodyMode === 'json'" class="response-body-content">
                   <div ref="responseJsonEditorRef" class="response-json-editor"></div>
                 </div>
+                <!-- 原始文本展示模式 -->
                 <div v-else-if="responseBodyMode === 'raw'" class="response-body-content">
                   <pre class="response-raw">{{ response?.body || '' }}</pre>
                 </div>
+                <!-- 预览（HTML iframe）展示模式 -->
                 <div v-else class="response-body-content">
                   <iframe
                     v-if="response?.body"
@@ -639,9 +672,10 @@ interface RequestConfigLocal {
 // ==================== Constants ====================
 
 /** 所有支持的 HTTP Method 列表 */
-const httpMethods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']
+const httpMethods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']  // HTTP 方法列表
 
 /** Element Plus Tag type 映射：method → tag type（用于左侧已保存请求列表） */
+// --- 常量/变量: methodTagTypeMap ---
 const methodTagTypeMap: Record<string, string> = {
   GET: 'success',
   POST: 'warning',
@@ -653,6 +687,7 @@ const methodTagTypeMap: Record<string, string> = {
 }
 
 /** method → 实际显示颜色（hex） */
+// --- 常量/变量: methodColorMap ---
 const methodColorMap: Record<string, string> = {
   GET: '#67c23a',
   POST: '#e6a23c',
@@ -664,12 +699,15 @@ const methodColorMap: Record<string, string> = {
 }
 
 /** 获取 HTTP Method 对应的 Element Plus Tag type */
+// --- 常量/变量: getMethodTagType ---
 const getMethodTagType = (method: string): string => methodTagTypeMap[method] || 'info'
 
 /** 获取 HTTP Method 对应的显示颜色 */
+// --- 常量/变量: getMethodColor ---
 const getMethodColor = (method: string): string => methodColorMap[method] || '#909399'
 
 /** 根据响应状态码返回 Element Plus Tag type（2xx success / 3xx info / 4xx warning / 5xx danger） */
+// --- 常量/变量: getStatusTagType ---
 const getStatusTagType = (code: number): string => {
   if (code >= 200 && code < 300) return 'success'
   if (code >= 300 && code < 400) return 'info'
@@ -682,67 +720,96 @@ const getStatusTagType = (code: number): string => {
 /** 左侧已保存请求列表的关键字过滤 */
 const searchQuery = ref('')
 /** 后端返回的全部已保存 HTTP 测试用例 */
+// ========== 保存的测试用例 ==========
 const savedTests = ref<ApiTest[]>([])
 /** 当前正在编辑 / 执行的已保存测试 ID，null 表示未保存的临时请求 */
 const currentTestId = ref<number | null>(null)
 /** 请求发送中（用于按钮 loading + 取消请求） */
+// --- 常量/变量: sending ---
 const sending = ref(false)
 /** 保存/更新请求中 */
+// --- 常量/变量: saving ---
 const saving = ref(false)
 /** 最近一次执行的响应结果 */
+// --- 响应式状态: response ---
 const response = ref<ApiTestResult | null>(null)
 /** 请求执行错误信息（非响应体错误，如网络、超时、取消） */
+// --- 常量/变量: responseError ---
 const responseError = ref('')
 /** 请求体区域当前激活的 Tab（params / headers / body / auth / script / assertions / settings） */
+// --- 常量/变量: requestTab ---
 const requestTab = ref('params')
 /** 响应区域当前激活的 Tab（body / headers / assertions） */
+// --- 常量/变量: responseTab ---
 const responseTab = ref('body')
 /** 响应体展示模式（json → CodeMirror，text → 纯文本） */
+// --- 常量/变量: responseBodyMode ---
 const responseBodyMode = ref('json')
 /** 二进制文件上传时的文件名显示 */
+// --- 常量/变量: binaryFileName ---
 const binaryFileName = ref('')
 
 // --- 面板布局状态 ---
 /** 三态面板模式：both（上下分割）/ request-max（请求最大化）/ response-max（响应最大化） */
+// --- 响应式状态: panelMode ---
 const panelMode = ref<'both' | 'request-max' | 'response-max'>('both')
 /** 请求面板 DOM 引用，用于拖拽时设置内联高度 */
+// --- 响应式状态: requestSectionRef ---
 const requestSectionRef = ref<HTMLElement | null>(null)
 /** 是否正处于鼠标拖拽分割条状态 */
-const isDragging = ref(false)
+// --- 常量/变量: isDragging ---
+const isDragging = ref(false)  // 是否Dragging
 
 /** 当前正在编辑的请求配置（UI 层完整数据模型） */
+// ========== 请求配置 ==========
 const requestConfig = ref<RequestConfigLocal>(createEmptyRequest())
 
 // --- 保存对话框 ---
+// --- 常量/变量: saveDialogVisible ---
 const saveDialogVisible = ref(false)
+// --- 常量/变量: saveForm ---
 const saveForm = ref({ name: '' })
 
 // --- cURL 生成对话框 ---
+// --- 常量/变量: curlDialogVisible ---
 const curlDialogVisible = ref(false)
+// --- 常量/变量: curlCommand ---
 const curlCommand = ref('')
 
 // --- 断言与历史 ---
+// --- 响应式状态: assertionResults ---
 const assertionResults = ref<AssertionResult[]>([])
+// --- 响应式状态: historyList ---
 const historyList = ref<ApiTestResult[]>([])
+// --- 响应式状态: selectedHistoryId ---
 const selectedHistoryId = ref<number | null>(null)
 
 // --- 历史对比 ---
 /** 多选的历史记录 ID（最多 2 个）用于 diff */
+// --- 响应式状态: selectedHistoryIds ---
 const selectedHistoryIds = ref<number[]>([])
+// --- 常量/变量: compareDialogVisible ---
 const compareDialogVisible = ref(false)
+// --- 响应式状态: compareLeft ---
 const compareLeft = ref<ApiTestResult | null>(null)
+// --- 响应式状态: compareRight ---
 const compareRight = ref<ApiTestResult | null>(null)
 
 // --- CodeMirror 编辑器实例 ---
 /** 请求体 JSON 编辑器宿主 DOM */
+// --- 响应式状态: bodyEditorRef ---
 const bodyEditorRef = ref<HTMLElement>()
 /** 响应体只读 JSON 查看器宿主 DOM */
+// --- 响应式状态: responseJsonEditorRef ---
 const responseJsonEditorRef = ref<HTMLElement>()
+// --- 常量/变量: bodyEditorView ---
 let bodyEditorView: EditorView | null = null
+// --- 常量/变量: responseJsonEditorView ---
 let responseJsonEditorView: EditorView | null = null
 
 // --- 请求取消 ---
 /** 当前发送请求的 AbortController，用于取消正在进行的请求 */
+// --- 常量/变量: abortController ---
 let abortController: AbortController | null = null
 
 // ==================== Helpers ====================
@@ -769,6 +836,7 @@ function createEmptyRequest(): RequestConfigLocal {
 }
 
 /** 向当前请求追加一条默认断言配置 */
+// --- function: addAssertion ---
 function addAssertion() {
   requestConfig.value.assertions.push({
     type: 'status_code',
@@ -781,31 +849,39 @@ function addAssertion() {
 // --- Computed 属性 ---
 
 /** 根据 searchQuery 过滤已保存请求列表（不区分大小写匹配 name） */
+// --- 计算属性: filteredTests ---
 const filteredTests = computed(() => {
   if (!searchQuery.value) return savedTests.value
+// --- 函数: q ---
   const q = searchQuery.value.toLowerCase()
   return savedTests.value.filter(t => t.name.toLowerCase().includes(q))
 })
 
 /** 已填写 key 的 Query Params 数量（用于 Tab 徽标显示） */
+// --- 计算属性: activeParamsCount ---
 const activeParamsCount = computed(() =>
   requestConfig.value.params.filter(p => p.key.trim()).length
 )
 
 /** 已填写 key 的 Headers 数量（用于 Tab 徽标显示） */
+// --- 计算属性: activeHeadersCount ---
 const activeHeadersCount = computed(() =>
   requestConfig.value.headers.filter(h => h.key.trim()).length
 )
 
 /** 当前已保存请求的 name，未保存时为空字符串 */
+// --- 计算属性: currentTestName ---
 const currentTestName = computed(() => {
   if (!currentTestId.value) return ''
+// --- 常量/变量: test ---
   const test = savedTests.value.find(t => t.id === currentTestId.value)
   return test?.name || ''
 })
 
 /** 根据当前 bodyType 推导提示性 Content-Type 字符串，展示在 UI 上 */
+// --- 计算属性: contentTypeHint ---
 const contentTypeHint = computed(() => {
+// --- 常量/变量: map ---
   const map: Record<string, string> = {
     none: '',
     json: 'Content-Type: application/json',
@@ -818,6 +894,7 @@ const contentTypeHint = computed(() => {
 })
 
 /** 从后端存储的 JSON config 字符串中提取 method，解析失败则返回 GET */
+// --- function: getConfigMethod ---
 function getConfigMethod(configStr: string): string {
   try {
     const cfg = JSON.parse(configStr)
@@ -828,19 +905,25 @@ function getConfigMethod(configStr: string): string {
 }
 
 /** 将 params 数组同步拼入 URL 的 query string（编码 key/value） */
+// --- function: syncParamsToUrl ---
 function syncParamsToUrl() {
+// --- 常量/变量: url ---
   const url = requestConfig.value.url
+// --- 常量/变量: urlObj ---
   const urlObj = url.split('?')[0]
+// --- 函数: validParams ---
   const validParams = requestConfig.value.params.filter(p => p.key.trim())
   if (validParams.length === 0) {
     requestConfig.value.url = urlObj
     return
   }
+// --- 常量/变量: qs ---
   const qs = validParams.map(p => `${encodeURIComponent(p.key)}=${encodeURIComponent(p.value)}`).join('&')
   requestConfig.value.url = `${urlObj}?${qs}`
 }
 
 /** 反向同步：从 URL 的 query string 解析出 params 数组 */
+// --- 函数: syncUrlToParams ---
 const syncUrlToParams = () => {
   try {
     const urlStr = requestConfig.value.url
@@ -857,18 +940,23 @@ const syncUrlToParams = () => {
 }
 
 /** 将 UI 层的 RequestConfigLocal 序列化为后端接口所需的 HTTPRequestConfig */
+// --- function: buildHTTPRequestConfig ---
 function buildHTTPRequestConfig(): HTTPRequestConfig {
+// --- 常量/变量: cfg ---
   const cfg = requestConfig.value
+// --- 常量/变量: config ---
   const config: HTTPRequestConfig = {
     method: cfg.method,
     url: cfg.url,
   }
 
   // Headers
+// --- 函数: validHeaders ---
   const validHeaders = cfg.headers.filter(h => h.key.trim())
   if (validHeaders.length > 0) config.headers = validHeaders
 
   // Params
+// --- 函数: validParams ---
   const validParams = cfg.params.filter(p => p.key.trim())
   if (validParams.length > 0) config.params = validParams
 
@@ -912,6 +1000,7 @@ function buildHTTPRequestConfig(): HTTPRequestConfig {
 }
 
 /** 从后端返回的 HTTPRequestConfig JSON 字符串反向填充 UI 层 requestConfig */
+// --- function: loadConfigFromJSON ---
 function loadConfigFromJSON(configStr: string) {
   try {
     const cfg = JSON.parse(configStr) as HTTPRequestConfig
@@ -956,6 +1045,7 @@ function loadConfigFromJSON(configStr: string) {
 }
 
 /** 将 response.headers（JSON 字符串）解析为对象，用于响应头 Tab 展示 */
+// --- 计算属性: parsedResponseHeaders ---
 const parsedResponseHeaders = computed(() => {
   if (!response.value?.headers) return {}
   try {
@@ -966,8 +1056,10 @@ const parsedResponseHeaders = computed(() => {
 })
 
 /** 格式化字节数为 B / KB / MB 可读字符串 */
+// --- function: formatSize ---
 function formatSize(body: string): string {
   if (!body) return '0 B'
+// --- 常量/变量: bytes ---
   const bytes = new Blob([body]).size
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
@@ -975,26 +1067,37 @@ function formatSize(body: string): string {
 }
 
 /** 将 ISO 日期字符串格式化为相对时间（刚刚 / N分钟前 / N小时前 / N天前） */
+// --- function: formatRelativeTime ---
 function formatRelativeTime(dateStr: string): string {
   if (!dateStr) return '-'
+// --- 常量/变量: date ---
   const date = new Date(dateStr)
   if (isNaN(date.getTime())) return dateStr
+// --- 函数: now ---
   const now = new Date()
+// --- 函数: diffMs ---
   const diffMs = now.getTime() - date.getTime()
+// --- 常量/变量: diffSec ---
   const diffSec = Math.floor(diffMs / 1000)
   if (diffSec < 60) return '刚刚'
+// --- 常量/变量: diffMin ---
   const diffMin = Math.floor(diffSec / 60)
   if (diffMin < 60) return `${diffMin}分钟前`
+// --- 常量/变量: diffHour ---
   const diffHour = Math.floor(diffMin / 60)
   if (diffHour < 24) return `${diffHour}小时前`
+// --- 常量/变量: diffDay ---
   const diffDay = Math.floor(diffHour / 24)
   if (diffDay < 30) return `${diffDay}天前`
   return formatDateTime(dateStr)
 }
 
 /** 将 AssertionResult 格式化为中文可读描述，如 "状态码 等于 \"200\" — 实际值: \"200\"" */
+// --- function: formatAssertionResult ---
 function formatAssertionResult(result: AssertionResult): string {
+// --- 常量/变量: a ---
   const a = result.assertion
+// --- 常量/变量: operatorMap ---
   const operatorMap: Record<string, string> = {
     equals: '等于',
     not_equals: '不等于',
@@ -1003,11 +1106,13 @@ function formatAssertionResult(result: AssertionResult): string {
     lt: '小于',
     exists: '存在',
   }
+// --- 常量/变量: typeMap ---
   const typeMap: Record<string, string> = {
     status_code: '状态码',
     json_path: 'JSON Path',
     header: 'Header',
   }
+// --- 常量/变量: text ---
   let text = `${typeMap[a.type] || a.type}`
   if (a.target) text += ` [${a.target}]`
   text += ` ${operatorMap[a.operator] || a.operator}`
@@ -1020,6 +1125,7 @@ function formatAssertionResult(result: AssertionResult): string {
 // --- 面板拖拽与最大化 ---
 
 /** 切换面板模式（当前模式再次点击则回到 both），并清理拖拽遗留的内联样式 */
+// --- 常量/变量: togglePanelMode ---
 const togglePanelMode = (mode: 'both' | 'request-max' | 'response-max') => {
   panelMode.value = panelMode.value === mode ? 'both' : mode
   // Reset inline styles set by drag handler so CSS classes take effect
@@ -1030,16 +1136,27 @@ const togglePanelMode = (mode: 'both' | 'request-max' | 'response-max') => {
 }
 
 /** 拖拽分割条开始：绑定 mousemove/mouseup 全局事件，实时调整请求面板高度 */
+// --- 常量/变量: handleResizeDragStart ---
 const handleResizeDragStart = (e: MouseEvent) => {
   e.preventDefault()
   isDragging.value = true
+// --- 常量/变量: editorArea ---
   const editorArea = (e.target as HTMLElement).closest('.editor-area') as HTMLElement
   if (!editorArea) return
+// --- 函数: areaRect ---
   const areaRect = editorArea.getBoundingClientRect()
+// --- 常量/变量: areaHeight ---
   const areaHeight = areaRect.height
+// --- 常量/变量: startY ---
   const startY = e.clientY
+// --- 常量/变量: startHeight ---
   const startHeight = requestSectionRef.value?.offsetHeight || 0
 
+  /**
+   * 处理mouse move
+   * @param moveEvent 参数 moveEvent
+   */
+// --- 常量/变量: onMouseMove ---
   const onMouseMove = (moveEvent: MouseEvent) => {
     const delta = moveEvent.clientY - startY
     const newHeight = startHeight + delta
@@ -1053,6 +1170,10 @@ const handleResizeDragStart = (e: MouseEvent) => {
     panelMode.value = 'both'
   }
 
+  /**
+   * 处理mouse up
+   */
+// --- 函数: onMouseUp ---
   const onMouseUp = () => {
     isDragging.value = false
     document.removeEventListener('mousemove', onMouseMove)
@@ -1068,6 +1189,7 @@ const handleResizeDragStart = (e: MouseEvent) => {
 }
 
 /** 格式化请求体 JSON（2 空格缩进），并同步更新 CodeMirror 编辑器内容 */
+// --- function: formatJsonBody ---
 function formatJsonBody() {
   try {
     const parsed = JSON.parse(requestConfig.value.bodyContent)
@@ -1091,7 +1213,9 @@ function createBodyEditor() {
   if (!bodyEditorRef.value) return
   if (bodyEditorView) bodyEditorView.destroy()
 
-  const isJson = requestConfig.value.bodyType === 'json'
+// --- 常量/变量: isJson ---
+  const isJson = requestConfig.value.bodyType === 'json'  // 是否Json
+// --- 常量/变量: state ---
   const state = EditorState.create({
     doc: requestConfig.value.bodyContent,
     extensions: [
@@ -1114,6 +1238,7 @@ function createBodyEditor() {
 }
 
 /** 根据当前 bodyType 决定创建还是销毁请求体编辑器（非 json/raw 类型隐藏编辑器） */
+// --- function: updateBodyEditor ---
 function updateBodyEditor() {
   if (!bodyEditorRef.value) return
   if (requestConfig.value.bodyType !== 'json' && requestConfig.value.bodyType !== 'raw') {
@@ -1127,10 +1252,12 @@ function updateBodyEditor() {
 }
 
 /** 创建只读的响应体 JSON 查看器（自动尝试格式化响应 body） */
+// --- function: createResponseJsonEditor ---
 function createResponseJsonEditor() {
   if (!responseJsonEditorRef.value) return
   if (responseJsonEditorView) responseJsonEditorView.destroy()
 
+// --- 常量/变量: formattedBody ---
   let formattedBody = ''
   try {
     const parsed = JSON.parse(response.value?.body || '')
@@ -1139,6 +1266,7 @@ function createResponseJsonEditor() {
     formattedBody = response.value?.body || ''
   }
 
+// --- 常量/变量: state ---
   const state = EditorState.create({
     doc: formattedBody,
     extensions: [
@@ -1194,6 +1322,7 @@ async function loadSavedTests() {
 }
 
 /** 加载指定已保存测试：填充 requestConfig、响应重置、加载其历史 */
+// --- async function: handleLoadTest ---
 async function handleLoadTest(item: ApiTest) {
   currentTestId.value = item.id
   loadConfigFromJSON(item.config)
@@ -1205,6 +1334,7 @@ async function handleLoadTest(item: ApiTest) {
 }
 
 /** 新建空白请求：清空所有状态，销毁编辑器实例 */
+// --- function: handleNewRequest ---
 function handleNewRequest() {
   currentTestId.value = null
   requestConfig.value = createEmptyRequest()
@@ -1219,6 +1349,7 @@ function handleNewRequest() {
 }
 
 /** 删除已保存请求（带确认对话框），删除后若当前编辑的是该请求则回退到新建状态 */
+// --- async function: handleDeleteTest ---
 async function handleDeleteTest(item: ApiTest) {
   try {
     await ElMessageBox.confirm(`确定删除接口 "${item.name}" 吗？`, '确认删除', {
@@ -1240,6 +1371,7 @@ async function handleDeleteTest(item: ApiTest) {
 }
 
 /** 发送 HTTP 请求；若正在发送则改为中止。已保存测试先更新配置再调用 executeSaved。 */
+// --- async function: handleSend ---
 async function handleSend() {
   if (sending.value && abortController) {
     abortController.abort()
@@ -1305,6 +1437,7 @@ async function handleSend() {
 }
 
 /** 保存请求：已保存的直接更新；未保存的弹出对话框，自动填充名称为 METHOD + pathname */
+// --- function: handleSave ---
 function handleSave() {
   if (currentTestId.value) {
     // Update existing
@@ -1327,6 +1460,7 @@ function handleSave() {
 }
 
 /** 更新已保存请求的配置 */
+// --- async function: doUpdateTest ---
 async function doUpdateTest(id: number) {
   saving.value = true
   try {
@@ -1346,6 +1480,7 @@ async function doUpdateTest(id: number) {
 }
 
 /** 保存对话框确认：创建新请求或更新已存在的同名请求 */
+// --- async function: handleConfirmSave ---
 async function handleConfirmSave() {
   if (!saveForm.value.name.trim()) {
     ElMessage.warning('请输入接口名称')
@@ -1373,6 +1508,7 @@ async function handleConfirmSave() {
 }
 
 /** 调用后端生成当前请求的 cURL 命令 */
+// --- async function: handleGenerateCurl ---
 async function handleGenerateCurl() {
   if (!requestConfig.value.url.trim()) {
     ElMessage.warning('请输入请求 URL')
@@ -1391,11 +1527,13 @@ async function handleGenerateCurl() {
 }
 
 /** 复制 cURL 命令到剪贴板 */
+// --- function: copyCurl ---
 function copyCurl() {
   copyToClipboard(curlCommand.value)
 }
 
 /** 复制响应体到剪贴板 */
+// --- function: copyResponseBody ---
 function copyResponseBody() {
   if (response.value?.body) {
     copyToClipboard(response.value.body)
@@ -1403,6 +1541,7 @@ function copyResponseBody() {
 }
 
 /** 通用剪贴板写入：优先 navigator.clipboard，失败则回退到 execCommand */
+// --- 常量/变量: copyToClipboard ---
 const copyToClipboard = async (text: string) => {
   try {
     await navigator.clipboard.writeText(text)
@@ -1426,9 +1565,12 @@ const copyToClipboard = async (text: string) => {
 }
 
 /** 二进制文件选择：读取为 base64 DataURL，存储到 bodyBinary */
+// --- function: handleBinaryFileChange ---
 function handleBinaryFileChange(file: any) {
+// --- 常量/变量: raw ---
   const raw = file.raw || file
   binaryFileName.value = raw.name || ''
+// --- 函数: reader ---
   const reader = new FileReader()
   reader.onload = () => {
     const base64 = (reader.result as string).split(',')[1] || ''
@@ -1438,12 +1580,14 @@ function handleBinaryFileChange(file: any) {
 }
 
 /** 清空二进制文件字段 */
+// --- function: clearBinaryFile ---
 function clearBinaryFile() {
   binaryFileName.value = ''
   requestConfig.value.bodyBinary = ''
 }
 
 /** 加载指定测试的执行历史（最多 20 条） */
+// --- async function: loadHistory ---
 async function loadHistory(testId: number) {
   try {
     const res = await apiTestAPI.getResults(testId, { page: 1, page_size: 20 })
@@ -1455,6 +1599,7 @@ async function loadHistory(testId: number) {
 }
 
 /** 清空当前测试的所有执行历史（带确认对话框） */
+// --- async function: handleClearHistory ---
 async function handleClearHistory() {
   if (!currentTestId.value) return
   try {
@@ -1482,6 +1627,7 @@ async function handleClearHistory() {
 }
 
 /** 点击历史记录：将该结果作为当前 response 展示，并解析断言结果 */
+// --- function: handleSelectHistory ---
 function handleSelectHistory(item: ApiTestResult) {
   selectedHistoryId.value = item.id
   response.value = item
@@ -1499,6 +1645,7 @@ function handleSelectHistory(item: ApiTestResult) {
 }
 
 /** 切换历史记录的对比多选状态（最多 2 个） */
+// --- function: toggleHistorySelect ---
 function toggleHistorySelect(id: number, checked: boolean) {
   if (checked) {
     if (selectedHistoryIds.value.length < 2) {
@@ -1510,6 +1657,7 @@ function toggleHistorySelect(id: number, checked: boolean) {
 }
 
 /** 打开历史对比对话框（选中正好 2 条时可用） */
+// --- function: handleCompare ---
 function handleCompare() {
   if (selectedHistoryIds.value.length !== 2) return
   const [leftId, rightId] = selectedHistoryIds.value
@@ -1521,6 +1669,7 @@ function handleCompare() {
 }
 
 /** 对比对话框中格式化响应体（尝试 JSON parse + 美化，失败则原样返回） */
+// --- function: formatCompareBody ---
 function formatCompareBody(body: string): string {
   if (!body) return ''
   try {
@@ -1544,11 +1693,15 @@ const handleGlobalKeydown = (e: KeyboardEvent) => {
   }
 }
 
+onMounted // 生命周期钩子
+// --- 生命周期: onMounted ---
 onMounted(() => {
   loadSavedTests()
   document.addEventListener('keydown', handleGlobalKeydown)
 })
 
+onUnmounted // 生命周期钩子
+// --- 生命周期: onUnmounted ---
 onUnmounted(() => {
   bodyEditorView?.destroy()
   responseJsonEditorView?.destroy()
@@ -1556,6 +1709,7 @@ onUnmounted(() => {
 })
 </script>
 
+/* ==================== 样式定义 ==================== */
 <style scoped>
 /* ==================== CSS Variables ==================== */
 .http-test-page {
@@ -1578,6 +1732,7 @@ onUnmounted(() => {
   margin: calc(-1 * var(--space-6));
 }
 
+/* 主内容区域 */
 .main-content {
   display: flex;
   flex: 1;
@@ -1606,6 +1761,7 @@ onUnmounted(() => {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
 }
 
+/* 面板头部 */
 .panel-header {
   display: flex;
   justify-content: space-between;
@@ -1615,6 +1771,7 @@ onUnmounted(() => {
   background: var(--bg-secondary);
 }
 
+/* 面板标题 */
 .panel-title {
   font-weight: 600;
   font-size: var(--font-size-md);
@@ -1625,17 +1782,20 @@ onUnmounted(() => {
   font-size: 11px;
 }
 
+/* 面板搜索 */
 .panel-search {
   padding: var(--spacing-sm) var(--spacing-md);
   border-bottom: 1px solid var(--border-subtle);
 }
 
+/* 保存列表 */
 .saved-list {
   flex: 1;
   overflow-y: auto;
   padding: var(--spacing-sm);
 }
 
+/* 保存的项 */
 .saved-item {
   display: flex;
   align-items: center;
@@ -1660,6 +1820,7 @@ onUnmounted(() => {
   opacity: 1;
 }
 
+/* 链接-链接 */
 .drag-handle {
   color: var(--text-muted);
   cursor: grab;
@@ -1673,6 +1834,7 @@ onUnmounted(() => {
   opacity: 0.7;
 }
 
+/* HTTP 方法徽章 */
 .method-badge {
   flex-shrink: 0;
   font-size: 11px;
@@ -1680,6 +1842,7 @@ onUnmounted(() => {
   text-align: center;
 }
 
+/* 保存的名称 */
 .saved-name {
   flex: 1;
   font-size: 13px;
@@ -1689,6 +1852,7 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 
+/* 删除按钮 */
 .saved-delete {
   opacity: 0;
   color: var(--text-muted);
@@ -1701,6 +1865,7 @@ onUnmounted(() => {
   color: var(--accent-danger);
 }
 
+/* 空状态-链接 */
 .empty-saved {
   display: flex;
   flex-direction: column;
@@ -1716,11 +1881,13 @@ onUnmounted(() => {
   margin: 0;
 }
 
+/* 面板底部 */
 .panel-footer {
   padding: var(--spacing-md);
   border-top: 1px solid var(--border-subtle);
 }
 
+/* 新建按钮 */
 .new-btn {
   width: 100%;
 }
@@ -1779,6 +1946,7 @@ onUnmounted(() => {
   height: 3px;
 }
 
+/* 调整大小-line */
 .resize-line {
   width: 40px;
   height: 2px;
@@ -1787,11 +1955,13 @@ onUnmounted(() => {
   transition: all 0.2s ease;
 }
 
+/* 面板切换按钮 */
 .panel-toggle-btn {
   margin-left: auto;
   flex-shrink: 0;
 }
 
+/* 当前测试名称 */
 .current-test-name {
   display: flex;
   align-items: center;
@@ -1804,6 +1974,7 @@ onUnmounted(() => {
   font-weight: 500;
 }
 
+/* 请求顶部操作栏 */
 .request-bar {
   display: flex;
   align-items: center;
@@ -1814,16 +1985,19 @@ onUnmounted(() => {
   flex-wrap: wrap;
 }
 
+/* 链接-divider */
 .bar-divider {
   height: 24px;
   margin: 0 2px;
 }
 
+/* 方法选择器 */
 .method-select {
   width: 110px;
   flex-shrink: 0;
 }
 
+/* method-文字 */
 .method-text {
   font-weight: 600;
   font-size: 13px;
@@ -1837,21 +2011,25 @@ onUnmounted(() => {
 .method-head { color: #909399; }
 .method-options { color: #909399; }
 
+/* URL 输入框 */
 .url-input {
   flex: 1;
 }
 
+/* 超时输入 */
 .timeout-input {
   width: 100px;
   flex-shrink: 0;
 }
 
+/* 时间-提示 */
 .timeout-hint {
   color: var(--text-muted);
   cursor: help;
   flex-shrink: 0;
 }
 
+/* 发送按钮 */
 .send-btn {
   font-weight: 600;
   background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
@@ -1868,6 +2046,7 @@ onUnmounted(() => {
   filter: brightness(1.05);
 }
 
+/* 操作按钮 */
 .action-btn {
   font-weight: 500;
   background: var(--bg-secondary);
@@ -1882,6 +2061,7 @@ onUnmounted(() => {
   color: var(--accent-primary);
 }
 
+/* 请求标签页 */
 .request-tabs {
   padding: 0 var(--spacing-lg);
   flex: 1;
@@ -1920,6 +2100,7 @@ onUnmounted(() => {
   gap: var(--spacing-md);
 }
 
+/* 主体-类型-row */
 .body-type-row {
   display: flex;
   align-items: center;
@@ -1927,10 +2108,12 @@ onUnmounted(() => {
   flex-wrap: wrap;
 }
 
+/* 主体-类型-group */
 .body-type-group {
   flex-wrap: wrap;
 }
 
+/* 内容-类型-提示 */
 .content-type-hint {
   font-size: 12px;
   color: var(--text-muted);
@@ -1940,6 +2123,7 @@ onUnmounted(() => {
   border-radius: var(--radius-sm);
 }
 
+/* 主体-编辑器-包装器 */
 .body-editor-wrapper {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
@@ -1948,6 +2132,7 @@ onUnmounted(() => {
   flex-direction: column;
 }
 
+/* 主体-编辑器-工具栏 */
 .body-editor-toolbar {
   display: flex;
   align-items: center;
@@ -1958,16 +2143,19 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
+/* 链接-内容-类型-输入 */
 .raw-content-type-input {
   width: 240px;
 }
 
+/* 主体-编辑器 */
 .body-editor {
   flex: 1;
   min-height: 180px;
   overflow: auto;
 }
 
+/* 主体-none */
 .body-none {
   padding: var(--spacing-xl);
   text-align: center;
@@ -1975,17 +2163,20 @@ onUnmounted(() => {
   font-size: var(--font-size-sm);
 }
 
+/* 链接-链接 */
 .binary-upload {
   display: flex;
   align-items: center;
   gap: var(--spacing-md);
 }
 
+/* 链接-文件-名称 */
 .binary-file-name {
   font-size: var(--font-size-sm);
   color: var(--text-secondary);
 }
 
+/* 链接-链接 */
 .binary-clear {
   color: var(--text-muted);
   cursor: pointer;
@@ -2004,10 +2195,12 @@ onUnmounted(() => {
   gap: var(--spacing-md);
 }
 
+/* 链接-类型-选择 */
 .auth-type-select {
   width: 180px;
 }
 
+/* 链接-fields */
 .auth-fields {
   display: flex;
   flex-direction: column;
@@ -2015,6 +2208,7 @@ onUnmounted(() => {
   max-width: 400px;
 }
 
+/* 链接-in-选择 */
 .auth-in-select {
   width: 140px;
 }
@@ -2026,30 +2220,36 @@ onUnmounted(() => {
   gap: var(--spacing-sm);
 }
 
+/* 链接-row */
 .assertion-row {
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
 }
 
+/* 链接-field */
 .assertion-field {
   flex: 1;
 }
 
+/* 链接-类型 */
 .assertion-type {
   width: 120px;
   flex: none;
 }
 
+/* 链接-链接 */
 .assertion-operator {
   width: 110px;
   flex: none;
 }
 
+/* 链接-链接 */
 .assertion-target {
   flex: 2;
 }
 
+/* 链接-expected */
 .assertion-expected {
   flex: 2;
 }
@@ -2084,24 +2284,29 @@ onUnmounted(() => {
   display: none;
 }
 
+/* 响应-链接-enter-链接 */
 .response-fade-enter-active {
   transition: all 0.3s ease-out;
 }
 
+/* 响应-链接-链接-链接 */
 .response-fade-leave-active {
   transition: all 0.2s ease-in;
 }
 
+/* 响应-链接-enter-from */
 .response-fade-enter-from {
   opacity: 0;
   transform: translateY(10px);
 }
 
+/* 响应-链接-链接-to */
 .response-fade-leave-to {
   opacity: 0;
   transform: translateY(-5px);
 }
 
+/* 响应头部 */
 .response-header {
   padding: var(--spacing-sm) var(--spacing-lg);
   border-bottom: 1px solid var(--border-subtle);
@@ -2112,6 +2317,7 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
+/* 响应-信息 */
 .response-info {
   display: flex;
   align-items: center;
@@ -2120,6 +2326,7 @@ onUnmounted(() => {
   color: var(--text-secondary);
 }
 
+/* 状态-徽章 */
 .status-badge {
   font-weight: 700;
   font-size: 12px;
@@ -2128,17 +2335,20 @@ onUnmounted(() => {
   padding: 2px 8px;
 }
 
+/* 响应-链接-列表项 */
 .response-meta-item {
   display: flex;
   align-items: center;
   gap: 4px;
 }
 
+/* 错误-文字 */
 .error-text {
   color: var(--accent-danger);
   font-size: var(--font-size-sm);
 }
 
+/* 响应标签页 */
 .response-tabs {
   padding: 0 var(--spacing-lg);
   flex: 1;
@@ -2165,6 +2375,7 @@ onUnmounted(() => {
   flex-direction: column;
 }
 
+/* 响应-主体-头部 */
 .response-body-header {
   display: flex;
   align-items: center;
@@ -2173,11 +2384,13 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
+/* 响应-主体-modes */
 .response-body-modes {
   display: flex;
   align-items: center;
 }
 
+/* 响应-主体-内容 */
 .response-body-content {
   flex: 1;
   min-height: 0;
@@ -2186,11 +2399,13 @@ onUnmounted(() => {
   overflow: hidden;
 }
 
+/* 响应-json-编辑器 */
 .response-json-editor {
   flex: 1;
   min-height: 0;
 }
 
+/* copy-响应-按钮 */
 .copy-response-btn {
   color: var(--text-muted);
   background: var(--bg-secondary);
@@ -2206,6 +2421,7 @@ onUnmounted(() => {
   border-color: var(--accent-primary);
 }
 
+/* 响应-链接 */
 .response-raw {
   background: var(--bg-secondary);
   padding: var(--spacing-md);
@@ -2220,6 +2436,7 @@ onUnmounted(() => {
   margin: 0;
 }
 
+/* 响应预览 */
 .response-preview {
   width: 100%;
   height: 100%;
@@ -2236,6 +2453,7 @@ onUnmounted(() => {
   gap: var(--spacing-xs);
 }
 
+/* 头部-row */
 .header-row {
   display: flex;
   gap: var(--spacing-md);
@@ -2244,12 +2462,14 @@ onUnmounted(() => {
   border-bottom: 1px solid var(--border-subtle);
 }
 
+/* 头部-key */
 .header-key {
   font-weight: 600;
   color: var(--text-primary);
   min-width: 200px;
 }
 
+/* 头部-数值 */
 .header-value {
   color: var(--text-secondary);
   word-break: break-all;
@@ -2262,6 +2482,7 @@ onUnmounted(() => {
   gap: var(--spacing-sm);
 }
 
+/* 链接-结果 */
 .assertion-result {
   display: flex;
   align-items: flex-start;
@@ -2281,6 +2502,7 @@ onUnmounted(() => {
   color: var(--accent-danger);
 }
 
+/* 链接-结果-文字 */
 .assertion-result-text {
   flex: 1;
   line-height: 1.5;
@@ -2294,12 +2516,14 @@ onUnmounted(() => {
   margin-bottom: var(--spacing-sm);
 }
 
+/* history-列表 */
 .history-list {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-xs);
 }
 
+/* history-列表项 */
 .history-item {
   display: flex;
   align-items: center;
@@ -2319,6 +2543,7 @@ onUnmounted(() => {
   background: rgba(59, 130, 246, 0.1);
 }
 
+/* history-状态 */
 .history-status {
   min-width: 42px;
   text-align: center;
@@ -2329,11 +2554,13 @@ onUnmounted(() => {
 .status-code-4xx { color: #e6a23c; font-weight: 600; }
 .status-code-5xx { color: #f56c6c; font-weight: 600; }
 
+/* history-链接 */
 .history-latency {
   color: var(--text-secondary);
   min-width: 60px;
 }
 
+/* history-时间 */
 .history-time {
   color: var(--text-muted);
   margin-left: auto;
@@ -2376,6 +2603,7 @@ onUnmounted(() => {
   overflow: auto;
 }
 
+/* curl-文字 */
 .curl-text {
   font-family: Monaco, Menlo, 'Ubuntu Mono', monospace;
   font-size: 13px;
@@ -2391,6 +2619,7 @@ onUnmounted(() => {
   gap: var(--spacing-lg);
 }
 
+/* 链接-面板 */
 .compare-panel {
   flex: 1;
   min-width: 0;
@@ -2399,6 +2628,7 @@ onUnmounted(() => {
   overflow: hidden;
 }
 
+/* 链接-头部 */
 .compare-header {
   display: flex;
   align-items: center;
@@ -2409,17 +2639,20 @@ onUnmounted(() => {
   font-size: 13px;
 }
 
+/* 链接-链接 */
 .compare-latency {
   color: var(--text-secondary);
   font-family: Monaco, Menlo, 'Ubuntu Mono', monospace;
 }
 
+/* 链接-时间 */
 .compare-time {
   color: var(--text-muted);
   font-size: 12px;
   margin-left: auto;
 }
 
+/* 链接-主体 */
 .compare-body {
   padding: var(--spacing-md);
   margin: 0;

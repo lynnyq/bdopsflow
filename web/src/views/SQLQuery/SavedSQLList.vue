@@ -1,5 +1,7 @@
+<!-- 已保存 SQL 列表页面：展示用户收藏/共享的 SQL 语句，支持重新执行 -->
 <template>
   <div class="saved-sql-page">
+    <!-- 工具栏：搜索 + 刷新 -->
     <div class="page-toolbar">
       <div class="toolbar-left">
         <el-input
@@ -136,36 +138,55 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * SavedSQLList.vue - 已保存 SQL 列表页面
+ *
+ * 展示用户在 SQLQuery 页面收藏（保存）的 SQL 语句，
+ * 包含公开/私有标记、保存者、数据源等信息，支持跳转到 SQLQuery 重新执行。
+ *
+ * Props: 无
+ * Emits: 无
+ */
+// ========== Vue 核心 API ==========
 import { ref, onMounted, watch } from 'vue'
+// ========== Vue Router ==========
 import { useRouter } from 'vue-router'
+// ========== Element Plus ==========
 import { ElMessage, ElMessageBox } from 'element-plus'
+// ========== Element Plus 图标 ==========
 import { Search, Refresh, Delete, Document, VideoPlay, Edit } from '@element-plus/icons-vue'
+// ========== API 层 ==========
 import { queryAPI, datasourceAPI } from '@/api'
+// ========== 工具函数 ==========
 import { isHandledError } from '@/utils/api'
+// ========== 类型定义 ==========
 import type { SavedSQL, Datasource } from '@/types'
 
+// Router 实例：用于跳转到 SQLQuery 页面
 const router = useRouter()
 
-const savedList = ref<SavedSQL[]>([])
-const loading = ref(false)
-const searchQuery = ref('')
-const currentPage = ref(1)
-const pageSize = ref(20)
-const total = ref(0)
+// ========== 列表状态 ==========
+const savedList = ref<SavedSQL[]>([])          // 已保存 SQL 列表
+const loading = ref(false)                      // 列表加载状态
+const searchQuery = ref('')                     // 搜索关键字
+const currentPage = ref(1)                      // 当前页码
+const pageSize = ref(20)                        // 每页条数
+const total = ref(0)                            // 总记录数
 
-// 编辑相关状态
-const editDialogVisible = ref(false)
-const editing = ref(false)
-const editingId = ref<number>(0)
-const editFormRef = ref()
+// ========== 编辑弹窗状态 ==========
+const editDialogVisible = ref(false)            // 编辑对话框可见性
+const editing = ref(false)                       // 保存加载状态
+const editingId = ref<number>(0)                // 当前编辑的 SQL ID
+const editFormRef = ref()                       // 编辑表单 DOM 引用
 const editForm = ref({
-  name: '',
-  datasource_id: 0 as number,
-  database: '',
-  sql_text: '',
-  description: '',
-  is_public: false
+  name: '',            // SQL 名称
+  datasource_id: 0 as number,  // 关联数据源 ID
+  database: '',        // 目标数据库
+  sql_text: '',        // SQL 文本
+  description: '',     // 描述备注
+  is_public: false     // 是否公开
 })
+// 编辑表单校验规则
 const editRules = {
   name: [
     { required: true, message: '请输入名称', trigger: 'blur' },
@@ -178,8 +199,14 @@ const editRules = {
     { required: true, message: '请输入SQL语句', trigger: 'blur' }
   ]
 }
+// 数据源下拉选项列表（用于编辑弹窗）
 const datasourceList = ref<Datasource[]>([])
 
+/**
+ * 格式化日期时间为中文本地化格式
+ * @param dateStr - ISO 日期字符串
+ * @returns 格式化后的日期时间字符串，空值返回 '-'
+ */
 const formatDateTime = (dateStr: string) => {
   if (!dateStr) return '-'
   const date = new Date(dateStr)
@@ -193,6 +220,9 @@ const formatDateTime = (dateStr: string) => {
   })
 }
 
+/**
+ * 加载已保存 SQL 列表（支持分页和搜索）
+ */
 const loadSavedSQL = async () => {
   loading.value = true
   try {
@@ -224,6 +254,9 @@ watch(searchQuery, () => {
   }, 300)
 })
 
+/**
+ * 加载数据源列表（用于编辑弹窗的数据源下拉选择）
+ */
 const loadDatasources = async () => {
   try {
     const res = await datasourceAPI.list({ page: 1, page_size: 200 })
@@ -235,6 +268,10 @@ const loadDatasources = async () => {
   }
 }
 
+/**
+ * 加载已保存 SQL 到 SQLQuery 页面重新执行
+ * @param row - 选中的已保存 SQL 行数据
+ */
 const handleLoad = (row: SavedSQL) => {
   const query: Record<string, string> = { sql: row.sql_text }
   if (row.datasource_id != null) {
@@ -249,6 +286,10 @@ const handleLoad = (row: SavedSQL) => {
   })
 }
 
+/**
+ * 打开编辑弹窗，填充表单数据
+ * @param row - 要编辑的已保存 SQL
+ */
 const handleEdit = (row: SavedSQL) => {
   editingId.value = row.id
   editForm.value = {
@@ -262,6 +303,9 @@ const handleEdit = (row: SavedSQL) => {
   editDialogVisible.value = true
 }
 
+/**
+ * 确认保存编辑后的 SQL（表单校验后调用后端 updateSavedSQL）
+ */
 const handleConfirmEdit = async () => {
   if (!editFormRef.value) return
 
@@ -290,6 +334,10 @@ const handleConfirmEdit = async () => {
   }
 }
 
+/**
+ * 删除已保存 SQL（弹窗二次确认）
+ * @param row - 要删除的已保存 SQL
+ */
 const handleDelete = async (row: SavedSQL) => {
   try {
     await ElMessageBox.confirm(`确定要删除 "${row.name}" 吗？`, '确认删除', {

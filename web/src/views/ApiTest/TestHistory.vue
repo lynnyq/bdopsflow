@@ -1,6 +1,7 @@
+<!-- 接口测试历史结果页面：展示 HTTP/gRPC 测试的执行记录和结果详情 -->
 <template>
   <div class="test-history-page">
-    <!-- Toolbar -->
+    <!-- 工具栏：搜索 + 类型筛选 + 状态筛选 + 刷新 -->
     <div class="page-toolbar">
       <div class="toolbar-left">
         <el-input
@@ -152,25 +153,44 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * TestHistory.vue - 接口测试执行历史结果页面
+ *
+ * 展示 HTTP / gRPC / gRPC 连接测试的执行记录列表，
+ * 支持按类型、状态筛选，点击行可在右侧抽屉查看详细响应。
+ */
+// ========== Vue 核心 API ==========
 import { ref, onMounted, watch } from 'vue'
+// ========== Element Plus ==========
 import { ElMessage, ElMessageBox } from 'element-plus'
+// ========== Element Plus 图标 ==========
 import { Search, Refresh, Document } from '@element-plus/icons-vue'
+// ========== API 层 ==========
 import { apiTestAPI } from '@/api'
+// ========== API 类型 ==========
 import type { ApiTestResult } from '@/api/apiTest'
+// ========== 工具函数 ==========
 import { isHandledError } from '@/utils/api'
 import { formatDateTime } from '@/utils/format'
 
-const loading = ref(false)
-const results = ref<ApiTestResult[]>([])
-const total = ref(0)
-const currentPage = ref(1)
-const pageSize = ref(20)
-const searchQuery = ref('')
-const filterType = ref('')
-const filterStatus = ref('')
-const detailVisible = ref(false)
-const detailResult = ref<ApiTestResult | null>(null)
+// ========== 列表与筛选状态 ==========
+const loading = ref(false)                               // 列表加载状态
+const results = ref<ApiTestResult[]>([])                 // 执行结果列表
+const total = ref(0)                                     // 总记录数
+const currentPage = ref(1)                               // 当前页码
+const pageSize = ref(20)                                 // 每页条数
+const searchQuery = ref('')                              // 搜索关键字
+const filterType = ref('')                               // 类型筛选（http/grpc/grpc_connect_test）
+const filterStatus = ref('')                             // 状态筛选（success/error）
 
+// ========== 详情弹窗状态 ==========
+const detailVisible = ref(false)                         // 详情弹窗可见性
+const detailResult = ref<ApiTestResult | null>(null)     // 当前查看的结果详情
+
+/**
+ * 相关操作
+ * @param {string} dateStr - 日期字符串
+ */
 function formatRelativeTime(dateStr: string): string {
   if (!dateStr) return '-'
   const date = new Date(dateStr)
@@ -188,6 +208,10 @@ function formatRelativeTime(dateStr: string): string {
   return formatDateTime(dateStr)
 }
 
+/**
+ * 相关操作
+ * @param {string} body - 请求/响应体
+ */
 function formatBody(body: string): string {
   try {
     return JSON.stringify(JSON.parse(body), null, 2)
@@ -196,6 +220,10 @@ function formatBody(body: string): string {
   }
 }
 
+/**
+ * 相关操作
+ * @param {string} headers - 请求/响应头
+ */
 function formatHeaders(headers: string): string {
   try {
     return JSON.stringify(JSON.parse(headers), null, 2)
@@ -204,6 +232,10 @@ function formatHeaders(headers: string): string {
   }
 }
 
+/**
+ * 相关操作
+ * @param {string} assertions - 断言列表
+ */
 function formatAssertions(assertions: string): string {
   try {
     return JSON.stringify(JSON.parse(assertions), null, 2)
@@ -212,6 +244,10 @@ function formatAssertions(assertions: string): string {
   }
 }
 
+/**
+ * 加载 API 测试历史结果列表
+ * @returns {Promise<void>}
+ */
 const loadResults = async () => {
   loading.value = true
   try {
@@ -240,6 +276,9 @@ const loadResults = async () => {
   }
 }
 
+/**
+ * 根据筛选条件重新加载测试历史
+ */
 const handleFilter = () => {
   currentPage.value = 1
   loadResults()
@@ -257,21 +296,38 @@ watch(searchQuery, () => {
   }, 300)
 })
 
+/**
+ * 切换分页大小时重置到第 1 页
+ * @param {number} size - 每页条数
+ */
 const handleSizeChange = (size: number) => {
   pageSize.value = size
   currentPage.value = 1
   loadResults()
 }
 
+/**
+ * 点击表格行时选中该行
+ * @param {ApiTestResult} row - 当前行数据
+ */
 const handleRowClick = (row: ApiTestResult) => {
   handleViewDetail(row)
 }
 
+/**
+ * 查看单条测试结果详情
+ * @param {ApiTestResult} row - 当前行数据
+ */
 const handleViewDetail = (row: ApiTestResult) => {
   detailResult.value = row
   detailVisible.value = true
 }
 
+/**
+ * 删除单条记录（执行确认）
+ * @param {ApiTestResult} row - 当前行数据
+ * @returns {Promise<void>}
+ */
 const handleDelete = async (row: ApiTestResult) => {
   try {
     await ElMessageBox.confirm('确定删除该执行记录吗？', '确认删除', {

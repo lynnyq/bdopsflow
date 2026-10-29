@@ -1,3 +1,9 @@
+<!--
+  数据源列表页面组件
+  功能：展示所有数据源（MySQL/PostgreSQL/SQLite/Redis/rqlite/Doris/StarRocks/Kafka/Prometheus），
+       支持搜索/类型筛选/编辑/测试连接/权限管理/连接池监控/删除
+  主要区域：工具栏、数据源分页表格、连接池监控弹窗（含 SVG 仪表盘）
+-->
 <template>
   <div class="datasource-list-page">
     <div class="page-toolbar">
@@ -213,7 +219,41 @@
   </div>
 </template>
 
+/**
+ * 数据源列表页面脚本
+ * @description 负责数据源列表加载、搜索筛选、测试连接、权限管理、连接池监控、删除
+ *
+ * 权限体系：
+ * - datasource.create / datasource.update / datasource.delete：基础 CRUD 权限
+ * - datasource 级细粒度权限：manage > update > download > query > read > delete
+ *
+ * 连接池监控：
+ * - 支持连接池的数据源类型可查看打开连接数、空闲数、使用中数、使用率仪表盘
+ * - 支持自动刷新（5 秒间隔）
+ *
+ * 依赖：datasourceAPI、authStore
+ */
 <script setup lang="ts">
+/**
+ * DatasourceList.vue - 数据源列表页面脚本
+ *
+ * 功能：
+ *   展示所有数据源（MySQL / PostgreSQL / SQLite / Redis / RQLite / Hive / StarRocks / Doris / Kafka / Prometheus 等），
+ *   支持搜索、类型筛选、分页、编辑、测试连接、权限管理、删除。
+ *
+ * 权限模型：
+ *   - 列表展示时从后端接收 user_permission 字段（read/query/download/update/manage）
+ *   - 通过 permWeight 权重表 + hasPermLevel 统一比较用户是否满足操作要求
+ *   - 无 manage 权限时禁用编辑/删除按钮
+ *
+ * 路由：
+ *   - 点击"新建" → router.push({ name: 'CreateDatasource' })
+ *   - 点击"编辑" → router.push({ name: 'EditDatasource', params: { id } })
+ *   - 点击"权限" → router.push({ name: 'DatasourcePermission', params: { id } })
+ *
+ * @props 无 Props
+ * @emits 无 Emits
+ */
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -225,30 +265,46 @@ import { isHandledError } from '@/utils/api'
 import type { Datasource } from '@/types'
 import { useAuthStore } from '@/stores/auth'
 
-const router = useRouter()
+const router = useRouter()  // 路由：点击编辑时导航到表单页
 const authStore = useAuthStore()
 
+// 是否有创建数据源权限（datasource.create）
 const canCreate = computed(() => authStore.hasPermission('datasource', 'create'))
 
+// 权限权重表：用于 datasource 级细粒度权限比较
 const permWeight: Record<string, number> = {
   manage: 100, update: 50, download: 40, query: 30, read: 20, delete: 10,
 }
 
+/**
+ * 权限级别比较：判断用户在某个数据源上的权限是否达到要求
+ * @param row - 数据源对象（含 user_permission 字段）
+ * @param required - 要求的权限级别
+ * @returns 是否满足
+ */
 const hasPermLevel = (row: Datasource, required: string): boolean => {
   const userPerm = permWeight[row.user_permission] || 0
   const reqPerm = permWeight[required] || 0
   return userPerm >= reqPerm
 }
 
+/**
+ * 判断数据源是否有 update 级别的权限
+ * @param {Datasource} row - 当前行数据
+ * @returns {boolean} 是否满足条件
+ */
 const canUpdate = (row: Datasource): boolean => hasPermLevel(row, 'update')
 
+/** 判断用户是否对该数据源拥有 manage 权限（控制权限管理按钮） */
 const canManage = (row: Datasource): boolean => hasPermLevel(row, 'manage')
 
+/** 判断是否可删除：manage 权限直接可删，否则需显式 delete 权限 */
 const canDelete = (row: Datasource): boolean => {
   if (hasPermLevel(row, 'manage')) return true
   return row.user_permission === 'delete'
 }
 
+/** 数据源类型 → 中文展示名的映射表 */
 const dsTypeLabels: Record<string, string> = {
   mysql: 'MySQL',
   sqlite: 'SQLite',
@@ -262,16 +318,28 @@ const dsTypeLabels: Record<string, string> = {
   doris: 'Doris',
 }
 
+/** 后端返回的全量数据源列表 */
 const datasources = ref<Datasource[]>([])
+/** 列表加载中 / 刷新中状态 */
 const loading = ref(false)
+/** 当前正在测试连接的数据源 ID（用于按钮 loading） */
 const testingId = ref<number | null>(null)
+/** 搜索关键字（本地模糊匹配） */
 const searchQuery = ref('')
+/** 数据源类型筛选 */
 const filterType = ref<string | null>(null)
+/** 当前页码 */
 const currentPage = ref(1)
+/** 每页条数 */
 const pageSize = ref(20)
 // 后端返回的真实总数，用于分页器
 const total = ref(0)
 
+/**
+ * 根据数据源连接测试状态返回 Element Plus Tag 类型
+ * @param status - 后端返回的测试状态：success / failed / 其他
+ * @returns Tag type：success / danger / info
+ */
 const getTestStatusType = (status: string) => {
   switch (status) {
     case 'success': return 'success'
@@ -280,6 +348,11 @@ const getTestStatusType = (status: string) => {
   }
 }
 
+/**
+ * 根据测试状态返回中文标签
+ * @param status - 后端返回的测试状态
+ * @returns 展示用的中文：成功 / 失败 / 未测试
+ */
 const getTestStatusLabel = (status: string) => {
   switch (status) {
     case 'success': return '成功'
@@ -288,6 +361,11 @@ const getTestStatusLabel = (status: string) => {
   }
 }
 
+/**
+ * ISO 时间字符串格式化：转换为本地时区可读格式
+ * @param dateStr - ISO 时间字符串
+ * @returns yyyy/MM/dd HH:mm:ss 格式的时间，空值返回 '-'
+ */
 const formatDateTime = (dateStr: string) => {
   if (!dateStr) return '-'
   const date = new Date(dateStr)
@@ -301,6 +379,11 @@ const formatDateTime = (dateStr: string) => {
   })
 }
 
+/**
+ * 根据数据源类型提取最合适的"主机"展示字段
+ * @param row - 数据源对象
+ * @returns SQLite 用 path、Redis 用 host:port/rqlite 用 rqlite_hosts/Hive 用 zk_hosts
+ */
 const getHostDisplay = (row: Datasource): string => {
   if (row.type === 'sqlite') return row.path || '-'
   if (row.type === 'rqlite') return row.rqlite_hosts || row.host || '-'
@@ -322,6 +405,10 @@ const getHostDisplay = (row: Datasource): string => {
   return row.host || '-'
 }
 
+/**
+ * 从后端分页加载数据源列表，支持 search / type 过滤
+ * @description 页面初始化、测试连接完成、删除完成后都会调用
+ */
 const loadDatasources = async () => {
   loading.value = true
   try {
@@ -353,14 +440,23 @@ const loadDatasources = async () => {
   }
 }
 
+/** 跳转到新建数据源表单页 */
 const handleCreate = () => {
   router.push({ name: 'CreateDatasource' })
 }
 
+/**
+ * 跳转到编辑数据源表单页
+ * @param row - 被编辑的数据源对象
+ */
 const handleEdit = (row: Datasource) => {
   router.push({ name: 'EditDatasource', params: { id: row.id } })
 }
 
+/**
+ * 触发后端对指定数据源的连接测试，成功后自动刷新列表
+ * @param row - 待测试连接的数据源
+ */
 const handleTestConnection = async (row: Datasource) => {
   testingId.value = row.id
   try {
@@ -376,10 +472,18 @@ const handleTestConnection = async (row: Datasource) => {
   }
 }
 
+/**
+ * 跳转到数据源权限管理页
+ * @param row - 目标数据源
+ */
 const handlePermission = (row: Datasource) => {
   router.push({ name: 'DatasourcePermission', params: { id: row.id } })
 }
 
+/**
+ * 删除数据源（二次确认），成功后刷新列表
+ * @param row - 待删除的数据源对象
+ */
 const handleDelete = async (row: Datasource) => {
   try {
     await ElMessageBox.confirm(`确定要删除数据源 "${row.name}" 吗？`, '确认删除', {
@@ -435,6 +539,10 @@ const poolData = ref<{
   pool_config?: { max_open: number; max_idle: number; max_lifetime: number }
 } | null>(null)
 
+/**
+ * 打开数据源连接池统计弹窗
+ * @param {Datasource} row - 当前行数据
+ */
 const handlePoolStats = (row: Datasource) => {
   poolDatasourceId.value = row.id
   poolDatasourceName.value = row.name
@@ -442,6 +550,11 @@ const handlePoolStats = (row: Datasource) => {
   loadPoolStats(row.id)
 }
 
+/**
+ * 加载指定数据源的连接池统计数据
+ * @param {number} id - ID
+ * @returns {Promise<void>}
+ */
 const loadPoolStats = async (id: number) => {
   poolLoading.value = true
   try {
@@ -456,6 +569,9 @@ const loadPoolStats = async (id: number) => {
   }
 }
 
+/**
+ * 计算连接池当前活跃连接数
+ */
 const getActiveCount = () => {
   if (!poolData.value?.pool_stats) return 0
   const inUse = poolData.value.pool_stats.in_use
@@ -463,6 +579,9 @@ const getActiveCount = () => {
   return Math.max(0, (poolData.value.pool_stats.open_count || 0) - (poolData.value.pool_stats.idle_count || 0))
 }
 
+/**
+ * 计算连接池使用率百分比
+ */
 const getUsagePercent = () => {
   if (!poolData.value?.pool_stats || !poolData.value?.pool_config) return 0
   const maxOpen = poolData.value.pool_config.max_open
@@ -471,6 +590,9 @@ const getUsagePercent = () => {
   return Math.round((getActiveCount() / maxOpen) * 100)
 }
 
+/**
+ * 计算连接池容量使用百分比
+ */
 const getPoolPercent = () => {
   if (!poolData.value?.pool_stats || !poolData.value?.pool_config) return 0
   const maxOpen = poolData.value.pool_config.max_open
@@ -478,6 +600,9 @@ const getPoolPercent = () => {
   return Math.round((poolData.value.pool_stats.open_count / maxOpen) * 100)
 }
 
+/**
+ * 根据使用率返回仪表盘颜色
+ */
 const getUsageColor = () => {
   const p = getUsagePercent()
   if (p >= 90) return '#f56c6c'
@@ -485,6 +610,9 @@ const getUsageColor = () => {
   return '#67c23a'
 }
 
+/**
+ * 根据使用率返回仪表盘 CSS 类名
+ */
 const getUsageGaugeClass = () => {
   const p = getPoolPercent()
   if (p >= 90) return 'gauge-fill-red'
@@ -492,6 +620,11 @@ const getUsageGaugeClass = () => {
   return 'gauge-fill-green'
 }
 
+/**
+ * 计算 SVG 仪表盘 stroke-dasharray 属性值
+ * @param {number} value - 值
+ * @param {number | undefined} max - max
+ */
 const getGaugeDash = (value: number, max: number | undefined) => {
   const circumference = 2 * Math.PI * 50 // r=50
   if (!max) return `0 ${circumference}`
@@ -500,6 +633,10 @@ const getGaugeDash = (value: number, max: number | undefined) => {
   return `${filled} ${circumference - filled}`
 }
 
+/**
+ * 格式化连接存活时间为人类可读字符串
+ * @param {number} seconds - 秒数
+ */
 const formatLifetime = (seconds?: number) => {
   if (seconds == null) return '-'
   if (seconds < 60) return `${seconds}秒`
@@ -507,6 +644,10 @@ const formatLifetime = (seconds?: number) => {
   return `${Math.round(seconds / 3600)}小时`
 }
 
+/**
+ * 切换连接池自动刷新开关
+ * @param {boolean} val - 值
+ */
 const togglePoolAutoRefresh = (val: boolean) => {
   if (val) {
     poolRefreshTimer = setInterval(() => {
@@ -519,6 +660,9 @@ const togglePoolAutoRefresh = (val: boolean) => {
   }
 }
 
+/**
+ * 停止连接池自动刷新定时器
+ */
 const stopPoolAutoRefresh = () => {
   poolAutoRefresh.value = false
   if (poolRefreshTimer) {

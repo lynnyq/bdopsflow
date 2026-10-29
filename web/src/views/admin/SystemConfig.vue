@@ -1,5 +1,7 @@
+<!-- 系统配置页面：按分组展示所有运行时配置项，支持内联编辑和恢复默认 -->
 <template>
   <div class="system-config-page">
+    <!-- 页面头部：标题 + 重载按钮 -->
     <div class="page-header">
       <h2 class="page-title">系统配置</h2>
       <span class="page-subtitle">管理系统全局配置参数</span>
@@ -92,6 +94,13 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * SystemConfig.vue - 系统运行时配置页面
+ *
+ * 以卡片分组形式展示所有可热更新的系统配置项，
+ * 根据配置类型自动渲染 Switch / NumberInput / TextArea 等控件，
+ * 变更通过防抖 debounce 合并提交，并支持一键恢复默认值。
+ */
 import { ref, computed, onMounted, onUnmounted, reactive } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Search, Connection, Setting, Lock, DataLine, Monitor, ChatDotRound, Refresh } from '@element-plus/icons-vue'
@@ -133,6 +142,10 @@ const groupedConfigs = computed(() => {
   }))
 })
 
+/**
+ * 根据配置类型获取表单 step 属性值
+ * @param {SystemConfigItem} item - 配置项
+ */
 const getStep = (item: SystemConfigItem) => {
   // 使用 == null 同时过滤 null 和 undefined；min_value=0 时不应被当作"缺失"
   if (item.max_value == null || item.min_value == null) return 1
@@ -142,6 +155,10 @@ const getStep = (item: SystemConfigItem) => {
   return 1
 }
 
+/**
+ * 格式化默认值为可读字符串
+ * @param {SystemConfigItem} item - 配置项
+ */
 const formatDefaultValue = (item: SystemConfigItem) => {
   if (item.type === 'boolean') {
     return item.default_value === 'true' ? '开启' : '关闭'
@@ -149,6 +166,10 @@ const formatDefaultValue = (item: SystemConfigItem) => {
   return item.default_value
 }
 
+/**
+ * 加载系统配置项列表
+ * @returns {Promise<void>}
+ */
 const loadConfigs = async () => {
   try {
     const res = await systemConfigAPI.list()
@@ -175,6 +196,10 @@ const loadConfigs = async () => {
 
 // 将单个配置项的当前值同步到对应的 reactive（boolValues/numValues/textValues）。
 // 在 handleUpdate 成功后调用，避免后端 normalize（如 clamp 到 min/max）后前端状态不一致。
+/**
+ * 同步表单值到响应式配置对象
+ * @param {SystemConfigItem} item - 配置项
+ */
 const syncReactive = (item: SystemConfigItem) => {
   if (item.type === 'boolean') {
     boolValues[item.key] = item.value === 'true'
@@ -185,6 +210,12 @@ const syncReactive = (item: SystemConfigItem) => {
   }
 }
 
+/**
+ * 更新单个系统配置项
+ * @param {string} key - 配置键名
+ * @param {string} value - 值
+ * @returns {Promise<void>}
+ */
 const handleUpdate = async (key: string, value: string) => {
   // 取消尚未触发的防抖调用，避免重复提交
   if (debounceTimers[key]) {
@@ -215,6 +246,11 @@ const handleUpdate = async (key: string, value: string) => {
 
 // 对 number/text 输入做 300ms 防抖，避免连续输入或快速点击步进按钮时频繁调用 API。
 // boolean switch 不需要防抖（仅在用户切换时触发一次）。
+/**
+ * 防抖更新系统配置值（300ms 内合并更新）
+ * @param {string} key - 配置键名
+ * @param {string} value - 值
+ */
 const debouncedUpdate = (key: string, value: string) => {
   if (debounceTimers[key]) {
     clearTimeout(debounceTimers[key]!)
@@ -226,12 +262,20 @@ const debouncedUpdate = (key: string, value: string) => {
 }
 
 // 恢复单个配置项的默认值（按钮点击，无需防抖）。
+/**
+ * 将配置项恢复到默认值
+ * @param {SystemConfigItem} item - 配置项
+ */
 const handleRestoreDefault = (item: SystemConfigItem) => {
   handleUpdate(item.key, item.default_value)
 }
 
 // 手动触发后端从 DB 重新加载配置到内存缓存。
 // 用于多节点部署时强制同步其他节点刚写入的配置，避免等待 5 分钟自动刷新周期。
+/**
+ * 重新加载所有系统配置（调用后端重新读取）
+ * @returns {Promise<void>}
+ */
 const handleReload = async () => {
   reloading.value = true
   try {

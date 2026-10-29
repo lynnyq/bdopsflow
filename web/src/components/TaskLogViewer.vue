@@ -1,5 +1,7 @@
+<!-- 任务执行日志查看组件：支持 SSE 实时日志流、标准输出/错误切换、任务终止等 -->
 <template>
   <div class="task-log-viewer">
+    <!-- 日志头部：任务名称、状态标签、操作按钮（终止/关闭） -->
     <div class="log-header" v-if="!props.inDialog">
       <div class="log-title">
         <el-icon><Document /></el-icon>
@@ -83,16 +85,32 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * TaskLogViewer.vue - 任务执行日志查看组件
+ *
+ * 通过 SSE（EventSource）订阅 `/task-executions/{executionId}/logs` 实时日志流，
+ * 同时提供历史日志拉取、标准输出/错误 Tab 切换、任务终止按钮等功能。
+ * 可作为独立页面或嵌套在 Dialog 中（通过 inDialog prop 控制是否显示头部）。
+ */
+// ========== Vue 核心 API ==========
 import { ref, watch, onUnmounted, nextTick, computed } from 'vue'
+// ========== Element Plus 图标 ==========
 import { Document, Close, InfoFilled, Loading, CircleClose } from '@element-plus/icons-vue'
+// ========== API 层 ==========
 import { taskAPI } from '@/api'
+// ========== 工具函数 ==========
 import { secureRandom } from '@/utils/random'
+// ========== Element Plus ==========
 import { ElMessage, ElMessageBox } from 'element-plus'
 
-const MAX_LOG_ENTRIES = 5000;
-const SSE_RECONNECT_DELAY = 3000;
-const SSE_MAX_RECONNECTS = 5;
+/** 日志条目最大缓存数量，超过后丢弃最早的条目避免内存溢出 */
+const MAX_LOG_ENTRIES = 5000
+/** SSE 断线后重连基础间隔（毫秒），采用指数退避 */
+const SSE_RECONNECT_DELAY = 3000
+/** SSE 最大重连次数，超过后停止自动重连并提示用户 */
+const SSE_MAX_RECONNECTS = 5
 
+/** 日志条目数据结构（兼容历史日志拉取和 SSE 推送两种来源） */
 interface LogEntry {
   id?: number
   _key?: string
@@ -107,6 +125,14 @@ interface LogEntry {
   timestamp?: number
 }
 
+/**
+ * 组件 props 定义
+ * - executionId: 任务执行 ID，用于拉取历史日志和建立 SSE 连接
+ * - executionStatus: 当前执行状态（success/failed/running/pending），影响 UI 标签显示
+ * - taskName: 任务名称，用于头部标题
+ * - output/error: 初始标准输出/错误内容（可选传入）
+ * - inDialog: 是否嵌套在 Dialog 中，为 true 时隐藏头部区域
+ */
 const props = defineProps<{
   executionId: string
   executionStatus?: string
@@ -116,28 +142,38 @@ const props = defineProps<{
   inDialog?: boolean
 }>()
 
-defineEmits<{
+/** 对外事件：关闭日志查看器 */
+const emit = defineEmits<{
   close: []
 }>()
 
-const logBodyRef = ref<HTMLElement>()
-const logs = ref<LogEntry[]>([])
-const isConnecting = ref(false)
-const isLoadingHistory = ref(false)
-const eventSource = ref<EventSource | null>(null)
-const reconnectCount = ref(0)
-const activeTab = ref('logs')
-const isCanceling = ref(false)
+// ========== DOM 引用 ==========
+const logBodyRef = ref<HTMLElement>()              // 日志区域 DOM 引用（用于自动滚动到底部）
+
+// ========== SSE 连接状态 ==========
+const eventSource = ref<EventSource | null>(null)    // SSE EventSource 实例
+const reconnectCount = ref(0)                         // 当前重连次数
+
+// ========== 日志数据 ==========
+const logs = ref<LogEntry[]>([])                     // 日志条目列表（SSE 实时推送）
+const isConnecting = ref(false)                      // SSE 连接中状态
+const isLoadingHistory = ref(false)                  // 历史日志加载状态
+const activeTab = ref('logs')                        // 当前激活的 Tab（logs/output/error）
+const isCanceling = ref(false)                       // 终止任务加载状态
 
 // 实时输出和错误
-const realtimeOutput = ref('')
-const realtimeError = ref('')
-const currentStatus = ref(props.executionStatus || '')
+const realtimeOutput = ref('')                       // 任务标准输出（SSE 推送）
+const realtimeError = ref('')                        // 任务标准错误（SSE 推送）
+const currentStatus = ref(props.executionStatus || '')  // 当前执行状态（随 SSE 事件更新）
 
 const canCancel = computed(() => {
   return currentStatus.value === 'running' || currentStatus.value === 'pending'
 })
 
+/**
+ * 终止当前正在运行的任务执行
+ * @returns {Promise<void>}
+ */
 const handleCancel = async () => {
   if (!props.executionId || !canCancel.value) return
 
@@ -167,6 +203,10 @@ const handleCancel = async () => {
   }
 }
 
+/**
+ * 加载任务执行的历史日志列表，并收集 stdout/stderr 内容
+ * @returns {Promise<void>}
+ */
 const loadHistoryLogs = async () => {
   if (!props.executionId) return
   
@@ -225,6 +265,9 @@ const statusTagType = computed(() => {
   return map[currentStatus.value || ''] || 'info'
 })
 
+/**
+ * 建立 SSE 连接实时推送任务日志，支持自动重连
+ */
 const connectSSE = () => {
   if (!props.executionId) return
   disconnectSSE()
@@ -322,6 +365,9 @@ const connectSSE = () => {
   }
 }
 
+/**
+ * 断开 SSE 连接并清理 EventSource 对象
+ */
 const disconnectSSE = () => {
   if (eventSource.value) {
     eventSource.value.close()
@@ -329,6 +375,9 @@ const disconnectSSE = () => {
   }
 }
 
+/**
+ * 将日志容器滚动到底部，显示最新日志
+ */
 const scrollToBottom = () => {
   nextTick(() => {
     if (logBodyRef.value) {
@@ -369,6 +418,11 @@ onUnmounted(() => {
   disconnectSSE()
 })
 
+/**
+ * 格式化日志时间为 YYYY-MM-DD HH:mm:ss，支持秒级时间戳
+ * @param {string | number | undefined} timeStr - 原始时间
+ * @returns {string} 格式化后的时间
+ */
 const formatLogTime = (timeStr: string | number | undefined): string => {
   if (!timeStr) return ''
   try {

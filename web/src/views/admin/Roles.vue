@@ -1,6 +1,7 @@
+<!-- 角色权限管理页面：支持角色 CRUD 和为角色分配细粒度权限 -->
 <template>
   <div class="roles-page">
-    <!-- Page Toolbar -->
+    <!-- 页面工具栏：搜索框 + 刷新 + 创建按钮 -->
     <div class="page-toolbar">
       <div class="toolbar-left">
         <el-input
@@ -52,6 +53,7 @@
             </el-button>
           </template>
         </el-table-column>
+        <!-- 空状态：角色列表为空时展示的占位提示 -->
         <template #empty>
           <div class="table-empty-state">
             <el-icon :size="32"><Document /></el-icon>
@@ -61,14 +63,19 @@
       </el-table>
     </div>
 
+    <!-- 创建角色对话框 -->
     <el-dialog v-model="showCreateDialog" title="创建角色" width="500px" class="custom-dialog">
+      <!-- 创建表单 -->
       <el-form :model="roleForm" :rules="roleRules" ref="formRef" label-width="100px" class="dialog-form">
+        <!-- 角色名称输入 -->
         <el-form-item label="角色名称" prop="name">
           <el-input v-model="roleForm.name" placeholder="请输入角色名称" />
         </el-form-item>
+        <!-- 角色代码输入（小写字母+数字+下划线） -->
         <el-form-item label="角色代码" prop="code">
           <el-input v-model="roleForm.code" placeholder="请输入角色代码，如 custom_role" />
         </el-form-item>
+        <!-- 角色描述 -->
         <el-form-item label="描述" prop="description">
           <el-input
             v-model="roleForm.description"
@@ -78,6 +85,7 @@
           />
         </el-form-item>
       </el-form>
+      <!-- 创建对话框底部按钮 -->
       <template #footer>
         <div class="dialog-footer">
           <el-button @click="showCreateDialog = false">取消</el-button>
@@ -86,11 +94,15 @@
       </template>
     </el-dialog>
 
+    <!-- 编辑角色对话框 -->
     <el-dialog v-model="showEditDialog" title="编辑角色" width="500px" class="custom-dialog">
+      <!-- 编辑表单：允许修改 name 和 description，code 不可变更 -->
       <el-form :model="roleForm" :rules="roleRules" ref="editFormRef" label-width="100px" class="dialog-form">
+        <!-- 角色名称输入 -->
         <el-form-item label="角色名称" prop="name">
           <el-input v-model="roleForm.name" placeholder="请输入角色名称" />
         </el-form-item>
+        <!-- 角色描述 -->
         <el-form-item label="描述" prop="description">
           <el-input
             v-model="roleForm.description"
@@ -100,6 +112,7 @@
           />
         </el-form-item>
       </el-form>
+      <!-- 编辑对话框底部按钮 -->
       <template #footer>
         <div class="dialog-footer">
           <el-button @click="showEditDialog = false">取消</el-button>
@@ -108,8 +121,11 @@
       </template>
     </el-dialog>
 
+    <!-- 权限分配对话框：按 resource 分组展示所有权限，支持全选/半选/单条勾选 -->
     <el-dialog v-model="showPermissionDialog" title="分配权限" width="720px" class="custom-dialog" :close-on-click-modal="false">
+      <!-- 对话框内容区：loading + 系统角色告警 + 权限分组列表 -->
       <div v-loading="loadingPermissions" class="permission-dialog-content">
+        <!-- 系统内置角色警告：权限不可手动修改 -->
         <el-alert
           v-if="currentRole?.is_system"
           title="系统角色"
@@ -164,6 +180,7 @@
           </div>
         </div>
       </div>
+      <!-- 权限对话框底部按钮：取消 / 保存权限（系统角色时隐藏保存按钮） -->
       <template #footer>
         <div class="dialog-footer">
           <el-button @click="showPermissionDialog = false">取消</el-button>
@@ -182,6 +199,13 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * Roles.vue - 角色权限管理页面
+ *
+ * 提供角色的增删改查、以及为角色分配细粒度 resource/action 权限的对话框。
+ * 权限分配按 resource 分组展示，支持全选/半选/单条勾选。
+ * 系统内置角色（is_system=true）禁止修改和删除。
+ */
 import { ref, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Edit, Delete, Document, Search, Refresh, Key, User, Setting, Grid, Timer, DataAnalysis, List, Lock, Connection, Monitor } from '@element-plus/icons-vue'
@@ -195,20 +219,43 @@ import {
 
 import { isHandledError } from '@/utils/api'
 
+// ============================================================================
+// 页面级响应式状态（列表、筛选、对话框可见性、表单数据）
+// ============================================================================
+
+// ========== 页面状态 ==========
+
+/** 全量角色列表 */
 const roles = ref<Role[]>([])
+/** 列表加载中状态 */
 const loading = ref(false)
+/** 提交表单中状态（按钮 loading） */
 const submitting = ref(false)
+/** 创建对话框可见性 */
 const showCreateDialog = ref(false)
+/** 编辑对话框可见性 */
 const showEditDialog = ref(false)
+/** 权限分配对话框可见性 */
 const showPermissionDialog = ref(false)
+/** 权限列表加载中 */
 const loadingPermissions = ref(false)
+/** 搜索关键字 */
 const searchQuery = ref('')
 
+/** 全量权限列表（用于权限分配） */
 const permissions = ref<Permission[]>([])
+/** 按 resource 分组后的权限展示结构 */
 const permissionGroupsDisplay = ref<PermissionGroup[]>([])
+/** 当前正在编辑权限的角色 */
 const currentRole = ref<Role | null>(null)
+/** 当前已勾选的权限 ID 集合 */
 const selectedPermissionIds = ref<number[]>([])
 
+// ============================================================================
+// computed: 过滤、状态派生
+// ============================================================================
+
+/** 根据 searchQuery 在本地角色列表中做模糊搜索（匹配 name/code/description） */
 const filteredRoles = computed(() => {
   if (!searchQuery.value) return roles.value
   const query = searchQuery.value.toLowerCase()
@@ -219,6 +266,7 @@ const filteredRoles = computed(() => {
   )
 })
 
+/** 创建/编辑角色的表单数据（同一个 ref 同时用于创建和编辑对话框） */
 const roleForm = ref({
   id: 0,
   name: '',
@@ -226,6 +274,7 @@ const roleForm = ref({
   description: '',
 })
 
+/** 角色表单校验规则：name 必填，code 必须为小写字母/数字/下划线 */
 const roleRules = {
   name: [{ required: true, message: '请输入角色名称', trigger: 'blur' }],
   code: [
@@ -234,9 +283,19 @@ const roleRules = {
   ],
 }
 
+/** 创建角色对话框的 el-form 引用（用于表单校验和重置） */
 const formRef = ref()
+/** 编辑角色对话框的 el-form 引用 */
 const editFormRef = ref()
 
+// ============================================================================
+// 角色 CRUD 函数（loadRoles / handleCreate / handleEdit / handleUpdate / handleDelete）
+// ============================================================================
+
+/**
+ * 从后端加载全量角色列表，填充 roles ref
+ * @description 页面初始化和 CRUD 操作完成后都会调用此函数刷新表格
+ */
 const loadRoles = async () => {
   loading.value = true
   try {
@@ -251,15 +310,24 @@ const loadRoles = async () => {
   }
 }
 
+/**
+ * 从后端加载全量权限列表及其按 resource 分组的展示结构
+ * @description 用于权限分配对话框中的权限选项展示
+ */
 const loadPermissions = async () => {
   try {
     const response = await permissionAPI.getAllPermissions()
     permissions.value = response.data.items || []
     permissionGroupsDisplay.value = response.data.groups || []
   } catch (error) {
+    // 权限加载失败时静默忽略：对话框打开时会单独加载该角色的权限
   }
 }
 
+/**
+ * 提交创建角色表单
+ * @description 表单校验通过后调用 roleAdminAPI.create，成功后刷新列表并重置表单
+ */
 const handleCreate = async () => {
   const form = formRef.value
   if (!form) return
@@ -288,6 +356,10 @@ const handleCreate = async () => {
   })
 }
 
+/**
+ * 打开编辑角色对话框
+ * @param row - 当前行的角色对象，用于预填充 roleForm
+ */
 const handleEdit = (row: Role) => {
   roleForm.value = {
     id: row.id,
@@ -298,6 +370,10 @@ const handleEdit = (row: Role) => {
   showEditDialog.value = true
 }
 
+/**
+ * 提交更新角色表单（编辑对话框）
+ * @description 仅允许修改 name 和 description，code 不可变更
+ */
 const handleUpdate = async () => {
   const form = editFormRef.value
   if (!form) return
@@ -324,6 +400,10 @@ const handleUpdate = async () => {
   })
 }
 
+/**
+ * 删除角色（需二次确认）
+ * @param row - 待删除的角色对象，系统内置角色（is_system=true）在 UI 上已隐藏删除按钮
+ */
 const handleDelete = async (row: Role) => {
   try {
     await ElMessageBox.confirm(
@@ -345,6 +425,14 @@ const handleDelete = async (row: Role) => {
   }
 }
 
+// ============================================================================
+// 权限分配相关函数（handleAssignPermissions / getResourceIcon / isGroup* / handleGroup* / handleSavePermissions）
+// ============================================================================
+
+/**
+ * 打开权限分配对话框，加载当前角色已有的权限 ID 列表
+ * @param row - 正在分配权限的角色对象
+ */
 const handleAssignPermissions = async (row: Role) => {
   currentRole.value = row
   loadingPermissions.value = true
@@ -360,6 +448,11 @@ const handleAssignPermissions = async (row: Role) => {
   }
 }
 
+/**
+ * 根据权限资源标识符返回对应的 Element Plus 图标组件
+ * @param resource - 权限资源标识符，如 'task', 'datasource', 'user' 等
+ * @returns 对应的图标组件，未匹配时返回 Document 作为默认
+ */
 const getResourceIcon = (resource: string) => {
   const iconMap: Record<string, any> = {
     menu: Monitor,
@@ -378,17 +471,32 @@ const getResourceIcon = (resource: string) => {
   return iconMap[resource] || Document
 }
 
+/**
+ * 判断某个权限分组是否已全部选中（用于分组头部的全选 checkbox 状态）
+ * @param group - 权限分组对象，包含该 resource 下的所有权限
+ * @returns 所有权限 ID 都在 selectedPermissionIds 中时返回 true
+ */
 const isGroupAllSelected = (group: PermissionGroup) => {
   const allIds = group.permissions.map((p: Permission) => p.id)
   return allIds.length > 0 && allIds.every((id: number) => selectedPermissionIds.value.includes(id))
 }
 
+/**
+ * 判断某个权限分组是否处于半选状态（部分选中但非全部）
+ * @param group - 权限分组对象
+ * @returns 选中数量 > 0 且 < 总数时返回 true
+ */
 const isGroupIndeterminate = (group: PermissionGroup) => {
   const allIds = group.permissions.map((p: Permission) => p.id)
   const selectedCount = allIds.filter((id: number) => selectedPermissionIds.value.includes(id)).length
   return selectedCount > 0 && selectedCount < allIds.length
 }
 
+/**
+ * 切换某个权限分组的全选/取消全选
+ * @param group - 权限分组对象
+ * @param checked - true 表示全选，false 表示取消全选
+ */
 const handleGroupSelectAll = (group: PermissionGroup, checked: boolean) => {
   const allIds = group.permissions.map((p: Permission) => p.id)
   if (checked) {
@@ -402,6 +510,10 @@ const handleGroupSelectAll = (group: PermissionGroup, checked: boolean) => {
   }
 }
 
+/**
+ * 保存当前角色的权限分配结果
+ * @description 将 selectedPermissionIds 通过 roleAdminAPI.assignPermissions 提交给后端
+ */
 const handleSavePermissions = async () => {
   if (!currentRole.value) return
 
@@ -422,12 +534,14 @@ const handleSavePermissions = async () => {
 }
 
 onMounted(() => {
+  // 初始化页面：同时加载角色列表和全量权限（用于权限分配对话框）
   loadRoles()
   loadPermissions()
 })
 </script>
 
 <style scoped>
+/* ========== 页面整体容器 ========== */
 .roles-page {
   display: flex;
   flex-direction: column;
@@ -436,6 +550,7 @@ onMounted(() => {
   height: 100%;
 }
 
+/* 自定义滚动条样式 */
 .roles-page::-webkit-scrollbar {
   width: 8px;
 }
@@ -449,7 +564,7 @@ onMounted(() => {
   background: var(--bg-secondary);
 }
 
-/* Toolbar */
+/* ========== 工具栏（搜索 + 刷新 + 创建） ========== */
 .page-toolbar {
   display: flex;
   align-items: center;
@@ -475,6 +590,7 @@ onMounted(() => {
   gap: var(--space-3);
 }
 
+/* 搜索框样式：聚焦时蓝色边框 + 阴影 */
 .search-input {
   width: 280px;
 }
@@ -497,6 +613,7 @@ onMounted(() => {
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
 }
 
+/* 刷新按钮：次样式，hover 时渐变高亮 */
 .refresh-btn {
   font-weight: 500;
   background: var(--bg-secondary);
@@ -516,6 +633,7 @@ onMounted(() => {
   box-shadow: var(--shadow-sm);
 }
 
+/* 创建按钮：主渐变 + 投影，hover 上浮效果 */
 .create-btn {
   font-weight: 500;
   background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
@@ -533,7 +651,7 @@ onMounted(() => {
   filter: brightness(1.05);
 }
 
-/* Table */
+/* ========== 角色列表表格 ========== */
 .table-wrapper {
   flex: 1;
   overflow: hidden;
@@ -545,6 +663,7 @@ onMounted(() => {
   box-shadow: var(--shadow-sm);
 }
 
+/* Element Plus 表格全局样式覆盖 */
 :deep(.el-table) {
   border-radius: var(--radius-lg);
 }
@@ -563,7 +682,7 @@ onMounted(() => {
   background-color: var(--bg-secondary) !important;
 }
 
-/* Table Empty State */
+/* 表格空状态占位 */
 .table-empty-state {
   display: flex;
   flex-direction: column;
@@ -583,7 +702,7 @@ onMounted(() => {
   font-size: 0.875rem;
 }
 
-/* Dialog */
+/* ========== 对话框通用样式 ========== */
 .dialog-form {
   padding: var(--space-2) 0;
 }
@@ -594,12 +713,13 @@ onMounted(() => {
   gap: var(--space-3);
 }
 
-/* Permission Dialog */
+/* ========== 权限分配对话框 ========== */
 .permission-dialog-content {
   max-height: 60vh;
   overflow-y: auto;
 }
 
+/* 权限对话框内自定义滚动条 */
 .permission-dialog-content::-webkit-scrollbar {
   width: 6px;
 }
@@ -614,22 +734,26 @@ onMounted(() => {
   border-radius: 3px;
 }
 
+/* 系统角色提示警告条 */
 .system-role-alert {
   margin-bottom: var(--space-4);
   border-radius: var(--radius-md);
 }
 
+/* 权限分组卡片列表容器 */
 .permission-groups {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
 }
 
+/* 系统角色时整个权限区域半透明禁用 */
 .permission-groups.is-disabled {
   opacity: 0.6;
   pointer-events: none;
 }
 
+/* 单个权限分组卡片 */
 .permission-group {
   background: var(--bg-secondary);
   border: 1px solid var(--border-default);
@@ -643,6 +767,7 @@ onMounted(() => {
   box-shadow: 0 2px 8px rgba(59, 130, 246, 0.08);
 }
 
+/* 分组头部：图标 + 名称 + 数量 + 全选 checkbox */
 .group-header {
   display: flex;
   align-items: center;
@@ -687,6 +812,7 @@ onMounted(() => {
   margin-left: auto;
 }
 
+/* 权限项列表：flex wrap 布局，每项带圆角边框 */
 .permission-list {
   display: flex;
   flex-wrap: wrap;
@@ -694,6 +820,7 @@ onMounted(() => {
   padding: var(--space-3) var(--space-4);
 }
 
+/* 单个权限项 checkbox 容器 */
 .permission-item {
   margin: 0 !important;
   padding: 6px 12px;
@@ -713,6 +840,7 @@ onMounted(() => {
   background: rgba(59, 130, 246, 0.08);
 }
 
+/* 权限项内部：名称 + resource:action 代码标签 */
 .permission-content {
   display: flex;
   align-items: center;

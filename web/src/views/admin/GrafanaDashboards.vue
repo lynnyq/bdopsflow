@@ -1,5 +1,7 @@
+<!-- Grafana 仪表盘嵌入管理页面：配置要嵌入首页的 Grafana Dashboard URL 和排序 -->
 <template>
   <div class="grafana-management">
+    <!-- 页面工具栏：搜索 + 刷新 + 创建按钮 -->
     <div class="page-toolbar">
       <div class="toolbar-left">
         <el-input
@@ -136,22 +138,35 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * GrafanaDashboards.vue - Grafana 仪表盘嵌入管理页面
+ *
+ * 配置要嵌入到首页 Dashboard 的 Grafana Panel URL 列表，
+ * 支持启用/禁用、排序、宽高调整等。首页只展示 enabled=1 的记录。
+ */
+// ========== Vue 核心 API ==========
 import { ref, computed, onMounted } from 'vue'
+// ========== Element Plus ==========
 import { ElMessage, ElMessageBox } from 'element-plus'
+// ========== Element Plus 图标 ==========
 import { Delete, Plus, Search, Refresh, Edit, Check } from '@element-plus/icons-vue'
+// ========== API 层 ==========
 import { grafanaAPI } from '@/api'
+// ========== 工具函数 ==========
 import { isHandledError } from '@/utils/api'
+// ========== 类型定义 ==========
 import type { GrafanaDashboard, GrafanaDashboardInput } from '@/types'
 
-const list = ref<GrafanaDashboard[]>([])
-const loading = ref(false)
-const searchQuery = ref('')
-const dialogVisible = ref(false)
-const isEditing = ref(false)
-const editingId = ref<number | null>(null)
-const submitting = ref(false)
-const reordering = ref(false)
-const hasSortChanges = ref(false)
+// ========== 列表状态 ==========
+const list = ref<GrafanaDashboard[]>([])             // 所有 Grafana Dashboard 配置列表
+const loading = ref(false)                            // 列表加载状态
+const searchQuery = ref('')                           // 搜索关键字
+const dialogVisible = ref(false)                      // 编辑弹窗可见性
+const isEditing = ref(false)                          // 是否编辑模式
+const editingId = ref<number | null>(null)            // 当前编辑的图表 ID
+const submitting = ref(false)                         // 表单提交加载状态
+const reordering = ref(false)                         // 排序保存加载状态
+const hasSortChanges = ref(false)                     // 是否有排序变更未保存
 
 const form = ref<GrafanaDashboardInput>({
   name: '',
@@ -163,6 +178,7 @@ const form = ref<GrafanaDashboardInput>({
   enabled: 1,
 })
 
+/** 按搜索关键字过滤图表列表（匹配 name 或 embed_url） */
 const filteredList = computed(() => {
   if (!searchQuery.value) return list.value
   const q = searchQuery.value.toLowerCase()
@@ -171,6 +187,7 @@ const filteredList = computed(() => {
   )
 })
 
+/** 加载所有 Grafana Dashboard 配置 */
 const loadList = async () => {
   loading.value = true
   try {
@@ -186,6 +203,9 @@ const loadList = async () => {
   }
 }
 
+/**
+ * 打开创建 Grafana 面板对话框，初始化表单默认值（全宽、300px 高、排序 0、已启用）
+ */
 const handleCreate = () => {
   isEditing.value = false
   editingId.value = null
@@ -201,6 +221,10 @@ const handleCreate = () => {
   dialogVisible.value = true
 }
 
+/**
+ * 打开编辑对话框，回填图表数据
+ * @param {GrafanaDashboard} row - 当前行的图表数据
+ */
 const handleEdit = (row: GrafanaDashboard) => {
   isEditing.value = true
   editingId.value = row.id
@@ -216,6 +240,10 @@ const handleEdit = (row: GrafanaDashboard) => {
   dialogVisible.value = true
 }
 
+/**
+ * 校验表单字段有效性
+ * @returns {string | null} 错误信息，校验通过返回 null
+ */
 const validateForm = (): string | null => {
   if (!form.value.name.trim()) return '名称为必填项'
   if (form.value.name.length > 100) return '名称最多 100 字符'
@@ -228,6 +256,10 @@ const validateForm = (): string | null => {
   return null
 }
 
+/**
+ * 提交表单，根据 isEditing 决定创建或更新图表
+ * @returns {Promise<void>}
+ */
 const handleSubmit = async () => {
   const err = validateForm()
   if (err) {
@@ -256,6 +288,11 @@ const handleSubmit = async () => {
   }
 }
 
+/**
+ * 删除指定 Grafana 图表，弹出确认框后调用后端
+ * @param {GrafanaDashboard} row - 要删除的图表数据
+ * @returns {Promise<void>}
+ */
 const handleDelete = async (row: GrafanaDashboard) => {
   try {
     await ElMessageBox.confirm(`确认删除图表「${row.name}」？`, '删除确认', {
@@ -272,6 +309,12 @@ const handleDelete = async (row: GrafanaDashboard) => {
   }
 }
 
+/**
+ * 切换图表启用/禁用状态，失败时自动回滚 UI
+ * @param {GrafanaDashboard} row - 图表数据
+ * @param {number} newVal - 新的启用状态（1=启用，0=禁用）
+ * @returns {Promise<void>}
+ */
 const handleToggleEnabled = async (row: GrafanaDashboard, newVal: number) => {
   try {
     await grafanaAPI.update(row.id, {
@@ -293,10 +336,17 @@ const handleToggleEnabled = async (row: GrafanaDashboard, newVal: number) => {
   }
 }
 
+/**
+ * 标记排序已变更，用于"保存排序"按钮的 disabled 判断
+ */
 const markSortChanged = () => {
   hasSortChanges.value = true
 }
 
+/**
+ * 批量保存图表排序号到后端
+ * @returns {Promise<void>}
+ */
 const handleSaveSortOrder = async () => {
   reordering.value = true
   try {
@@ -314,7 +364,11 @@ const handleSaveSortOrder = async () => {
   }
 }
 
-// URL 截断：仅显示 origin + pathname，隐藏 query string（可能含 token）
+/**
+ * 截断 URL 仅显示 origin + pathname，隐藏 query string（可能含 token）
+ * @param {string} url - 完整 URL
+ * @returns {string} 截断后的 URL
+ */
 const truncateUrl = (url: string): string => {
   try {
     const u = new URL(url)
@@ -324,6 +378,11 @@ const truncateUrl = (url: string): string => {
   }
 }
 
+/**
+ * 将图表宽度代码映射为中文显示文本
+ * @param {string} width - 宽度代码（third/half/full）
+ * @returns {string} 中文标签
+ */
 const widthLabel = (width: string): string => {
   switch (width) {
     case 'third': return '1/3'
@@ -333,6 +392,11 @@ const widthLabel = (width: string): string => {
   }
 }
 
+/**
+ * 根据图表宽度返回对应的 Element Plus 标签颜色类型
+ * @param {string} width - 宽度代码
+ * @returns {'info' | 'warning' | 'success'} 标签类型
+ */
 const widthTagType = (width: string): 'info' | 'warning' | 'success' => {
   switch (width) {
     case 'third': return 'info'

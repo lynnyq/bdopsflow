@@ -1,3 +1,8 @@
+<!--
+  审计日志页面组件
+  功能：展示系统所有审计记录（操作人/操作类型/资源类型/请求路径/IP/结果），支持多维度筛选和清理过期日志
+  主要区域：工具栏（含高级筛选和保留天数设置）、审计日志分页表格、详情抽屉
+-->
 <template>
   <div class="audit-logs-page">
     <!-- Page Toolbar -->
@@ -201,6 +206,19 @@
   </div>
 </template>
 
+/**
+ * 审计日志页面脚本
+ * @description 负责审计日志的分页加载、多维度筛选（操作人/操作类型/资源/状态/时间范围）、详情查看、清理过期日志
+ *
+ * 高级筛选功能：
+ * - 时间范围：datetimerange 选择器
+ * - 保留天数：从后端读取配置（audit_log.retention_days），支持页面内修改并保存
+ * - 当前生效筛选数量徽标提示
+ *
+ * 清理过期：调用 auditLogAPI.cleanExpired，按保留天数删除超期记录
+ *
+ * 依赖：auditLogAPI、isHandledError（错误统一处理）
+ */
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -209,13 +227,13 @@ import { auditLogAPI } from '@/api'
 import { isHandledError } from '@/utils/api'
 import type { AuditLog } from '@/api/audit'
 
-const logs = ref<AuditLog[]>([])
-const loading = ref(false)
-const total = ref(0)
-const currentPage = ref(1)
-const pageSize = ref(20)
-const dateRange = ref<[string, string] | null>(null)
-const searchQuery = ref('')
+const logs = ref<AuditLog[]>([])          // 审计日志列表
+const loading = ref(false)                  // 列表加载状态
+const total = ref(0)                        // 总记录数
+const currentPage = ref(1)                  // 当前页码
+const pageSize = ref(20)                    // 每页条数
+const dateRange = ref<[string, string] | null>(null)  // 时间范围筛选
+const searchQuery = ref('')                 // 操作人搜索关键字
 
 // 高级筛选区域展开/收起状态
 const showAdvancedFilters = ref(false)
@@ -227,8 +245,8 @@ const currentDetail = ref<AuditLog | null>(null)
 // 审计日志保留天数：从后端 audit_log.retention_days 读取，支持在页面内修改
 const retentionDays = ref(90)
 const originalRetentionDays = ref(90)
-const retentionLoading = ref(false)
-const retentionSaving = ref(false)
+const retentionLoading = ref(false)  // 保留天数加载状态
+const retentionSaving = ref(false)   // 保留天数保存状态
 
 // 搜索防抖定时器
 let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null
@@ -306,9 +324,24 @@ const resourceOptions = [
 const actionLabelMap: Record<string, string> = Object.fromEntries(actionOptions.map(o => [o.value, o.label]))
 const resourceLabelMap: Record<string, string> = Object.fromEntries(resourceOptions.map(o => [o.value, o.label]))
 
+/**
+ * 根据操作编码查找对应的中文标签
+ * @param {string} action - 操作编码
+ * @returns {string} 中文标签，未找到则返回原值
+ */
 const getActionLabel = (action: string) => actionLabelMap[action] || action
+/**
+ * 根据资源编码查找对应的中文标签
+ * @param {string} resource - 资源编码
+ * @returns {string} 中文标签，未找到则返回原值
+ */
 const getResourceLabel = (resource: string) => resourceLabelMap[resource] || resource
 
+/**
+ * 根据角色编码返回对应的中文标签
+ * @param {string} role - 角色编码
+ * @returns {string} 角色中文名
+ */
 const getRoleLabel = (role: string) => {
   const map: Record<string, string> = {
     system_admin: '系统管理员',
@@ -319,6 +352,11 @@ const getRoleLabel = (role: string) => {
   return map[role] || role || '-'
 }
 
+/**
+ * 根据角色编码返回对应的标签颜色类型
+ * @param {string} role - 角色编码
+ * @returns {string} Element Plus 标签类型
+ */
 const getRoleTagType = (role: string) => {
   const map: Record<string, string> = {
     system_admin: 'danger',
@@ -329,6 +367,11 @@ const getRoleTagType = (role: string) => {
   return map[role] || 'info'
 }
 
+/**
+ * 根据操作编码返回对应的标签颜色类型
+ * @param {string} action - 操作编码
+ * @returns {string} Element Plus 标签类型
+ */
 const getActionTagType = (action: string) => {
   if (['create', 'login', 'register', 'online', 'resume', 'generate'].includes(action)) return 'success'
   if (['update', 'assign', 'change_password', 'config_change', 'trigger', 'test_connection', 'execute', 'export', 'update_profile'].includes(action)) return 'warning'
@@ -336,6 +379,11 @@ const getActionTagType = (action: string) => {
   return 'info'
 }
 
+/**
+ * 将时间字符串格式化为 YYYY-MM-DD HH:mm:ss 格式
+ * @param {string} t - 原始时间字符串
+ * @returns {string} 格式化后的时间
+ */
 const formatTime = (t: string) => {
   if (!t) return '-'
   try {
@@ -355,11 +403,16 @@ const formatTime = (t: string) => {
   }
 }
 
+/**
+ * 日期筛选变更时自动触发搜索
+ */
 const handleDateChange = () => {
   handleSearch()
 }
 
-// 搜索输入防抖：300ms 内连续输入只触发一次查询，避免频繁 API 调用
+/**
+ * 搜索输入防抖：300ms 内连续输入只触发一次查询，避免频繁 API 调用
+ */
 const debouncedSearch = () => {
   if (searchDebounceTimer) {
     clearTimeout(searchDebounceTimer)
@@ -370,13 +423,18 @@ const debouncedSearch = () => {
   }, 300)
 }
 
-// 展示单条审计日志详情
+/**
+ * 展示单条审计日志详情
+ * @param {AuditLog} row - 当前行的审计日志数据
+ */
 const showDetail = (row: AuditLog) => {
   currentDetail.value = row
   detailVisible.value = true
 }
 
-// 重置所有筛选条件
+/**
+ * 重置所有筛选条件并重新搜索
+ */
 const resetFilters = () => {
   searchQuery.value = ''
   filterForm.value = {
@@ -390,6 +448,10 @@ const resetFilters = () => {
   handleSearch()
 }
 
+/**
+ * 按当前筛选条件查询审计日志列表
+ * @returns {Promise<void>}
+ */
 const handleSearch = async () => {
   loading.value = true
   try {
@@ -420,6 +482,10 @@ const handleSearch = async () => {
   }
 }
 
+/**
+ * 清理过期的审计日志，根据保留天数自动删除
+ * @returns {Promise<void>}
+ */
 const handleCleanExpired = async () => {
   try {
     await ElMessageBox.confirm(
@@ -441,7 +507,10 @@ const handleCleanExpired = async () => {
   }
 }
 
-// 加载当前保留天数配置
+/**
+ * 加载当前审计日志保留天数配置
+ * @returns {Promise<void>}
+ */
 const loadRetention = async () => {
   retentionLoading.value = true
   try {
@@ -460,7 +529,10 @@ const loadRetention = async () => {
   }
 }
 
-// 修改保留天数，成功后同步 originalRetentionDays（用于"保存"按钮 disabled 判断）
+/**
+ * 修改审计日志保留天数，成功后同步 originalRetentionDays
+ * @returns {Promise<void>}
+ */
 const handleUpdateRetention = async () => {
   if (retentionDays.value === originalRetentionDays.value) return
   retentionSaving.value = true

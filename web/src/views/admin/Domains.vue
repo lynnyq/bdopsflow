@@ -1,3 +1,4 @@
+<!-- 领域（租户）管理页面：多租户场景下的领域 CRUD 和执行器分配 -->
 <template>
   <div class="domains-page">
     <!-- Page Toolbar -->
@@ -111,12 +112,23 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * Domains.vue - 领域（租户）管理页面
+ *
+ * 多租户场景下的领域 CRUD。系统管理员可创建、编辑、删除领域；
+ * 领域对象包含名称、描述、关联执行器等信息。
+ */
+// ========== Vue 核心 API ==========
 import { ref, onMounted, computed } from 'vue'
+// ========== Element Plus ==========
 import { ElMessage, ElMessageBox } from 'element-plus'
+// ========== Element Plus 图标 ==========
 import { Plus, Edit, Delete, Document, Search, Refresh } from '@element-plus/icons-vue'
+// ========== 管理后台 API ==========
 import { domainAdminAPI, type Domain } from '@/api/admin'
-
+// ========== 工具函数 ==========
 import { isHandledError } from '@/utils/api'
+// ========== Pinia Store ==========
 import { useAuthStore } from '@/stores/auth'
 
 const authStore = useAuthStore()
@@ -150,6 +162,10 @@ const domainRules = {
 const formRef = ref()
 const editFormRef = ref()
 
+/**
+ * 加载领域列表
+ * @returns {Promise<void>}
+ */
 const loadDomains = async () => {
   loading.value = true
   try {
@@ -164,6 +180,10 @@ const loadDomains = async () => {
   }
 }
 
+/**
+ * 打开新增对话框初始化空表单
+ * @returns {Promise<void>}
+ */
 const handleCreate = async () => {
   const form = formRef.value
   if (!form) return
@@ -191,6 +211,10 @@ const handleCreate = async () => {
   })
 }
 
+/**
+ * 打开编辑对话框回填表单数据
+ * @param {Domain} row - 当前行数据
+ */
 const handleEdit = (row: Domain) => {
   domainForm.value = {
     id: row.id,
@@ -200,6 +224,10 @@ const handleEdit = (row: Domain) => {
   showEditDialog.value = true
 }
 
+/**
+ * 更新单个系统配置项
+ * @returns {Promise<void>}
+ */
 const handleUpdate = async () => {
   const form = editFormRef.value
   if (!form) return
@@ -226,6 +254,11 @@ const handleUpdate = async () => {
   })
 }
 
+/**
+ * 删除单条记录（执行确认）
+ * @param {Domain} row - 当前行数据
+ * @returns {Promise<void>}
+ */
 const handleDelete = async (row: Domain) => {
   try {
     await ElMessageBox.confirm(
@@ -247,6 +280,10 @@ const handleDelete = async (row: Domain) => {
   }
 }
 
+/**
+ * 格式化Date
+ * @param {string} date - 日期
+ */
 const formatDate = (date: string) => {
   if (!date) return ''
   return new Date(date).toLocaleString('zh-CN')
