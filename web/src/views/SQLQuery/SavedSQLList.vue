@@ -159,6 +159,7 @@ import { Search, Refresh, Delete, Document, VideoPlay, Edit } from '@element-plu
 import { queryAPI, datasourceAPI } from '@/api'
 // ========== 工具函数 ==========
 import { isHandledError } from '@/utils/api'
+import { formatErrorMessage } from '@/utils/error'
 // ========== 类型定义 ==========
 import type { SavedSQL, Datasource } from '@/types'
 
@@ -233,9 +234,9 @@ const loadSavedSQL = async () => {
     })
     savedList.value = res.data.items || []
     total.value = res.data.total || 0
-  } catch (err: any) {
+  } catch (err: unknown) {
     if (!isHandledError(err)) {
-      ElMessage.error(err.message || '加载已保存SQL列表失败')
+      ElMessage.error(formatErrorMessage(err))
     }
   } finally {
     loading.value = false
@@ -261,9 +262,9 @@ const loadDatasources = async () => {
   try {
     const res = await datasourceAPI.list({ page: 1, page_size: 200 })
     datasourceList.value = res.data.items || []
-  } catch (err: any) {
+  } catch (err: unknown) {
     if (!isHandledError(err)) {
-      ElMessage.error(err.message || '加载数据源列表失败')
+      ElMessage.error(formatErrorMessage(err))
     }
   }
 }
@@ -325,9 +326,9 @@ const handleConfirmEdit = async () => {
     ElMessage.success('更新成功')
     editDialogVisible.value = false
     await loadSavedSQL()
-  } catch (err: any) {
+  } catch (err: unknown) {
     if (!isHandledError(err)) {
-      ElMessage.error(err.message || '更新失败')
+      ElMessage.error(formatErrorMessage(err))
     }
   } finally {
     editing.value = false
@@ -348,9 +349,9 @@ const handleDelete = async (row: SavedSQL) => {
     await queryAPI.deleteSavedSQL(row.id)
     ElMessage.success('已删除')
     await loadSavedSQL()
-  } catch (err: any) {
+  } catch (err: unknown) {
     if (err !== 'cancel' && !isHandledError(err)) {
-      ElMessage.error(err.message || '删除失败')
+      ElMessage.error(formatErrorMessage(err))
     }
   }
 }

@@ -154,6 +154,7 @@ import { Delete, Plus, Search, Refresh, Edit, Check } from '@element-plus/icons-
 import { grafanaAPI } from '@/api'
 // ========== 工具函数 ==========
 import { isHandledError } from '@/utils/api'
+import { formatErrorMessage } from '@/utils/error'
 // ========== 类型定义 ==========
 import type { GrafanaDashboard, GrafanaDashboardInput } from '@/types'
 
@@ -194,9 +195,9 @@ const loadList = async () => {
     const response = await grafanaAPI.listAll()
     list.value = response.data?.items || []
     hasSortChanges.value = false
-  } catch (error: any) {
+  } catch (error: unknown) {
     if (!isHandledError(error)) {
-      ElMessage.error(error.message || '加载 Grafana 图表列表失败')
+      ElMessage.error(formatErrorMessage(error))
     }
   } finally {
     loading.value = false
@@ -279,9 +280,9 @@ const handleSubmit = async () => {
     }
     dialogVisible.value = false
     await loadList()
-  } catch (error: any) {
+  } catch (error: unknown) {
     if (!isHandledError(error)) {
-      ElMessage.error(error.message || '保存失败')
+      ElMessage.error(formatErrorMessage(error))
     }
   } finally {
     submitting.value = false
@@ -301,10 +302,10 @@ const handleDelete = async (row: GrafanaDashboard) => {
     await grafanaAPI.delete(row.id)
     ElMessage.success('删除成功')
     await loadList()
-  } catch (error: any) {
+  } catch (error: unknown) {
     if (error === 'cancel') return
     if (!isHandledError(error)) {
-      ElMessage.error(error.message || '删除失败')
+      ElMessage.error(formatErrorMessage(error))
     }
   }
 }
@@ -327,11 +328,11 @@ const handleToggleEnabled = async (row: GrafanaDashboard, newVal: number) => {
       enabled: newVal,
     })
     ElMessage.success(newVal === 1 ? '已启用' : '已禁用')
-  } catch (error: any) {
+  } catch (error: unknown) {
     // 失败时回滚
     row.enabled = newVal === 1 ? 0 : 1
     if (!isHandledError(error)) {
-      ElMessage.error(error.message || '切换状态失败')
+      ElMessage.error(formatErrorMessage(error))
     }
   }
 }
@@ -355,9 +356,9 @@ const handleSaveSortOrder = async () => {
     ElMessage.success('排序已保存')
     hasSortChanges.value = false
     await loadList()
-  } catch (error: any) {
+  } catch (error: unknown) {
     if (!isHandledError(error)) {
-      ElMessage.error(error.message || '保存排序失败')
+      ElMessage.error(formatErrorMessage(error))
     }
   } finally {
     reordering.value = false

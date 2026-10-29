@@ -418,7 +418,7 @@ const handleDelete = async (row: Role) => {
     await roleAdminAPI.delete(row.id)
     ElMessage.success('删除角色成功')
     loadRoles()
-  } catch (error: any) {
+  } catch (error: unknown) {
     if (error !== 'cancel' && !isHandledError(error)) {
       ElMessage.error('删除角色失败')
     }

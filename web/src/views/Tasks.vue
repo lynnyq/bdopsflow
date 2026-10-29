@@ -904,6 +904,7 @@ import { taskAPI, executorAPI, webhookAPI, userAdminAPI } from '@/api'
 import type { Task, TaskConfig, Executor, Webhook, User } from '@/types'
 import TaskLogViewer from '@/components/TaskLogViewer.vue'
 import { isHandledError } from '@/utils/api'
+import { formatErrorMessage } from '@/utils/error'
 import { useAuthStore } from '@/stores/auth'
 
 /** router: Vue Router 实例 */
@@ -925,7 +926,7 @@ const loadWebhooks = async () => {
     const response = await webhookAPI.list(domainId)
     webhookList.value = (response.data?.items || []).filter((w: Webhook) => w.is_enabled)
   } catch {
-    // ignore
+    // webhook 列表非关键数据，加载失败静默忽略
   }
 }
 
@@ -1273,15 +1274,16 @@ const loadTasks = async () => {
             config: JSON.parse(task.config)
           }
         } catch {
+          // config 解析失败，fall through 返回原始 task
         }
       }
       /** 返回/抛出 */
       return task
     })
-  } catch (err: any) {
+  } catch (err: unknown) {
     /** 条件分支 */
     if (!isHandledError(err)) {
-      ElMessage.error(err.message || '加载任务列表失败')
+      ElMessage.error(formatErrorMessage(err))
     }
   } finally {
     loading.value = false
@@ -1417,10 +1419,10 @@ const handleSubmit = async () => {
       }
       dialogVisible.value = false
       await loadTasks()
-    } catch (err: any) {
+    } catch (err: unknown) {
       /** 条件分支 */
       if (!isHandledError(err)) {
-        ElMessage.error(err.message || '操作失败')
+        ElMessage.error(formatErrorMessage(err))
       }
     } finally {
       submitting.value = false
@@ -1460,11 +1462,11 @@ const handleToggleStatus = async (task: Task) => {
       ElMessage.success(expectedEnabled ? '任务已启用' : '任务已停用')
     }
     await loadTasks()
-  } catch (err: any) {
+  } catch (err: unknown) {
     task.is_enabled = !expectedEnabled
     /** 条件分支 */
     if (!isHandledError(err)) {
-      ElMessage.error(err.message || '操作失败')
+      ElMessage.error(formatErrorMessage(err))
     }
   } finally {
     toggleLoading.value = null
@@ -1487,10 +1489,10 @@ const handleDelete = async (task: Task) => {
     await taskAPI.delete(task.id)
     ElMessage.success('任务已删除')
     await loadTasks()
-  } catch (err: any) {
+  } catch (err: unknown) {
     /** 条件分支 */
     if (err !== 'cancel' && !isHandledError(err)) {
-      ElMessage.error(err.message || '删除失败')
+      ElMessage.error(formatErrorMessage(err))
     }
   }
 }
@@ -1506,10 +1508,10 @@ const handleTrigger = async (task: Task) => {
   try {
     await taskAPI.trigger(task.id)
     ElMessage.success('任务已触发')
-  } catch (err: any) {
+  } catch (err: unknown) {
     /** 条件分支 */
     if (!isHandledError(err)) {
-      const errorMessage = err.response?.data?.error || err.message || '触发失败'
+      const errorMessage = formatErrorMessage(err)
       ElMessage.error(errorMessage)
     }
   } finally {
@@ -1543,10 +1545,10 @@ const handleViewLastExecution = async (task: Task) => {
       selectedExecutionOutput.value = lastExecution.output
       selectedExecutionError.value = lastExecution.error
     }
-  } catch (err: any) {
+  } catch (err: unknown) {
     /** 条件分支 */
     if (!isHandledError(err)) {
-      ElMessage.error(err.message || '加载执行记录失败')
+      ElMessage.error(formatErrorMessage(err))
     }
   } finally {
     showLogs.value = true
@@ -1649,7 +1651,7 @@ const loadUsers = async () => {
     const res = await userAdminAPI.list()
     users.value = res.data.items || []
   } catch {
-    // ignore
+    // 用户列表非关键数据，加载失败静默忽略
   }
 }
 

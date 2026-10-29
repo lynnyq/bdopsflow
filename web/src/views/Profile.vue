@@ -355,6 +355,7 @@ import { User, UserFilled, Phone, Message, Key, CircleCheck, CircleClose, Refres
 import { authAPI } from '@/api'
 // ========== 工具函数 ==========
 import { isHandledError } from '@/utils/api'
+import { formatErrorMessage } from '@/utils/error'
 import { encryptPassword, validatePassword, PASSWORD_RULES } from '@/utils/password'
 
 // ========== 个人信息表单区域 ==========
@@ -489,10 +490,10 @@ const loadCurrentUser = async () => {
     profileForm.email = user.email || ''
     profileForm.role = roleCodes?.[0] || ''
     profileForm.is_active = user.is_active ?? true
-  } catch (error: any) {
+  } catch (error: unknown) {
     /** 条件分支 */
     if (!isHandledError(error)) {
-      ElMessage.error('加载用户信息失败：' + (error.message || '未知错误'))
+      ElMessage.error('加载用户信息失败：' + formatErrorMessage(error))
     }
   }
 }
@@ -511,10 +512,10 @@ const handleUpdateProfile = async () => {
       email: profileForm.email,
     })
     ElMessage.success('个人信息更新成功')
-  } catch (error: any) {
+  } catch (error: unknown) {
     /** 条件分支 */
     if (!isHandledError(error)) {
-      ElMessage.error('更新失败：' + (error.message || '未知错误'))
+      ElMessage.error('更新失败：' + formatErrorMessage(error))
     }
   } finally {
     updateProfileLoading.value = false
@@ -554,10 +555,10 @@ const handleChangePassword = async () => {
     
     ElMessage.success('密码修改成功')
     handleResetPasswordForm()
-  } catch (error: any) {
+  } catch (error: unknown) {
     /** 条件分支 */
     if (!isHandledError(error)) {
-      const errorMsg = error.response?.data?.error || error.message || '未知错误'
+      const errorMsg = formatErrorMessage(error)
       ElMessage.error('密码修改失败：' + errorMsg)
     }
   } finally {
@@ -611,10 +612,10 @@ const loadApiTokenInfo = async () => {
     apiTokenInfo.created_at = data.created_at || ''
     tokenRevealed.value = false
     tokenPlainText.value = ''
-  } catch (error: any) {
+  } catch (error: unknown) {
     /** 条件分支 */
     if (!isHandledError(error)) {
-      ElMessage.error('加载 API Token 信息失败：' + (error.message || '未知错误'))
+      ElMessage.error('加载 API Token 信息失败：' + formatErrorMessage(error))
     }
   }
 }
@@ -653,10 +654,10 @@ const handleGenerateToken = async () => {
     apiTokenInfo.created_at = data.created_at
     apiTokenInfo.last_used_at = ''
     ElMessage.success('API Token 生成成功')
-  } catch (error: any) {
+  } catch (error: unknown) {
     /** 条件分支 */
     if (!isHandledError(error)) {
-      ElMessage.error('生成 API Token 失败：' + (error.message || '未知错误'))
+      ElMessage.error('生成 API Token 失败：' + formatErrorMessage(error))
     }
   } finally {
     generateTokenLoading.value = false
@@ -680,10 +681,10 @@ const handleRevealToken = async () => {
     const response = await authAPI.apiToken.reveal()
     tokenPlainText.value = response.data.token
     tokenRevealed.value = true
-  } catch (error: any) {
+  } catch (error: unknown) {
     /** 条件分支 */
     if (!isHandledError(error)) {
-      ElMessage.error('查看 Token 失败：' + (error.message || '未知错误'))
+      ElMessage.error('查看 Token 失败：' + formatErrorMessage(error))
     }
   } finally {
     revealTokenLoading.value = false
@@ -750,10 +751,10 @@ const handleRevokeToken = async () => {
     tokenPlainText.value = ''
     tokenRevealed.value = false
     ElMessage.success('API Token 已吊销')
-  } catch (error: any) {
+  } catch (error: unknown) {
     /** 条件分支 */
     if (!isHandledError(error)) {
-      ElMessage.error('吊销 Token 失败：' + (error.message || '未知错误'))
+      ElMessage.error('吊销 Token 失败：' + formatErrorMessage(error))
     }
   } finally {
     revokeTokenLoading.value = false

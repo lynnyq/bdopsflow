@@ -765,7 +765,7 @@ const handleCreate = async () => {
       ElMessage.success('创建用户成功')
       showCreateDialog.value = false
       loadUsers()
-    } catch (error: any) {
+    } catch (error: unknown) {
       handleError(error, '创建用户失败')
     } finally {
       submitting.value = false
@@ -818,7 +818,7 @@ const handleUpdate = async () => {
       ElMessage.success('更新用户成功')
       showEditDialog.value = false
       loadUsers()
-    } catch (error: any) {
+    } catch (error: unknown) {
       handleError(error, '更新用户失败')
     } finally {
       submitting.value = false
@@ -846,7 +846,7 @@ const handleDelete = async (row: User) => {
     await userAdminAPI.delete(row.id)
     ElMessage.success('删除用户成功')
     loadUsers()
-  } catch (error: any) {
+  } catch (error: unknown) {
     if (error !== 'cancel' && error !== 'close') {
       handleError(error, '删除用户失败')
     }
@@ -885,7 +885,7 @@ const handleConfirmResetPassword = async () => {
       })
       ElMessage.success('密码重置成功')
       showResetPasswordDialog.value = false
-    } catch (error: any) {
+    } catch (error: unknown) {
       handleError(error, '密码重置失败')
     } finally {
       submitting.value = false

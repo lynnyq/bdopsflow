@@ -533,6 +533,7 @@ import { datasourceAPI } from '@/api'
 import { useAuthStore } from '@/stores/auth'
 // ========== 工具函数 ==========
 import { isHandledError } from '@/utils/api'
+import { formatErrorMessage } from '@/utils/error'
 
 /** Vue Router 实例，用于页面跳转 */
 const router = useRouter()
@@ -865,11 +866,11 @@ const handleTestConnection = async () => {
         ElMessage.success('连接测试成功')
       }
       testPassed.value = true
-    } catch (err: any) {
+    } catch (err: unknown) {
       testPassed.value = false
       /** 条件分支 */
       if (!isHandledError(err)) {
-        ElMessage.error(err.response?.data?.error || err.message || '连接测试失败')
+        ElMessage.error(formatErrorMessage(err))
       }
     } finally {
       testing.value = false
@@ -901,10 +902,10 @@ const handleSubmit = async () => {
         ElMessage.success('数据源创建成功')
       }
       router.push({ name: 'Datasources' })
-    } catch (err: any) {
+    } catch (err: unknown) {
       /** 条件分支 */
       if (!isHandledError(err)) {
-        ElMessage.error(err.message || '操作失败')
+        ElMessage.error(formatErrorMessage(err))
       }
     } finally {
       submitting.value = false

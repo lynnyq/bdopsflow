@@ -550,6 +550,7 @@ import {
 } from '@element-plus/icons-vue';
 import { datasourceAPI, queryAPI } from '@/api';
 import { isHandledError } from '@/utils/api';
+import { formatErrorMessage, getErrorResponse } from '@/utils/error';
 import { secureRandomHex } from '@/utils/random';
 import { useAuthStore } from '@/stores/auth';
 import type { Datasource, QueryResult, QueryHistory, TableInfo, ColumnInfo, SavedSQL } from '@/types';
@@ -894,6 +895,7 @@ const setCachedMetadata = (key: string, data: any) => {
     }
     localStorage.setItem(getStorageCacheKey(key), serialized);
   } catch {
+    // localStorage 可能被禁用或配额已满，静默忽略
   }
 };
 
@@ -1045,8 +1047,8 @@ const ALL_KEYWORDS = [
   ...SQL_KEYWORDS.types,
   ...SQL_KEYWORDS.other
 ];
-// 使用 ALL_KEYWORDS 以避免 TS6133 警告
-if (false) { console.log(ALL_KEYWORDS); }
+// ALL_KEYWORDS 预留给未来 SQL 关键字补全扩展，当前未直接使用
+void ALL_KEYWORDS;
 
 // CodeMirror 动态补全数据（当前数据源的表名和字段名）
 const autocompleteData = ref<{
@@ -1585,11 +1587,11 @@ const handleDatasourceChangeForTab = async (dsId: number | '', dbName: string) =
       selectedDatabase.value = dbList[0];
       await handleDatabaseChange();
     }
-  } catch (err: any) {
+  } catch (err: unknown) {
     /** 条件分支 */
     if (!isCanceledError(err) && !isHandledError(err)) {
       /** msg: 变量/函数声明 */
-      const msg = err?.response?.data?.message || err?.message || '获取数据库列表失败';
+      const msg = formatErrorMessage(err);
       ElMessage.error(`获取数据库列表失败: ${msg}`);
     }
     databases.value = ds.database ? [ds.database] : ['default'];
@@ -2296,11 +2298,11 @@ const handleDatasourceChange = async () => {
       selectedDatabase.value = dbList[0];
       await handleDatabaseChange();
     }
-  } catch (err: any) {
+  } catch (err: unknown) {
     /** 条件分支 */
     if (!isCanceledError(err) && !isHandledError(err)) {
       /** msg: 变量/函数声明 */
-      const msg = err?.response?.data?.message || err?.message || '获取数据库列表失败';
+      const msg = formatErrorMessage(err);
       ElMessage.error(`获取数据库列表失败: ${msg}`);
     }
     databases.value = ds.database ? [ds.database] : ['default'];
@@ -2347,11 +2349,11 @@ const handleDatabaseChange = async () => {
     tables.value = tableData;
     setCachedMetadata(cacheKey, tableData);
     autocompleteData.value.tables = tableData.map((t: any) => t.name || '').filter(Boolean).slice(0, 500);
-  } catch (err: any) {
+  } catch (err: unknown) {
     /** 条件分支 */
     if (!isCanceledError(err) && !isHandledError(err)) {
       /** msg: 变量/函数声明 */
-      const msg = err?.response?.data?.message || err?.message || '获取数据表列表失败';
+      const msg = formatErrorMessage(err);
       ElMessage.error(`获取数据表列表失败: ${msg}`);
     }
   } finally {
@@ -2428,11 +2430,11 @@ const refreshDatasourceMetadata = async () => {
     if (selectedDatabase.value) {
       await refreshDatabaseMetadata();
     }
-  } catch (err: any) {
+  } catch (err: unknown) {
     /** 条件分支 */
     if (!isCanceledError(err) && !isHandledError(err)) {
       /** msg: 变量/函数声明 */
-      const msg = err?.response?.data?.message || err?.message || '获取数据库列表失败';
+      const msg = formatErrorMessage(err);
       ElMessage.error(`获取数据库列表失败: ${msg}`);
     }
   } finally {
@@ -2460,11 +2462,11 @@ const refreshDatabaseMetadata = async () => {
     tables.value = tableData;
     setCachedMetadata(`tables_${selectedDatasourceId.value}_${dbName}`, tableData);
     autocompleteData.value.tables = tableData.map((t: any) => t.name || '').filter(Boolean).slice(0, 500);
-  } catch (err: any) {
+  } catch (err: unknown) {
     /** 条件分支 */
     if (!isCanceledError(err) && !isHandledError(err)) {
       /** msg: 变量/函数声明 */
-      const msg = err?.response?.data?.message || err?.message || '获取数据表列表失败';
+      const msg = formatErrorMessage(err);
       ElMessage.error(`获取数据表列表失败: ${msg}`);
     }
   } finally {
@@ -2506,11 +2508,11 @@ const handleTableChange = async () => {
     selectedTableColumns.value = res.data || [];
     setCachedMetadata(cacheKey, res.data || []);
     autocompleteData.value.columns = (res.data || []).map((c: any) => c.name || '').filter(Boolean);
-  } catch (err: any) {
+  } catch (err: unknown) {
     /** 条件分支 */
     if (!isCanceledError(err) && !isHandledError(err)) {
       /** msg: 变量/函数声明 */
-      const msg = err?.response?.data?.message || err?.message || '获取字段列表失败';
+      const msg = formatErrorMessage(err);
       ElMessage.error(`获取字段列表失败: ${msg}`);
     }
     selectedTableColumns.value = [];
@@ -2530,6 +2532,7 @@ const clearMetadataCache = (key: string) => {
   try {
     localStorage.removeItem(getStorageCacheKey(key));
   } catch {
+    // localStorage 可能被禁用，静默忽略删除失败
   }
 };
 
@@ -2597,11 +2600,11 @@ const handleClearCache = async () => {
     }
 
     ElMessage.success('缓存已清除，下次查询将获取最新数据');
-  } catch (err: any) {
+  } catch (err: unknown) {
     /** 条件分支 */
     if (!isHandledError(err)) {
       /** msg: 变量/函数声明 */
-      const msg = err?.response?.data?.message || err?.message || '清除缓存失败';
+      const msg = formatErrorMessage(err);
       ElMessage.error(msg);
     }
   } finally {
@@ -2835,9 +2838,9 @@ const startPolling = (tabId: string, queryId: string) => {
         tab.queryResult = null;
         tab.executing = false;
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       stopPolling(tabId);
-      tab.errorMessage = err?.response?.data?.error || err?.message || '轮询查询结果失败';
+      tab.errorMessage = formatErrorMessage(err);
       tab.queryResult = null;
       tab.executing = false;
     }
@@ -2959,8 +2962,8 @@ const handleExecute = async () => {
       // SSE 不可用，降级到轮询
       startPolling(tab.id, queryId);
     }
-  } catch (err: any) {
-    tab.errorMessage = err?.response?.data?.error || err?.message || '查询失败，请检查网络连接';
+  } catch (err: unknown) {
+    tab.errorMessage = formatErrorMessage(err);
     tab.queryResult = null;
     tab.executing = false;
   }
@@ -2985,11 +2988,11 @@ const handleCancel = async () => {
     tab.errorMessage = '查询已取消';
     tab.queryResult = null;
     ElMessage.info('查询已取消');
-  } catch (err: any) {
+  } catch (err: unknown) {
     /** 条件分支 */
     if (!isHandledError(err)) {
       /** msg: 变量/函数声明 */
-      const msg = err?.response?.data?.message || err?.message || '取消失败';
+      const msg = formatErrorMessage(err);
       ElMessage.error(msg);
     }
   } finally {
@@ -3135,13 +3138,15 @@ const handleExportCSV = async () => {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-  } catch (err: any) {
+  } catch (err: unknown) {
     /** 条件分支 */
     if (!isHandledError(err)) {
       /** 条件分支 */
-      if (err.response?.data instanceof Blob) {
+      const resp = getErrorResponse(err);
+      const data = resp?.data;
+      if (data instanceof Blob) {
         /** text: 变量/函数声明 */
-        const text = await err.response.data.text();
+        const text = await data.text();
         /** 异常处理 */
         try {
           /** json: 变量/函数声明 */
@@ -3151,7 +3156,7 @@ const handleExportCSV = async () => {
           ElMessage.error('导出失败');
         }
       } else {
-        ElMessage.error(err.message || '导出失败');
+        ElMessage.error(formatErrorMessage(err));
       }
     }
   } finally {

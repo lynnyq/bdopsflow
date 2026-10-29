@@ -262,6 +262,7 @@ import {
 } from '@element-plus/icons-vue'
 import { datasourceAPI } from '@/api'
 import { isHandledError } from '@/utils/api'
+import { formatErrorMessage } from '@/utils/error'
 import type { Datasource } from '@/types'
 import { useAuthStore } from '@/stores/auth'
 
@@ -431,9 +432,9 @@ const loadDatasources = async () => {
     const res = await datasourceAPI.list(params)
     total.value = res.data.total || 0
     datasources.value = res.data.items || []
-  } catch (err: any) {
+  } catch (err: unknown) {
     if (!isHandledError(err)) {
-      ElMessage.error(err.message || '加载数据源列表失败')
+      ElMessage.error(formatErrorMessage(err))
     }
   } finally {
     loading.value = false
@@ -463,9 +464,9 @@ const handleTestConnection = async (row: Datasource) => {
     await datasourceAPI.testConnection(row.id)
     ElMessage.success('连接测试成功')
     await loadDatasources()
-  } catch (err: any) {
+  } catch (err: unknown) {
     if (!isHandledError(err)) {
-      ElMessage.error(err.response?.data?.error || err.message || '连接测试失败')
+      ElMessage.error(formatErrorMessage(err))
     }
   } finally {
     testingId.value = null
@@ -494,9 +495,9 @@ const handleDelete = async (row: Datasource) => {
     await datasourceAPI.delete(row.id)
     ElMessage.success('数据源已删除')
     await loadDatasources()
-  } catch (err: any) {
+  } catch (err: unknown) {
     if (err !== 'cancel' && !isHandledError(err)) {
-      ElMessage.error(err.message || '删除失败')
+      ElMessage.error(formatErrorMessage(err))
     }
   }
 }
@@ -560,9 +561,9 @@ const loadPoolStats = async (id: number) => {
   try {
     const res = await datasourceAPI.getPoolStats(id)
     poolData.value = (res as any).data as typeof poolData.value
-  } catch (err: any) {
+  } catch (err: unknown) {
     if (!isHandledError(err)) {
-      ElMessage.error(err.response?.data?.error || '获取连接池状态失败')
+      ElMessage.error(formatErrorMessage(err))
     }
   } finally {
     poolLoading.value = false

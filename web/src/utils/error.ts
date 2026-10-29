@@ -242,27 +242,54 @@ export const handleInfo = (message: string) => {
 }
 
 /**
- * 从错误对象中提取可读的错误消息字符串。
+ * 从 unknown 错误对象中提取可读的错误消息字符串。
  * 兼容 string / Error / axios response.data 等多种形态。
  */
-export const formatErrorMessage = (error: any): string => {
+export const formatErrorMessage = (error: unknown): string => {
   if (!error) return '未知错误'
   if (typeof error === 'string') return error
-  if (error.message) return error.message
-  if (error.response?.data?.error) return error.response.data.error
-  if (error.response?.data?.message) return error.response.data.message
+  if (typeof error === 'object') {
+    const err = error as Record<string, unknown>
+    if (typeof err.message === 'string') return err.message
+    const resp = err.response as Record<string, unknown> | undefined
+    if (resp && typeof resp === 'object') {
+      const data = resp.data as Record<string, unknown> | undefined
+      if (data && typeof data === 'object') {
+        if (typeof (data as Record<string, unknown>).error === 'string') return (data as Record<string, unknown>).error as string
+        if (typeof (data as Record<string, unknown>).message === 'string') return (data as Record<string, unknown>).message as string
+      }
+    }
+  }
   return '操作失败'
+}
+
+/**
+ * 从 unknown 错误对象中提取 axios response 对象（如果有）。
+ * 用于判断 HTTP 状态码等场景。
+ */
+export const getErrorResponse = (error: unknown): Record<string, unknown> | undefined => {
+  if (typeof error === 'object' && error !== null) {
+    const resp = (error as Record<string, unknown>).response
+    if (resp && typeof resp === 'object') {
+      return resp as Record<string, unknown>
+    }
+  }
+  return undefined
 }
 
 /**
  * 从表单校验错误对象中提取指定字段的首条错误信息。
  * Element Plus 的 validate 回调会返回 errors: { field: [{ message }] } 结构。
  */
-export const validateFieldError = (errors: any, field: string): string | undefined => {
-  if (!errors) return undefined
-  const fieldError = errors[field]
+export const validateFieldError = (errors: unknown, field: string): string | undefined => {
+  if (!errors || typeof errors !== 'object') return undefined
+  const fieldError = (errors as Record<string, unknown>)[field]
   if (Array.isArray(fieldError) && fieldError.length > 0) {
-    return fieldError[0]?.message || fieldError[0]
+    const first = fieldError[0] as Record<string, unknown> | unknown
+    if (first && typeof first === 'object' && typeof (first as Record<string, unknown>).message === 'string') {
+      return (first as Record<string, unknown>).message as string
+    }
+    return first as string | undefined
   }
   return undefined
 }
@@ -279,16 +306,17 @@ export const withRetry = async <T>(
   maxRetries: number = 3,
   delay: number = 1000
 ): Promise<T> => {
-  let lastError: Error
+  let lastError: unknown
 
   for (let i = 0; i < maxRetries; i++) {
     try {
       return await fn()
-    } catch (error: any) {
+    } catch (error: unknown) {
       lastError = error
 
       // 如果是客户端错误，不重试
-      if (error.response?.status < 500) {
+      const resp = getErrorResponse(error)
+      if (resp && typeof resp.status === 'number' && resp.status < 500) {
         throw error
       }
 
@@ -297,7 +325,7 @@ export const withRetry = async <T>(
     }
   }
 
-  throw lastError!
+  throw lastError ?? new Error('All retries exhausted')
 }
 
 /**

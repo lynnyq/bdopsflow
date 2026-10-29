@@ -166,6 +166,7 @@ import { Search, Refresh, Document, VideoPlay, Delete } from '@element-plus/icon
 import { queryAPI, datasourceAPI, userAdminAPI } from '@/api'
 // ========== 工具函数 ==========
 import { isHandledError } from '@/utils/api'
+import { formatErrorMessage } from '@/utils/error'
 // ========== 类型定义 ==========
 import type { QueryHistory, Datasource, User } from '@/types'
 
@@ -236,9 +237,9 @@ const loadHistory = async () => {
     const res = await queryAPI.getHistory(params)
     historyList.value = res.data.items || []
     total.value = res.data.total || 0
-  } catch (err: any) {
+  } catch (err: unknown) {
     if (!isHandledError(err)) {
-      ElMessage.error(err.message || '加载查询历史失败')
+      ElMessage.error(formatErrorMessage(err))
     }
   } finally {
     loading.value = false
@@ -253,7 +254,7 @@ const loadDatasources = async () => {
   try {
     const res = await datasourceAPI.list({ page: 1, page_size: 200 })
     datasourceList.value = res.data.items || []
-  } catch (err: any) {
+  } catch (err: unknown) {
     // 数据源列表加载失败不影响主流程
   }
 }
@@ -266,7 +267,7 @@ const loadUsers = async () => {
   try {
     const res = await userAdminAPI.listByDomain()
     userList.value = res.data.items || []
-  } catch (err: any) {
+  } catch (err: unknown) {
     // 用户列表加载失败不影响主流程
   }
 }
@@ -327,9 +328,9 @@ const handleDelete = async (row: QueryHistory) => {
     await queryAPI.deleteHistory(row.id)
     ElMessage.success('删除成功')
     loadHistory()
-  } catch (err: any) {
+  } catch (err: unknown) {
     if (err !== 'cancel' && !isHandledError(err)) {
-      ElMessage.error(err.message || '删除失败')
+      ElMessage.error(formatErrorMessage(err))
     }
   }
 }
@@ -350,9 +351,9 @@ const handleBatchDelete = async () => {
     ElMessage.success('批量删除成功')
     selectedIds.value = []
     loadHistory()
-  } catch (err: any) {
+  } catch (err: unknown) {
     if (err !== 'cancel' && !isHandledError(err)) {
-      ElMessage.error(err.message || '批量删除失败')
+      ElMessage.error(formatErrorMessage(err))
     }
   } finally {
     batchDeleting.value = false

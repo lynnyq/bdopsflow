@@ -106,6 +106,7 @@ import { ElMessage } from 'element-plus'
 import { Search, Connection, Setting, Lock, DataLine, Monitor, ChatDotRound, Refresh } from '@element-plus/icons-vue'
 import { systemConfigAPI } from '@/api'
 import { isHandledError } from '@/utils/api'
+import { formatErrorMessage } from '@/utils/error'
 import type { SystemConfigItem } from '@/types'
 
 const configs = ref<SystemConfigItem[]>([])
@@ -187,9 +188,9 @@ const loadConfigs = async () => {
         textValues[item.key] = item.value || item.default_value || ''
       }
     }
-  } catch (err: any) {
+  } catch (err: unknown) {
     if (!isHandledError(err)) {
-      ElMessage.error(err.message || '加载配置失败')
+      ElMessage.error(formatErrorMessage(err))
     }
   }
 }
@@ -231,9 +232,9 @@ const handleUpdate = async (key: string, value: string) => {
       syncReactive(item)
     }
     ElMessage.success('配置已更新')
-  } catch (err: any) {
+  } catch (err: unknown) {
     if (!isHandledError(err)) {
-      ElMessage.error(err.message || '更新配置失败')
+      ElMessage.error(formatErrorMessage(err))
     }
     const item = configs.value.find(c => c.key === key)
     if (item) {
@@ -282,9 +283,9 @@ const handleReload = async () => {
     await systemConfigAPI.reload()
     await loadConfigs()
     ElMessage.success('配置已重载')
-  } catch (err: any) {
+  } catch (err: unknown) {
     if (!isHandledError(err)) {
-      ElMessage.error(err.message || '重载配置失败')
+      ElMessage.error(formatErrorMessage(err))
     }
   } finally {
     reloading.value = false

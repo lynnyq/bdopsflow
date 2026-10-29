@@ -225,6 +225,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Delete, Search, Refresh, Document, Filter, ArrowDown } from '@element-plus/icons-vue'
 import { auditLogAPI } from '@/api'
 import { isHandledError } from '@/utils/api'
+import { formatErrorMessage } from '@/utils/error'
 import type { AuditLog } from '@/api/audit'
 
 const logs = ref<AuditLog[]>([])          // 审计日志列表
@@ -473,9 +474,9 @@ const handleSearch = async () => {
     const data = response.data
     logs.value = data?.items || []
     total.value = data?.total || 0
-  } catch (error: any) {
+  } catch (error: unknown) {
     if (!isHandledError(error)) {
-      ElMessage.error(error.message || '加载审计日志失败')
+      ElMessage.error(formatErrorMessage(error))
     }
   } finally {
     loading.value = false
@@ -497,11 +498,11 @@ const handleCleanExpired = async () => {
     const data = response.data
     ElMessage.success(`清理完成，共删除 ${data?.deleted_count || 0} 条过期日志`)
     handleSearch()
-  } catch (err: any) {
+  } catch (err: unknown) {
     // ElMessageBox 取消时 reject 的值是 'cancel' / 'close'，非错误
     if (err !== 'cancel' && err !== 'close') {
       if (!isHandledError(err)) {
-        ElMessage.error(err?.message || '清理失败')
+        ElMessage.error(formatErrorMessage(err))
       }
     }
   }
@@ -520,9 +521,9 @@ const loadRetention = async () => {
       retentionDays.value = days
       originalRetentionDays.value = days
     }
-  } catch (err: any) {
+  } catch (err: unknown) {
     if (!isHandledError(err)) {
-      ElMessage.error(err?.message || '加载保留天数失败')
+      ElMessage.error(formatErrorMessage(err))
     }
   } finally {
     retentionLoading.value = false
@@ -540,9 +541,9 @@ const handleUpdateRetention = async () => {
     await auditLogAPI.updateRetention(retentionDays.value)
     originalRetentionDays.value = retentionDays.value
     ElMessage.success('保留天数已更新')
-  } catch (err: any) {
+  } catch (err: unknown) {
     if (!isHandledError(err)) {
-      ElMessage.error(err?.message || '更新保留天数失败')
+      ElMessage.error(formatErrorMessage(err))
     }
     // 失败时回滚到原始值
     retentionDays.value = originalRetentionDays.value

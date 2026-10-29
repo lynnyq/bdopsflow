@@ -135,6 +135,7 @@ import { Delete, Plus, Search, Refresh, Connection, Edit, SwitchButton, Promotio
 import { webhookAPI } from '@/api'
 // ========== 工具函数 ==========
 import { isHandledError } from '@/utils/api'
+import { formatErrorMessage } from '@/utils/error'
 import { secureRandom } from '@/utils/random'
 // ========== 类型定义 ==========
 import type { Webhook } from '@/types'
@@ -186,9 +187,9 @@ const loadWebhooks = async () => {
     const domainId = authStore.isSystemAdmin ? undefined : (authStore.currentDomainId || 1)
     const response = await webhookAPI.list(domainId)
     webhooks.value = response.data?.items || []
-  } catch (error: any) {
+  } catch (error: unknown) {
     if (!isHandledError(error)) {
-      ElMessage.error(error.message || '加载Webhook列表失败')
+      ElMessage.error(formatErrorMessage(error))
     }
   } finally {
     loading.value = false
@@ -196,10 +197,10 @@ const loadWebhooks = async () => {
 }
 
 /**
- * 根据搜索条件重新查询
+ * 根据搜索条件重新查询（filteredWebhooks 是 computed 会自动响应 searchQuery 变化）
  */
 const handleSearch = () => {
-  // filteredWebhooks is computed, auto-updates
+  // 搜索框事件触发时，computed filteredWebhooks 已自动更新，此处无需额外逻辑
 }
 
 /**
@@ -312,9 +313,9 @@ const handleSubmit = async () => {
 
     dialogVisible.value = false
     loadWebhooks()
-  } catch (error: any) {
+  } catch (error: unknown) {
     if (!isHandledError(error)) {
-      ElMessage.error(error.message || '操作失败')
+      ElMessage.error(formatErrorMessage(error))
     }
   } finally {
     submitting.value = false
@@ -332,9 +333,9 @@ const handleToggleEnabled = async (row: Webhook & { _testing?: boolean }) => {
     await webhookAPI.update(row.id, { ...row, headers: row.headers, is_enabled: newStatus })
     row.is_enabled = newStatus
     ElMessage.success(newStatus ? 'Webhook已启用' : 'Webhook已禁用')
-  } catch (error: any) {
+  } catch (error: unknown) {
     if (!isHandledError(error)) {
-      ElMessage.error(error.message || '操作失败')
+      ElMessage.error(formatErrorMessage(error))
     }
   }
 }
@@ -354,9 +355,9 @@ const handleTest = async (row: Webhook & { _testing?: boolean }) => {
     } else {
       ElMessage.success(`测试成功 (状态码: ${data?.status_code}, 耗时: ${data?.response_time_ms}ms)`)
     }
-  } catch (error: any) {
+  } catch (error: unknown) {
     if (!isHandledError(error)) {
-      ElMessage.error(error.message || '测试失败')
+      ElMessage.error(formatErrorMessage(error))
     }
   } finally {
     row._testing = false

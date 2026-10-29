@@ -128,6 +128,7 @@ import { Plus, Edit, Delete, Document, Search, Refresh } from '@element-plus/ico
 import { domainAdminAPI, type Domain } from '@/api/admin'
 // ========== 工具函数 ==========
 import { isHandledError } from '@/utils/api'
+import { formatErrorMessage } from '@/utils/error'
 // ========== Pinia Store ==========
 import { useAuthStore } from '@/stores/auth'
 
@@ -200,9 +201,9 @@ const handleCreate = async () => {
         showCreateDialog.value = false
         form.resetFields()
         loadDomains()
-      } catch (error: any) {
+      } catch (error: unknown) {
         if (!isHandledError(error)) {
-          ElMessage.error(error?.response?.data?.error || '创建领域失败')
+          ElMessage.error(formatErrorMessage(error))
         }
       } finally {
         submitting.value = false
@@ -243,9 +244,9 @@ const handleUpdate = async () => {
         ElMessage.success('更新领域成功')
         showEditDialog.value = false
         loadDomains()
-      } catch (error: any) {
+      } catch (error: unknown) {
         if (!isHandledError(error)) {
-          ElMessage.error(error?.response?.data?.error || '更新领域失败')
+          ElMessage.error(formatErrorMessage(error))
         }
       } finally {
         submitting.value = false
@@ -273,9 +274,9 @@ const handleDelete = async (row: Domain) => {
     await domainAdminAPI.delete(row.id)
     ElMessage.success('删除领域成功')
     loadDomains()
-  } catch (error: any) {
+  } catch (error: unknown) {
     if (error !== 'cancel' && !isHandledError(error)) {
-      ElMessage.error(error?.response?.data?.error || '删除领域失败')
+      ElMessage.error(formatErrorMessage(error))
     }
   }
 }

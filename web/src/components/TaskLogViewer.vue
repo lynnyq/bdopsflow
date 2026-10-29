@@ -100,6 +100,7 @@ import { Document, Close, InfoFilled, Loading, CircleClose } from '@element-plus
 import { taskAPI } from '@/api'
 // ========== 工具函数 ==========
 import { secureRandom } from '@/utils/random'
+import { formatErrorMessage } from '@/utils/error'
 // ========== Element Plus ==========
 import { ElMessage, ElMessageBox } from 'element-plus'
 
@@ -194,9 +195,9 @@ const handleCancel = async () => {
     await taskAPI.cancelExecution(props.executionId)
     ElMessage.success('任务已终止')
     currentStatus.value = 'failed'
-  } catch (err: any) {
+  } catch (err: unknown) {
     if (err !== 'cancel') {
-      ElMessage.error(err.response?.data?.message || '终止失败')
+      ElMessage.error(formatErrorMessage(err))
     }
   } finally {
     isCanceling.value = false

@@ -231,6 +231,7 @@ import { executorAPI, domainAdminAPI } from '@/api'
 import type { ExecutorWithDomains, Domain } from '@/types'
 import { useAuthStore } from '@/stores/auth'
 import { isHandledError } from '@/utils/api'
+import { formatErrorMessage } from '@/utils/error'
 
 const authStore = useAuthStore()
 const executors = ref<ExecutorWithDomains[]>([])
@@ -394,7 +395,7 @@ const handleChangeStatus = async (row: ExecutorWithDomains, status: string) => {
       ElMessage.success('离线成功')
     }
     loadExecutors()
-  } catch (error: any) {
+  } catch (error: unknown) {
     if (error !== 'cancel' && !isHandledError(error)) {
       ElMessage.error('状态变更失败')
     }
@@ -435,9 +436,9 @@ const handleDelete = async (row: ExecutorWithDomains) => {
     await executorAPI.delete(row.name)
     ElMessage.success('删除成功')
     loadExecutors()
-  } catch (error: any) {
+  } catch (error: unknown) {
     if (error !== 'cancel' && !isHandledError(error)) {
-      ElMessage.error(error?.response?.data?.error || '删除失败')
+      ElMessage.error(formatErrorMessage(error))
     }
   }
 }

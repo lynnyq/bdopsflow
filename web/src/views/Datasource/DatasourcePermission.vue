@@ -410,6 +410,7 @@ import {
 // ==== 业务 API 与工具 ====
 import { datasourceAPI } from '@/api'
 import { isHandledError } from '@/utils/api'
+import { formatErrorMessage } from '@/utils/error'
 import { roleAdminAPI, userAdminAPI } from '@/api/admin'
 import { useAuthStore } from '@/stores/auth'
 import type { DatasourcePermission } from '@/types'
@@ -706,9 +707,9 @@ const loadDatasource = async () => {
     const res = await datasourceAPI.get(datasourceId)
     datasourceName.value = res.data.name
     datasourceDomainId.value = res.data.domain_id
-  } catch (err: any) {
+  } catch (err: unknown) {
     if (!isHandledError(err)) {
-      ElMessage.error(err.message || '加载数据源失败')
+      ElMessage.error(formatErrorMessage(err))
     }
   }
 }
@@ -730,9 +731,9 @@ const loadPermissions = async () => {
     } else {
       permissions.value = []
     }
-  } catch (err: any) {
+  } catch (err: unknown) {
     if (!isHandledError(err)) {
-      ElMessage.error(err.message || '加载权限列表失败')
+      ElMessage.error(formatErrorMessage(err))
     }
   } finally {
     loading.value = false
@@ -758,7 +759,7 @@ const loadRoles = async () => {
         return r.domain_id === userDomainId
       })
     }
-  } catch (err: any) {
+  } catch (err: unknown) {
   }
 }
 
@@ -777,7 +778,7 @@ const loadUsers = async () => {
     }
     const res = await userAdminAPI.listByDomain(domainId)
     users.value = res.data?.items || []
-  } catch (err: any) {
+  } catch (err: unknown) {
   }
 }
 
@@ -828,9 +829,9 @@ const handleSubmitEdit = async () => {
       ElMessage.success('权限修改成功')
       editDialogVisible.value = false
       await loadPermissions()
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (!isHandledError(err)) {
-        ElMessage.error(err.message || '修改权限失败')
+        ElMessage.error(formatErrorMessage(err))
       }
     } finally {
       submitting.value = false
@@ -860,9 +861,9 @@ const handleSubmitAdd = async () => {
       ElMessage.success('权限添加成功')
       addDialogVisible.value = false
       await loadPermissions()
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (!isHandledError(err)) {
-        ElMessage.error(err.message || '添加权限失败')
+        ElMessage.error(formatErrorMessage(err))
       }
     } finally {
       submitting.value = false
@@ -890,9 +891,9 @@ const handleDeletePermission = async (row: DatasourcePermission) => {
     await datasourceAPI.revokePermission(datasourceId, row.id)
     ElMessage.success('权限已删除')
     await loadPermissions()
-  } catch (err: any) {
+  } catch (err: unknown) {
     if (err !== 'cancel' && !isHandledError(err)) {
-      ElMessage.error(err.message || '删除权限失败')
+      ElMessage.error(formatErrorMessage(err))
     }
   }
 }
