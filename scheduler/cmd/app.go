@@ -143,6 +143,7 @@ type App struct {
 	webhookSvc            *service.WebhookService
 	instancePermSvc       *service.InstancePermissionService
 	grafanaSvc            *service.GrafanaDashboardService
+	navSvc                *service.NavigationLinkService
 
 	dsCrypto            *datasource.Crypto
 	dsManager           *datasource.Manager
@@ -459,6 +460,10 @@ func NewApp(cfg *config.Config) *App {
 	// Grafana 图表嵌入服务
 	grafanaSvc := service.NewGrafanaDashboardService(logDB)
 	app.grafanaSvc = grafanaSvc
+
+	// 导航快捷链接服务
+	navSvc := service.NewNavigationLinkService(logDB)
+	app.navSvc = navSvc
 
 	instancePermSvc := service.NewInstancePermissionService(logDB, permissionService)
 	app.instancePermSvc = instancePermSvc

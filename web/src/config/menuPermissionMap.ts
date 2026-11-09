@@ -179,6 +179,13 @@ export const menuPermissionMap: MenuPermissionDef[] = [
         resources: ['config'],
       },
       {
+        key: 'navigation-link-management',
+        label: '导航配置',
+        icon: 'Link',
+        path: '/admin/navigation-links',
+        resources: ['config'],
+      },
+      {
         key: 'system-config',
         label: '系统配置',
         icon: 'Operation',

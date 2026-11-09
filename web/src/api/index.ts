@@ -13,10 +13,11 @@ import { auditLogAPI } from './audit'
 import { webhookAPI } from './webhook'
 import { apiTestAPI } from './apiTest'
 import { grafanaAPI } from './grafana'
+import { navigationAPI } from './navigation'
 import type { AuditLog, AuditLogListResponse, AuditLogStats } from './audit'
 
 // 从子模块统一导出所有 API 对象和类型
-export { userAdminAPI, roleAdminAPI, domainAdminAPI, permissionAPI, switchDomain, datasourceAPI, queryAPI, systemConfigAPI, auditLogAPI, webhookAPI, apiTestAPI, grafanaAPI }
+export { userAdminAPI, roleAdminAPI, domainAdminAPI, permissionAPI, switchDomain, datasourceAPI, queryAPI, systemConfigAPI, auditLogAPI, webhookAPI, apiTestAPI, grafanaAPI, navigationAPI }
 export type { User, Role, Permission, AuditLog, AuditLogListResponse, AuditLogStats }
 
 /** 更新个人资料请求体 */

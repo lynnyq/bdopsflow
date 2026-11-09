@@ -280,6 +280,45 @@ export interface GrafanaReorderItem {
 }
 
 // ============================================================================
+// 十六、导航快捷链接（NavigationLink）相关类型
+// ============================================================================
+
+/** 导航快捷链接：Dashboard 首页展示的外部网站快捷入口 */
+export interface NavigationLink {
+  id: number                         // 导航链接 ID
+  name: string                       // 显示名称
+  description: string                // 描述（banner 模式展示）
+  url: string                        // 目标 URL（http/https）
+  width: 'third' | 'half' | 'full'   // 占网格的列宽
+  display_mode: 'compact' | 'normal' | 'banner'  // 卡片密度（决定高度基准）
+  height_px: number | null           // 微调高度；null 时用 display_mode 基准值
+  icon_data: string | null           // favicon base64 data URL，可空
+  icon_fetched_at: string | null     // 最近一次 favicon 抓取时间，可空
+  sort_order: number                 // 排序值（升序）
+  enabled: number                    // 0=禁用 1=启用
+  created_at: string                 // 创建时间
+  updated_at: string                 // 更新时间
+}
+
+/** 导航链接创建/更新请求体 */
+export interface NavigationLinkInput {
+  name: string                       // 必填，≤100 字符
+  description?: string              // 可选描述
+  url: string                        // 必填，http/https，≤2048
+  width: 'third' | 'half' | 'full'   // 必填
+  display_mode: 'compact' | 'normal' | 'banner'  // 必填
+  height_px?: number | null          // 可选，40-200 或留空
+  sort_order: number                 // ≥0
+  enabled: number                    // 0/1
+}
+
+/** 导航链接排序调整项 */
+export interface NavigationReorderItem {
+  id: number                         // 导航链接 ID
+  sort_order: number                 // 新的排序值
+}
+
+// ============================================================================
 // 十、数据源（Datasource）及其权限相关类型
 // ============================================================================
 

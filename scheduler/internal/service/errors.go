@@ -82,6 +82,14 @@ var (
 	ErrGrafanaInvalidWidth      = errors.New("grafana width must be one of: third, half, full")
 	ErrGrafanaInvalidHeight     = errors.New("grafana height_px must be between 120 and 1200")
 	ErrGrafanaInvalidSortOrder  = errors.New("grafana sort_order must be >= 0")
+
+	// 导航快捷链接相关错误
+	ErrNavigationLinkNotFound       = errors.New("navigation link not found")
+	ErrNavigationInvalidURL         = errors.New("navigation link url must start with http:// or https://")
+	ErrNavigationInvalidWidth       = errors.New("navigation link width must be one of: third, half, full")
+	ErrNavigationInvalidDisplayMode = errors.New("navigation link display_mode must be one of: compact, normal, banner")
+	ErrNavigationInvalidHeight      = errors.New("navigation link height_px must be between 40 and 200 or zero")
+	ErrNavigationInvalidSortOrder   = errors.New("navigation link sort_order must be >= 0")
 )
 
 var errorCodeMap = map[error]int{
@@ -118,6 +126,12 @@ var errorCodeMap = map[error]int{
 	ErrGrafanaInvalidWidth:          19003,
 	ErrGrafanaInvalidHeight:         19004,
 	ErrGrafanaInvalidSortOrder:      19005,
+	ErrNavigationLinkNotFound:       19101,
+	ErrNavigationInvalidURL:         19102,
+	ErrNavigationInvalidWidth:       19103,
+	ErrNavigationInvalidDisplayMode: 19104,
+	ErrNavigationInvalidHeight:      19105,
+	ErrNavigationInvalidSortOrder:   19106,
 }
 
 func GetErrorCode(err error) int {

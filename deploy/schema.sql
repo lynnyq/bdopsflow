@@ -708,6 +708,26 @@ CREATE TABLE IF NOT EXISTS bdopsflow_grafana_dashboards (
 CREATE INDEX IF NOT EXISTS idx_grafana_dashboards_enabled_sort
     ON bdopsflow_grafana_dashboards(enabled, sort_order);
 
+-- 导航快捷链接表（Dashboard 首页展示外部网站快捷入口）
+CREATE TABLE IF NOT EXISTS bdopsflow_navigation_links (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    name            TEXT    NOT NULL,
+    description     TEXT,
+    url             TEXT    NOT NULL,
+    width           TEXT    NOT NULL DEFAULT 'third',
+    display_mode    TEXT    NOT NULL DEFAULT 'normal',
+    height_px       INTEGER,
+    icon_data       TEXT,
+    icon_fetched_at TEXT,
+    sort_order      INTEGER NOT NULL DEFAULT 0,
+    enabled         INTEGER NOT NULL DEFAULT 1,
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_nav_links_enabled_sort
+    ON bdopsflow_navigation_links(enabled, sort_order);
+
 -- ============================================================================
 -- 第五部分：系统配置初始化
 -- 说明：以下初始值需与 scheduler/internal/system_config/service.go 中

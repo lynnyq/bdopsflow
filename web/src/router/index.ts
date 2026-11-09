@@ -177,6 +177,13 @@ const routes: RouteRecordRaw[] = [
         meta: { menuPermission: 'grafana-dashboard-management' },
       },
       {
+        // 导航快捷链接管理
+        path: 'admin/navigation-links',
+        name: 'NavigationLinks',
+        component: () => import('@/views/admin/NavigationLinks.vue'),
+        meta: { menuPermission: 'navigation-link-management' },
+      },
+      {
         // 系统配置 - 运行时参数设置
         path: 'admin/system-config',
         name: 'SystemConfig',

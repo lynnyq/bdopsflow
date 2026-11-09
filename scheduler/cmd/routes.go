@@ -204,6 +204,22 @@ func setupRoutes(router *gin.Engine, app *App) {
 			grafanaAdmin.DELETE("/:id", middleware.RequireSystemAdmin(app.permissionService), grafanaHandler.Delete)
 		}
 
+		// 导航快捷链接
+		navHandler := handler.NewNavigationLinkHandler(app.navSvc)
+		// 公共查询（所有登录用户可访问，用于 Dashboard 首页）
+		protected.GET("/navigation-links", navHandler.ListEnabled)
+		// 管理接口（仅系统管理员）
+		navAdmin := protected.Group("/admin/navigation-links")
+		{
+			navAdmin.GET("", middleware.RequireSystemAdmin(app.permissionService), navHandler.ListAll)
+			navAdmin.POST("", middleware.RequireSystemAdmin(app.permissionService), navHandler.Create)
+			navAdmin.PUT("/reorder", middleware.RequireSystemAdmin(app.permissionService), navHandler.Reorder)
+			navAdmin.GET("/:id", middleware.RequireSystemAdmin(app.permissionService), navHandler.GetByID)
+			navAdmin.PUT("/:id", middleware.RequireSystemAdmin(app.permissionService), navHandler.Update)
+			navAdmin.DELETE("/:id", middleware.RequireSystemAdmin(app.permissionService), navHandler.Delete)
+			navAdmin.POST("/:id/refresh-icon", middleware.RequireSystemAdmin(app.permissionService), navHandler.RefreshIcon)
+		}
+
 		dsHandler := handler.NewDatasourceHandler(app.dsService, app.dsManager, app.instancePermSvc, app.permissionService, app.domainAdminService, app.userAdminService)
 		queryHandler := handler.NewQueryHandler(app.dsService, app.dsManager, app.sysConfigService, app.dsCacheService, app.dsConcurrentService, app.redisClient, app.nodeID)
 

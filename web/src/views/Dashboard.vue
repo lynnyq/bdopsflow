@@ -101,39 +101,6 @@
       </div>
     </section>
 
-    <!-- Execution Stats -->
-    <section class="execution-section">
-      <div class="execution-grid">
-        <div class="stat-item success">
-          <div class="stat-icon stat-icon-success">
-            <el-icon :size="24"><CircleCheck /></el-icon>
-          </div>
-          <div class="stat-content">
-            <div class="stat-value">{{ stats?.tasks?.success ?? 0 }}</div>
-            <div class="stat-label">成功执行</div>
-          </div>
-        </div>
-        <div class="stat-item danger">
-          <div class="stat-icon stat-icon-danger">
-            <el-icon :size="24"><CircleClose /></el-icon>
-          </div>
-          <div class="stat-content">
-            <div class="stat-value">{{ stats?.tasks?.failed ?? 0 }}</div>
-            <div class="stat-label">失败执行</div>
-          </div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-icon stat-icon-warning">
-            <el-icon :size="24"><Timer /></el-icon>
-          </div>
-          <div class="stat-content">
-            <div class="stat-value">{{ formatDuration(stats?.tasks?.avg_duration ?? 0) }}</div>
-            <div class="stat-label">平均执行时长</div>
-          </div>
-        </div>
-      </div>
-    </section>
-
     <!-- Scheduler Control -->
     <section class="scheduler-section">
       <div class="scheduler-info">
@@ -224,6 +191,51 @@
       </div>
     </section>
 
+    <!-- 快捷导航卡片：Dashboard 首页展示已启用的导航链接，3 列网格 -->
+    <section v-if="navigationLinks.length > 0" class="navigation-section">
+      <div class="section-header">
+        <h2 class="section-title">
+          <el-icon><Link /></el-icon>
+          快捷导航
+        </h2>
+      </div>
+      <div class="nav-grid">
+        <a
+          v-for="item in navigationLinks"
+          :key="item.id"
+          :href="item.url"
+          target="_blank"
+          rel="noopener"
+          class="nav-card"
+          :class="[`nav-width-${item.width}`, `nav-mode-${item.display_mode}`]"
+          :style="{ height: cardHeight(item) + 'px' }"
+        >
+          <div
+            class="nav-icon"
+            :style="item.icon_data ? {} : { backgroundColor: fallbackColor(item.url) }"
+          >
+            <img
+              v-if="item.icon_data"
+              :src="item.icon_data"
+              :alt="item.name"
+              @error="onNavIconError"
+            />
+            <span v-else>{{ fallbackInitial(item.url) }}</span>
+          </div>
+          <div class="nav-info">
+            <div class="nav-name" :title="item.name">{{ item.name }}</div>
+            <div
+              v-if="item.display_mode === 'banner' && item.description"
+              class="nav-desc"
+              :title="item.description"
+            >{{ item.description }}</div>
+            <div v-if="item.display_mode !== 'compact'" class="nav-domain">{{ extractDomain(item.url) }}</div>
+          </div>
+          <el-icon class="nav-open-icon"><TopRight /></el-icon>
+        </a>
+      </div>
+    </section>
+
     <!-- Grafana 嵌入图表 -->
     <section v-if="grafanaDashboards.length > 0" class="grafana-section">
       <div class="section-header">
@@ -280,11 +292,11 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { VideoPlay, VideoPause, Refresh, List, CircleCheck, CircleClose, Clock, Timer, Cpu, DataLine, TopRight } from '@element-plus/icons-vue'
-import { dashboardAPI, grafanaAPI, type HealthCheckResult } from '@/api'
+import { VideoPlay, VideoPause, Refresh, List, CircleCheck, Clock, Timer, Cpu, DataLine, TopRight, Link } from '@element-plus/icons-vue'
+import { dashboardAPI, grafanaAPI, navigationAPI, type HealthCheckResult } from '@/api'
 import { isHandledError } from '@/utils/api'
 import { useAuthStore } from '@/stores/auth'
-import type { DashboardStats, TrendData, GrafanaDashboard } from '@/types'
+import type { DashboardStats, TrendData, GrafanaDashboard, NavigationLink } from '@/types'
 
 // 认证 store：用于判断是否有调度器控制权
 const authStore = useAuthStore()
@@ -515,6 +527,74 @@ const grafanaDashboards = ref<GrafanaDashboard[]>([])  // 已启用的 Grafana �
 // iframe 刷新键：变更后强制 Vue 销毁重建 Grafana iframe，使图表真正重新加载
 const iframeRefreshKey = ref(0)
 
+// ========== 导航快捷链接 ==========
+const navigationLinks = ref<NavigationLink[]>([])  // 已启用的导航链接列表
+let navInterval: number | null = null              // 5 分钟刷新定时器
+
+// display_mode 基准高度（px），height_px 为 null 或 0 时使用
+const DISPLAY_MODE_BASE_HEIGHT: Record<string, number> = {
+  compact: 52,
+  normal:  68,
+  banner:  100,
+}
+
+// fallback 色板：域名 hash 稳定取色
+const FALLBACK_COLORS = ['#f46800', '#e6522c', '#00bfb3', '#24292f', '#d33833', '#0052cc', '#9333ea']
+
+/** 计算卡片高度：微调值优先，否则用 display_mode 基准 */
+const cardHeight = (item: NavigationLink): number => {
+  if (item.height_px && item.height_px > 0) return item.height_px
+  return DISPLAY_MODE_BASE_HEIGHT[item.display_mode] ?? 68
+}
+
+/** URL 域名 hash 选色 */
+const fallbackColor = (url: string): string => {
+  try {
+    const host = new URL(url).hostname
+    let h = 0
+    for (const c of host) h = (h * 31 + c.charCodeAt(0)) >>> 0
+    return FALLBACK_COLORS[h % FALLBACK_COLORS.length]
+  } catch {
+    return '#6b7280'
+  }
+}
+
+/** URL 域名首字母 */
+const fallbackInitial = (url: string): string => {
+  try {
+    const host = new URL(url).hostname.replace(/^www\./, '')
+    return host.charAt(0).toUpperCase()
+  } catch {
+    return '?'
+  }
+}
+
+/** 提取域名展示 */
+const extractDomain = (url: string): string => {
+  try {
+    return new URL(url).hostname
+  } catch {
+    return url
+  }
+}
+
+/** favicon img 加载失败时，让 img.style.display = 'none'，fallback span 自动显示 */
+const onNavIconError = (e: Event) => {
+  const el = e.target as HTMLImageElement
+  el.style.display = 'none'
+}
+
+/** 加载已启用的导航链接（静默失败，不影响其他模块） */
+const loadNavigationLinks = async () => {
+  try {
+    const response = await navigationAPI.listEnabled()
+    navigationLinks.value = response.data?.items || []
+  } catch (error) {
+    console.warn('Failed to load navigation links:', error)
+    navigationLinks.value = []
+  }
+}
+
 /**
  * 强制刷新所有 Grafana iframe（递增 key 触发 Vue 重建）
  */
@@ -563,8 +643,10 @@ onMounted(() => {
   refreshData()
   loadHealthData()
   loadGrafanaDashboards()
+  loadNavigationLinks()
   refreshInterval = window.setInterval(refreshData, 30000)
   healthInterval = window.setInterval(loadHealthData, 60000)
+  navInterval = window.setInterval(loadNavigationLinks, 5 * 60 * 1000)
 })
 
 onUnmounted(() => {
@@ -573,6 +655,9 @@ onUnmounted(() => {
   }
   if (healthInterval) {
     clearInterval(healthInterval)
+  }
+  if (navInterval) {
+    clearInterval(navInterval)
   }
 })
 </script>
@@ -836,27 +921,6 @@ onUnmounted(() => {
   font-size: 0.75rem;
   color: var(--text-muted);
   font-family: var(--font-mono);
-}
-
-/* Execution Section */
-.execution-section {
-  background: var(--bg-card);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  padding: var(--space-5);
-  box-shadow: var(--shadow-sm);
-}
-
-.execution-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: var(--space-4);
-}
-
-@media (max-width: 800px) {
-  .execution-grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 /* Scheduler Section */
@@ -1161,5 +1225,127 @@ onUnmounted(() => {
     width: 100%;
     justify-content: flex-start;
   }
+}
+
+/* ============ 导航快捷链接卡片 ============ */
+.navigation-section {
+  background: var(--el-bg-color);
+  border-radius: var(--el-border-radius-base);
+  padding: 18px 20px;
+  border: 1px solid var(--el-border-color-lighter);
+}
+
+.nav-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+@media (max-width: 1199px) {
+  .nav-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 767px) {
+  .nav-grid { grid-template-columns: 1fr; }
+}
+
+/* 列宽控制：与 grafana 完全对齐 */
+.nav-width-third { grid-column: span 1; }
+.nav-width-half { grid-column: span 1; }
+@media (min-width: 992px) {
+  .nav-width-half { grid-column: span 2; }
+}
+.nav-width-full { grid-column: span 3; }
+@media (min-width: 768px) and (max-width: 1199px) {
+  .nav-width-full { grid-column: span 2; }
+}
+
+.nav-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--el-border-color-lighter);
+  background: var(--el-fill-color-lighter);
+  text-decoration: none;
+  color: inherit;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.nav-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+  border-color: var(--el-color-primary-light-5);
+}
+
+.nav-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: #f46800;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 700;
+  font-size: 15px;
+  overflow: hidden;
+}
+.nav-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.nav-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nav-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--el-text-color-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nav-desc {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nav-domain {
+  font-size: 11px;
+  color: var(--el-text-color-secondary);
+  font-family: monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nav-open-icon {
+  color: var(--el-text-color-placeholder);
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.nav-card:hover .nav-open-icon {
+  color: var(--el-color-primary);
+}
+
+/* banner 模式加粗显示 */
+.nav-mode-banner .nav-name {
+  font-size: 15px;
+  font-weight: 700;
 }
 </style>
