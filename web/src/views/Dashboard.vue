@@ -1,71 +1,11 @@
 <!--
   首页仪表盘组件
-  功能：展示系统全局概览，包括任务/执行器/调度器统计、系统健康状态、执行趋势图、调度器控制、Grafana 监控图表
-  主要区域：统计概览、系统健康、执行统计、调度器控制、执行趋势、Grafana 嵌入面板
+  功能：展示系统健康状态、执行趋势图、调度器控制、快捷导航、Grafana 监控图表
+  主要区域：系统健康、调度器控制、执行趋势、快捷导航、Grafana 嵌入面板
   自动刷新：统计数据 30s，健康检查 60s
 -->
 <template>
   <div class="dashboard">
-    <!-- Stats Overview -->
-    <section class="stats-section">
-      <div class="stats-grid">
-        <div class="stat-item">
-          <div class="stat-icon stat-icon-primary">
-            <el-icon :size="24"><List /></el-icon>
-          </div>
-          <div class="stat-content">
-            <div class="stat-value">{{ stats?.tasks?.total ?? 0 }}</div>
-            <div class="stat-label">总任务</div>
-          </div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-icon stat-icon-success">
-            <el-icon :size="24"><CircleCheck /></el-icon>
-          </div>
-          <div class="stat-content">
-            <div class="stat-value">{{ stats?.tasks?.enabled ?? 0 }}</div>
-            <div class="stat-label">已启用</div>
-          </div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-icon stat-icon-info">
-            <el-icon :size="24"><Clock /></el-icon>
-          </div>
-          <div class="stat-content">
-            <div class="stat-value">{{ stats?.tasks?.cron ?? 0 }}</div>
-            <div class="stat-label">定时任务</div>
-          </div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-icon stat-icon-warning">
-            <el-icon :size="24"><Timer /></el-icon>
-          </div>
-          <div class="stat-content">
-            <div class="stat-value">{{ stats?.tasks?.running ?? 0 }}</div>
-            <div class="stat-label">运行中</div>
-          </div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-icon stat-icon-primary">
-            <el-icon :size="24"><Cpu /></el-icon>
-          </div>
-          <div class="stat-content">
-            <div class="stat-value">{{ stats?.executors?.total ?? 0 }}</div>
-            <div class="stat-label">执行器总数</div>
-          </div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-icon stat-icon-success">
-            <el-icon :size="24"><CircleCheck /></el-icon>
-          </div>
-          <div class="stat-content">
-            <div class="stat-value">{{ stats?.executors?.active ?? 0 }}</div>
-            <div class="stat-label">在线执行器</div>
-          </div>
-        </div>
-      </div>
-    </section>
-
     <!-- Health Check -->
     <section class="health-section">
       <div class="section-header">
@@ -279,24 +219,25 @@
 
 /**
  * 首页仪表盘脚本
- * @description 负责系统概览统计、健康检查、执行趋势展示、调度器暂停/恢复控制，以及 Grafana 监控图表嵌入
+ * @description 负责系统健康检查、执行趋势展示、调度器暂停/恢复控制、快捷导航，以及 Grafana 监控图表嵌入
  *
  * 自动刷新策略：
- * - 统计数据/趋势：30 秒
+ * - 趋势/调度器状态：30 秒
  * - 健康检查：60 秒
  *
  * 依赖：
  * - dashboardAPI: 仪表盘后端接口
  * - grafanaAPI: Grafana 嵌入面板接口
+ * - navigationAPI: 快捷导航链接接口
  */
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { VideoPlay, VideoPause, Refresh, List, CircleCheck, Clock, Timer, Cpu, DataLine, TopRight, Link } from '@element-plus/icons-vue'
+import { VideoPlay, VideoPause, Refresh, DataLine, TopRight, Link } from '@element-plus/icons-vue'
 import { dashboardAPI, grafanaAPI, navigationAPI, type HealthCheckResult } from '@/api'
 import { isHandledError } from '@/utils/api'
 import { useAuthStore } from '@/stores/auth'
-import type { DashboardStats, TrendData, GrafanaDashboard, NavigationLink } from '@/types'
+import type { TrendData, GrafanaDashboard, NavigationLink } from '@/types'
 
 // 认证 store：用于判断是否有调度器控制权
 const authStore = useAuthStore()
@@ -308,12 +249,6 @@ const canControlScheduler = computed(() => {
 
 const loading = ref(false)          // 数据加载状态
 const actionLoading = ref(false)     // 调度器操作（暂停/恢复）加载状态
-// 仪表盘统计数据：任务、执行器、调度器三大维度
-const stats = ref<DashboardStats>({
-  tasks: { total: 0, enabled: 0, cron: 0, running: 0, success: 0, failed: 0, avg_duration: 0 },
-  executors: { total: 0, active: 0, online: 0, offline: 0 },
-  scheduler: { paused: false, uptime: 0 }
-})
 const schedulerStatus = ref({ paused: false })  // 调度器当前暂停状态
 const trends = ref<TrendData[]>([])              // 最近 7 天执行趋势数据
 const healthData = ref<HealthCheckResult | null>(null)  // 系统健康检查结果
@@ -369,40 +304,6 @@ const loadHealthData = async () => {
 }
 
 /**
- * 加载仪表盘统计数据（任务/执行器/调度器三大维度）
- */
-const loadDashboardStats = async () => {
-  try {
-    const response = await dashboardAPI.getStats()
-    const data = response.data || {}
-    
-    // 安全地合并数据，保持默认结构
-    stats.value = {
-      tasks: {
-        total: data.tasks?.total ?? 0,
-        enabled: data.tasks?.enabled ?? 0,
-        cron: data.tasks?.cron ?? 0,
-        running: data.tasks?.running ?? 0,
-        success: data.tasks?.success ?? 0,
-        failed: data.tasks?.failed ?? 0,
-        avg_duration: data.tasks?.avg_duration ?? 0
-      },
-      executors: {
-        total: data.executors?.total ?? 0,
-        active: data.executors?.active ?? 0,
-        online: data.executors?.online ?? 0,
-        offline: data.executors?.offline ?? 0
-      },
-      scheduler: {
-        paused: data.scheduler?.paused ?? false,
-        uptime: data.scheduler?.uptime ?? 0
-      }
-    }
-  } catch (error) {
-  }
-}
-
-/**
  * 加载调度器当前暂停状态
  */
 const loadSchedulerStatus = async () => {
@@ -422,19 +323,18 @@ const loadTrends = async () => {
   try {
     const response = await dashboardAPI.getTrends()
     const data = response.data || {}
-    trends.value = data.items || []
+    trends.value = (data.items || []).slice().sort((a: TrendData, b: TrendData) => a.date.localeCompare(b.date))
   } catch (error) {
   }
 }
 
 /**
- * 刷新所有主数据：并行加载统计、调度器状态、趋势
+ * 刷新所有主数据：并行加载调度器状态、趋势
  */
 const refreshData = async () => {
   loading.value = true
   try {
     await Promise.all([
-      loadDashboardStats(),
       loadSchedulerStatus(),
       loadTrends(),
     ])
@@ -503,23 +403,6 @@ const formatDate = (date: string): string => {
   if (!date) return ''
   const d = new Date(date)
   return `${d.getMonth() + 1}/${d.getDate()}`
-}
-
-/**
- * 格式化秒数为人类可读时长
- * @param seconds - 秒数
- * @returns 如 "1m30s"、"2h5m"
- */
-const formatDuration = (seconds: number): string => {
-  if (!seconds || seconds === 0) return '0s'
-  if (seconds < 1) return `${(seconds).toFixed(2)}s`
-  if (seconds < 60) return `${seconds.toFixed(2)}s`
-  const minutes = Math.floor(seconds / 60)
-  const secs = seconds % 60
-  if (minutes < 60) return `${minutes}m${secs.toFixed(0)}s`
-  const hours = Math.floor(minutes / 60)
-  const mins = minutes % 60
-  return `${hours}h${mins}m`
 }
 
 // Grafana 嵌入图表相关
@@ -668,119 +551,6 @@ onUnmounted(() => {
   flex-direction: column;
   gap: var(--space-5);
   padding-bottom: var(--space-6);
-}
-
-/* Stats Section */
-.stats-section {
-  background: var(--bg-card);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  padding: var(--space-5);
-  box-shadow: var(--shadow-sm);
-}
-
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: var(--space-4);
-}
-
-@media (max-width: 1400px) {
-  .stats-grid {
-    grid-template-columns: repeat(3, 1fr);
-  }
-}
-
-@media (max-width: 1000px) {
-  .stats-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-
-@media (max-width: 600px) {
-  .stats-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-.stat-item {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  padding: var(--space-4);
-  background: var(--bg-secondary);
-  border-radius: var(--radius-md);
-  transition: all var(--duration-normal) var(--ease-out);
-}
-
-.stat-item:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
-}
-
-.stat-item.success {
-  background: rgba(52, 211, 153, 0.08);
-}
-
-.stat-item.danger {
-  background: rgba(248, 113, 113, 0.08);
-}
-
-.stat-icon {
-  width: 48px;
-  height: 48px;
-  border-radius: var(--radius-md);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.stat-icon-primary {
-  background: rgba(59, 130, 246, 0.1);
-  color: var(--accent-primary);
-}
-
-.stat-icon-success {
-  background: rgba(52, 211, 153, 0.1);
-  color: var(--accent-success);
-}
-
-.stat-icon-warning {
-  background: rgba(251, 191, 36, 0.1);
-  color: var(--accent-warning);
-}
-
-.stat-icon-info {
-  background: rgba(6, 182, 212, 0.1);
-  color: var(--accent-secondary);
-}
-
-.stat-icon-danger {
-  background: rgba(248, 113, 113, 0.1);
-  color: var(--accent-danger);
-}
-
-.stat-content {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.stat-value {
-  font-family: var(--font-display);
-  font-size: 1.75rem;
-  font-weight: 700;
-  color: var(--text-primary);
-  line-height: 1;
-}
-
-.stat-label {
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
 }
 
 /* Health Section */

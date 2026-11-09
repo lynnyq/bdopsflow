@@ -1,19 +1,19 @@
 <!-- 导航快捷链接管理页面：配置 Dashboard 首页快捷入口列表 -->
 <template>
-  <div class="navigation-management">
-    <!-- 页面工具栏：搜索 + 刷新 + 创建按钮 -->
+  <div class="navigation-links-page page-container">
+    <!-- 页面工具栏：搜索 + 刷新 + 保存排序 + 创建按钮 -->
     <div class="page-toolbar">
       <div class="toolbar-left">
         <el-input
           v-model="searchQuery"
-          placeholder="搜索名称或URL"
-          clearable
-          style="width: 260px"
+          placeholder="搜索名称或URL..."
           :prefix-icon="Search"
+          class="search-input"
+          clearable
         />
       </div>
       <div class="toolbar-right">
-        <el-button :icon="Refresh" @click="loadList">刷新</el-button>
+        <el-button :icon="Refresh" @click="loadList" class="refresh-btn">刷新</el-button>
         <el-button
           v-if="hasSortChanges"
           type="warning"
@@ -23,12 +23,13 @@
         >
           保存排序
         </el-button>
-        <el-button type="primary" :icon="Plus" @click="handleCreate">新建导航</el-button>
+        <el-button type="primary" :icon="Plus" @click="handleCreate" class="create-btn">新建导航</el-button>
       </div>
     </div>
 
+    <!-- 导航列表表格 -->
     <div class="table-wrapper">
-      <el-table :data="filteredList" v-loading="loading" stripe border>
+      <el-table :data="filteredList" v-loading="loading" stripe height="100%">
         <el-table-column label="排序" width="90" align="center">
           <template #default="{ row }">
             <el-input-number
@@ -100,15 +101,20 @@
           </template>
         </el-table-column>
         <template #empty>
-          <el-empty description="暂无导航配置" />
+          <div class="table-empty-state">
+            <el-icon :size="32"><Document /></el-icon>
+            <p>暂无导航配置</p>
+          </div>
         </template>
       </el-table>
     </div>
 
+    <!-- 新建/编辑导航对话框 -->
     <el-dialog
       v-model="dialogVisible"
       :title="isEditing ? '编辑导航链接' : '新建导航链接'"
       width="620px"
+      class="custom-dialog"
       :close-on-click-modal="false"
       destroy-on-close
     >
@@ -129,7 +135,7 @@
         </div>
       </div>
 
-      <el-form :model="form" label-width="100px" label-position="right" style="margin-top: 16px">
+      <el-form :model="form" label-width="100px" label-position="right" class="dialog-form" style="margin-top: 16px">
         <el-form-item label="名称" required>
           <el-input v-model="form.name" placeholder="如：Grafana 监控大盘" maxlength="100" show-word-limit />
         </el-form-item>
@@ -181,8 +187,10 @@
       </el-form>
 
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="submitting" @click="handleSubmit">确定</el-button>
+        <div class="dialog-footer">
+          <el-button @click="dialogVisible = false">取消</el-button>
+          <el-button type="primary" :loading="submitting" @click="handleSubmit">确定</el-button>
+        </div>
       </template>
     </el-dialog>
   </div>
@@ -201,7 +209,7 @@ import { ref, computed, onMounted } from 'vue'
 // ========== Element Plus ==========
 import { ElMessage, ElMessageBox } from 'element-plus'
 // ========== Element Plus 图标 ==========
-import { Delete, Plus, Search, Refresh, Edit, Check, RefreshRight, Link as LinkIcon } from '@element-plus/icons-vue'
+import { Delete, Plus, Search, Refresh, Edit, Check, RefreshRight, Link as LinkIcon, Document } from '@element-plus/icons-vue'
 // ========== API 层 ==========
 import { navigationAPI } from '@/api'
 // ========== 工具函数 ==========
@@ -504,30 +512,37 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.navigation-management {
-  padding: 16px;
-}
-
-.page-toolbar {
+/* ========== 页面整体容器 ========== */
+.navigation-links-page {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding-bottom: var(--space-6);
+  height: 100%;
 }
 
-.toolbar-right {
-  display: flex;
-  gap: 8px;
+.navigation-links-page::-webkit-scrollbar {
+  width: 8px;
 }
 
+.navigation-links-page::-webkit-scrollbar-thumb {
+  background: var(--border-default);
+  border-radius: 4px;
+}
+
+.navigation-links-page::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+/* ========== 特有工具类 ========== */
 .url-cell {
   color: var(--el-text-color-secondary);
-  font-family: monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
 }
 
 .form-hint {
-  margin-left: 8px;
+  margin-left: var(--space-2);
   color: var(--el-text-color-secondary);
   font-size: 12px;
 }
@@ -601,7 +616,7 @@ onMounted(() => {
 .icon-preview-url {
   font-size: 12px;
   color: var(--el-text-color-secondary);
-  font-family: monospace;
+  font-family: var(--font-mono);
   margin-top: 2px;
   white-space: nowrap;
   overflow: hidden;
