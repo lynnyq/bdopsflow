@@ -36,6 +36,8 @@ var defaultConfigValues = map[string]string{
 	"web.enabled":                             "false",
 	"api_test.allow_private_network":          "false",
 	"audit_log.retention_days":                "90",
+	"task_execution.retention_days":           "30",
+	"task_log.retention_days":                 "30",
 	"wecom.robot_url":                         "https://qyapi.weixin.qq.com/cgi-bin/webhook/send",
 	"wecom.app_msg_url":                       "https://qyapi.weixin.qq.com/cgi-bin/app/send",
 	"wecom.ewechat_url":                       "https://qyapi.weixin.qq.com/cgi-bin/app/send",
@@ -73,6 +75,18 @@ var configMetaList = []ConfigMeta{
 		Key: "audit_log.retention_days", Label: "审计日志保留天数",
 		Description:  "审计日志的保留天数，超过此天数的记录将被自动清理。影响数据库存储与合规要求。",
 		Type:        "number", DefaultValue: "90", MinValue: intPtr(1), MaxValue: intPtr(3650), Unit: "天",
+		Group: "其他",
+	},
+	{
+		Key: "task_execution.retention_days", Label: "执行记录保留天数",
+		Description:  "执行记录的保留天数，超过此天数的记录将被自动清理（同时级联删除关联的过程日志）。设为 0 禁用自动清理。",
+		Type:        "number", DefaultValue: "30", MinValue: intPtr(0), MaxValue: intPtr(3650), Unit: "天",
+		Group: "其他",
+	},
+	{
+		Key: "task_log.retention_days", Label: "过程日志保留天数",
+		Description:  "过程日志的保留天数，超过此天数的日志将被自动清理。设为 0 禁用自动清理。",
+		Type:        "number", DefaultValue: "30", MinValue: intPtr(0), MaxValue: intPtr(3650), Unit: "天",
 		Group: "其他",
 	},
 	{

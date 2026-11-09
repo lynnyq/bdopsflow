@@ -1,8 +1,11 @@
 package handler
 
 import (
+	"context"
 	"log/slog"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/model"
@@ -264,4 +267,206 @@ func (h *LogHandler) GetStats(c *gin.Context) {
 	slog.Debug("LogHandler.GetStats: returning stats", "stats", stats)
 
 	Success(c, stats)
+}
+
+// CleanExecutions 手动清理过期执行记录，级联删除关联的过程日志。
+// 请求体可选字段：retention_days（显式覆盖系统配置）、time_from、time_to、task_name、executor_name。
+// 至少要能算出一个 > 0 的 retention_days，否则返回 400。
+func (h *LogHandler) CleanExecutions(c *gin.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("LogHandler.CleanExecutions: panic recovered", "panic", r)
+			InternalServerError(c, "internal server error")
+		}
+	}()
+
+	type cleanRequest struct {
+		RetentionDays *int   `json:"retention_days"`
+		TimeFrom      string `json:"time_from"`
+		TimeTo        string `json:"time_to"`
+		TaskName      string `json:"task_name"`
+		ExecutorName  string `json:"executor_name"`
+	}
+
+	var req cleanRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		// 无 body 视为全默认，合法
+		if err.Error() != "EOF" {
+			slog.Warn("LogHandler.CleanExecutions: invalid request body", "error", err)
+		}
+	}
+
+	// 计算最终 retention_days
+	var retentionDays int
+	if req.RetentionDays != nil && *req.RetentionDays > 0 {
+		retentionDays = *req.RetentionDays
+	} else {
+		retentionDays = h.svc.GetExecutionRetentionDays()
+	}
+
+	if retentionDays <= 0 {
+		BadRequest(c, "retention_days 必须 > 0 （系统配置为 0 表示自动清理已禁用，手动清理请指定具体天数）")
+		return
+	}
+
+	// 时间格式校验
+	timeFrom := strings.TrimSpace(req.TimeFrom)
+	timeTo := strings.TrimSpace(req.TimeTo)
+	if timeFrom != "" {
+		if _, err := time.Parse("2006-01-02", timeFrom); err != nil {
+			BadRequest(c, "time_from 格式错误，应为 YYYY-MM-DD")
+			return
+		}
+	}
+	if timeTo != "" {
+		if _, err := time.Parse("2006-01-02", timeTo); err != nil {
+			BadRequest(c, "time_to 格式错误，应为 YYYY-MM-DD")
+			return
+		}
+	}
+	if timeFrom != "" && timeTo != "" && timeFrom > timeTo {
+		BadRequest(c, "time_from 不能晚于 time_to")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Minute)
+	defer cancel()
+
+	domainID, _ := c.Get("current_domain_id")
+	userRole, _ := c.Get("role")
+	userID, _ := c.Get("user_id")
+
+	var dID int64
+	var role string
+	var uid int64
+	if v, ok := domainID.(int64); ok {
+		dID = v
+	}
+	if v, ok := userRole.(string); ok {
+		role = v
+	}
+	if v, ok := userID.(int64); ok {
+		uid = v
+	}
+
+	_ = dID
+	_ = role
+	_ = uid
+
+	filter := service.ExecutionCleanupFilter{
+		RetentionDays: retentionDays,
+		TimeFrom:      timeFrom,
+		TimeTo:        timeTo,
+		TaskName:      req.TaskName,
+		ExecutorName:  req.ExecutorName,
+	}
+
+	slog.Info("LogHandler.CleanExecutions: start",
+		"retention_days", retentionDays,
+		"domain_id", dID, "user_id", uid, "role", role)
+
+	deleted, err := h.svc.CleanExpiredExecutions(ctx, filter)
+	if err != nil {
+		slog.Error("LogHandler.CleanExecutions: failed",
+			"error", err, "deleted_so_far", deleted)
+		InternalServerError(c, err.Error())
+		return
+	}
+
+	slog.Info("LogHandler.CleanExecutions: done",
+		"deleted_count", deleted, "retention_days", retentionDays,
+		"task_name", req.TaskName, "executor_name", req.ExecutorName)
+
+	Success(c, gin.H{
+		"deleted_count":  deleted,
+		"retention_days": retentionDays,
+	})
+}
+
+// CleanTaskLogs 手动清理过期过程日志，不触碰执行记录。
+// 请求体可选字段：retention_days（显式覆盖系统配置）、time_from、time_to、task_name、executor_name。
+func (h *LogHandler) CleanTaskLogs(c *gin.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("LogHandler.CleanTaskLogs: panic recovered", "panic", r)
+			InternalServerError(c, "internal server error")
+		}
+	}()
+
+	type cleanRequest struct {
+		RetentionDays *int   `json:"retention_days"`
+		TimeFrom      string `json:"time_from"`
+		TimeTo        string `json:"time_to"`
+		TaskName      string `json:"task_name"`
+		ExecutorName  string `json:"executor_name"`
+	}
+
+	var req cleanRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		if err.Error() != "EOF" {
+			slog.Warn("LogHandler.CleanTaskLogs: invalid request body", "error", err)
+		}
+	}
+
+	var retentionDays int
+	if req.RetentionDays != nil && *req.RetentionDays > 0 {
+		retentionDays = *req.RetentionDays
+	} else {
+		retentionDays = h.svc.GetTaskLogRetentionDays()
+	}
+
+	if retentionDays <= 0 {
+		BadRequest(c, "retention_days 必须 > 0 （系统配置为 0 表示自动清理已禁用，手动清理请指定具体天数）")
+		return
+	}
+
+	timeFrom := strings.TrimSpace(req.TimeFrom)
+	timeTo := strings.TrimSpace(req.TimeTo)
+	if timeFrom != "" {
+		if _, err := time.Parse("2006-01-02", timeFrom); err != nil {
+			BadRequest(c, "time_from 格式错误，应为 YYYY-MM-DD")
+			return
+		}
+	}
+	if timeTo != "" {
+		if _, err := time.Parse("2006-01-02", timeTo); err != nil {
+			BadRequest(c, "time_to 格式错误，应为 YYYY-MM-DD")
+			return
+		}
+	}
+	if timeFrom != "" && timeTo != "" && timeFrom > timeTo {
+		BadRequest(c, "time_from 不能晚于 time_to")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Minute)
+	defer cancel()
+
+	filter := service.TaskLogCleanupFilter{
+		RetentionDays: retentionDays,
+		TimeFrom:      timeFrom,
+		TimeTo:        timeTo,
+		TaskName:      req.TaskName,
+		ExecutorName:  req.ExecutorName,
+	}
+
+	slog.Info("LogHandler.CleanTaskLogs: start",
+		"retention_days", retentionDays)
+
+	deleted, err := h.svc.CleanExpiredTaskLogs(ctx, filter)
+	if err != nil {
+		slog.Error("LogHandler.CleanTaskLogs: failed",
+			"error", err, "deleted_so_far", deleted)
+		InternalServerError(c, err.Error())
+		return
+	}
+
+	slog.Info("LogHandler.CleanTaskLogs: done",
+		"deleted_count", deleted, "retention_days", retentionDays,
+		"task_name", req.TaskName, "executor_name", req.ExecutorName)
+
+	Success(c, gin.H{
+		"deleted_count":  deleted,
+		"retention_days": retentionDays,
+	})
 }

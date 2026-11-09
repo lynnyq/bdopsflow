@@ -256,6 +256,30 @@ export const logAPI = {
    * @param ids - 日志 ID 数组
    */
 	batchDelete: (ids: number[]) => api.post('/logs/batch-delete', { ids }),
+  /**
+   * 手动清理过期执行记录（级联删除关联过程日志）。
+   * 管理端接口，需要 system_admin 权限。
+   * @param data - 清理条件
+   */
+  cleanExecutions: (data: {
+    retention_days?: number,
+    time_from?: string,
+    time_to?: string,
+    task_name?: string,
+    executor_name?: string
+  }) => api.post<{ deleted_count: number, retention_days: number }>('/admin/logs/clean-executions', data),
+  /**
+   * 手动清理过期过程日志（不触碰执行记录）。
+   * 管理端接口，需要 system_admin 权限。
+   * @param data - 清理条件
+   */
+  cleanTaskLogs: (data: {
+    retention_days?: number,
+    time_from?: string,
+    time_to?: string,
+    task_name?: string,
+    executor_name?: string
+  }) => api.post<{ deleted_count: number, retention_days: number }>('/admin/logs/clean-task-logs', data),
 }
 
 /** 仪表盘统计、趋势、调度器状态 API */

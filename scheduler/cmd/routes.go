@@ -171,6 +171,11 @@ func setupRoutes(router *gin.Engine, app *App) {
 			admin.POST("/audit-logs/clean", middleware.RequireSystemAdmin(app.permissionService), auditLogHandler.CleanExpired)
 			admin.GET("/audit-logs/retention", middleware.RequireSystemAdmin(app.permissionService), auditLogHandler.GetRetentionDays)
 			admin.PUT("/audit-logs/retention", middleware.RequireSystemAdmin(app.permissionService), auditLogHandler.UpdateRetentionDays)
+
+			// 任务日志清理（system_admin）
+			logHandler := handler.NewLogHandler(app.schedulerService)
+			admin.POST("/logs/clean-executions", middleware.RequireSystemAdmin(app.permissionService), logHandler.CleanExecutions)
+			admin.POST("/logs/clean-task-logs", middleware.RequireSystemAdmin(app.permissionService), logHandler.CleanTaskLogs)
 		}
 
 		webhookHandler := handler.NewWebhookHandler(app.webhookSvc)

@@ -11,6 +11,7 @@ import (
 
 	"github.com/lynnyq/bdopsflow/scheduler/internal/metrics"
 	"github.com/lynnyq/bdopsflow/scheduler/internal/model"
+	sysconfig "github.com/lynnyq/bdopsflow/scheduler/internal/system_config"
 	rqlite "github.com/rqlite/gorqlite"
 )
 
@@ -1206,4 +1207,298 @@ func (s *SchedulerService) pingExecutor(ctx context.Context, executor *model.Exe
 	}
 	conn.Close()
 	return true
+}
+
+// ============================================================================
+// 任务日志清理功能
+// ============================================================================
+
+// ExecutionCleanupFilter 执行记录清理筛选条件。
+type ExecutionCleanupFilter struct {
+	RetentionDays int    // 保留天数（>0 才执行清理；=0 跳过）
+	TimeFrom      string // 可选，end_time 下限（YYYY-MM-DD 格式）
+	TimeTo        string // 可选，end_time 上限（YYYY-MM-DD 格式）
+	TaskName      string // 可选，任务名模糊匹配（JOIN bdopsflow_tasks）
+	ExecutorName  string // 可选，执行器名模糊匹配（JOIN bdopsflow_executors）
+}
+
+// TaskLogCleanupFilter 过程日志清理筛选条件。
+type TaskLogCleanupFilter struct {
+	RetentionDays int    // 保留天数（>0 才执行清理；=0 跳过）
+	TimeFrom      string // 可选，log_time 下限（YYYY-MM-DD 格式）
+	TimeTo        string // 可选，log_time 上限（YYYY-MM-DD 格式）
+	TaskName      string // 可选，任务名模糊匹配（JOIN bdopsflow_tasks）
+	ExecutorName  string // 可选，执行器名模糊匹配（JOIN bdopsflow_executors）
+}
+
+// GetExecutionRetentionDays 读取执行记录保留天数。
+// 返回 0 表示禁用自动清理；配置缺失或异常时回退默认值 30。
+func (s *SchedulerService) GetExecutionRetentionDays() int {
+	svc := sysconfig.GetGlobalService()
+	if svc != nil {
+		days := svc.GetInt("task_execution.retention_days")
+		if days >= 0 {
+			return days
+		}
+	}
+	return 30
+}
+
+// GetTaskLogRetentionDays 读取过程日志保留天数。
+// 返回 0 表示禁用自动清理；配置缺失或异常时回退默认值 30。
+func (s *SchedulerService) GetTaskLogRetentionDays() int {
+	svc := sysconfig.GetGlobalService()
+	if svc != nil {
+		days := svc.GetInt("task_log.retention_days")
+		if days >= 0 {
+			return days
+		}
+	}
+	return 30
+}
+
+// CleanExpiredExecutions 清理过期的执行记录，级联删除关联的过程日志。
+//
+// 实现策略：分批删除（每批 1000 条），每批先收集 execution_id → 删过程日志 → 删执行记录。
+// 每批都用 context + 超时保护，避免长时间独占锁。
+// 兼容 rqlite：使用子查询 + LIMIT 的 DELETE 模式。
+//
+// 返回值：已删除的执行记录条数；如果 context 中途超时或取消，返回已删除数量 + ctx.Err()。
+func (s *SchedulerService) CleanExpiredExecutions(ctx context.Context, filters ExecutionCleanupFilter) (int64, error) {
+	if filters.RetentionDays <= 0 {
+		slog.Info("CleanExpiredExecutions: retention_days <= 0, skip")
+		return 0, nil
+	}
+
+	cutoffTime := time.Now().AddDate(0, 0, -filters.RetentionDays).Format(DateTimeFormat)
+	const batchSize = 1000
+	var totalDeleted int64
+
+	// 构建 JOIN 条件和参数
+	var joinClauses []string
+	var conditions []string
+	var args []interface{}
+
+	// 主表条件：过期
+	conditions = append(conditions, "te.end_time < ?")
+	args = append(args, cutoffTime)
+
+	if filters.TaskName != "" {
+		joinClauses = append(joinClauses, "JOIN bdopsflow_tasks t ON te.task_id = t.id")
+		conditions = append(conditions, "t.name LIKE ?")
+		args = append(args, "%"+filters.TaskName+"%")
+	}
+	if filters.ExecutorName != "" {
+		joinClauses = append(joinClauses, "LEFT JOIN bdopsflow_executors e ON te.executor_id = e.id")
+		conditions = append(conditions, "e.name LIKE ?")
+		args = append(args, "%"+filters.ExecutorName+"%")
+	}
+	if filters.TimeFrom != "" {
+		conditions = append(conditions, "te.end_time >= ?")
+		args = append(args, filters.TimeFrom+" 00:00:00")
+	}
+	if filters.TimeTo != "" {
+		conditions = append(conditions, "te.end_time <= ?")
+		args = append(args, filters.TimeTo+" 23:59:59")
+	}
+
+	joinSQL := strings.Join(joinClauses, " ")
+	whereSQL := strings.Join(conditions, " AND ")
+
+	slog.Info("CleanExpiredExecutions: start",
+		"retention_days", filters.RetentionDays,
+		"cutoff_time", cutoffTime,
+		"task_name", filters.TaskName,
+		"executor_name", filters.ExecutorName,
+		"time_from", filters.TimeFrom,
+		"time_to", filters.TimeTo,
+	)
+
+	for {
+		if ctx.Err() != nil {
+			slog.Info("CleanExpiredExecutions: interrupted by context",
+				"deleted_count", totalDeleted, "retention_days", filters.RetentionDays)
+			return totalDeleted, ctx.Err()
+		}
+
+		// 收集一批 execution_id
+		collectSQL := fmt.Sprintf(`
+			SELECT te.execution_id FROM bdopsflow_task_executions te %s
+			WHERE %s
+			LIMIT %d
+		`, joinSQL, whereSQL, batchSize)
+
+		qr, err := s.DB.QueryOneParameterized(rqlite.ParameterizedStatement{
+			Query:     collectSQL,
+			Arguments: args,
+		})
+		if err != nil {
+			slog.Error("CleanExpiredExecutions: query execution_ids failed",
+				"error", err, "deleted_so_far", totalDeleted)
+			return totalDeleted, err
+		}
+		if qr.Err != nil {
+			slog.Error("CleanExpiredExecutions: query result error",
+				"error", qr.Err, "deleted_so_far", totalDeleted)
+			return totalDeleted, qr.Err
+		}
+
+		var executionIDs []string
+		for qr.Next() {
+			row, err := qr.Slice()
+			if err != nil {
+				continue
+			}
+			if id, ok := row[0].(string); ok && id != "" {
+				executionIDs = append(executionIDs, id)
+			}
+		}
+
+		if len(executionIDs) == 0 {
+			break // 没有过期数据了
+		}
+
+		// 拼接 IN 子句参数
+		placeholders := make([]string, len(executionIDs))
+		delArgs := make([]interface{}, len(executionIDs))
+		for i, id := range executionIDs {
+			placeholders[i] = "?"
+			delArgs[i] = id
+		}
+		inClause := strings.Join(placeholders, ",")
+
+		// 同事务：先删过程日志，再删执行记录
+		batchStmts := []rqlite.ParameterizedStatement{
+			{
+				Query:     fmt.Sprintf("DELETE FROM bdopsflow_task_logs WHERE execution_id IN (%s)", inClause),
+				Arguments: delArgs,
+			},
+			{
+				Query:     fmt.Sprintf("DELETE FROM bdopsflow_task_executions WHERE execution_id IN (%s)", inClause),
+				Arguments: delArgs,
+			},
+		}
+
+		results, err := s.DB.WriteParameterized(batchStmts)
+		if err != nil {
+			slog.Error("CleanExpiredExecutions: batch delete failed",
+				"error", err, "deleted_so_far", totalDeleted)
+			return totalDeleted, err
+		}
+
+		var batchDeleted int64
+		if len(results) > 1 {
+			batchDeleted = results[1].RowsAffected
+		}
+		totalDeleted += batchDeleted
+
+		// 本批删除量小于 batchSize，全部清理完成
+		if batchDeleted < batchSize {
+			break
+		}
+	}
+
+	slog.Info("CleanExpiredExecutions: done",
+		"deleted_count", totalDeleted, "retention_days", filters.RetentionDays, "cutoff_time", cutoffTime)
+	return totalDeleted, nil
+}
+
+// CleanExpiredTaskLogs 清理过期的过程日志，不触碰执行记录。
+//
+// 实现策略：分批删除（每批 1000 条），子查询 + LIMIT 兼容 rqlite。
+//
+// 返回值：已删除的过程日志条数；如果 context 中途超时或取消，返回已删除数量 + ctx.Err()。
+func (s *SchedulerService) CleanExpiredTaskLogs(ctx context.Context, filters TaskLogCleanupFilter) (int64, error) {
+	if filters.RetentionDays <= 0 {
+		slog.Info("CleanExpiredTaskLogs: retention_days <= 0, skip")
+		return 0, nil
+	}
+
+	cutoffTime := time.Now().AddDate(0, 0, -filters.RetentionDays).Format(DateTimeFormat)
+	const batchSize = 1000
+	var totalDeleted int64
+
+	// 构建 JOIN 条件和参数
+	var joinClauses []string
+	var conditions []string
+	var args []interface{}
+
+	// 主表条件：过期
+	conditions = append(conditions, "tl.log_time < ?")
+	args = append(args, cutoffTime)
+
+	if filters.TaskName != "" {
+		joinClauses = append(joinClauses, "JOIN bdopsflow_tasks t ON tl.task_id = t.id")
+		conditions = append(conditions, "t.name LIKE ?")
+		args = append(args, "%"+filters.TaskName+"%")
+	}
+	if filters.ExecutorName != "" {
+		joinClauses = append(joinClauses, "LEFT JOIN bdopsflow_executors e ON tl.executor_id = e.id")
+		conditions = append(conditions, "e.name LIKE ?")
+		args = append(args, "%"+filters.ExecutorName+"%")
+	}
+	if filters.TimeFrom != "" {
+		conditions = append(conditions, "tl.log_time >= ?")
+		args = append(args, filters.TimeFrom+" 00:00:00")
+	}
+	if filters.TimeTo != "" {
+		conditions = append(conditions, "tl.log_time <= ?")
+		args = append(args, filters.TimeTo+" 23:59:59")
+	}
+
+	joinSQL := strings.Join(joinClauses, " ")
+	whereSQL := strings.Join(conditions, " AND ")
+
+	slog.Info("CleanExpiredTaskLogs: start",
+		"retention_days", filters.RetentionDays,
+		"cutoff_time", cutoffTime,
+		"task_name", filters.TaskName,
+		"executor_name", filters.ExecutorName,
+		"time_from", filters.TimeFrom,
+		"time_to", filters.TimeTo,
+	)
+
+	for {
+		if ctx.Err() != nil {
+			slog.Info("CleanExpiredTaskLogs: interrupted by context",
+				"deleted_count", totalDeleted, "retention_days", filters.RetentionDays)
+			return totalDeleted, ctx.Err()
+		}
+
+		// 子查询分批删除（兼容 rqlite 不支持 DELETE ... LIMIT 的环境）
+		deleteSQL := fmt.Sprintf(`
+			DELETE FROM bdopsflow_task_logs WHERE id IN (
+				SELECT tl.id FROM bdopsflow_task_logs tl %s
+				WHERE %s
+				LIMIT %d
+			)
+		`, joinSQL, whereSQL, batchSize)
+
+		result, err := s.DB.WriteOneParameterized(rqlite.ParameterizedStatement{
+			Query:     deleteSQL,
+			Arguments: args,
+		})
+		if err != nil {
+			slog.Error("CleanExpiredTaskLogs: batch delete failed",
+				"error", err, "deleted_so_far", totalDeleted)
+			return totalDeleted, err
+		}
+		if result.Err != nil {
+			slog.Error("CleanExpiredTaskLogs: batch delete result error",
+				"error", result.Err, "deleted_so_far", totalDeleted)
+			return totalDeleted, result.Err
+		}
+
+		deleted := result.RowsAffected
+		totalDeleted += deleted
+
+		// 本批删除量小于 batchSize，全部清理完成
+		if deleted < batchSize {
+			break
+		}
+	}
+
+	slog.Info("CleanExpiredTaskLogs: done",
+		"deleted_count", totalDeleted, "retention_days", filters.RetentionDays, "cutoff_time", cutoffTime)
+	return totalDeleted, nil
 }

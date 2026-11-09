@@ -110,6 +110,22 @@
               <el-icon><Delete /></el-icon>
               批量删除 ({{ selectedIds ? selectedIds.length : 0 }})
             </el-button>
+            <!-- 系统管理员专属：任务日志清理（Dropdown 合并入口，保持工具栏紧凑） -->
+            <template v-if="authStore.isSystemAdmin">
+              <el-dropdown trigger="click" @command="openCleanDialog" class="clean-dropdown">
+                <el-button class="clean-btn">
+                  <el-icon><Delete /></el-icon>
+                  日志清理
+                  <el-icon class="arrow-icon"><ArrowDown /></el-icon>
+                </el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="executions">清理执行记录</el-dropdown-item>
+                    <el-dropdown-item command="task_logs">清理过程日志</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </template>
           </div>
         </div>
 
@@ -300,6 +316,69 @@
         />
       </div>
     </div>
+
+    <!-- 清理对话框 -->
+    <el-dialog
+      v-model="cleanDialogVisible"
+      :title="cleanDialogTitle"
+      width="480px"
+      :close-on-click-modal="false"
+    >
+      <el-form label-width="100px">
+        <el-form-item label="保留天数">
+          <el-input-number
+            v-model="cleanForm.retention_days"
+            :min="1"
+            :max="3650"
+            :controls="false"
+            style="width: 100%"
+          />
+        </el-form-item>
+        <el-form-item label="时间范围">
+          <el-date-picker
+            v-model="cleanForm.time_range"
+            type="daterange"
+            range-separator="至"
+            start-placeholder="开始日期"
+            end-placeholder="结束日期"
+            value-format="YYYY-MM-DD"
+            style="width: 100%"
+          />
+        </el-form-item>
+        <el-form-item label="任务名">
+          <el-input v-model="cleanForm.task_name" placeholder="模糊匹配，可选" clearable />
+        </el-form-item>
+        <el-form-item label="执行器名">
+          <el-input v-model="cleanForm.executor_name" placeholder="模糊匹配，可选" clearable />
+        </el-form-item>
+        <el-form-item>
+          <el-alert
+            v-if="cleanDialogType === 'executions'"
+            type="warning"
+            :closable="false"
+            show-icon
+            description="执行记录删除后，关联的过程日志将一并清理。操作不可恢复，请谨慎确认。"
+          />
+          <el-alert
+            v-else
+            type="warning"
+            :closable="false"
+            show-icon
+            description="过程日志删除后，执行记录本身仍会保留。操作不可恢复，请谨慎确认。"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="cleanDialogVisible = false">取消</el-button>
+        <el-button
+          type="danger"
+          :loading="cleanLoading"
+          @click="handleConfirmClean"
+        >
+          确认清理
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -714,6 +793,104 @@ const handleCurrentChange = (val: number) => {
   loadExecutions(val)
 }
 
+// ============================================================================
+// 任务日志清理功能
+// ============================================================================
+
+/** 清理对话框类型：executions 执行记录 / task_logs 过程日志 */
+const cleanDialogType = ref<'executions' | 'task_logs'>('executions')
+const cleanDialogVisible = ref(false)
+const cleanLoading = ref(false)
+
+/** 清理对话框标题 */
+const cleanDialogTitle = computed(() => {
+  return cleanDialogType.value === 'executions' ? '清理过期执行记录' : '清理过期过程日志'
+})
+
+/** 清理对话框表单 */
+const cleanForm = ref({
+  retention_days: 30 as number | undefined,
+  time_range: null as [string, string] | null,
+  task_name: '',
+  executor_name: ''
+})
+
+/**
+ * 打开清理对话框
+ * @param type - 清理类型
+ */
+const openCleanDialog = (type: 'executions' | 'task_logs') => {
+  cleanDialogType.value = type
+  // 从系统配置 API 读取当前保留天数，默认 30
+  cleanForm.value = {
+    retention_days: 30,
+    time_range: null,
+    task_name: '',
+    executor_name: ''
+  }
+  cleanDialogVisible.value = true
+}
+
+/**
+ * 确认执行清理
+ */
+const handleConfirmClean = async () => {
+  const form = cleanForm.value
+  const days = form.retention_days || 30
+
+  if (days <= 0) {
+    ElMessage.warning('保留天数必须 > 0')
+    return
+  }
+
+  // 构建请求体
+  const payload: {
+    retention_days: number
+    time_from?: string
+    time_to?: string
+    task_name?: string
+    executor_name?: string
+  } = { retention_days: days }
+
+  if (form.time_range && form.time_range.length === 2) {
+    payload.time_from = form.time_range[0]
+    payload.time_to = form.time_range[1]
+  }
+  if (form.task_name.trim()) payload.task_name = form.task_name.trim()
+  if (form.executor_name.trim()) payload.executor_name = form.executor_name.trim()
+
+  const typeLabel = cleanDialogType.value === 'executions' ? '执行记录' : '过程日志'
+
+  try {
+    await ElMessageBox.confirm(
+      `确认清理过期${typeLabel}？将清理 ${days} 天前的${typeLabel}，此操作不可恢复。`,
+      '清理确认',
+      { confirmButtonText: '确认清理', cancelButtonText: '取消', type: 'warning' }
+    )
+  } catch {
+    return
+  }
+
+  cleanLoading.value = true
+  try {
+    const apiCall = cleanDialogType.value === 'executions'
+      ? logAPI.cleanExecutions
+      : logAPI.cleanTaskLogs
+    const response = await apiCall(payload)
+    const deletedCount = response.data?.deleted_count || 0
+
+    ElMessage.success(`清理完成，共删除 ${deletedCount} 条过期${typeLabel}`)
+    cleanDialogVisible.value = false
+    await loadExecutions(1)
+  } catch (error) {
+    if (!isHandledError(error)) {
+      ElMessage.error(`清理${typeLabel}失败`)
+    }
+  } finally {
+    cleanLoading.value = false
+  }
+}
+
 /**
  * 组件挂载时初始化：检查路由参数带入的筛选条件，加载第一页数据
  */
@@ -965,6 +1142,35 @@ onMounted(() => {
 
 .delete-btn:active {
   transform: translateY(0);
+}
+
+/* 日志清理按钮（Dropdown 触发器） */
+.clean-dropdown .clean-btn {
+  font-weight: 500;
+  background: var(--bg-secondary);
+  border: 1px solid var(--accent-warning);
+  color: var(--accent-warning);
+  border-radius: var(--radius-md);
+  box-shadow: none;
+  transition: all var(--duration-normal) var(--ease-out);
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.clean-dropdown .clean-btn:hover {
+  background: rgba(245, 158, 11, 0.08);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-sm);
+}
+
+.clean-dropdown .clean-btn:active {
+  transform: translateY(0);
+}
+
+.clean-dropdown .clean-btn .arrow-icon {
+  transition: transform var(--duration-normal) var(--ease-out);
 }
 
 /* Advanced Filters */

@@ -38,7 +38,7 @@
           </el-icon>
         </el-button>
         <el-button :icon="Refresh" @click="handleSearch" :loading="loading">刷新</el-button>
-        <el-button :icon="Delete" @click="handleCleanExpired" type="warning">
+        <el-button v-if="authStore.isSystemAdmin" :icon="Delete" @click="handleCleanExpired" class="clean-btn">
           清理过期
         </el-button>
       </div>
@@ -226,7 +226,11 @@ import { Delete, Search, Refresh, Document, Filter, ArrowDown } from '@element-p
 import { auditLogAPI } from '@/api'
 import { isHandledError } from '@/utils/api'
 import { formatErrorMessage } from '@/utils/error'
+import { useAuthStore } from '@/stores/auth'
 import type { AuditLog } from '@/api/audit'
+
+/** 认证 store：仅系统管理员可执行审计日志清理 */
+const authStore = useAuthStore()
 
 const logs = ref<AuditLog[]>([])          // 审计日志列表
 const loading = ref(false)                  // 列表加载状态
@@ -646,6 +650,28 @@ onUnmounted(() => {
 
 .advanced-filter-btn .arrow-icon.is-active {
   transform: rotate(180deg);
+}
+
+/* 清理过期按钮 —— 与页面工具栏按钮风格统一 */
+.clean-btn {
+  font-weight: 500;
+  background: var(--bg-secondary);
+  border: 1px solid var(--accent-warning);
+  color: var(--accent-warning);
+  border-radius: var(--radius-md);
+  box-shadow: none;
+  transition: all var(--duration-normal) var(--ease-out);
+  padding: 8px 16px;
+}
+
+.clean-btn:hover {
+  background: rgba(245, 158, 11, 0.08);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-sm);
+}
+
+.clean-btn:active {
+  transform: translateY(0);
 }
 
 /* 筛选条件数量徽标 */

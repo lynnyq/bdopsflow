@@ -387,6 +387,71 @@ func NewApp(cfg *config.Config) *App {
 		}
 	}()
 
+	// 任务日志（执行记录 + 过程日志）自动清理 goroutine：启动立即执行一次，之后每 6 小时执行一次。
+	// goroutine 内加 recover 防止 panic 导致清理永久停止；
+	// 每次清理使用独立 context（5 分钟超时），避免大批量清理阻塞主流程。
+	// 非 leader 实例跳过执行（分布式部署时只有 leader 执行清理）。
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("task log cleanup goroutine panicked", "recover", r)
+			}
+		}()
+
+		runLogCleanup := func() {
+			if !schedulerService.IsLeader() {
+				slog.Debug("task log cleanup: skip, not leader")
+				return
+			}
+
+			var execDeleted, logDeleted int64
+			var execErr, logErr error
+			var wg sync.WaitGroup
+			wg.Add(2)
+
+			// 并发清理执行记录
+			go func() {
+				defer wg.Done()
+				days := schedulerService.GetExecutionRetentionDays()
+				if days <= 0 {
+					slog.Debug("task log cleanup: exec retention_days=0, skip")
+					return
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+				defer cancel()
+				execDeleted, execErr = schedulerService.CleanExpiredExecutions(ctx, service.ExecutionCleanupFilter{RetentionDays: days})
+			}()
+
+			// 并发清理过程日志
+			go func() {
+				defer wg.Done()
+				days := schedulerService.GetTaskLogRetentionDays()
+				if days <= 0 {
+					slog.Debug("task log cleanup: process log retention_days=0, skip")
+					return
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+				defer cancel()
+				logDeleted, logErr = schedulerService.CleanExpiredTaskLogs(ctx, service.TaskLogCleanupFilter{RetentionDays: days})
+			}()
+
+			wg.Wait()
+			slog.Info("task log cleanup cycle done",
+				"exec_deleted", execDeleted, "exec_err", execErr,
+				"task_log_deleted", logDeleted, "task_log_err", logErr,
+			)
+		}
+
+		// 启动时立即执行一次，避免旧数据累积到 6 小时后
+		runLogCleanup()
+
+		ticker := time.NewTicker(6 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			runLogCleanup()
+		}
+	}()
+
 	webhookSvc := service.NewWebhookService(logDB)
 	app.webhookSvc = webhookSvc
 	schedulerService.SetWebhookService(webhookSvc)

@@ -719,6 +719,8 @@ INSERT OR IGNORE INTO bdopsflow_system_config (config_key, config_value, descrip
 ('web.enabled', 'false', '是否启用内置Web UI', datetime('now')),
 ('api_test.allow_private_network', 'false', '是否允许HTTP/gRPC接口测试访问内网地址（SSRF防护）', datetime('now')),
 ('audit_log.retention_days', '90', '审计日志保留天数', datetime('now')),
+('task_execution.retention_days', '30', '执行记录保留天数(0禁用自动清理)', datetime('now')),
+('task_log.retention_days', '30', '过程日志保留天数(0禁用自动清理)', datetime('now')),
 ('datasource.default_limit', '1000', 'SQL查询默认限制行数', datetime('now')),
 ('datasource.max_export_rows', '1000', 'CSV导出最大行数', datetime('now')),
 ('datasource.cache_ttl', '300', '查询结果缓存TTL(秒)', datetime('now')),
